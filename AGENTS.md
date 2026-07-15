@@ -46,10 +46,11 @@
 - No heavy GPU/composite work on UI thread long-term
 - Never hold `RefCell` mut borrow across await or re-entrant QML calls
 
-### Rendering (ADR-005)
+### Rendering (ADR-005, ADR-010)
 - Canvas pixels stay on GPU
 - Bridge carries commands/state only
 - Debug readback only behind `cfg` / debug flag — never default interactive path
+- **Mandatory** time-boxed interop spike after Phase 1, **before** Phase 2 production canvas (`docs/01-decisions/adr-010-interop-spike.md`)
 
 ### Styling
 - Dense multi-pane editor layout; dark theme

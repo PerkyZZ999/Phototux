@@ -42,6 +42,8 @@ Need dense multi-pane editor chrome (toolbars, docks, properties, menus) aligned
 
 **Option 1.** Qt **6.10+** (host 6.11.1). Prefer **Controls 2** dense desktop patterns; Breeze-dark inspired palette. Kirigami only if a desktop pattern needs it — not mobile-first.
 
+**Owner lock (grill 2026-07-15):** **G2 = A** — Qt 6 QML confirmed as product UI toolkit.
+
 ## Consequences
 
 - **Positive**: Matches SPEC vision; system Qt on Arch

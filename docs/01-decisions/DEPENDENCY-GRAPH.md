@@ -43,6 +43,11 @@
 [ADR-009: Testing & profiling]
   ├─ Depends on → [ADR-006, ADR-008]
   └─ Standalone tooling choices
+
+[ADR-010: Interop spike before Phase 2]
+  ├─ Depends on → [ADR-003, ADR-004, ADR-005]
+  ├─ Informs → [ADR-003 hybrid vs pure, ADR-005 path choice]
+  └─ Blocks → Phase 2 production canvas “done”
 ```
 
 ## Load-Bearing vs. Reversible Decisions

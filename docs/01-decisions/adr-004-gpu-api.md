@@ -48,6 +48,8 @@ Engine needs GPU textures, compute blend modes, high-FPS viewport. Linux primary
 
 **Option 1.** Pin `wgpu` major **30**. Prefer Vulkan on Linux. Optional thin `ash` only inside interop module for external memory if required.
 
+**Owner lock (grill 2026-07-15):** **G4 = A** — wgpu Vulkan-first confirmed.
+
 ## Consequences
 
 - **Positive**: Engine productivity; Phase 3 compute path
@@ -67,4 +69,4 @@ Phase 2 interop checkpoint; if blocked >1 week continuous, re-grill Option 2/3 f
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | Confirmed Option 1 in interactive grill (G4=A) | Owner explicit lock |

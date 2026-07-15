@@ -57,6 +57,20 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
+## Phase 1.5 — Interop spike (ADR-010) — **before Phase 2 production**
+
+- [ ] Branch `spike/wgpu-qt-rhi-interop`
+- [ ] Time-box ≤ ~3 days / 3 sessions
+- [ ] Attempt shared Vulkan / external memory → Qt RHI item
+- [ ] Attempt DMA-BUF path if needed
+- [ ] Record whether qtbridge alone can host item vs thin C++
+- [ ] Write `docs/04-journal/spike-findings-interop.md`
+- [ ] Amend ADR-003/005 only if outcomes force it
+- **Done when:** Documented success recipe **or** documented hard fail (no silent CPU default)
+- **Forbidden:** Merging CPU full-frame upload as product default
+
+---
+
 ## Phase 2 — High-Performance GPU Viewport (ADR-004, ADR-005, ADR-008)
 
 - [ ] `phototux-gpu`: wgpu device/queue init (Vulkan)

@@ -41,11 +41,13 @@ Hard pillar: raw pixels never traverse FFI. Canvas texture lives on GPU; Qt disp
 
 **Option 1** as the only shippable path.
 
-- **Allowed:** Debug/test CPU readback behind `cfg` or explicit debug flag; golden tests may read back.
-- **Forbidden:** Steady-state interactive view using full-frame CPU copies.
-- **Interop order of attempt:** (1) shared Vulkan image / external memory with Qt RHI, (2) DMA-BUF FD import, (3) ADR amendment if both fail.
+**Owner lock (grill 2026-07-15):** **G5 = A** — zero-copy only for interactive view; **plus mandatory short interop spike before Phase 2 production code** (ADR-010).
 
-Spike status: **skipped by owner** — Phase 2 first vertical slice owns validation.
+- **Allowed:** Debug/test CPU readback behind `cfg` or explicit debug flag; golden tests may read back; spike may use temporary throwaway paths that **must not** land as product default.
+- **Forbidden:** Steady-state interactive view using full-frame CPU copies in the main app.
+- **Interop order of attempt:** (1) shared Vulkan image / external memory with Qt RHI, (2) DMA-BUF FD import, (3) ADR amendment if both fail after spike + follow-ups.
+
+Spike status: **required before Phase 2** (owner reversed earlier “skip spike” for this risk only).
 
 ## Consequences
 
@@ -66,4 +68,4 @@ First successful Phase 2 present path, or after 2 failed interop approaches.
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | G5=A locked; pre–Phase 2 interop spike now mandatory (ADR-010) | Interactive grill |

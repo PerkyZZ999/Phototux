@@ -57,3 +57,21 @@ All notable decision milestones and project state changes.
 `agent-bootstrap` → `AGENTS.md` + development checklists → **Phase 1** Cargo/qtbridge bootstrap + QML skeleton.
 
 ---
+
+## [grill-round-1-owner-lock] — 2026-07-15
+
+### Owner-confirmed (interactive grill)
+
+| ID | Lock |
+|----|------|
+| G1 | Linux/Wayland v1 only (ADR-001) |
+| G2 | Qt 6 QML (ADR-002) |
+| G3 | Hybrid FFI: qtbridge + canvas C++ allowed (ADR-003) |
+| G4 | wgpu 30 Vulkan-first (ADR-004) |
+| G5 | Zero-copy only + **mandatory interop spike before Phase 2** (ADR-005, **ADR-010**) |
+
+### Process change
+
+Earlier “spike skipped” is **partially reversed**: interop spike is required before Phase 2 production canvas code.
+
+---

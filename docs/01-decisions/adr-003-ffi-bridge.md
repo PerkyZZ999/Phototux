@@ -48,9 +48,12 @@ Rust backend must drive QML without traditional hand-written C++ for application
 
 **Option 3 (hybrid strategy), with Option 1 as Phase 1 implementation.**
 
+**Owner lock (grill 2026-07-15):** **G3 = C** — hybrid accepted as recommended.
+
 1. **Phase 1:** `qtbridge = "0.2"` (pin minor) for windows, models, properties, tools UI.
-2. **Phase 2:** Attempt canvas via qtbridge if possible; if blocked, add **minimal** C++ `QQuickRhiItem` (or CXX-Qt module) under `crates/canvas-item/`.
-3. **Forbidden:** Full rewrite of shell to qmetaobject without ADR amendment.
+2. **Before Phase 2 production canvas:** time-boxed interop spike (ADR-010) may prove whether pure qtbridge custom item works; if not, hybrid C++ is **expected**, not a surprise.
+3. **Phase 2 canvas:** Prefer minimal C++ `QQuickRhiItem` (or CXX-Qt module) under `crates/phototux-canvas/` when qtbridge cannot own the item — **do not** spread C++ into app logic.
+4. **Forbidden:** Full rewrite of shell to qmetaobject without ADR amendment; C++ outside canvas interop without amendment.
 
 ## Consequences
 
@@ -71,4 +74,4 @@ End of Phase 1 bootstrap; immediately if qtbridge blocks build; end of Phase 2 i
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | Confirmed hybrid (G3=C); canvas C++ planned capability | Interactive grill + ADR-010 spike |

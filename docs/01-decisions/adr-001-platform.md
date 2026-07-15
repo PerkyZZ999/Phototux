@@ -17,6 +17,8 @@ PhotoTux targets high-refresh creative work with tablet input and dense desktop 
 
 **Defense (SPEC + constraints):** Hard constraint. Wayland tablet + KDE HIG + Vulkan native are the product. Port later only after SLO path proven.
 
+**Owner lock (grill 2026-07-15):** **G1 = A** — Linux/Wayland only for v1.
+
 ## Options Considered
 
 ### Option 1: Linux Wayland only (v1)
@@ -60,4 +62,4 @@ After Phase 5 desktop integration milestone, or if a funded port appears.
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | Confirmed Option 1 in interactive grill (G1=A) | Owner explicit lock |
