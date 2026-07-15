@@ -73,7 +73,7 @@ crates/phototux-engine/  # package: phototux_engine — pure Rust, no Qt
 crates/phototux-gpu/     # package: phototux_gpu — Phase 2+
 crates/phototux-canvas/  # package: phototux_canvas — interop ± thin C++
 qml/                     # QML; tokens from docs/DESIGN.md
-assets/icons/            # FOSS icon pack (ADR-013)
+assets/icons/phosphor/   # Phosphor Icons MIT (core 2.1.1); default weight regular
 ```
 
 Paths **kebab-case**; Cargo package names **`phototux_*` underscores**.
@@ -110,7 +110,7 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 | Skill | Desktop adaptation |
 |-------|--------------------|
 | `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `docs/DESIGN.md`; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
-| `iconography-frontend-ui` | Icons from `assets/icons` pack; function over decoration; labels+tooltips; contrast; active/hover/disabled/focus; size on grid (tool strip ~36px hit, consistent stroke) |
+| `iconography-frontend-ui` | Icons from `assets/icons/phosphor/` (map in `assets/icons/README.md`); function over decoration; labels+tooltips; contrast; states; size on grid (tool strip ~36px hit) |
 
 **Never** invent a second palette or spacing scale—extend `docs/DESIGN.md`.
 
@@ -203,7 +203,7 @@ cargo test -p phototux_gpu --features gpu-tests
 
 ### Allowed without new ADR
 
-`qtbridge` 0.2.x, `wgpu` 30.x, `tracing`, `thiserror`, `serde`, small pure-Rust utils, FOSS icons under `assets/icons`.
+`qtbridge` 0.2.x, `wgpu` 30.x, `tracing`, `thiserror`, `serde`, small pure-Rust utils, Phosphor SVGs under `assets/icons/phosphor/`.
 
 ### Requires ADR amendment
 
