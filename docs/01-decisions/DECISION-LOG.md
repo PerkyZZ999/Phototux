@@ -49,3 +49,4 @@
 | 2026-07-15 | ADR-010 | Interop spike before Phase 2 | Easy | After spike report |
 | 2026-07-15 | ADR-011 | Layer graph timing = Phase 3 | Medium | Start Phase 3 |
 | 2026-07-15 | ADR-012 | GPL-3.0-or-later; OSS publish late | Hard after publish | First public release |
+| 2026-07-15 | ADR-013 | Product prefs G13–G18 (new doc, single doc, icons, undo, CI, zoom) | Easy–Medium | Per-topic revisit in ADR-013 |
