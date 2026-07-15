@@ -21,7 +21,7 @@ PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor w
 | Threads | Command queue; worker before heavy brush | 007 |
 | Doc model | Full layer graph Phase 3 only | 011 |
 | License | GPL-3.0-or-later; public OSS late | 012 |
-| Prefs | New-doc dialog + presets; single doc; `assets/icons`; stroke undo; local CI; zoom-to-fit | 013 |
+| Prefs | New-doc dialog + presets; single doc; **Phosphor** icons; stroke undo; local CI; zoom-to-fit | 013 |
 | Surface | **Desktop GUI only** — no CLI product, no TUI, no web | 014 |
 
 **Design system:** `docs/DESIGN.md`, `docs/DESIGN_BRIEF.md`, `docs/INFORMATION_ARCHITECTURE.md`.
