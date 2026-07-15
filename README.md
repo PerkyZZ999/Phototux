@@ -65,16 +65,26 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 | [docs/03-checklists/](docs/03-checklists/) | Living phase checklist / risks / blockers |
 | [docs/04-journal/2026-07-15-doc-review.md](docs/04-journal/2026-07-15-doc-review.md) | Doc alignment review |
 
-**Status:** Documentation and decision baseline. Ready for Phase 1 desktop GUI scaffold.
+**Status:** Phase 1 desktop shell bootstrap landed. GPU viewport is Phase 2 (after interop spike).
+
+## Run (developer)
+
+```bash
+export PATH=/usr/lib/qt6/bin:$PATH
+export QMAKE=/usr/lib/qt6/bin/qmake
+cargo run -p phototux          # GUI editor window
+cargo test -p phototux_engine
+./scripts/check-rust.sh        # rustfmt + clippy + rust-doctor
+```
+
+Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p / 1080p / 2K / 4K).
 
 ## Agent & quality gate
 
 - **`AGENTS.md`** — coding constitution (Rust skills, UI skills, ADR stack, doctrine).
-- **Pre-commit:** `./scripts/install-git-hooks.sh` then every commit runs `scripts/check-rust.sh` (**rustfmt** + **clippy** `-D warnings` + **rust-doctor**).
-- Manual: `./scripts/check-rust.sh` (no-ops until `Cargo.toml` exists).
+- **Pre-commit:** `./scripts/install-git-hooks.sh` then every commit runs `scripts/check-rust.sh`.
 
 ## Next Steps
 
-1. Phase 1 implementation plan → desktop shell bootstrap
-2. Phase 1.5 interop spike (ADR-010)
-3. Phase 2 GPU viewport (≥60 FPS zoom/pan)
+1. Phase 1.5 interop spike (ADR-010)
+2. Phase 2 GPU viewport (≥60 FPS zoom/pan)

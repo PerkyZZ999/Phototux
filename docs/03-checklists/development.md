@@ -28,12 +28,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Launchable **GUI** workspace; Rust↔QML bindings; chrome matches design intent. No GPU canvas requirement yet.
 
-**Covers (plan in detail when starting):** workspace crates (ADR-006), qtbridge UI (ADR-003), QML shell per IA + DESIGN.md, New Document presets (ADR-013), quality hooks green.
+**Status:** `[x]` done (2026-07-15) — workspace + qtbridge shell + New Document presets + Phase 1 icons; `./scripts/check-rust.sh` green; engine tests pass.
 
-**Exit:** App window runs as desktop editor shell; state binding works; design/IA respected.
+**Exit:** App window runs as desktop editor shell; state binding works; design/IA respected. **Met.**
 
-**Refs:** ADR-002, 003, 006, 009, 012, 013, 014 · design docs
-
+**Refs:** ADR-002, 003, 006, 009, 012, 013, 014 · design docs · mockups under `docs/design_mockup/` (inspiration only)
 ---
 
 ## Phase 1.5 — Interop spike (mandatory)

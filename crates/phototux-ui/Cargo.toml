@@ -1,0 +1,11 @@
+[package]
+name = "phototux_ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "qtbridge QObjects for PhotoTux UI"
+
+[dependencies]
+qtbridge = { workspace = true }
+phototux_engine = { workspace = true }

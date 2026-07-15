@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PhotoTux - New Document</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600&amp;family=Noto+Sans+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-on-surface": "#303034",
+                        "outline-variant": "#3e484f",
+                        "secondary-fixed-dim": "#c6c6ce",
+                        "surface-container-lowest": "#0e0e12",
+                        "on-surface-disabled": "#9A9AA3",
+                        "inverse-surface": "#e4e1e7",
+                        "on-error-container": "#ffdad6",
+                        "on-surface-muted": "#A0A0A8",
+                        "on-tertiary": "#532200",
+                        "on-primary-fixed-variant": "#004c6c",
+                        "secondary-fixed": "#e2e2ea",
+                        "success": "#2ECC71",
+                        "on-secondary-fixed-variant": "#45464d",
+                        "surface-container-high": "#2a2a2e",
+                        "on-primary": "#00344c",
+                        "surface-variant": "#353439",
+                        "on-background": "#e4e1e7",
+                        "primary-container": "#3daee9",
+                        "surface-container-low": "#1b1b1f",
+                        "border": "#3D3D45",
+                        "surface-overlay": "#232328",
+                        "on-secondary-container": "#b5b4bc",
+                        "inverse-primary": "#00658e",
+                        "on-tertiary-fixed": "#321200",
+                        "canvas-letterbox": "#0C0C0E",
+                        "surface-tint": "#84cfff",
+                        "outline": "#88929a",
+                        "tertiary": "#ffb68c",
+                        "primary-fixed": "#c7e7ff",
+                        "surface-dim": "#131317",
+                        "primary-fixed-dim": "#84cfff",
+                        "selection": "#3DAEE933",
+                        "surface-bright": "#39393d",
+                        "secondary": "#c6c6ce",
+                        "on-tertiary-container": "#622a00",
+                        "background": "#131317",
+                        "secondary-container": "#45464d",
+                        "tool-active-bg": "#3DAEE940",
+                        "on-secondary": "#2f3037",
+                        "surface-sunken": "#121214",
+                        "on-primary-container": "#003f5a",
+                        "on-surface": "#e4e1e7",
+                        "on-secondary-fixed": "#1a1b21",
+                        "surface-raised": "#323238",
+                        "error-container": "#93000a",
+                        "border-subtle": "#2F2F36",
+                        "on-tertiary-fixed-variant": "#753400",
+                        "tertiary-fixed": "#ffdbc9",
+                        "error": "#DA4453",
+                        "surface-container": "#1f1f23",
+                        "surface-container-highest": "#353439",
+                        "on-primary-fixed": "#001e2e",
+                        "on-error": "#690005",
+                        "tertiary-container": "#ff8125",
+                        "primary": "#84cfff",
+                        "surface": "#2B2B30",
+                        "warning": "#FF9F1A",
+                        "on-surface-variant": "#bec8d1",
+                        "tertiary-fixed-dim": "#ffb68c"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "panel-padding": "12px",
+                        "xl": "24px",
+                        "statusbar-height": "28px",
+                        "lg": "16px",
+                        "sm": "8px",
+                        "xxs": "2px",
+                        "xxl": "32px",
+                        "toolbar-height": "40px",
+                        "dock-width": "280px",
+                        "tool-strip-width": "48px",
+                        "md": "12px",
+                        "control-gap": "8px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Noto Sans"],
+                        "headline-md": ["Noto Sans"],
+                        "headline-sm": ["Noto Sans"],
+                        "label-sm": ["Noto Sans"],
+                        "label-md": ["Noto Sans"],
+                        "body-md": ["Noto Sans"],
+                        "window-title": ["Noto Sans"],
+                        "mono-hud": ["Noto Sans Mono"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["11px", { "lineHeight": "1.35", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "headline-md": ["16px", { "lineHeight": "1.25", "letterSpacing": "0em", "fontWeight": "600" }],
+                        "headline-sm": ["13px", { "lineHeight": "1.3", "letterSpacing": "0em", "fontWeight": "600" }],
+                        "label-sm": ["10px", { "lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "label-md": ["11px", { "lineHeight": "1.2", "letterSpacing": "0.01em", "fontWeight": "500" }],
+                        "body-md": ["12px", { "lineHeight": "1.4", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "window-title": ["13px", { "lineHeight": "1.2", "letterSpacing": "0em", "fontWeight": "600" }],
+                        "mono-hud": ["11px", { "lineHeight": "1.2", "letterSpacing": "0em", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: theme('colors.background'); color: theme('colors.on-surface'); overflow: hidden; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        
+        /* Custom scrollbar for Plasma feel */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: theme('colors.surface-sunken'); }
+        ::-webkit-scrollbar-thumb { background: theme('colors.surface-raised'); border: 1px solid theme('colors.border'); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: theme('colors.surface-variant'); }
+    </style>
+</head>
+<body class="flex flex-col h-screen select-none">
+<!-- TopNavBar -->
+<header class="bg-surface dark:bg-surface h-[40px] w-full top-0 border-b border-border dark:border-border flex items-center px-panel-padding z-50 shrink-0">
+<div class="flex items-center gap-xl h-full">
+<div class="font-window-title text-window-title text-on-surface dark:text-on-surface">PhotoTux</div>
+<nav class="flex items-center h-full gap-xs">
+<!-- Active Navigation: File -->
+<button class="h-[28px] px-sm rounded-DEFAULT text-primary font-semibold flex items-center justify-center transition-colors duration-150">
+<span class="font-label-md text-label-md">File</span>
+</button>
+<button class="h-[28px] px-sm rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container transition-colors duration-150 flex items-center justify-center">
+<span class="font-label-md text-label-md">Edit</span>
+</button>
+<button class="h-[28px] px-sm rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container transition-colors duration-150 flex items-center justify-center">
+<span class="font-label-md text-label-md">Select</span>
+</button>
+<button class="h-[28px] px-sm rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container transition-colors duration-150 flex items-center justify-center">
+<span class="font-label-md text-label-md">View</span>
+</button>
+<button class="h-[28px] px-sm rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container transition-colors duration-150 flex items-center justify-center">
+<span class="font-label-md text-label-md">Window</span>
+</button>
+<button class="h-[28px] px-sm rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container transition-colors duration-150 flex items-center justify-center">
+<span class="font-label-md text-label-md">Help</span>
+</button>
+</nav>
+</div>
+<div class="ml-auto flex items-center gap-xs">
+<button aria-label="settings" class="w-[28px] h-[28px] rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container flex items-center justify-center transition-colors duration-150">
+<span class="material-symbols-outlined text-[16px]">settings</span>
+</button>
+<button aria-label="help" class="w-[28px] h-[28px] rounded-DEFAULT text-on-surface dark:text-on-surface hover:bg-secondary-container dark:hover:bg-secondary-container flex items-center justify-center transition-colors duration-150">
+<span class="material-symbols-outlined text-[16px]">help</span>
+</button>
+</div>
+</header>
+<!-- Main Workspace Area -->
+<main class="flex flex-1 overflow-hidden relative">
+<!-- SideNavBar -->
+<aside class="bg-surface dark:bg-surface border-r border-border dark:border-border w-[48px] h-full flex flex-col items-center py-xs z-40 shrink-0">
+<div class="flex flex-col gap-xs w-full px-[6px]">
+<!-- Tools (All inactive for initial setup screen state) -->
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Move">
+<span class="material-symbols-outlined text-[20px]">near_me</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Marquee">
+<span class="material-symbols-outlined text-[20px]">elevation</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Lasso">
+<span class="material-symbols-outlined text-[20px]">gesture</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Brush">
+<span class="material-symbols-outlined text-[20px]">brush</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Eraser">
+<span class="material-symbols-outlined text-[20px]">ink_eraser</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Gradient">
+<span class="material-symbols-outlined text-[20px]">gradient</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Text">
+<span class="material-symbols-outlined text-[20px]">title</span>
+</button>
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Zoom">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</button>
+</div>
+<div class="mt-auto mb-sm w-full px-[6px]">
+<button class="w-[36px] h-[36px] rounded-DEFAULT text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container-high flex items-center justify-center transition-all duration-75 relative group" title="Settings">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+</button>
+</div>
+</aside>
+<!-- Center Canvas Area: New Document Setup -->
+<section class="flex-1 bg-surface-sunken flex flex-col h-full overflow-hidden">
+<!-- Header for Canvas -->
+<div class="px-xl py-lg border-b border-border flex items-end justify-between shrink-0">
+<h1 class="font-headline-md text-headline-md text-on-surface">New Document</h1>
+<!-- Category Sub-nav -->
+<nav class="flex gap-md">
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-xs border-b-2 border-transparent transition-colors">Recent</button>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-xs border-b-2 border-transparent transition-colors">Saved</button>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-xs border-b-2 border-transparent transition-colors">Photo</button>
+<button class="font-label-md text-label-md text-primary pb-xs border-b-2 border-primary transition-colors">Print</button>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-xs border-b-2 border-transparent transition-colors">Web</button>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-xs border-b-2 border-transparent transition-colors">Film &amp; Video</button>
+</nav>
+</div>
+<!-- Presets Grid -->
+<div class="flex-1 overflow-y-auto p-xl">
+<div class="mb-lg">
+<h2 class="font-headline-sm text-headline-sm text-on-surface-variant mb-md">Blank Document Presets</h2>
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-lg">
+<!-- Preset Card 1 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col items-center justify-center cursor-pointer hover:bg-surface-raised hover:border-primary-container transition-all group aspect-[4/5]">
+<div class="w-16 h-24 bg-surface-sunken border border-outline-variant rounded-sm mb-md group-hover:border-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant group-hover:text-primary">description</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface mb-xs">A4</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">210 x 297 mm</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">300 ppi</span>
+</div>
+<!-- Preset Card 2 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col items-center justify-center cursor-pointer hover:bg-surface-raised hover:border-primary-container transition-all group aspect-[4/5]">
+<div class="w-16 h-20 bg-surface-sunken border border-outline-variant rounded-sm mb-md group-hover:border-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant group-hover:text-primary">description</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface mb-xs">Letter</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">8.5 x 11 in</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">300 ppi</span>
+</div>
+<!-- Preset Card 3 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col items-center justify-center cursor-pointer hover:bg-surface-raised hover:border-primary-container transition-all group aspect-[4/5]">
+<div class="w-20 h-16 bg-surface-sunken border border-outline-variant rounded-sm mb-md group-hover:border-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant group-hover:text-primary">monitor</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface mb-xs">1080p FHD</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">1920 x 1080 px</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">72 ppi</span>
+</div>
+<!-- Preset Card 4 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col items-center justify-center cursor-pointer hover:bg-surface-raised hover:border-primary-container transition-all group aspect-[4/5]">
+<div class="w-24 h-14 bg-surface-sunken border border-outline-variant rounded-sm mb-md group-hover:border-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant group-hover:text-primary">4k</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface mb-xs">4K UHD</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">3840 x 2160 px</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">72 ppi</span>
+</div>
+<!-- Preset Card 5 -->
+<div class="bg-surface border border-primary-container rounded-lg p-md flex flex-col items-center justify-center cursor-pointer bg-surface-raised transition-all group aspect-[4/5] relative">
+<div class="absolute top-sm right-sm w-2 h-2 rounded-full bg-primary"></div>
+<div class="w-16 h-16 bg-surface-sunken border border-primary rounded-sm mb-md flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">square</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface mb-xs">Social Square</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">1080 x 1080 px</span>
+<span class="font-body-sm text-body-sm text-on-surface-muted">72 ppi</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Dock: Custom Details -->
+<aside class="w-[280px] bg-surface border-l border-border flex flex-col h-full shrink-0 z-10">
+<div class="h-[40px] px-panel-padding flex items-center border-b border-border shrink-0">
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Preset Details</h2>
+</div>
+<div class="flex-1 overflow-y-auto p-panel-padding flex flex-col gap-lg">
+<!-- Name Input -->
+<div class="flex flex-col gap-xs">
+<input class="w-full bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" type="text" value="Untitled-1"/>
+</div>
+<!-- Dimensions Group -->
+<div class="flex flex-col gap-sm border-t border-border pt-md">
+<div class="flex items-center gap-sm">
+<div class="flex-1 flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Width</label>
+<input class="w-full bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-mono-hud text-mono-hud text-right text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" type="number" value="1080"/>
+</div>
+<div class="w-[80px] flex flex-col gap-xs mt-[18px]">
+<select class="w-full bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary appearance-none">
+<option>Pixels</option>
+<option>Inches</option>
+<option>cm</option>
+<option>mm</option>
+</select>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<div class="flex-1 flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Height</label>
+<input class="w-full bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-mono-hud text-mono-hud text-right text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" type="number" value="1080"/>
+</div>
+<div class="w-[80px] flex items-center justify-center mt-[18px]">
+<!-- Orientation Toggle -->
+<div class="flex bg-surface-overlay border border-border rounded-sm h-[28px] p-[2px]">
+<button class="flex-1 flex items-center justify-center rounded-sm bg-surface-raised text-primary shadow-sm" title="Portrait">
+<span class="material-symbols-outlined text-[16px]">crop_portrait</span>
+</button>
+<button class="flex-1 flex items-center justify-center rounded-sm text-on-surface-variant hover:text-on-surface" title="Landscape">
+<span class="material-symbols-outlined text-[16px]">crop_landscape</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Resolution -->
+<div class="flex flex-col gap-xs border-t border-border pt-md">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Resolution</label>
+<div class="flex items-center gap-sm">
+<input class="flex-1 bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-mono-hud text-mono-hud text-right text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" type="number" value="72"/>
+<select class="w-[120px] bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary appearance-none">
+<option>Pixels/Inch</option>
+<option>Pixels/cm</option>
+</select>
+</div>
+</div>
+<!-- Color Mode -->
+<div class="flex flex-col gap-xs border-t border-border pt-md">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Color Mode</label>
+<div class="flex items-center gap-sm">
+<select class="flex-1 bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary appearance-none">
+<option>RGB Color</option>
+<option>CMYK Color</option>
+<option>Grayscale</option>
+</select>
+<select class="w-[80px] bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary appearance-none">
+<option>8 bit</option>
+<option>16 bit</option>
+<option>32 bit</option>
+</select>
+</div>
+</div>
+<!-- Background Contents -->
+<div class="flex flex-col gap-xs border-t border-border pt-md">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Background Contents</label>
+<div class="flex items-center gap-sm">
+<select class="flex-1 bg-surface-overlay border border-border rounded-sm h-[28px] px-sm font-body-sm text-body-sm text-on-surface focus:outline-none focus:border-primary appearance-none">
+<option>White</option>
+<option>Black</option>
+<option>Background Color</option>
+<option>Transparent</option>
+</select>
+<div class="w-[28px] h-[28px] rounded-sm bg-white border border-outline-variant shrink-0 cursor-pointer"></div>
+</div>
+</div>
+</div>
+<!-- Dock Footer Actions -->
+<div class="p-panel-padding border-t border-border mt-auto flex justify-end gap-sm shrink-0 bg-surface">
+<button class="h-[28px] px-lg rounded-DEFAULT bg-surface-raised hover:bg-surface-variant text-on-surface font-label-md text-label-md border border-border transition-colors">Close</button>
+<button class="h-[28px] px-lg rounded-DEFAULT bg-primary hover:bg-primary-tint text-on-primary font-label-md text-label-md transition-colors shadow-sm">Create</button>
+</div>
+</aside>
+</main>
+<!-- Footer -->
+<footer class="bg-surface-container dark:bg-surface-container h-[28px] w-full border-t border-border dark:border-border flex justify-between items-center px-md z-50 shrink-0">
+<div class="font-mono-hud text-mono-hud text-on-surface-muted dark:text-on-surface-muted">
+            RGBA: 255, 255, 255, 1.0 | 3000 x 2000 px | 72 DPI
+        </div>
+<div class="flex items-center gap-md">
+<span class="font-mono-hud text-mono-hud text-on-surface-muted dark:text-on-surface-muted">GPU ACCELERATED</span>
+</div>
+</footer>
+</body></html>
