@@ -17,7 +17,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 - [x] Grill R1–R3 + ADR-001…013; desktop surface ADR-014
 - [x] AGENTS.md + pre-commit (fmt / clippy / rust-doctor)
 - [x] Doc alignment review (2026-07-15)
-- [ ] Owner: FOSS icon pack → `assets/icons/` + license note (when ready)
+- [x] FOSS icon pack: **Phosphor Icons** → `assets/icons/phosphor/` + license note
 - [ ] Optional: human design pass on DESIGN.md
 
 **Exit:** Decisions and design sufficient to implement Phase 1.

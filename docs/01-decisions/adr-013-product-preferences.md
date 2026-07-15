@@ -101,3 +101,4 @@ Secondary product UX and process preferences that do not redefine the core stack
 | Date | Amendment | Reason |
 |------|-----------|--------|
 | 2026-07-15 | Accepted G13–G18 | Interactive grill R3 |
+| 2026-07-15 | Icon pack = Phosphor Icons (MIT), vendored under `assets/icons/phosphor/` from `@phosphor-icons/core` 2.1.1 | Owner choice |
