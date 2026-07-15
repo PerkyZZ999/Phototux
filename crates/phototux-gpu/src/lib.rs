@@ -1,7 +1,8 @@
-//! Minimal wgpu Vulkan context for interop spike (ADR-010 / ADR-004).
-//!
-//! Phase 1.5: prove Arc B580 / Xe can create devices and GPU-side textures.
-//! Export hooks for native handles are best-effort (`as_hal`).
+//! wgpu Vulkan context + multi-layer composite (ADR-004 / ADR-008 / ADR-011).
+
+mod composite;
+
+pub use composite::{LayerCompositeEngine, benchmark_10x4k_ms};
 
 use std::sync::Arc;
 
@@ -96,7 +97,7 @@ impl GpuContext {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,

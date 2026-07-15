@@ -201,6 +201,8 @@ void PhototuxCanvasRenderer::initialize(QRhiCommandBuffer *cb)
 void PhototuxCanvasRenderer::synchronize(QQuickRhiItem *item)
 {
     auto *canvas = static_cast<PhototuxCanvasItem *>(item);
+    // Pull latest composite export from Rust (set after each recomposite).
+    phototux_canvas_apply_pending_export(canvas);
     m_zoom = canvas->zoom();
     m_panX = canvas->panX();
     m_panY = canvas->panY();

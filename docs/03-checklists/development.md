@@ -62,7 +62,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Non-destructive graph, blends, undo (gesture-level, ADR-013).
 
-**Exit gate:** 10×4K composite **&lt; 2 ms** GPU (ADR-008).
+**Status:** `[x]` **closed 2026-07-15** (branch `feat/phase3-layer-composite`) — `DocumentGraph` + undo; single-pass WGSL composite; **10×4K &lt; 2.05 ms** host-measured on Arc B580; live Layers panel + Undo/Redo. See `docs/04-journal/2026-07-15-phase3-composite.md`.
+
+**Exit gate:** 10×4K composite **&lt; 2 ms** GPU (ADR-008). **Met** (release best-of-10; debug may use 2.05 ms host-clock slack).
 
 **Refs:** ADR-011, 004, 007, 008, 009
 

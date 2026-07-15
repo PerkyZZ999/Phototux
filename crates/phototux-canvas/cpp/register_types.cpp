@@ -34,10 +34,10 @@ extern "C" void phototux_canvas_set_wgpu_export(unsigned long long handle, int w
     g_export.pending.store(true, std::memory_order_release);
 }
 
-// Pull pending export into a canvas item (called from item constructor / show).
+// Pull pending export into a canvas item (constructor + each synchronize).
 void phototux_canvas_apply_pending_export(PhototuxCanvasItem *item)
 {
-    if (!item || !g_export.pending.load(std::memory_order_acquire))
+    if (!item || !g_export.pending.exchange(false, std::memory_order_acq_rel))
         return;
     item->setWgpuImageHandle(g_export.handle.load(std::memory_order_relaxed),
                              g_export.width.load(std::memory_order_relaxed),

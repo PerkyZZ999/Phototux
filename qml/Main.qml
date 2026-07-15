@@ -91,10 +91,25 @@ ApplicationWindow {
                 ToolTip.text: qsTr("Portals — Phase 5")
             }
 
+            ToolSeparator {
+                contentItem: Rectangle { implicitWidth: 1; color: root.border }
+            }
+
+            ToolButton {
+                text: qsTr("Undo")
+                enabled: AppSession.canUndo
+                onClicked: AppSession.undo()
+            }
+            ToolButton {
+                text: qsTr("Redo")
+                enabled: AppSession.canRedo
+                onClicked: AppSession.redo()
+            }
+
             Item { Layout.fillWidth: true }
 
             Label {
-                text: qsTr("Phase 2 · GPU viewport")
+                text: qsTr("Phase 3 · layers")
                 color: root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
@@ -132,6 +147,15 @@ ApplicationWindow {
                          + AppSession.docWidth + "×" + AppSession.docHeight)
                       : ""
                 color: root.colorOnSurfaceMuted
+                font.pixelSize: 11
+            }
+
+            Label {
+                text: AppSession.compositeMs > 0
+                      ? (qsTr("comp ") + AppSession.compositeMs.toFixed(2) + " ms")
+                      : ""
+                color: AppSession.compositeMs > 0 && AppSession.compositeMs < 2.0
+                       ? root.primary : root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
 
@@ -421,6 +445,32 @@ ApplicationWindow {
                 }
 
                 Label {
+                    text: qsTr("Layer opacity")
+                    color: root.colorOnSurfaceMuted
+                    font.pixelSize: 11
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Slider {
+                        id: layerOpacitySlider
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 1
+                        value: AppSession.activeOpacity
+                        enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
+                        onMoved: AppSession.setActiveOpacity(value)
+                    }
+                    Label {
+                        text: Math.round(layerOpacitySlider.value * 100) + "%"
+                        color: root.colorOnSurface
+                        font.pixelSize: 11
+                        Layout.preferredWidth: 40
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                Label {
                     text: qsTr("GPU")
                     color: root.colorOnSurface
                     font.bold: true
@@ -433,6 +483,14 @@ ApplicationWindow {
                     font.pixelSize: 10
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
+                }
+
+                Label {
+                    text: AppSession.compositeMs > 0
+                          ? (qsTr("Composite: ") + AppSession.compositeMs.toFixed(2) + " ms")
+                          : qsTr("Composite: —")
+                    color: root.colorOnSurfaceMuted
+                    font.pixelSize: 10
                 }
 
                 Rectangle {
@@ -451,38 +509,91 @@ ApplicationWindow {
                         Layout.fillWidth: true
                     }
                     Label {
-                        text: qsTr("stub")
+                        text: AppSession.layerCount
                         color: root.colorOnSurfaceMuted
                         font.pixelSize: 10
                     }
                 }
 
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: qsTr("Add")
+                        Layout.fillWidth: true
+                        enabled: AppSession.hasDocument
+                        onClicked: AppSession.addLayer()
+                    }
+                    Button {
+                        text: qsTr("Del")
+                        Layout.fillWidth: true
+                        enabled: AppSession.hasDocument && AppSession.layerCount > 1
+                        onClicked: AppSession.deleteActiveLayer()
+                    }
+                }
+
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 120
+                    Layout.preferredHeight: 160
                     color: root.surfaceOverlay
                     border.color: root.border
                     radius: 4
 
-                    Column {
+                    // Top of stack drawn at top of list (reverse index).
+                    ListView {
+                        id: layerList
                         anchors.fill: parent
-                        anchors.margins: 8
-                        spacing: 4
-                        Repeater {
-                            model: ["Background", "Layer 1", "Layer 2"]
-                            delegate: Rectangle {
-                                width: parent.width
-                                height: 28
-                                radius: 3
-                                color: index === 1 ? root.toolActiveBg : "transparent"
+                        anchors.margins: 6
+                        clip: true
+                        spacing: 2
+                        model: AppSession.layerCount
+                        delegate: Rectangle {
+                            width: layerList.width
+                            height: 28
+                            radius: 3
+                            // stack bottom = index 0; UI shows top first
+                            readonly property int stackIndex: AppSession.layerCount - 1 - index
+                            readonly property var nameParts: AppSession.layerNames.split("|")
+                            readonly property var visParts: AppSession.layerVisibility.split("|")
+                            readonly property string layerName: stackIndex >= 0 && stackIndex < nameParts.length
+                                ? nameParts[stackIndex] : ""
+                            readonly property bool layerVis: stackIndex >= 0 && stackIndex < visParts.length
+                                ? visParts[stackIndex] === "1" : true
+                            color: AppSession.activeLayerIndex === stackIndex
+                                   ? root.toolActiveBg : "transparent"
+                            border.color: AppSession.activeLayerIndex === stackIndex
+                                          ? root.primary : "transparent"
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 6
+                                anchors.rightMargin: 6
+                                spacing: 6
+
+                                Image {
+                                    source: root.iconUrl(layerVis ? "eye" : "eye-slash")
+                                    width: 16
+                                    height: 16
+                                    sourceSize: Qt.size(16, 16)
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: AppSession.toggleLayerVisible(stackIndex)
+                                    }
+                                }
+
                                 Label {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 8
-                                    text: modelData
+                                    Layout.fillWidth: true
+                                    text: layerName
                                     color: root.colorOnSurface
                                     font.pixelSize: 11
+                                    elide: Text.ElideRight
                                 }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.leftMargin: 28
+                                onClicked: AppSession.setActiveLayer(stackIndex)
                             }
                         }
                     }
@@ -491,7 +602,7 @@ ApplicationWindow {
                 Item { Layout.fillHeight: true }
 
                 Label {
-                    text: qsTr("wgpu · QQuickRhiItem")
+                    text: qsTr("composite · undo")
                     color: root.primary
                     font.pixelSize: 10
                     Layout.alignment: Qt.AlignHCenter
@@ -511,6 +622,15 @@ ApplicationWindow {
                 AppSession.applyDocumentSize(w, h)
             zoomSlider.value = AppSession.zoom
             brushSlider.value = AppSession.brushSize
+            layerOpacitySlider.value = AppSession.activeOpacity
+        }
+    }
+
+    Connections {
+        target: AppSession
+        function onActiveOpacityChanged() {
+            if (Math.abs(layerOpacitySlider.value - AppSession.activeOpacity) > 0.001)
+                layerOpacitySlider.value = AppSession.activeOpacity
         }
     }
 

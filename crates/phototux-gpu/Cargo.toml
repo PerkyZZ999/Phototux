@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "wgpu GPU context (spike / Phase 2)"
+description = "wgpu GPU context and composite pipeline (Phase 2–3)"
 
 [dependencies]
 wgpu = { version = "30.0.0", default-features = true, features = ["vulkan"] }
 ash = "0.38.0+1.3.281"
 pollster = "1.0.1"
 thiserror = "2.0.18"
+phototux_engine = { path = "../phototux-engine" }
+bytemuck = { version = "1.22", features = ["derive"] }

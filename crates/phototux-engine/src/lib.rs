@@ -1,8 +1,14 @@
-//! Pure document/session types — no Qt (ADR-006, ADR-011 Phase 1 stub).
+//! Pure document/session types — no Qt (ADR-006, ADR-011).
 
 mod camera;
+mod document;
+mod layer;
+mod undo;
 
 pub use camera::{Camera2D, FpsTracker, Rect};
+pub use document::DocumentGraph;
+pub use layer::{BlendMode, Layer, LayerId};
+pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 
 /// Pixel dimensions of the open document canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,8 +88,8 @@ pub mod tool_id {
     pub const ZOOM: &str = "tool.zoom";
 }
 
-/// Lightweight session state until the Phase 3 document graph exists.
-#[derive(Debug, Clone)]
+/// Session state: camera + document graph + undo (Phase 3).
+#[derive(Debug)]
 pub struct SessionState {
     pub size: DocumentSize,
     pub camera: Camera2D,
@@ -91,9 +97,11 @@ pub struct SessionState {
     pub active_tool: String,
     pub has_document: bool,
     pub fps: f32,
-    /// Viewport size for zoom-to-fit (updated from QML).
+    pub composite_ms: f32,
     pub viewport_w: f32,
     pub viewport_h: f32,
+    pub graph: Option<DocumentGraph>,
+    pub undo: UndoStack,
 }
 
 impl Default for SessionState {
@@ -105,8 +113,11 @@ impl Default for SessionState {
             active_tool: tool_id::BRUSH.to_owned(),
             has_document: false,
             fps: 0.0,
+            composite_ms: 0.0,
             viewport_w: 800.0,
             viewport_h: 600.0,
+            graph: None,
+            undo: UndoStack::new(128),
         }
     }
 }
@@ -149,6 +160,8 @@ impl SessionState {
         let h = size.height.clamp(1, 32_768);
         self.size = DocumentSize::new(w, h);
         self.has_document = true;
+        self.graph = Some(DocumentGraph::new(self.size));
+        self.undo.clear();
         self.zoom_to_fit();
     }
 
@@ -164,18 +177,83 @@ impl SessionState {
         self.fps = fps.max(0.0);
     }
 
+    pub fn set_composite_ms(&mut self, ms: f32) {
+        self.composite_ms = ms.max(0.0);
+    }
+
+    pub fn layer_count(&self) -> i32 {
+        self.graph
+            .as_ref()
+            .map(|g| g.layer_count() as i32)
+            .unwrap_or(0)
+    }
+
+    pub fn active_layer_index(&self) -> i32 {
+        self.graph
+            .as_ref()
+            .and_then(|g| g.active_index())
+            .map(|i| i as i32)
+            .unwrap_or(-1)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.undo.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.undo.can_redo()
+    }
+
+    pub fn graph_revision(&self) -> u64 {
+        self.graph.as_ref().map(|g| g.revision).unwrap_or(0)
+    }
+
+    /// Layer names bottom→top, joined for QML (pipe-separated).
+    pub fn layer_names_joined(&self) -> String {
+        self.graph
+            .as_ref()
+            .map(|g| {
+                g.layers()
+                    .iter()
+                    .map(|l| l.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("|")
+            })
+            .unwrap_or_default()
+    }
+
+    /// Visibility flags as "1|0|1".
+    pub fn layer_visibility_joined(&self) -> String {
+        self.graph
+            .as_ref()
+            .map(|g| {
+                g.layers()
+                    .iter()
+                    .map(|l| if l.visible { "1" } else { "0" })
+                    .collect::<Vec<_>>()
+                    .join("|")
+            })
+            .unwrap_or_default()
+    }
+
     pub fn status_summary(&self) -> String {
         if !self.has_document {
             return "PhotoTux — create or open a document".to_owned();
         }
+        let layers = self.layer_count();
+        let comp = if self.composite_ms > 0.0 {
+            format!(" · composite {:.2} ms", self.composite_ms)
+        } else {
+            String::new()
+        };
         format!(
-            "{}×{} · zoom {:.0}% · pan ({:.0},{:.0}) · {}",
+            "{}×{} · zoom {:.0}% · {} layers · {}{}",
             self.size.width,
             self.size.height,
             self.camera.zoom * 100.0,
-            self.camera.pan_x,
-            self.camera.pan_y,
-            self.active_tool
+            layers,
+            self.active_tool,
+            comp
         )
     }
 }
@@ -211,15 +289,15 @@ mod tests {
     }
 
     #[test]
-    fn apply_preset_marks_document_and_fits() {
+    fn apply_preset_creates_graph() {
         let mut s = SessionState::default();
         s.set_viewport(1200.0, 800.0);
         assert!(!s.has_document);
         s.apply_preset(SizePreset::P4k);
         assert!(s.has_document);
         assert_eq!(s.size, DocumentSize::new(3840, 2160));
-        assert!(s.camera.zoom > 0.0);
-        assert!((s.camera.pan_x - 1920.0).abs() < 1.0);
+        assert_eq!(s.layer_count(), 2);
+        assert!(s.graph.is_some());
     }
 
     #[test]

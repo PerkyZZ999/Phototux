@@ -8,6 +8,7 @@ description = "Production QQuickRhiItem GPU viewport (hybrid C++)"
 
 [dependencies]
 phototux_gpu = { path = "../phototux-gpu" }
+phototux_engine = { path = "../phototux-engine" }
 
 [build-dependencies]
 cc = "1.2.67"

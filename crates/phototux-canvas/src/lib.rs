@@ -1,6 +1,8 @@
-//! Production GPU canvas interop: hybrid C++ `QQuickRhiItem` + optional wgpu probe.
-//!
-//! Register QML types with [`register_types`] before the QML engine loads.
+//! Production GPU canvas interop: hybrid C++ `QQuickRhiItem` + document composite.
+
+mod document_gpu;
+
+pub use document_gpu::{close_document, last_composite_ms, open_document, sync_and_composite};
 
 use std::sync::Mutex;
 
@@ -23,10 +25,22 @@ unsafe extern "C" {
     fn phototux_canvas_set_wgpu_export(handle: u64, width: i32, height: i32, layout: i32);
 }
 
+pub(crate) unsafe fn set_wgpu_export(handle: u64, width: i32, height: i32, layout: i32) {
+    // SAFETY: C ABI to hybrid canvas item.
+    unsafe {
+        phototux_canvas_set_wgpu_export(handle, width, height, layout);
+    }
+    if let Ok(mut slot) = WGPU_HANDLE.lock() {
+        *slot = Some(WgpuExport {
+            handle,
+            width: width as u32,
+            height: height as u32,
+            layout,
+        });
+    }
+}
+
 /// Register `PhototuxCanvas 1.0 / PhototuxCanvas` with the QML type system.
-///
-/// # Safety
-/// Must be called once on the main thread before any QML engine is created.
 pub fn register_types() {
     // SAFETY: C++ qmlRegisterType is main-thread and before engine load.
     unsafe {
@@ -34,40 +48,19 @@ pub fn register_types() {
     }
 }
 
-/// Probe wgpu on the host, export a VkImage handle if possible, and cache status text.
+/// Probe wgpu on the host (startup log). Prefer [`open_document`] for real content.
 pub fn probe_and_export_wgpu(width: u32, height: u32) -> String {
     match GpuContext::new() {
         Ok(ctx) => {
-            let tex = ctx.create_cleared_texture(width, height, [0.15, 0.35, 0.75, 1.0]);
-            let handle = GpuContext::texture_vk_image_handle(&tex);
-            let handle_s = match handle {
-                Some(h) => {
-                    if let Ok(mut slot) = WGPU_HANDLE.lock() {
-                        *slot = Some(WgpuExport {
-                            handle: h,
-                            width,
-                            height,
-                            layout: 0,
-                        });
-                    }
-                    // SAFETY: C ABI; publishes handle for PhototuxCanvas import attempt.
-                    unsafe {
-                        phototux_canvas_set_wgpu_export(h, width as i32, height as i32, 0);
-                    }
-                    format!("VkImage=0x{h:x} export OK")
-                }
-                None => "VkImage export: None".to_owned(),
-            };
             let status = format!(
-                "wgpu OK | {} | {} | {} | {} | {handle_s}",
+                "wgpu OK | {} | {} | {} | {}",
                 ctx.info.adapter_name, ctx.info.backend, ctx.info.driver, ctx.info.device_type
             );
             if let Ok(mut g) = GPU_STATUS.lock() {
                 *g = status.clone();
             }
-            // Keep texture + device alive for the process lifetime of the export experiment.
-            std::mem::forget(tex);
-            std::mem::forget(ctx);
+            let _ = (width, height);
+            // Drop ctx — document path owns devices after open.
             status
         }
         Err(e) => {

@@ -784,6 +784,7 @@ name = "phototux_canvas"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "phototux_engine",
  "phototux_gpu",
 ]
 
@@ -796,6 +797,8 @@ name = "phototux_gpu"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "bytemuck",
+ "phototux_engine",
  "pollster",
  "thiserror 2.0.18",
  "wgpu",
@@ -815,6 +818,7 @@ dependencies = [
 name = "phototux_ui"
 version = "0.1.0"
 dependencies = [
+ "phototux_canvas",
  "phototux_engine",
  "qtbridge",
 ]
