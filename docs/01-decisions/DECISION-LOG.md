@@ -22,6 +22,17 @@
 | G11 | Document model | **A** full graph in Phase 3 only | ADR-011 |
 | G12 | License | **A** GPL-3.0-or-later; public OSS late | ADR-012 |
 
+## Interactive grill — Round 3 (2026-07-15)
+
+| ID | Decision | Choice | ADR |
+|----|----------|--------|-----|
+| G13 | New document size | **C** ask + presets 720p/1080p/2K/4K | ADR-013 |
+| G14 | Multi-document | **A** single document v1 | ADR-013 |
+| G15 | Icons | **B** bundled FOSS pack in `assets/` | ADR-013 |
+| G16 | Undo granularity | **A** one committed gesture = one undo | ADR-013 |
+| G17 | CI | **A** local Arch only for now | ADR-013 |
+| G18 | Zoom on open/new | **A** zoom to fit | ADR-013 |
+
 ## Full ADR table
 
 | Date | ADR | Decision | Reversibility | Revisit Date |

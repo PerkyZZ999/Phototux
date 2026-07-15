@@ -66,3 +66,4 @@ End of Phase 1 (if shell ergonomics fail) or major Qt 7 migration.
 | Date | Amendment | Reason |
 |------|-----------|--------|
 | 2026-07-15 | Confirmed Option 1 in interactive grill (G2=A) | Owner explicit lock |
+| 2026-07-15 | G8=C: Controls 2 first; Kirigami deferred until needed | Interactive grill R2 |

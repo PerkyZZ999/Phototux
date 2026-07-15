@@ -43,6 +43,7 @@
 - Controls 2 first; **no Kirigami** until ADR-002 need is documented
 - Full layer graph only from Phase 3 (ADR-011)
 - License: **GPL-3.0-or-later** (ADR-012)
+- Product prefs (ADR-013): New Document dialog + presets (720p/1080p/2K/4K); single document v1; icons from `assets/` FOSS pack; undo = one gesture/step; local CI only for now; zoom-to-fit on open/new
 
 ### Threading (ADR-007)
 - Shape UI→engine interactions as **commands**, not ad-hoc mutates

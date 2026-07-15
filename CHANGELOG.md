@@ -91,3 +91,18 @@ Earlier “spike skipped” is **partially reversed**: interop spike is required
 **Grill status:** Rounds 1–2 complete. Core stack + process locked. Optional Round 3 only for secondary product prefs.
 
 ---
+
+## [grill-round-3-owner-lock] — 2026-07-15
+
+| ID | Lock |
+|----|------|
+| G13 | New doc: ask every time + presets 720p / 1080p / 2K / 4K |
+| G14 | Single document only (v1) |
+| G15 | Bundled FOSS icon pack under `assets/` (owner supplies pack) |
+| G16 | Undo = one committed action/gesture per step |
+| G17 | CI: local Arch/CachyOS only for now |
+| G18 | Zoom-to-fit on open/new |
+
+**Grill status:** Rounds 1–3 complete. Architecture + product prefs locked (ADR-001…013).
+
+---

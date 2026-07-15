@@ -58,4 +58,4 @@ End of Phase 3 (when blend correctness needs golden images).
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | G10=A confirmed | Interactive grill R2 |

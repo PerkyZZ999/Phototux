@@ -13,9 +13,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 - [x] Design brief — `docs/DESIGN_BRIEF.md`
 - [x] Information architecture — `docs/INFORMATION_ARCHITECTURE.md`
 - [x] Design system tokens — `docs/DESIGN.md` (DESIGN.md format)
-- [x] Engineering ADRs locked — `decisions-locked-v1`
+- [x] Engineering ADRs locked — grill R1–R3 (ADR-001…013)
 - [ ] Design review pass (human) on brief + tokens vs KDE Plasma feel
 - [ ] Optional: lint `docs/DESIGN.md` with `@google/design.md`
+- [ ] Owner drops FOSS icon pack under `assets/icons/` + license note (ADR-013 G15)
 
 ---
 

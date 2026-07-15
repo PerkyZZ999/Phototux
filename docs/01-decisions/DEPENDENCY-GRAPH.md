@@ -56,6 +56,11 @@
 [ADR-012: License GPL-3.0-or-later]
   ├─ Depends on → [ADR-002, ADR-003]
   └─ Blocks → public release packaging checklist
+
+[ADR-013: Product preferences R3]
+  ├─ Depends on → [ADR-002, ADR-011, ADR-012]
+  ├─ Forces → New Document UI + assets/icons pipeline
+  └─ Forces → zoom-to-fit on document open; single-doc session model
 ```
 
 ## Load-Bearing vs. Reversible Decisions

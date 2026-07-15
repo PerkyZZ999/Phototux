@@ -64,4 +64,4 @@ Each phase exit review.
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | G9=A; brush ≥60 FPS called out for Phase 4 | Interactive grill R2 |
