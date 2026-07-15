@@ -93,7 +93,7 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 | `rust-reference` | Language semantics, unsafe, types, macros — when correctness depends on the Reference |
 | `rust-skills` | Broad idiomatic rules (ownership, errors, API, testing, anti-patterns) |
 | `rust-optimise` | Hot-path optimization (mem/own/ds/iter first; micro last) |
-| `rust-doctor` | Health scan interpretation; pre-commit runs CLI — agents re-scan after large fixes |
+| `rust-doctor` | Health scan tool; pre-commit runs the `rust-doctor` binary — re-scan after large fixes |
 
 **Rust hard defaults for this repo:**
 
@@ -211,7 +211,7 @@ UI toolkit change, primary FFI switch, abandoning zero-copy, multi-doc, non-Linu
 
 ### Forbidden
 
-Electron/web shell, GTK as main UI, CPU full-frame canvas as default, Kirigami in Phase 1–2, silent scope to Windows/macOS, paragraph-length workaround comments instead of fixes.
+Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU full-frame canvas as default, Kirigami in Phase 1–2, silent scope to Windows/macOS, paragraph-length workaround comments instead of fixes.
 
 ---
 

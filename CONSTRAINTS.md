@@ -41,12 +41,13 @@
 2. Rust backend + Qt 6 QML frontend
 3. Zero-copy GPU canvas strategy (pixels stay on GPU; bridge carries commands/state only)
 4. Performance SLOs in README Success Criteria remain acceptance gates for canvas work
+5. **Desktop GUI only** for MVP/v1 — no CLI product, no TUI, no web/Electron (ADR-014)
 
 ## Soft Constraints (Preferred but Reversible)
 
-1. `qtbridge-rust` as first-choice FFI (revisit if beta blocks Phase 1)
-2. KDE HIG-aligned dense dark shell (not GNOME/libadwaita)
-3. Arch/CachyOS as reference CI/dev host
+1. `qtbridge` for app logic; hybrid canvas C++ allowed (ADR-003) if custom item needs it
+2. KDE HIG-aligned dense dark shell (not GNOME/libadwaita); Controls 2 first, Kirigami deferred
+3. Arch/CachyOS as reference host; local checks only until public OSS (ADR-013)
 4. Vulkan-first `wgpu` backend (Metal/DX12 irrelevant for now)
 
 ## Constraint Change Log
@@ -54,3 +55,4 @@
 | Date | Constraint Changed | Reason | Approved By |
 |------|-------------------|--------|-------------|
 | 2026-07-15 | Initial constraints from SPEC.md | Project inception | Owner + agent |
+| 2026-07-15 | Desktop GUI only (v1); soft FFI hybrid clarified | Owner + doc review | Owner + agent |

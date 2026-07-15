@@ -190,21 +190,21 @@ Content owned by **XDG portals** — PhotoTux supplies filters and last paths on
 | Preferences | Many keys | Grouped pages; search |
 | Locale strings | i18n | All user-visible strings via `qsTr` |
 
-## URL Strategy
+## Launch & session strategy (desktop GUI)
 
-**Not applicable** as HTTP routes. Desktop equivalents:
+**Not a website** and **not a CLI/TUI product** (ADR-014).
 
 | Concern | Rule |
 |---------|------|
-| Deep link | Optional later: `phototux:` URI or `phototux /path/to/file` CLI |
-| CLI | `phototux [file]` opens document in Main Workspace |
+| Primary launch | Desktop entry / app menu / icon → main editor window |
+| Open file from DE | Phase 5+: MIME / file-manager “Open with” / optional argv from the desktop environment only — **not** a documented CLI tool |
+| CLI / TUI product | **Out of scope** for MVP/v1 |
 | Session restore | Window geometry + dock visibility + last paths (Phase 5+) |
-| Query-like state | Not in URLs; in-session: active tool, selection, zoom — **not** serialized to path |
+| Deep links | Not required for v1 |
 
 ### State that is *not* navigation
 
 Zoom level, pan offset, active layer id, tool id — **view state**, restored with session or document as appropriate, not separate “pages.”
-
 ## Workspace Layout Blueprint (structure only)
 
 ```

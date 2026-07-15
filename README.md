@@ -75,6 +75,6 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 
 ## Next Steps
 
-1. Review / amend design docs (`DESIGN_BRIEF`, `INFORMATION_ARCHITECTURE`, `DESIGN`)
-2. Re-scaffold Phase 1 per ADRs + design tokens + `AGENTS.md` (no ad-hoc chrome)
-3. Phase 1.5 interop spike → Phase 2 GPU viewport
+1. Phase 1 implementation plan → desktop shell bootstrap
+2. Phase 1.5 interop spike (ADR-010)
+3. Phase 2 GPU viewport (≥60 FPS zoom/pan)
