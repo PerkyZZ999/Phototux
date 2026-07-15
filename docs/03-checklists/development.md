@@ -39,12 +39,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Prove zero-copy (or document hard fail) **before** production GPU viewport.
 
-**Covers:** Time-boxed throwaway spike (ADR-010); findings journal; ADR amendments only if needed.
+**Status:** `[x]` **closed 2026-07-15** (branch `spike/wgpu-qt-rhi-interop`) — hybrid C++ `QQuickRhiItem` + wgpu on Arc B580/Xe **proven**; VkImage export OK; **full texture import/DMA-BUF glue → Phase 2**. See `docs/04-journal/spike-findings-interop.md`.
 
-**Exit:** Written recipe **or** written blocker — **no** silent CPU full-frame product path.
+**Exit:** Written recipe **or** written blocker — **no** silent CPU full-frame product path. **Met (findings journal).**
 
 **Refs:** ADR-003, 004, 005, 010
-
 ---
 
 ## Phase 2 — GPU viewport

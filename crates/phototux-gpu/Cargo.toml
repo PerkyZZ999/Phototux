@@ -1,0 +1,13 @@
+[package]
+name = "phototux_gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "wgpu GPU context (spike / Phase 2)"
+
+[dependencies]
+wgpu = { version = "30", default-features = true, features = ["vulkan"] }
+ash = "0.38"
+pollster = "0.4"
+thiserror = "2"

@@ -1,0 +1,19 @@
+[package]
+name = "phototux_spike_interop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Throwaway Phase 1.5 spike: wgpu + QQuickRhiItem (ADR-010)"
+
+[[bin]]
+name = "phototux-spike-interop"
+path = "src/main.rs"
+
+[dependencies]
+phototux_gpu = { path = "../phototux-gpu" }
+qtbridge = { workspace = true }
+pollster = "0.4"
+
+[build-dependencies]
+cc = "1.2"
