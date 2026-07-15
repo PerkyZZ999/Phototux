@@ -1,0 +1,45 @@
+# Rust
+/target/
+**/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Qt / build
+**/build/
+**/cmake-build-*/
+**/.qmlcache/
+**/moc_*.cpp
+**/ui_*.h
+**/*.o
+**/*.a
+**/*.so
+**/*.so.*
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs / profiling
+*.log
+/tracy/
+/captures/
+/profiling/
+
+# OS
+Thumbs.db
+
+# Generated / local
+/dist/
+/out/
+*.AppImage
+*.flatpak
