@@ -61,10 +61,11 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 | [docs/INFORMATION_ARCHITECTURE.md](docs/INFORMATION_ARCHITECTURE.md) | Workspace structure, flows, naming |
 | [docs/DESIGN.md](docs/DESIGN.md) | Visual design system (tokens + rationale) |
 | [docs/00-research/DOSSIER.md](docs/00-research/DOSSIER.md) | Stack research |
-| [docs/01-decisions/](docs/01-decisions/) | ADRs (`decisions-locked-v1`) |
-| [docs/03-checklists/](docs/03-checklists/) | Living build / risk / blocker lists |
+| [docs/01-decisions/](docs/01-decisions/) | ADRs (grill R1–R3 + ADR-014 desktop surface) |
+| [docs/03-checklists/](docs/03-checklists/) | Living phase checklist / risks / blockers |
+| [docs/04-journal/2026-07-15-doc-review.md](docs/04-journal/2026-07-15-doc-review.md) | Doc alignment review |
 
-**Status:** Documentation and decision baseline only. Application source was intentionally removed after an early scaffold so design and IA can land cleanly before the next implementation pass.
+**Status:** Documentation and decision baseline. Ready for Phase 1 desktop GUI scaffold.
 
 ## Agent & quality gate
 
