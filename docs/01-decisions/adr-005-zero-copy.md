@@ -12,7 +12,7 @@ Hard pillar: raw pixels never traverse FFI. Canvas texture lives on GPU; Qt disp
 
 **Case for double-buffered CPU staging “just for MVP”:** Ships demos faster.  
 **Hidden cost:** Becomes permanent; kills latency SLO; teaches wrong architecture.  
-**Failure mode:** Drivers refuse external memory → project stalls (spike skipped).  
+**Failure mode:** Drivers refuse external memory → project stalls if spike/findings ignored.  
 **Reversibility of accepting copies:** Easy to add, **Hard to remove** once UI depends on it.
 
 **Defense:** Hard constraint. Debug-only readback allowed; never default path.

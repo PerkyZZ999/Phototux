@@ -1,6 +1,6 @@
 # PhotoTux
 
-Professional-grade, high-performance raster/vector image editor for modern Linux (Wayland).
+Professional-grade, high-performance raster/vector **desktop** image editor for modern Linux (Wayland). **GUI application only** for MVP/v1 (no CLI/TUI product).
 
 ## Problem Statement
 

@@ -58,9 +58,13 @@
   └─ Blocks → public release packaging checklist
 
 [ADR-013: Product preferences R3]
-  ├─ Depends on → [ADR-002, ADR-011, ADR-012]
+  ├─ Depends on → [ADR-002, ADR-011, ADR-012, ADR-014]
   ├─ Forces → New Document UI + assets/icons pipeline
   └─ Forces → zoom-to-fit on document open; single-doc session model
+
+[ADR-014: Desktop GUI only]
+  ├─ Depends on → [ADR-001, ADR-002]
+  └─ Blocks → CLI/TUI/web product features without amendment
 ```
 
 ## Load-Bearing vs. Reversible Decisions

@@ -110,15 +110,14 @@ Native desktop accessibility (Qt / AT-SPI), not WCAG web checklists alone — bu
 ## Out of Scope
 
 - Marketing website, account system, cloud sync
+- **CLI product, TUI, headless batch tool** (desktop GUI only — ADR-014)
 - Plugin marketplace UI, asset store
 - Full vector studio, 3D viewport, video timeline
 - Mobile / tablet-OS apps
 - Light theme v1 (dark-only first; tokens may reserve light later)
 - Onboarding tour / empty-state mascot
-- Custom icon set design system beyond Lucide-like / Breeze-compatible tools (icon pack choice deferred)
 - Internationalization of all strings (architecture allows Qt `qsTr`; full locales later)
 - Implementation of wgpu interop (engineering; not this brief)
-
 ## Success (design)
 
 - User can open the app and understand **where to paint, which tool is active, and how to change brush size** within 10 seconds without docs

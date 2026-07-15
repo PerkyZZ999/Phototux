@@ -22,10 +22,13 @@ PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor w
 | Doc model | Full layer graph Phase 3 only | 011 |
 | License | GPL-3.0-or-later; public OSS late | 012 |
 | Prefs | New-doc dialog + presets; single doc; `assets/icons`; stroke undo; local CI; zoom-to-fit | 013 |
+| Surface | **Desktop GUI only** — no CLI product, no TUI, no web | 014 |
 
 **Design system:** `docs/DESIGN.md`, `docs/DESIGN_BRIEF.md`, `docs/INFORMATION_ARCHITECTURE.md`.
 
-**Repo state:** May be docs-only until Phase 1 re-scaffold. Pre-commit skips Rust tools until `Cargo.toml` exists (fails if `.rs` staged without workspace).
+**Product form:** End-user deliverable is a **windowed desktop editor**. `cargo run` / tests / `rust-doctor` are **developer tools**, not product surfaces.
+
+**Repo state:** Docs-first until Phase 1 scaffold. Pre-commit skips Rust tools until `Cargo.toml` exists (fails if `.rs` staged without workspace).
 
 ---
 

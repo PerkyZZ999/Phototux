@@ -30,7 +30,7 @@ Secondary product UX and process preferences that do not redefine the core stack
 **Choice: A — single document only for v1.**
 
 - One open document per process until a later ADR.
-- CLI: `phototux [file]` replaces/opens that single document (confirm if unsaved).
+- Open path is **GUI** (File → Open / portals) or later desktop “Open with” (ADR-014). No CLI product.
 - Multi-tab / multi-window explicitly **out of MVP**.
 
 ### G15 — Icons

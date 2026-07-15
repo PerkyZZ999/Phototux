@@ -1,122 +1,98 @@
 # Development Checklist
 
-Living document. Update status during `build-with-checklist`.
+Living, **phase-level** tracker. Detailed implementation plans are written **at the start of each phase**, not here.
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
-**Note (2026-07-15):** Early Phase 1 code scaffold was **removed** so design docs could land first. Implementation items below are **open** again; follow `docs/DESIGN.md` + IA when re-scaffolding.
+**Product surface (ADR-014):** desktop GUI only for MVP/v1 — **no** CLI product, **no** TUI, **no** web shell. `cargo` commands are developer tooling only.
+
+**Governing docs:** ADRs `docs/01-decisions/`, `docs/DESIGN.md`, IA, `AGENTS.md`, `SPEC.md`.
 
 ---
 
-## Phase 0 — Design readiness (docs)
+## Phase 0 — Foundation (docs & decisions)
 
-- [x] Design brief — `docs/DESIGN_BRIEF.md`
-- [x] Information architecture — `docs/INFORMATION_ARCHITECTURE.md`
-- [x] Design system tokens — `docs/DESIGN.md` (DESIGN.md format)
-- [x] Engineering ADRs locked — grill R1–R3 (ADR-001…013)
-- [ ] Design review pass (human) on brief + tokens vs KDE Plasma feel
-- [ ] Optional: lint `docs/DESIGN.md` with `@google/design.md`
-- [ ] Owner drops FOSS icon pack under `assets/icons/` + license note (ADR-013 G15)
+- [x] Inception, constraints, research dossier
+- [x] Design brief, IA, DESIGN.md tokens
+- [x] Grill R1–R3 + ADR-001…013; desktop surface ADR-014
+- [x] AGENTS.md + pre-commit (fmt / clippy / rust-doctor)
+- [x] Doc alignment review (2026-07-15)
+- [ ] Owner: FOSS icon pack → `assets/icons/` + license note (when ready)
+- [ ] Optional: human design pass on DESIGN.md
 
----
-
-## Phase 1 — Toolchain & Pure Rust-Qt Bootstrap (ADR-003, ADR-006)
-
-### 1.1 Workspace foundation
-- [ ] Create Cargo workspace root `Cargo.toml` with members per ADR-006
-- [ ] Scaffold `crates/phototux` binary crate
-- [ ] Scaffold `crates/phototux-ui` (qtbridge QObjects)
-- [ ] Scaffold `crates/phototux-engine` stub (no Qt)
-- [ ] Reserve `phototux-gpu` / `phototux-canvas` (names reserved in ADRs)
-- [ ] Root `qml/` directory with `Main.qml` styled from `DESIGN.md` tokens
-- [ ] `.gitignore` covers `target/`, build artifacts
-- **Done when:** `cargo build -p phototux` resolves workspace
-
-### 1.2 qtbridge integration
-- [ ] Pin `qtbridge = "0.2"` (or latest 0.2.x)
-- [ ] `QApp` entry loads `Main.qml`
-- [ ] Sample `#[qobject]` backend with `#[qproperty]` + `#[qslot]`
-- [ ] QML binds slider/label to Rust property (round-trip)
-- **Done when:** `cargo run -p phototux` opens window; slider updates Rust state and label
-
-### 1.3 QML shell skeleton (per IA + DESIGN.md)
-- [ ] ApplicationWindow tokens (neutral/surface)
-- [ ] Top toolbar (`toolbar-height`)
-- [ ] Left tool strip (`tool-strip-width`)
-- [ ] Right Properties + Layers docks (`dock-width`)
-- [ ] Status bar (`statusbar-height`, HUD placeholders)
-- [ ] Center canvas placeholder (`canvas-viewport` / sunken)
-- **Done when:** Layout matches IA blueprint; visual audit vs DESIGN.md
-
-### 1.4 Phase 1 quality
-- [ ] Engine stub unit tests
-- [ ] README run instructions restored
-- [ ] Cold-start ballpark noted in journal
-- **Done when:** 1.1–1.3 complete
-
-**Phase 1 exit:** Rust↔QML binding validated; UI skeleton matches design system; no wgpu required yet.
+**Exit:** Decisions and design sufficient to implement Phase 1.
 
 ---
 
-## Phase 1.5 — Interop spike (ADR-010) — **before Phase 2 production**
+## Phase 1 — Desktop shell bootstrap
 
-- [ ] Branch `spike/wgpu-qt-rhi-interop`
-- [ ] Time-box ≤ ~3 days / 3 sessions
-- [ ] Attempt shared Vulkan / external memory → Qt RHI item
-- [ ] Attempt DMA-BUF path if needed
-- [ ] Record whether qtbridge alone can host item vs thin C++
-- [ ] Write `docs/04-journal/spike-findings-interop.md`
-- [ ] Amend ADR-003/005 only if outcomes force it
-- **Done when:** Documented success recipe **or** documented hard fail (no silent CPU default)
-- **Forbidden:** Merging CPU full-frame upload as product default
+**Goal:** Launchable **GUI** workspace; Rust↔QML bindings; chrome matches design intent. No GPU canvas requirement yet.
+
+**Covers (plan in detail when starting):** workspace crates (ADR-006), qtbridge UI (ADR-003), QML shell per IA + DESIGN.md, New Document presets (ADR-013), quality hooks green.
+
+**Exit:** App window runs as desktop editor shell; state binding works; design/IA respected.
+
+**Refs:** ADR-002, 003, 006, 009, 012, 013, 014 · design docs
 
 ---
 
-## Phase 2 — High-Performance GPU Viewport (ADR-004, ADR-005, ADR-008)
+## Phase 1.5 — Interop spike (mandatory)
 
-- [ ] `phototux-gpu`: wgpu device/queue init (Vulkan)
-- [ ] `phototux-canvas`: custom item path (qtbridge or hybrid C++ RHI item)
-- [ ] Zero-copy or shared texture present path (no CPU full-frame default)
-- [ ] Pan/zoom camera in engine
-- [ ] FPS overlay / frame timing (mono-hud tokens)
-- [ ] **Gate:** ≥60 FPS zoom/pan on large test canvas
-- **Blocked by:** Phase 1 exit; interop risk (spike skipped)
+**Goal:** Prove zero-copy (or document hard fail) **before** production GPU viewport.
 
----
+**Covers:** Time-boxed throwaway spike (ADR-010); findings journal; ADR amendments only if needed.
 
-## Phase 3 — Composite Layer Engine (ADR-004, ADR-007, ADR-008)
+**Exit:** Written recipe **or** written blocker — **no** silent CPU full-frame product path.
 
-- [ ] Image state graph in `phototux-engine`
-- [ ] WGSL blend modes
-- [ ] Transactional undo/redo
-- [ ] Layers panel wired to graph (IA F3)
-- [ ] **Gate:** 10×4K composite < 2 ms GPU
+**Refs:** ADR-003, 004, 005, 010
 
 ---
 
-## Phase 4 — Brush & Tools (ADR-007, ADR-008)
+## Phase 2 — GPU viewport
 
-- [ ] Brush core + Wayland tablet pressure
-- [ ] Selection, eyedropper, transform tool states
-- [ ] Interactive Layer Panel complete
-- [ ] Engine worker command queue mandatory
-- [ ] **Gate:** input-to-render < 8 ms path instrumented
+**Goal:** Canvas is real GPU surface; pan/zoom fluid.
 
----
+**Exit gate:** ≥ **60 FPS** zoom/pan (ADR-008); zero-copy hot path (ADR-005).
 
-## Phase 5 — Desktop Integration & Release (ADR-001, ADR-008)
-
-- [ ] KDE menu bar / global menu hooks as applicable
-- [ ] XDG portals open/save (IA F4/F5)
-- [ ] HDR path profile
-- [ ] **Gate:** cold boot < 250 ms interactive (stretch; document if missed)
-- [ ] Packaging notes (distro/Flatpak deferred OK)
+**Refs:** ADR-004, 005, 007, 008, 010 findings · `phototux_gpu` / `phototux_canvas`
 
 ---
 
-## Cross-cutting
+## Phase 3 — Layer / composite engine
 
-- [ ] Keep `docs/03-checklists/blockers.md` current
-- [ ] ADR revisit dates checked at each phase exit
-- [ ] No new major deps without ADR
-- [ ] UI changes update `DESIGN.md` tokens when needed
+**Goal:** Non-destructive graph, blends, undo (gesture-level, ADR-013).
+
+**Exit gate:** 10×4K composite **&lt; 2 ms** GPU (ADR-008).
+
+**Refs:** ADR-011, 004, 007, 008, 009
+
+---
+
+## Phase 4 — Tools & brush
+
+**Goal:** Painting and essential tools; tablet path; layers UI real.
+
+**Exit gate:** ≥60 FPS while brushing; input→render **&lt; 8 ms** path (ADR-008); worker for heavy work (ADR-007).
+
+**Refs:** ADR-007, 008, 013 · IA tool/layer flows
+
+---
+
+## Phase 5 — Desktop integration
+
+**Goal:** Feel like a finished Plasma citizen (menus, portals, polish).
+
+**Exit gate:** Cold boot target **&lt; 250 ms** interactive (stretch; document if missed). Packaging notes OK deferred.
+
+**Refs:** ADR-001, 008, 012, 014 · IA open/export flows (GUI + portals, not CLI)
+
+---
+
+## Standing rules (all phases)
+
+- [ ] Update this file’s phase status when starting/finishing a phase
+- [ ] Log blockers in `blockers.md` immediately
+- [ ] No major deps / surface changes without ADR
+- [ ] UI changes respect `DESIGN.md` (extend tokens if needed)
+- [ ] `./scripts/check-rust.sh` green when Rust workspace exists
+- [ ] Fix code rather than paragraph-long workaround comments (`AGENTS.md`)

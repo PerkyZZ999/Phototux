@@ -22,11 +22,12 @@ Phases 1–2: qtbridge bootstrap + QML skeleton + custom QQuickItem + wgpu viewp
 - Rust + Qt 6 QML
 - Zero-copy GPU canvas
 - Performance SLOs as acceptance gates
+- **Desktop GUI only** (no CLI/TUI product for v1) — ADR-014
 
 ## Soft constraints
 
-- `qtbridge-rust` first
-- KDE HIG dense dark UI
+- `qtbridge` app logic + hybrid canvas if needed
+- KDE HIG dense dark UI (Controls 2; Kirigami deferred)
 - Arch/CachyOS reference host
 - Vulkan-first wgpu
 
@@ -35,3 +36,5 @@ Phases 1–2: qtbridge bootstrap + QML skeleton + custom QQuickItem + wgpu viewp
 - [README.md](../README.md)
 - [CONSTRAINTS.md](../CONSTRAINTS.md)
 - [SPEC.md](../SPEC.md)
+- [AGENTS.md](../AGENTS.md)
+- [01-decisions/](./01-decisions/) (ADR-001…014)

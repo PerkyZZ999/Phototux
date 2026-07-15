@@ -139,13 +139,17 @@ sudo pacman -S rustup clang cmake qt6-base qt6-declarative vulkan-headers
 
 ```
 
-### Verification Verification Test
+### Verification (developer)
 
-To verify the initial environment setup, ensure that `qmake` is in your standard PATH and call your local Cargo compiler:
+PhotoTux is a **desktop GUI** app (not a CLI/TUI product). Use **Qt 6** `qmake` on `PATH`, then from the workspace root:
 
 ```bash
-cargo run --manifest-path=qml-interface/Cargo.toml
-
+export PATH=/usr/lib/qt6/bin:$PATH
+export QMAKE=/usr/lib/qt6/bin/qmake
+cargo run -p phototux    # launches the editor window (dev)
+./scripts/check-rust.sh  # rustfmt + clippy + rust-doctor
 ```
+
+Crate layout and phases: see `docs/01-decisions/` and `docs/03-checklists/development.md`.
 
 ---

@@ -106,3 +106,12 @@ Earlier “spike skipped” is **partially reversed**: interop spike is required
 **Grill status:** Rounds 1–3 complete. Architecture + product prefs locked (ADR-001…013).
 
 ---
+
+## [doc-review-and-desktop-surface] — 2026-07-15
+
+- Doc alignment review: `docs/04-journal/2026-07-15-doc-review.md`
+- **ADR-014:** MVP/v1 = **desktop GUI only** (no CLI/TUI product)
+- Fixed IA F1 vs New Document presets; SPEC verify path; checklist phase-level rewrite
+- CONSTRAINTS hard list updated
+
+---

@@ -94,10 +94,10 @@ Content owned by **XDG portals** — PhotoTux supplies filters and last paths on
 
 ### F1 — Cold start to first stroke (MVP path)
 
-1. User launches `phototux`  
-2. Sees Main Workspace with default/new canvas (or empty document prompt — decide at Phase 1: **default blank canvas**)  
-3. Brush tool pre-selected  
-4. User adjusts brush size in Properties (or `[` `]`)  
+1. User launches PhotoTux from the **desktop** (app menu / icon) — **GUI only** (ADR-014; no CLI/TUI product)  
+2. **New Document** flow (ADR-013): user picks size via dialog or presets (**720p / 1080p / 2K / 4K**), then workspace opens; **zoom-to-fit**  
+3. Brush tool pre-selected (when tools exist; Phase 1 may show shell only)  
+4. User adjusts brush size in Properties (or shortcuts) when painting lands  
 5. User strokes on canvas → paint appears (Phase 4 full; Phase 2 may be pan/zoom only)  
 6. Status bar reflects tool + zoom  
 
