@@ -42,3 +42,4 @@ Thumbs.db
 /out/
 *.AppImage
 *.flatpak
+**/.rust-doctor-cache.json
