@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import phototux_ui
+import PhototuxCanvas 1.0
 
 ApplicationWindow {
     id: root
@@ -18,8 +19,9 @@ ApplicationWindow {
     readonly property color surfaceSunken: "#121214"
     readonly property color surfaceOverlay: "#232328"
     readonly property color border: "#3D3D45"
-    readonly property color onSurface: "#EFF0F1"
-    readonly property color onSurfaceMuted: "#A0A0A8"
+    // Avoid names starting with "on" — QML reserves on* for signal handlers.
+    readonly property color colorOnSurface: "#EFF0F1"
+    readonly property color colorOnSurfaceMuted: "#A0A0A8"
     readonly property color canvasLetterbox: "#0C0C0E"
     readonly property color toolActiveBg: "#3DAEE940"
     readonly property int toolStripWidth: 48
@@ -30,14 +32,12 @@ ApplicationWindow {
         var root = AppSession.iconRoot
         if (!root || root.length === 0)
             return ""
-        // Qt file URL
         if (root.charAt(0) === "/")
             return "file://" + root + "/" + stem + ".svg"
         return "file:///" + root + "/" + stem + ".svg"
     }
 
     Component.onCompleted: {
-        // First launch: require explicit New Document (ADR-013)
         if (!AppSession.hasDocument)
             newDocDialog.open()
     }
@@ -94,8 +94,8 @@ ApplicationWindow {
             Item { Layout.fillWidth: true }
 
             Label {
-                text: qsTr("Phase 1 shell")
-                color: root.onSurfaceMuted
+                text: qsTr("Phase 2 · GPU viewport")
+                color: root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
         }
@@ -120,7 +120,7 @@ ApplicationWindow {
 
             Label {
                 text: AppSession.statusText
-                color: root.onSurface
+                color: root.colorOnSurface
                 font.pixelSize: 11
                 elide: Text.ElideRight
                 Layout.fillWidth: true
@@ -131,13 +131,16 @@ ApplicationWindow {
                       ? (Math.round(AppSession.zoom * 100) + "% · "
                          + AppSession.docWidth + "×" + AppSession.docHeight)
                       : ""
-                color: root.onSurfaceMuted
+                color: root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
 
             Label {
-                text: qsTr("FPS: —")
-                color: root.onSurfaceMuted
+                id: fpsLabel
+                text: AppSession.fps > 0
+                      ? (qsTr("FPS: ") + Math.round(AppSession.fps))
+                      : qsTr("FPS: —")
+                color: AppSession.fps >= 60 ? root.primary : root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
         }
@@ -202,65 +205,114 @@ ApplicationWindow {
             }
         }
 
-        // Canvas placeholder
+        // GPU canvas viewport
         Item {
+            id: canvasHost
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            Rectangle {
+            onWidthChanged: AppSession.setViewportSize(width, height)
+            onHeightChanged: AppSession.setViewportSize(width, height)
+            Component.onCompleted: AppSession.setViewportSize(width, height)
+
+            PhototuxCanvas {
+                id: gpuCanvas
                 anchors.fill: parent
-                color: root.canvasLetterbox
+                zoom: AppSession.zoom
+                panX: AppSession.panX
+                panY: AppSession.panY
+                docWidth: AppSession.docWidth
+                docHeight: AppSession.docHeight
+                hasDocument: AppSession.hasDocument
+                phase: frameClock.phase
+            }
 
-                // Checkerboard
-                Canvas {
-                    id: checker
-                    anchors.fill: parent
-                    opacity: 0.12
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        var s = 16
-                        for (var y = 0; y < height; y += s) {
-                            for (var x = 0; x < width; x += s) {
-                                ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? "#444" : "#222"
-                                ctx.fillRect(x, y, s, s)
-                            }
-                        }
-                    }
-                    Component.onCompleted: requestPaint()
-                    onWidthChanged: requestPaint()
-                    onHeightChanged: requestPaint()
-                }
+            Label {
+                visible: !AppSession.hasDocument
+                anchors.centerIn: parent
+                z: 2
+                text: qsTr("No document — File → New")
+                color: root.colorOnSurfaceMuted
+                font.pixelSize: 14
+            }
 
-                // Document frame (aspect from session; zoom scales visual)
-                Rectangle {
-                    id: docFrame
-                    visible: AppSession.hasDocument
-                    anchors.centerIn: parent
-                    readonly property real aspect: AppSession.docHeight > 0
-                        ? AppSession.docWidth / AppSession.docHeight : 16 / 9
-                    readonly property real baseW: Math.min(parent.width * 0.7, 720)
-                    width: baseW * AppSession.zoom
-                    height: (baseW / aspect) * AppSession.zoom
-                    color: root.surfaceOverlay
-                    border.color: root.border
-                    border.width: 1
-                    radius: 2
-
-                    Label {
-                        anchors.centerIn: parent
-                        text: qsTr("Canvas viewport\n(wgpu · Phase 2)")
-                        color: root.onSurfaceMuted
-                        horizontalAlignment: Text.AlignHCenter
-                        font.pixelSize: 13
+            // Continuous phase + FPS measurement (drives canvas update)
+            FrameAnimation {
+                id: frameClock
+                running: root.visible
+                property real phase: 0
+                property real fpsEma: 0
+                onTriggered: {
+                    phase = (phase + frameTime * 2.0) % 1000.0
+                    // frameTime is seconds; EMA smooths FPS
+                    if (frameTime > 0) {
+                        var inst = 1.0 / frameTime
+                        fpsEma = fpsEma > 0 ? (fpsEma * 0.9 + inst * 0.1) : inst
+                        AppSession.reportFps(fpsEma)
                     }
                 }
+            }
 
-                Label {
-                    visible: !AppSession.hasDocument
-                    anchors.centerIn: parent
-                    text: qsTr("No document — File → New")
-                    color: root.onSurfaceMuted
-                    font.pixelSize: 14
+            // Pointer: pan / zoom / wheel
+            MouseArea {
+                id: canvasInput
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                hoverEnabled: true
+                cursorShape: {
+                    if (AppSession.activeTool === "tool.pan")
+                        return Qt.OpenHandCursor
+                    if (AppSession.activeTool === "tool.zoom")
+                        return Qt.CrossCursor
+                    return Qt.ArrowCursor
+                }
+                property real lastX: 0
+                property real lastY: 0
+                property bool dragging: false
+
+                onPressed: function (mouse) {
+                    lastX = mouse.x
+                    lastY = mouse.y
+                    dragging = true
+                    if (AppSession.activeTool === "tool.pan" || mouse.button === Qt.MiddleButton)
+                        cursorShape = Qt.ClosedHandCursor
+                }
+                onReleased: function (mouse) {
+                    dragging = false
+                    if (AppSession.activeTool === "tool.pan")
+                        cursorShape = Qt.OpenHandCursor
+                }
+                onPositionChanged: function (mouse) {
+                    if (!dragging || !AppSession.hasDocument)
+                        return
+                    var dx = mouse.x - lastX
+                    var dy = mouse.y - lastY
+                    lastX = mouse.x
+                    lastY = mouse.y
+                    var panMode = AppSession.activeTool === "tool.pan" || (mouse.buttons & Qt.MiddleButton)
+                    if (panMode) {
+                        AppSession.panBy(dx, dy)
+                    } else if (AppSession.activeTool === "tool.zoom") {
+                        // Drag up = zoom in
+                        var factor = Math.exp(-dy * 0.01)
+                        AppSession.zoomAt(factor, mouse.x, mouse.y)
+                        zoomSlider.value = AppSession.zoom
+                    }
+                }
+                onWheel: function (wheel) {
+                    if (!AppSession.hasDocument)
+                        return
+                    var steps = wheel.angleDelta.y / 120.0
+                    var factor = Math.pow(1.12, steps)
+                    AppSession.zoomAt(factor, wheel.x, wheel.y)
+                    zoomSlider.value = AppSession.zoom
+                    wheel.accepted = true
+                }
+                onDoubleClicked: function (mouse) {
+                    if (AppSession.hasDocument) {
+                        AppSession.zoomToFit()
+                        zoomSlider.value = AppSession.zoom
+                    }
                 }
             }
         }
@@ -285,14 +337,14 @@ ApplicationWindow {
 
                 Label {
                     text: qsTr("Properties")
-                    color: root.onSurface
+                    color: root.colorOnSurface
                     font.bold: true
                     font.pixelSize: 12
                 }
 
                 Label {
                     text: qsTr("Brush size")
-                    color: root.onSurfaceMuted
+                    color: root.colorOnSurfaceMuted
                     font.pixelSize: 11
                 }
 
@@ -309,7 +361,7 @@ ApplicationWindow {
                     }
                     Label {
                         text: Math.round(brushSlider.value) + "px"
-                        color: root.onSurface
+                        color: root.colorOnSurface
                         font.pixelSize: 11
                         Layout.preferredWidth: 40
                         horizontalAlignment: Text.AlignRight
@@ -318,7 +370,7 @@ ApplicationWindow {
 
                 Label {
                     text: qsTr("Zoom")
-                    color: root.onSurfaceMuted
+                    color: root.colorOnSurfaceMuted
                     font.pixelSize: 11
                 }
 
@@ -327,23 +379,33 @@ ApplicationWindow {
                     Slider {
                         id: zoomSlider
                         Layout.fillWidth: true
-                        from: 0.1
-                        to: 4.0
+                        from: 0.05
+                        to: 8.0
                         value: AppSession.zoom
                         enabled: AppSession.hasDocument
                         onMoved: AppSession.setZoom(value)
                     }
                     Label {
                         text: Math.round(zoomSlider.value * 100) + "%"
-                        color: root.onSurface
+                        color: root.colorOnSurface
                         font.pixelSize: 11
-                        Layout.preferredWidth: 40
+                        Layout.preferredWidth: 48
                         horizontalAlignment: Text.AlignRight
                     }
                 }
 
                 Button {
-                    text: qsTr("Reset zoom")
+                    text: qsTr("Fit to view")
+                    Layout.fillWidth: true
+                    enabled: AppSession.hasDocument
+                    onClicked: {
+                        AppSession.zoomToFit()
+                        zoomSlider.value = AppSession.zoom
+                    }
+                }
+
+                Button {
+                    text: qsTr("Reset zoom 100%")
                     Layout.fillWidth: true
                     enabled: AppSession.hasDocument
                     onClicked: {
@@ -358,18 +420,39 @@ ApplicationWindow {
                     color: root.border
                 }
 
+                Label {
+                    text: qsTr("GPU")
+                    color: root.colorOnSurface
+                    font.bold: true
+                    font.pixelSize: 12
+                }
+
+                Label {
+                    text: gpuCanvas.gpuStatus
+                    color: root.colorOnSurfaceMuted
+                    font.pixelSize: 10
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: root.border
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     Label {
                         text: qsTr("Layers")
-                        color: root.onSurface
+                        color: root.colorOnSurface
                         font.bold: true
                         font.pixelSize: 12
                         Layout.fillWidth: true
                     }
                     Label {
                         text: qsTr("stub")
-                        color: root.onSurfaceMuted
+                        color: root.colorOnSurfaceMuted
                         font.pixelSize: 10
                     }
                 }
@@ -397,7 +480,7 @@ ApplicationWindow {
                                     anchors.left: parent.left
                                     anchors.leftMargin: 8
                                     text: modelData
-                                    color: root.onSurface
+                                    color: root.colorOnSurface
                                     font.pixelSize: 11
                                 }
                             }
@@ -408,7 +491,7 @@ ApplicationWindow {
                 Item { Layout.fillHeight: true }
 
                 Label {
-                    text: qsTr("Rust ↔ QML live")
+                    text: qsTr("wgpu · QQuickRhiItem")
                     color: root.primary
                     font.pixelSize: 10
                     Layout.alignment: Qt.AlignHCenter
@@ -421,6 +504,7 @@ ApplicationWindow {
         id: newDocDialog
         anchors.centerIn: parent
         onAccepted: function (presetLabel, w, h) {
+            AppSession.setViewportSize(canvasHost.width, canvasHost.height)
             if (presetLabel && presetLabel.length > 0)
                 AppSession.applySizePreset(presetLabel)
             else
@@ -429,4 +513,5 @@ ApplicationWindow {
             brushSlider.value = AppSession.brushSize
         }
     }
+
 }

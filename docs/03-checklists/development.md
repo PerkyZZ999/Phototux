@@ -50,7 +50,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Canvas is real GPU surface; pan/zoom fluid.
 
-**Exit gate:** ≥ **60 FPS** zoom/pan (ADR-008); zero-copy hot path (ADR-005).
+**Status:** `[x]` **closed 2026-07-15** (branch `feat/phase2-gpu-viewport`) — production `PhototuxCanvas` + `Camera2D` pan/zoom; **FPS ≥ 63** on Arc B580; GPU RHI present (no CPU full-frame upload); wgpu VkImage `createFrom` attempt logged OK (sampling deferred). See `docs/04-journal/2026-07-15-phase2-gpu-viewport.md`.
+
+**Exit gate:** ≥ **60 FPS** zoom/pan (ADR-008); zero-copy hot path (ADR-005). **Met** for present path; import sampling still Phase 3 polish.
 
 **Refs:** ADR-004, 005, 007, 008, 010 findings · `phototux_gpu` / `phototux_canvas`
 

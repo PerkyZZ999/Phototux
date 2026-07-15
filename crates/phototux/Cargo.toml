@@ -13,3 +13,4 @@ path = "src/main.rs"
 [dependencies]
 qtbridge = { workspace = true }
 phototux_ui = { workspace = true }
+phototux_canvas = { workspace = true }

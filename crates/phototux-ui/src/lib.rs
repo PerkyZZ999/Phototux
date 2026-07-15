@@ -13,12 +13,15 @@ fn resolve_icon_root() -> String {
     p.canonicalize().unwrap_or(p).to_string_lossy().into_owned()
 }
 
-/// Application session singleton for the desktop shell (Phase 1).
+/// Application session singleton for the desktop shell.
 pub struct AppSession {
     doc_width: i32,
     doc_height: i32,
     zoom: f32,
+    pan_x: f32,
+    pan_y: f32,
     brush_size: f32,
+    fps: f32,
     status_text: String,
     active_tool: String,
     has_document: bool,
@@ -39,8 +42,11 @@ impl AppSession {
         Self {
             doc_width: engine.size.width as i32,
             doc_height: engine.size.height as i32,
-            zoom: engine.zoom,
+            zoom: engine.camera.zoom,
+            pan_x: engine.camera.pan_x,
+            pan_y: engine.camera.pan_y,
             brush_size: engine.brush_size,
+            fps: engine.fps,
             status_text: engine.status_summary(),
             active_tool: engine.active_tool.clone(),
             has_document: engine.has_document,
@@ -52,25 +58,34 @@ impl AppSession {
     fn sync_from_engine(&mut self) {
         self.doc_width = self.engine.size.width as i32;
         self.doc_height = self.engine.size.height as i32;
-        self.zoom = self.engine.zoom;
+        self.zoom = self.engine.camera.zoom;
+        self.pan_x = self.engine.camera.pan_x;
+        self.pan_y = self.engine.camera.pan_y;
         self.brush_size = self.engine.brush_size;
+        self.fps = self.engine.fps;
         self.active_tool = self.engine.active_tool.clone();
         self.has_document = self.engine.has_document;
         self.status_text = self.engine.status_summary();
     }
 
+    fn emit_camera_fields(&mut self) {
+        self.zoom_changed();
+        self.pan_x_changed();
+        self.pan_y_changed();
+        self.status_text_changed();
+    }
+
     fn emit_doc_fields(&mut self) {
         self.doc_width_changed();
         self.doc_height_changed();
-        self.zoom_changed();
+        self.emit_camera_fields();
         self.brush_size_changed();
         self.active_tool_changed();
         self.has_document_changed();
-        self.status_text_changed();
     }
 }
 
-#[qobject(Singleton)]
+#[qobject(Singleton, ConvertToCamelCase)]
 impl AppSession {
     qproperty!("docWidth", Member = doc_width, Notify = doc_width_changed);
     qproperty!(
@@ -79,11 +94,14 @@ impl AppSession {
         Notify = doc_height_changed
     );
     qproperty!("zoom", Member = zoom, Notify = zoom_changed);
+    qproperty!("panX", Member = pan_x, Notify = pan_x_changed);
+    qproperty!("panY", Member = pan_y, Notify = pan_y_changed);
     qproperty!(
         "brushSize",
         Member = brush_size,
         Notify = brush_size_changed
     );
+    qproperty!("fps", Member = fps, Notify = fps_changed);
     qproperty!(
         "statusText",
         Member = status_text,
@@ -111,7 +129,16 @@ impl AppSession {
     fn zoom_changed(&mut self);
 
     #[qsignal]
+    fn pan_x_changed(&mut self);
+
+    #[qsignal]
+    fn pan_y_changed(&mut self);
+
+    #[qsignal]
     fn brush_size_changed(&mut self);
+
+    #[qsignal]
+    fn fps_changed(&mut self);
 
     #[qsignal]
     fn status_text_changed(&mut self);
@@ -129,8 +156,7 @@ impl AppSession {
     fn set_zoom(&mut self, value: f32) {
         self.engine.set_zoom(value);
         self.sync_from_engine();
-        self.zoom_changed();
-        self.status_text_changed();
+        self.emit_camera_fields();
     }
 
     #[qslot]
@@ -153,6 +179,35 @@ impl AppSession {
         self.status_text_changed();
     }
 
+    /// Report canvas viewport size (CSS pixels) for zoom-to-fit / zoom-at.
+    #[qslot]
+    fn set_viewport_size(&mut self, width: f32, height: f32) {
+        self.engine.set_viewport(width, height);
+    }
+
+    /// Pan by screen-space delta (pixels). Used by pan tool / middle-drag.
+    #[qslot]
+    fn pan_by(&mut self, dx: f32, dy: f32) {
+        self.engine.pan_by(dx, dy);
+        self.sync_from_engine();
+        self.emit_camera_fields();
+    }
+
+    /// Zoom by multiplicative factor around a screen-space anchor.
+    #[qslot]
+    fn zoom_at(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
+        self.engine.zoom_at(factor, anchor_x, anchor_y);
+        self.sync_from_engine();
+        self.emit_camera_fields();
+    }
+
+    #[qslot]
+    fn zoom_to_fit(&mut self) {
+        self.engine.zoom_to_fit();
+        self.sync_from_engine();
+        self.emit_camera_fields();
+    }
+
     /// Apply a named size preset: `"720p" | "1080p" | "2K" | "4K"`.
     #[qslot]
     fn apply_size_preset(&mut self, label: String) {
@@ -171,6 +226,14 @@ impl AppSession {
         self.engine.apply_size(DocumentSize::new(w, h));
         self.sync_from_engine();
         self.emit_doc_fields();
+    }
+
+    /// Update FPS estimate from QML `FrameAnimation` / canvas timer.
+    #[qslot]
+    fn report_fps(&mut self, fps: f32) {
+        self.engine.set_fps(fps);
+        self.fps = self.engine.fps;
+        self.fps_changed();
     }
 
     #[qslot]

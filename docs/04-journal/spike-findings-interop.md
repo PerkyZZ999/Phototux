@@ -110,4 +110,4 @@ cargo run -p phototux_spike_interop
 - [x] wgpu + hybrid canvas spike builds  
 - [x] Host Arc/Xe documented  
 - [x] This findings file  
-- [ ] Full DMA-BUF / import (carry to Phase 2)  
+- [x] Full DMA-BUF / import (carry to Phase 2) — **Phase 2:** `createFrom(VkImage)` attempted; log OK; sampling deferred (see `2026-07-15-phase2-gpu-viewport.md`) 

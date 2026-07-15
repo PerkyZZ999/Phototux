@@ -1,5 +1,9 @@
 //! Pure document/session types — no Qt (ADR-006, ADR-011 Phase 1 stub).
 
+mod camera;
+
+pub use camera::{Camera2D, FpsTracker, Rect};
+
 /// Pixel dimensions of the open document canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentSize {
@@ -82,31 +86,62 @@ pub mod tool_id {
 #[derive(Debug, Clone)]
 pub struct SessionState {
     pub size: DocumentSize,
-    pub zoom: f32,
+    pub camera: Camera2D,
     pub brush_size: f32,
     pub active_tool: String,
     pub has_document: bool,
+    pub fps: f32,
+    /// Viewport size for zoom-to-fit (updated from QML).
+    pub viewport_w: f32,
+    pub viewport_h: f32,
 }
 
 impl Default for SessionState {
     fn default() -> Self {
         Self {
             size: SizePreset::P1080.size(),
-            zoom: 1.0,
+            camera: Camera2D::default(),
             brush_size: 12.0,
             active_tool: tool_id::BRUSH.to_owned(),
             has_document: false,
+            fps: 0.0,
+            viewport_w: 800.0,
+            viewport_h: 600.0,
         }
     }
 }
 
 impl SessionState {
     pub fn set_zoom(&mut self, zoom: f32) {
-        self.zoom = zoom.clamp(0.05, 32.0);
+        self.camera.set_zoom(zoom);
     }
 
     pub fn set_brush_size(&mut self, size: f32) {
         self.brush_size = size.clamp(1.0, 500.0);
+    }
+
+    pub fn set_viewport(&mut self, width: f32, height: f32) {
+        self.viewport_w = width.max(1.0);
+        self.viewport_h = height.max(1.0);
+    }
+
+    pub fn pan_by(&mut self, dx: f32, dy: f32) {
+        self.camera.pan_by_screen(dx, dy);
+    }
+
+    pub fn zoom_at(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
+        self.camera
+            .zoom_at(factor, anchor_x, anchor_y, self.viewport_w, self.viewport_h);
+    }
+
+    pub fn zoom_to_fit(&mut self) {
+        self.camera.zoom_to_fit(
+            self.size.width as f32,
+            self.size.height as f32,
+            self.viewport_w,
+            self.viewport_h,
+            0.08,
+        );
     }
 
     pub fn apply_size(&mut self, size: DocumentSize) {
@@ -114,8 +149,7 @@ impl SessionState {
         let h = size.height.clamp(1, 32_768);
         self.size = DocumentSize::new(w, h);
         self.has_document = true;
-        // Zoom-to-fit is applied in UI; reset logical zoom to 1 until camera lands.
-        self.zoom = 1.0;
+        self.zoom_to_fit();
     }
 
     pub fn apply_preset(&mut self, preset: SizePreset) {
@@ -126,15 +160,21 @@ impl SessionState {
         self.active_tool = tool.to_owned();
     }
 
+    pub fn set_fps(&mut self, fps: f32) {
+        self.fps = fps.max(0.0);
+    }
+
     pub fn status_summary(&self) -> String {
         if !self.has_document {
             return "PhotoTux — create or open a document".to_owned();
         }
         format!(
-            "{}×{} · zoom {:.0}% · {}",
+            "{}×{} · zoom {:.0}% · pan ({:.0},{:.0}) · {}",
             self.size.width,
             self.size.height,
-            self.zoom * 100.0,
+            self.camera.zoom * 100.0,
+            self.camera.pan_x,
+            self.camera.pan_y,
             self.active_tool
         )
     }
@@ -156,9 +196,9 @@ mod tests {
     fn zoom_clamped() {
         let mut s = SessionState::default();
         s.set_zoom(100.0);
-        assert!((s.zoom - 32.0).abs() < f32::EPSILON);
+        assert!((s.camera.zoom - Camera2D::MAX_ZOOM).abs() < f32::EPSILON);
         s.set_zoom(0.01);
-        assert!((s.zoom - 0.05).abs() < f32::EPSILON);
+        assert!((s.camera.zoom - Camera2D::MIN_ZOOM).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -171,12 +211,15 @@ mod tests {
     }
 
     #[test]
-    fn apply_preset_marks_document() {
+    fn apply_preset_marks_document_and_fits() {
         let mut s = SessionState::default();
+        s.set_viewport(1200.0, 800.0);
         assert!(!s.has_document);
         s.apply_preset(SizePreset::P4k);
         assert!(s.has_document);
         assert_eq!(s.size, DocumentSize::new(3840, 2160));
+        assert!(s.camera.zoom > 0.0);
+        assert!((s.camera.pan_x - 1920.0).abs() < 1.0);
     }
 
     #[test]

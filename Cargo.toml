@@ -5,6 +5,7 @@ members = [
     "crates/phototux-ui",
     "crates/phototux-engine",
     "crates/phototux-gpu",
+    "crates/phototux-canvas",
     "crates/phototux-spike-interop",
 ]
 default-members = ["crates/phototux"]
@@ -16,6 +17,8 @@ version = "0.1.0"
 rust-version = "1.87"
 
 [workspace.dependencies]
-qtbridge = "0.2"
+qtbridge = "0.2.0"
 phototux_engine = { path = "crates/phototux-engine" }
 phototux_ui = { path = "crates/phototux-ui" }
+phototux_canvas = { path = "crates/phototux-canvas" }
+phototux_gpu = { path = "crates/phototux-gpu" }
