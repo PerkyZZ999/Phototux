@@ -35,49 +35,11 @@ assets/icons/
     └── duotone/*.svg
 ```
 
-## Suggested mapping (PhotoTux tools / chrome)
+## Icon → action mapping
 
-Use these filenames under `phosphor/regular/` (swap weight folder as needed). Names follow Phosphor’s kebab-case SVG files.
+**Full tables (Action ID, UI label, SVG stem, phases):** see **[ICON_MAP.md](./ICON_MAP.md)**.
 
-| UI role | Phosphor SVG (regular) | Notes |
-|---------|------------------------|--------|
-| Brush | `paint-brush.svg` | Primary paint tool |
-| Pencil | `pencil-simple.svg` | Hard edge / sketch |
-| Eraser | `eraser.svg` | |
-| Eyedropper | `eyedropper.svg` | Color pick |
-| Selection (rect) | `selection.svg` | Or `rectangle` / `bounding-box` |
-| Lasso-ish free select | `lasso.svg` | If present; else `polygon` |
-| Move / pan | `hand-grabbing.svg` / `hand.svg` | Space-pan cursor |
-| Transform | `arrows-out-cardinal.svg` | Scale/move handles context |
-| Crop | `crop.svg` | |
-| Text | `text-t.svg` | |
-| Shape | `shapes.svg` | |
-| Fill / bucket | `paint-bucket.svg` | |
-| Zoom | `magnifying-glass.svg` | |
-| Zoom in / out | `magnifying-glass-plus.svg` / `magnifying-glass-minus.svg` | |
-| Layers | `stack.svg` | Layers panel |
-| Layer visible | `eye.svg` | |
-| Layer hidden | `eye-slash.svg` | |
-| Lock | `lock.svg` / `lock-open.svg` | |
-| New document | `file-plus.svg` | |
-| Open | `folder-open.svg` | |
-| Save | `floppy-disk.svg` | |
-| Export | `export.svg` | |
-| Undo | `arrow-counter-clockwise.svg` | |
-| Redo | `arrow-clockwise.svg` | |
-| Copy / paste | `copy.svg` / `clipboard.svg` | |
-| Trash / delete | `trash.svg` | |
-| Settings | `gear.svg` | |
-| Properties / sliders | `sliders-horizontal.svg` | |
-| Close | `x.svg` | |
-| Menu overflow | `dots-three.svg` | |
-| Info | `info.svg` | |
-| Warning | `warning.svg` | |
-| Image | `image.svg` | Document type |
-| Palette | `palette.svg` | Color UI |
-| Desktop / window | `desktop.svg` | About / platform |
-
-Exact presence: verify with `ls assets/icons/phosphor/regular/<name>.svg` before wiring QML `Image` / `icon.source`.
+That file is the source of truth for wiring QML `iconSource(actionId)`. Examples: brush → `paint-brush`, layers → `stack`, undo → `arrow-counter-clockwise`.
 
 ## Usage notes (Qt Quick)
 
