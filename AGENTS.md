@@ -110,7 +110,7 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 | Skill | Desktop adaptation |
 |-------|--------------------|
 | `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `docs/DESIGN.md`; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
-| `iconography-frontend-ui` | Icons from `assets/icons/phosphor/` (map in `assets/icons/README.md`); function over decoration; labels+tooltips; contrast; states; size on grid (tool strip ~36px hit) |
+| `iconography-frontend-ui` | Icons from `assets/icons/phosphor/`; **map:** `assets/icons/ICON_MAP.md`; function over decoration; labels+tooltips; contrast; states; size on grid (tool strip ~36px hit) |
 
 **Never** invent a second palette or spacing scale—extend `docs/DESIGN.md`.
 
