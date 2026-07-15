@@ -1,0 +1,15 @@
+[package]
+name = "phototux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PhotoTux application binary (QApp entry)"
+
+[[bin]]
+name = "phototux"
+path = "src/main.rs"
+
+[dependencies]
+qtbridge = { workspace = true }
+phototux_ui = { workspace = true }

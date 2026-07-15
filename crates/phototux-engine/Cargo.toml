@@ -1,0 +1,9 @@
+[package]
+name = "phototux_engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Pure Rust document/canvas state for PhotoTux (no Qt)"
+
+[dependencies]

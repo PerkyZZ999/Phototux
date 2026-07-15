@@ -49,8 +49,26 @@ Full phase plan lives in [SPEC.md](SPEC.md).
 
 See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [SPEC.md](SPEC.md).
 
+## Run (Phase 1)
+
+**Requirements:** Qt **6.10+** on `PATH` (Arch: `qt6-base`, `qt6-declarative`), Rust ≥ 1.87, `clang`, `cmake`.
+
+On systems where `/usr/bin/qmake` is still Qt 5, force Qt 6:
+
+```bash
+export PATH=/usr/lib/qt6/bin:$PATH
+export QMAKE=/usr/lib/qt6/bin/qmake
+cargo run -p phototux
+```
+
+```bash
+cargo test -p phototux_engine
+```
+
+Agent constitution: [AGENTS.md](AGENTS.md). Checklists: [docs/03-checklists/](docs/03-checklists/).
+
 ## Next Steps
 
-1. `stack-probe` — research/validate Rust, Qt 6 QML, `qtbridge-rust`, `wgpu`, Wayland stack
-2. `grill-with-docs` — lock ADRs
-3. Spike skipped by request → `lock-and-tag` → `agent-bootstrap` → build Phase 1
+1. ~~Inception / stack-probe / grill / lock / bootstrap~~ (`decisions-locked-v1`)
+2. Finish Phase 1 shell polish if needed
+3. Phase 2 — GPU viewport (`wgpu` + zero-copy into Qt RHI)
