@@ -1,0 +1,11 @@
+# Project config for rust-doctor pre-commit / agent scans.
+# See: rust-doctor skill + `rust-doctor --help`
+
+[score]
+# Fail hook when overall score drops below this (when supported by CLI config).
+# Primary gate in scripts/check-rust.sh is --fail-on error.
+fail_below = 70
+
+[scan]
+# Prefer offline in hooks; agents may re-run without offline for full advisory data.
+default_offline = true

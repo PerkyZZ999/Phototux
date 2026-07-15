@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# PhotoTux pre-commit: rustfmt + clippy + rust-doctor (via scripts/check-rust.sh)
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then
+  echo "error: not a git repository" >&2
+  exit 1
+fi
+
+exec "$ROOT/scripts/check-rust.sh"

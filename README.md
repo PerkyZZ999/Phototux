@@ -66,8 +66,14 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 
 **Status:** Documentation and decision baseline only. Application source was intentionally removed after an early scaffold so design and IA can land cleanly before the next implementation pass.
 
+## Agent & quality gate
+
+- **`AGENTS.md`** — coding constitution (Rust skills, UI skills, ADR stack, doctrine).
+- **Pre-commit:** `./scripts/install-git-hooks.sh` then every commit runs `scripts/check-rust.sh` (**rustfmt** + **clippy** `-D warnings` + **rust-doctor**).
+- Manual: `./scripts/check-rust.sh` (no-ops until `Cargo.toml` exists).
+
 ## Next Steps
 
 1. Review / amend design docs (`DESIGN_BRIEF`, `INFORMATION_ARCHITECTURE`, `DESIGN`)
-2. Re-scaffold Phase 1 per ADRs + design tokens (no ad-hoc chrome)
-3. Phase 2 — GPU viewport (`wgpu` + zero-copy into Qt RHI)
+2. Re-scaffold Phase 1 per ADRs + design tokens + `AGENTS.md` (no ad-hoc chrome)
+3. Phase 1.5 interop spike → Phase 2 GPU viewport

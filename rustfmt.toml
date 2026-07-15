@@ -1,0 +1,10 @@
+# Applied when the Cargo workspace exists. Edition aligns with ADR / Rust 2024 stack.
+edition = "2024"
+style_edition = "2024"
+max_width = 100
+use_small_heuristics = "Default"
+newline_style = "Unix"
+reorder_imports = true
+reorder_modules = true
+use_field_init_shorthand = true
+use_try_shorthand = true

@@ -1,127 +1,259 @@
-# AGENTS.md — PhotoTux Coding Constitution
+# AGENTS.md
 
-> Governs AI agents and humans. Overrides general knowledge with locked ADRs (`decisions-locked-v1`).
+Agent-facing constitution for **PhotoTux**. Complements human docs (`README.md`, `SPEC.md`, ADRs).  
+If anything conflicts: **more recent ADR wins** → log `docs/04-journal/conflicts.md` → surface in output (never silent).
 
-## Tech Stack Rules
+---
 
-### Platform
-- **Use**: Linux + Wayland only for v1 (Arch/CachyOS reference)
-- **Never use**: Windows/macOS as build targets, X11-first paths
-- **Rationale**: ADR-001
+## Project overview
 
-### UI shell
-- **Use**: Qt **6.10+** / QML (Qt Quick Controls 2), dense desktop dark chrome (Breeze-inspired)
-- **Never use**: GTK/libadwaita, iced, egui, Slint, Electron/web shell for main UI
-- **Rationale**: ADR-002
+PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor with **zero-copy GPU** canvas (`wgpu`/Vulkan) and a dense KDE Plasma–aligned shell.
 
-### FFI / app logic
-- **Use**: `qtbridge` **0.2.x** for QObjects, properties, slots, models
-- **Allowed hybrid**: thin C++ or `cxx-qt` **only** for canvas `QQuickRhiItem` / RHI interop (`phototux-canvas`)
-- **Never use**: qmetaobject as primary stack; large hand-written Qt C++ app layer
-- **Rationale**: ADR-003
+| Layer | Choice | ADR |
+|-------|--------|-----|
+| Platform | Linux / Wayland v1 only | 001 |
+| UI | Qt 6.10+ QML, Controls 2 first; Kirigami deferred | 002 |
+| FFI | `qtbridge` 0.2 app logic; hybrid thin C++/`cxx-qt` only for canvas | 003 |
+| GPU | `wgpu` 30, Vulkan-first | 004 |
+| Present | Zero-copy only (ship); debug readback only | 005 |
+| Spike | Interop spike after Phase 1, **before** Phase 2 production canvas | 010 |
+| Crates | Multi-crate `phototux_*` | 006 |
+| Threads | Command queue; worker before heavy brush | 007 |
+| Doc model | Full layer graph Phase 3 only | 011 |
+| License | GPL-3.0-or-later; public OSS late | 012 |
+| Prefs | New-doc dialog + presets; single doc; `assets/icons`; stroke undo; local CI; zoom-to-fit | 013 |
 
-### GPU engine
-- **Use**: `wgpu` **30.x**, Vulkan preferred on Linux
-- **Allowed**: thin `ash`/Vulkan only inside interop module
-- **Never use**: steady-state OpenGL FBO CPU round-trip as product path; Qt RHI as sole engine (abandons Rust GPU)
-- **Rationale**: ADR-004, ADR-005
+**Design system:** `docs/DESIGN.md`, `docs/DESIGN_BRIEF.md`, `docs/INFORMATION_ARCHITECTURE.md`.
 
-### Language
-- **Use**: Rust stable (host ≥ 1.87; prefer latest stable)
-- **QML** for presentation; keep business/document logic in Rust crates
+**Repo state:** May be docs-only until Phase 1 re-scaffold. Pre-commit skips Rust tools until `Cargo.toml` exists (fails if `.rs` staged without workspace).
 
-## Code Patterns
+---
 
-### Crate boundaries (ADR-006)
-- `phototux` — binary / `QApp` entry
-- `phototux_ui` (dir `phototux-ui`) — qtbridge types only
-- `phototux_engine` — pure Rust document/canvas state (**no Qt deps**)
-- `phototux_gpu` — wgpu pipelines/shaders (from Phase 2)
-- `phototux_canvas` — Scene Graph / RHI interop (unsafe + optional C++)
-- Paths kebab-case; package names `phototux_*` underscore
-- QML lives in repo-root `qml/`
-- Controls 2 first; **no Kirigami** until ADR-002 need is documented
-- Full layer graph only from Phase 3 (ADR-011)
-- License: **GPL-3.0-or-later** (ADR-012)
-- Product prefs (ADR-013): New Document dialog + presets (720p/1080p/2K/4K); single document v1; icons from `assets/` FOSS pack; undo = one gesture/step; local CI only for now; zoom-to-fit on open/new
+## Setup commands
 
-### Threading (ADR-007)
-- Shape UI→engine interactions as **commands**, not ad-hoc mutates
-- Phase 1: sync slots OK for light property updates only
-- No heavy GPU/composite work on UI thread long-term
-- Never hold `RefCell` mut borrow across await or re-entrant QML calls
+```bash
+# Host (Arch/CachyOS)
+sudo pacman -S rustup clang cmake qt6-base qt6-declarative vulkan-headers
+rustup component add rustfmt clippy
+cargo install rust-doctor   # or: already on PATH / ~/.bun/bin/rust-doctor
 
-### Rendering (ADR-005, ADR-010)
-- Canvas pixels stay on GPU
-- Bridge carries commands/state only
-- Debug readback only behind `cfg` / debug flag — never default interactive path
-- **Mandatory** time-boxed interop spike after Phase 1, **before** Phase 2 production canvas (`docs/01-decisions/adr-010-interop-spike.md`)
+# Qt 6 on PATH (critical: default qmake may be Qt 5)
+export PATH=/usr/lib/qt6/bin:$PATH
+export QMAKE=/usr/lib/qt6/bin/qmake
 
-### Styling
-- Dense multi-pane editor layout; dark theme
-- Prefer Qt Quick Controls 2; avoid mobile-first Kirigami layouts unless justified
+# Git hooks (fmt + clippy + rust-doctor on every commit)
+./scripts/install-git-hooks.sh
 
-### Error handling
-- Engine: `Result` / thiserror-style; no panics for recoverable document errors
-- FFI boundary: convert errors to user-visible signals/status; log with `tracing`
+# When workspace exists:
+cargo build -p phototux
+cargo run -p phototux
+cargo test -p phototux_engine
+./scripts/check-rust.sh
+```
 
-## Quality Gates
+---
 
-### Performance (ADR-008)
-| Gate | Target | From phase |
-|------|--------|------------|
+## Development workflow
+
+1. Read relevant ADRs + design docs before coding.
+2. Prefer vertical slices; update `docs/03-checklists/development.md` and `blockers.md`.
+3. Phase order: **1 shell** → **1.5 interop spike** → **2 GPU viewport** → 3 graph → 4 tools → 5 desktop.
+4. Do not implement Phase 2 production canvas without spike findings (ADR-010).
+5. Commit only after `./scripts/check-rust.sh` passes (or pre-commit does).
+
+### Workspace layout (when scaffolded)
+
+```
+crates/phototux/         # binary package name: phototux
+crates/phototux-ui/      # package: phototux_ui  — qtbridge only, no wgpu
+crates/phototux-engine/  # package: phototux_engine — pure Rust, no Qt
+crates/phototux-gpu/     # package: phototux_gpu — Phase 2+
+crates/phototux-canvas/  # package: phototux_canvas — interop ± thin C++
+qml/                     # QML; tokens from docs/DESIGN.md
+assets/icons/            # FOSS icon pack (ADR-013)
+```
+
+Paths **kebab-case**; Cargo package names **`phototux_*` underscores**.
+
+---
+
+## Mandatory skill compliance
+
+Agents **must load and apply** these skills when the task matches. Web-oriented wording maps to **desktop QML/Qt** (density, hierarchy, a11y, icons)—not HTML/CSS frameworks.
+
+### Rust (all Rust edits)
+
+| Skill | Role |
+|-------|------|
+| `ms-rust` | Microsoft Pragmatic Rust Guidelines — `must` = hard gates; `should` = defaults |
+| `rust` | Performance patterns (allocation, ownership, iterators, async) |
+| `rust-reference` | Language semantics, unsafe, types, macros — when correctness depends on the Reference |
+| `rust-skills` | Broad idiomatic rules (ownership, errors, API, testing, anti-patterns) |
+| `rust-optimise` | Hot-path optimization (mem/own/ds/iter first; micro last) |
+| `rust-doctor` | Health scan interpretation; pre-commit runs CLI — agents re-scan after large fixes |
+
+**Rust hard defaults for this repo:**
+
+- Prefer **clear ownership** and borrowing over `clone` in hot paths.
+- Engine/public logic: **`Result` + typed errors** (`thiserror` style); no `unwrap`/`expect` in library paths except tests or documented invariants.
+- **`unsafe` only** in `phototux_canvas` / FFI interop; minimal blocks; `// SAFETY:` states the invariant (not a paragraph of excuses).
+- Lint overrides: **`#[expect(..., reason = "...")]`**, not silent `#[allow]` (ms-rust).
+- Structured logging via **`tracing`** with fields, not stringly `format!` spam in hot paths.
+- No artificial “guideline compliant” marker comments in source.
+- American English in comments/docs unless asked otherwise.
+
+### Frontend UI/UX (QML shell, chrome, icons)
+
+| Skill | Desktop adaptation |
+|-------|--------------------|
+| `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `docs/DESIGN.md`; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
+| `iconography-frontend-ui` | Icons from `assets/icons` pack; function over decoration; labels+tooltips; contrast; active/hover/disabled/focus; size on grid (tool strip ~36px hit, consistent stroke) |
+
+**Never** invent a second palette or spacing scale—extend `docs/DESIGN.md`.
+
+---
+
+## Engineering doctrine
+
+> **If you need a paragraph-long comment to justify why the workaround is OK, the code is wrong — fix the code.**
+
+- No long apology comments for hacks, race paper-overs, or “temporary” CPU uploads.
+- Fix architecture, types, or boundaries instead.
+- Short `// SAFETY:` / one-line `reason` on `expect` lints are fine; essays are a smell.
+- Forbidden product path: steady-state full-frame **CPU canvas upload** (ADR-005).
+
+---
+
+## Pre-commit & quality checks
+
+| Check | Command / behavior |
+|-------|-------------------|
+| Install hooks | `./scripts/install-git-hooks.sh` → `core.hooksPath=.githooks` |
+| All checks | `./scripts/check-rust.sh` |
+| rustfmt | `cargo fmt --all -- --check` |
+| clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| rust-doctor | `rust-doctor . --offline --fail-on error -v` |
+
+**Hook behavior:**
+
+- No `Cargo.toml` → skip checks (exit 0), unless staged `*.rs` → fail.
+- Clippy warnings are **errors** (`-D warnings`).
+- rust-doctor **errors** fail the commit (exit code 3).
+- Prefer fixing findings over suppressions.
+
+Agents: after non-trivial Rust changes, run `./scripts/check-rust.sh` even if hooks are not installed in the environment.
+
+---
+
+## Testing instructions
+
+```bash
+cargo test -p phototux_engine          # pure logic (no Qt)
+cargo test --workspace                 # when more crates exist
+# GPU tests (optional, device present):
+cargo test -p phototux_gpu --features gpu-tests
+```
+
+- Unit tests for engine graph/undo when present (ADR-009).
+- QML: manual checklist early; no requirement for full Qt Test in Phase 1.
+- Do not claim phase exit without ADR-008 SLO evidence when that gate applies.
+
+### Performance gates (ADR-008)
+
+| Gate | Target | From |
+|------|--------|------|
 | Zoom/pan FPS | ≥ 60 | Phase 2 exit |
+| Brush stroke FPS | ≥ 60 | Phase 4 exit |
 | Tablet input→render | < 8 ms | Phase 4 exit |
 | Cold boot interactive | < 250 ms | Phase 5 (measure earlier) |
-| 10-layer 4K composite | < 2 ms GPU | Phase 3 exit |
+| 10×4K composite | < 2 ms GPU | Phase 3 exit |
 | Hot path copies | No full-frame CPU upload | Phase 2+ |
 
-### Testing (ADR-009)
-- Unit tests for `phototux-engine` required for graph/undo logic when present
-- GPU tests optional feature `gpu-tests`
-- QML: manual checklist until bridge stable
-- Prefer `cargo test` for pure Rust before GUI runs
+---
 
-### Safety
-- Confine `unsafe` to `phototux-canvas` / interop
-- No secrets in repo
+## Code style & organization
 
-### Build
-- `qmake` (or distro Qt) on PATH; system Qt 6 packages OK
-- Prefer `cargo run -p phototux` from workspace root
+### Rust
 
-## Decision Boundaries
+- Edition **2024**; `rustfmt.toml` / `clippy.toml` at repo root.
+- Crate boundaries: no Qt in `phototux_engine`; no wgpu in `phototux_ui`.
+- Naming: types `UpperCamelCase`, functions/modules `snake_case`, constants `SCREAMING_SNAKE`.
+- Public API docs on non-trivial exported items; module-level docs on crate roots.
 
-### Dependency policy
-- **Allowed without new ADR**: `qtbridge` 0.2.x, `wgpu` 30.x, `tracing`, `thiserror`, `serde` as needed, tiny pure-Rust utils
-- **Requires ADR amendment**: alternate UI toolkit, primary FFI switch, abandoning zero-copy, adding network/cloud backends
-- **Forbidden**: Electron, full-frame CPU canvas path as default, non-Linux v1 scope creep
+### QML / UI
 
-### Architecture boundaries
-- Do not put document graph logic inside QML
-- Do not put wgpu inside `phototux-ui`
-- Do not expand C++ beyond canvas interop without ADR-003 amendment
-- Do not skip ADR-008 gates at phase exit
+- Controls 2; Breeze-dark / `DESIGN.md` tokens.
+- Layout per `INFORMATION_ARCHITECTURE.md` (tool strip, canvas, properties, layers, status).
+- New document: **ask + presets** 720p / 1080p / 2K / 4K (ADR-013).
+- Single document v1; **zoom-to-fit** on open/new.
+- Strings user-facing: `qsTr(...)`.
 
-## Revisit Triggers
+### Git / commits
 
-Flag for ADR review (do not silent-pivot) if:
+- Atomic commits; conventional-ish subjects (`feat:`, `fix:`, `docs:`, `chore:`).
+- Reference ADRs when changing architecture.
+- Do not commit secrets, `target/`, or large binaries without need.
 
-1. qtbridge cannot register custom item / blocks Phase 2 → ADR-003
-2. Zero-copy interop fails two approaches → ADR-005
-3. wgpu cannot share memory with Qt RHI → ADR-004 interop layer
-4. RefCell panics force architecture change → ADR-007
-5. SLO unachievable on reference hardware → ADR-008
-6. Need new major dependency outside allowed list
+---
 
-## Conflict Resolution
+## Decision boundaries
 
-1. More recent ADR wins  
-2. Log in `docs/04-journal/conflicts.md`  
-3. Surface conflict in agent output — never silent pick  
+### Allowed without new ADR
 
-## Workflow reminder
+`qtbridge` 0.2.x, `wgpu` 30.x, `tracing`, `thiserror`, `serde`, small pure-Rust utils, FOSS icons under `assets/icons`.
 
-- Living checklists: `docs/03-checklists/`
-- Spec: `SPEC.md` | Constraints: `CONSTRAINTS.md` | Research: `docs/00-research/DOSSIER.md`
-- Baseline tag: `decisions-locked-v1`
+### Requires ADR amendment
+
+UI toolkit change, primary FFI switch, abandoning zero-copy, multi-doc, non-Linux v1, spreading C++ beyond canvas, new major subsystems (cloud, plugins store).
+
+### Forbidden
+
+Electron/web shell, GTK as main UI, CPU full-frame canvas as default, Kirigami in Phase 1–2, silent scope to Windows/macOS, paragraph-length workaround comments instead of fixes.
+
+---
+
+## Revisit triggers
+
+1. qtbridge blocks custom item → ADR-003  
+2. Zero-copy fails two real approaches → ADR-005 (+ spike report)  
+3. wgpu/Qt share fails → ADR-004 interop  
+4. RefCell re-entrancy forces model change → ADR-007  
+5. SLO unachievable on reference hardware → ADR-008  
+6. New major dependency → ADR  
+
+---
+
+## Debugging tips
+
+| Symptom | Check |
+|---------|--------|
+| Build links wrong Qt | `PATH`/`QMAKE` → `/usr/lib/qt6/bin` |
+| QML import missing | Package name of `#[qobject]` crate (`import phototux_ui`) |
+| Pre-commit skip forever | Missing `Cargo.toml` (expected docs-only) |
+| rust-doctor exit 2 | Project does not compile — fix `cargo build` first |
+| Hook not running | `./scripts/install-git-hooks.sh`; `git config core.hooksPath` |
+
+---
+
+## Key doc map
+
+| Path | Use |
+|------|-----|
+| `SPEC.md` | Product architecture & phases |
+| `CONSTRAINTS.md` | Hard/soft constraints |
+| `docs/01-decisions/` | ADRs 001–013 |
+| `docs/DESIGN.md` | Visual tokens (normative) |
+| `docs/03-checklists/` | Living build/risk/blockers |
+| `scripts/check-rust.sh` | Quality gate |
+| `.githooks/pre-commit` | Commit gate |
+
+---
+
+## PR / handoff checklist
+
+- [ ] `./scripts/check-rust.sh` green (when Rust workspace exists)
+- [ ] Tests for engine logic touched
+- [ ] UI matches `DESIGN.md` + IA (no freestyle chrome)
+- [ ] No forbidden CPU canvas path
+- [ ] Checklist/blockers updated if phase work
+- [ ] No paragraph-long workaround comments

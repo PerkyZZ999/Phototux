@@ -1,0 +1,5 @@
+# Workspace clippy configuration (used once crates exist).
+# Agents: prefer fixing code over allowing lints. Use #[expect(..., reason = "...")] only when necessary.
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 8
+type-complexity-threshold = 250
