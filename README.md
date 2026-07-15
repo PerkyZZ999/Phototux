@@ -49,26 +49,25 @@ Full phase plan lives in [SPEC.md](SPEC.md).
 
 See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [SPEC.md](SPEC.md).
 
-## Run (Phase 1)
+## Documentation map
 
-**Requirements:** Qt **6.10+** on `PATH` (Arch: `qt6-base`, `qt6-declarative`), Rust ≥ 1.87, `clang`, `cmake`.
+| Document | Purpose |
+|----------|---------|
+| [SPEC.md](SPEC.md) | Product architecture, stack, phases, SLOs |
+| [CONSTRAINTS.md](CONSTRAINTS.md) | Hard/soft constraints |
+| [AGENTS.md](AGENTS.md) | Agent coding constitution (from locked ADRs) |
+| [CHANGELOG.md](CHANGELOG.md) | Decision milestones |
+| [docs/DESIGN_BRIEF.md](docs/DESIGN_BRIEF.md) | Experience design brief |
+| [docs/INFORMATION_ARCHITECTURE.md](docs/INFORMATION_ARCHITECTURE.md) | Workspace structure, flows, naming |
+| [docs/DESIGN.md](docs/DESIGN.md) | Visual design system (tokens + rationale) |
+| [docs/00-research/DOSSIER.md](docs/00-research/DOSSIER.md) | Stack research |
+| [docs/01-decisions/](docs/01-decisions/) | ADRs (`decisions-locked-v1`) |
+| [docs/03-checklists/](docs/03-checklists/) | Living build / risk / blocker lists |
 
-On systems where `/usr/bin/qmake` is still Qt 5, force Qt 6:
-
-```bash
-export PATH=/usr/lib/qt6/bin:$PATH
-export QMAKE=/usr/lib/qt6/bin/qmake
-cargo run -p phototux
-```
-
-```bash
-cargo test -p phototux_engine
-```
-
-Agent constitution: [AGENTS.md](AGENTS.md). Checklists: [docs/03-checklists/](docs/03-checklists/).
+**Status:** Documentation and decision baseline only. Application source was intentionally removed after an early scaffold so design and IA can land cleanly before the next implementation pass.
 
 ## Next Steps
 
-1. ~~Inception / stack-probe / grill / lock / bootstrap~~ (`decisions-locked-v1`)
-2. Finish Phase 1 shell polish if needed
+1. Review / amend design docs (`DESIGN_BRIEF`, `INFORMATION_ARCHITECTURE`, `DESIGN`)
+2. Re-scaffold Phase 1 per ADRs + design tokens (no ad-hoc chrome)
 3. Phase 2 — GPU viewport (`wgpu` + zero-copy into Qt RHI)
