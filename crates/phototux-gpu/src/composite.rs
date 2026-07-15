@@ -456,6 +456,86 @@ impl LayerCompositeEngine {
     pub fn result_vk_handle(&self) -> Option<u64> {
         GpuContext::texture_vk_image_handle(self.result_texture())
     }
+
+    pub fn layer_texture(&self, id: LayerId) -> Option<&wgpu::Texture> {
+        self.layer_tex.get(&id)
+    }
+
+    pub fn layer_texture_mut(&mut self, id: LayerId) -> Option<&mut wgpu::Texture> {
+        self.layer_tex.get_mut(&id)
+    }
+
+    /// After painting into a layer texture, force array repack on next composite.
+    pub fn mark_layer_painted(&mut self, id: LayerId) {
+        if self.layer_tex.contains_key(&id) {
+            self.array_dirty = true;
+        }
+    }
+
+    /// GPU copy of a layer texture (for stroke undo).
+    pub fn clone_layer_texture(&self, ctx: &GpuContext, id: LayerId) -> Option<wgpu::Texture> {
+        let src = self.layer_tex.get(&id)?;
+        let dst = make_rt(ctx, self.width, self.height, "layer-undo-bak");
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("clone-layer"),
+            });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: src,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &dst,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        ctx.queue.submit(Some(encoder.finish()));
+        Some(dst)
+    }
+
+    /// Restore layer from backup texture.
+    pub fn restore_layer_texture(&mut self, ctx: &GpuContext, id: LayerId, backup: &wgpu::Texture) {
+        let Some(dst) = self.layer_tex.get(&id) else {
+            return;
+        };
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("restore-layer"),
+            });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: backup,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: dst,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        ctx.queue.submit(Some(encoder.finish()));
+        self.array_dirty = true;
+    }
 }
 
 fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {

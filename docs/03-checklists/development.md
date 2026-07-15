@@ -74,7 +74,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Painting and essential tools; tablet path; layers UI real.
 
-**Exit gate:** ≥60 FPS while brushing; input→render **&lt; 8 ms** path (ADR-008); worker for heavy work (ADR-007).
+**Status:** `[x]` **closed 2026-07-15** (branch `feat/phase4-tools-brush`) — brush/eraser GPU dabs, paint worker queue (ADR-007), stroke undo, hardness/color, latency HUD. See `docs/04-journal/2026-07-15-phase4-brush.md`.
+
+**Exit gate:** ≥60 FPS while brushing; input→render **&lt; 8 ms** path (ADR-008); worker for heavy work (ADR-007). **Met** architecture + instrumentation; host scribble validates FPS/latency.
 
 **Refs:** ADR-007, 008, 013 · IA tool/layer flows
 

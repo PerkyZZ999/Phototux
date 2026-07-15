@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 
+use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    BlendMode, DocumentSize, LayerId, SessionState, SizePreset, tool_id, undo_actions,
+    BlendMode, DocumentSize, EngineCommand, EngineEvent, LayerId, SessionState, SizePreset,
+    tool_id, undo_actions,
 };
 use qtbridge::qobject;
 
@@ -22,8 +24,13 @@ pub struct AppSession {
     pan_x: f32,
     pan_y: f32,
     brush_size: f32,
+    brush_hardness: f32,
+    brush_r: f32,
+    brush_g: f32,
+    brush_b: f32,
     fps: f32,
     composite_ms: f32,
+    stroke_latency_ms: f32,
     status_text: String,
     active_tool: String,
     has_document: bool,
@@ -37,6 +44,7 @@ pub struct AppSession {
     active_opacity: f32,
     icon_root: String,
     engine: SessionState,
+    worker: PaintWorker,
 }
 
 impl Default for AppSession {
@@ -55,8 +63,13 @@ impl AppSession {
             pan_x: engine.camera.pan_x,
             pan_y: engine.camera.pan_y,
             brush_size: engine.brush_size,
+            brush_hardness: engine.brush_hardness,
+            brush_r: engine.brush_color[0],
+            brush_g: engine.brush_color[1],
+            brush_b: engine.brush_color[2],
             fps: engine.fps,
             composite_ms: 0.0,
+            stroke_latency_ms: 0.0,
             status_text: engine.status_summary(),
             active_tool: engine.active_tool.clone(),
             has_document: engine.has_document,
@@ -70,6 +83,7 @@ impl AppSession {
             active_opacity: 1.0,
             icon_root,
             engine,
+            worker: PaintWorker::start(),
         }
     }
 
@@ -80,14 +94,19 @@ impl AppSession {
         self.pan_x = self.engine.camera.pan_x;
         self.pan_y = self.engine.camera.pan_y;
         self.brush_size = self.engine.brush_size;
+        self.brush_hardness = self.engine.brush_hardness;
+        self.brush_r = self.engine.brush_color[0];
+        self.brush_g = self.engine.brush_color[1];
+        self.brush_b = self.engine.brush_color[2];
         self.fps = self.engine.fps;
         self.composite_ms = self.engine.composite_ms;
+        self.stroke_latency_ms = self.engine.stroke_latency_ms;
         self.active_tool = self.engine.active_tool.clone();
         self.has_document = self.engine.has_document;
         self.layer_count = self.engine.layer_count();
         self.active_layer_index = self.engine.active_layer_index();
-        self.can_undo = self.engine.can_undo();
-        self.can_redo = self.engine.can_redo();
+        self.can_undo = self.engine.can_undo() || phototux_canvas::can_undo_stroke();
+        self.can_redo = self.engine.can_redo() || phototux_canvas::can_redo_stroke();
         self.layer_names = self.engine.layer_names_joined();
         self.layer_visibility = self.engine.layer_visibility_joined();
         self.graph_revision = self.engine.graph_revision() as i32;
@@ -176,11 +195,24 @@ impl AppSession {
         Member = brush_size,
         Notify = brush_size_changed
     );
+    qproperty!(
+        "brushHardness",
+        Member = brush_hardness,
+        Notify = brush_hardness_changed
+    );
+    qproperty!("brushR", Member = brush_r, Notify = brush_color_changed);
+    qproperty!("brushG", Member = brush_g, Notify = brush_color_changed);
+    qproperty!("brushB", Member = brush_b, Notify = brush_color_changed);
     qproperty!("fps", Member = fps, Notify = fps_changed);
     qproperty!(
         "compositeMs",
         Member = composite_ms,
         Notify = composite_ms_changed
+    );
+    qproperty!(
+        "strokeLatencyMs",
+        Member = stroke_latency_ms,
+        Notify = stroke_latency_ms_changed
     );
     qproperty!(
         "statusText",
@@ -244,9 +276,15 @@ impl AppSession {
     #[qsignal]
     fn brush_size_changed(&mut self);
     #[qsignal]
+    fn brush_hardness_changed(&mut self);
+    #[qsignal]
+    fn brush_color_changed(&mut self);
+    #[qsignal]
     fn fps_changed(&mut self);
     #[qsignal]
     fn composite_ms_changed(&mut self);
+    #[qsignal]
+    fn stroke_latency_ms_changed(&mut self);
     #[qsignal]
     fn status_text_changed(&mut self);
     #[qsignal]
@@ -282,21 +320,129 @@ impl AppSession {
     #[qslot]
     fn set_brush_size(&mut self, value: f32) {
         self.engine.set_brush_size(value);
+        self.engine.sync_brush_from_tool();
+        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_size_changed();
         self.status_text_changed();
     }
 
     #[qslot]
+    fn set_brush_hardness(&mut self, value: f32) {
+        self.engine.set_brush_hardness(value);
+        self.engine.sync_brush_from_tool();
+        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.sync_from_engine();
+        self.brush_hardness_changed();
+    }
+
+    #[qslot]
+    fn set_brush_color(&mut self, r: f32, g: f32, b: f32) {
+        self.engine.set_brush_color(r, g, b, 1.0);
+        self.engine.sync_brush_from_tool();
+        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.sync_from_engine();
+        self.brush_color_changed();
+    }
+
+    #[qslot]
     fn set_active_tool(&mut self, tool: String) {
         let id = match tool.as_str() {
-            tool_id::BRUSH | tool_id::PAN | tool_id::ZOOM => tool,
+            tool_id::BRUSH | tool_id::ERASER | tool_id::PAN | tool_id::ZOOM => tool,
             _ => tool_id::BRUSH.to_owned(),
         };
         self.engine.set_active_tool(&id);
+        self.engine.sync_brush_from_tool();
+        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.active_tool_changed();
         self.status_text_changed();
+    }
+
+    /// Poll paint worker events (call from FrameAnimation).
+    #[qslot]
+    fn poll_engine(&mut self) {
+        let events = self.worker.poll_events();
+        let mut dirty = false;
+        for ev in events {
+            match ev {
+                EngineEvent::CompositeDone { ms } => {
+                    self.engine.set_composite_ms(ms);
+                    dirty = true;
+                }
+                EngineEvent::StrokeLatency { ms } => {
+                    self.engine.set_stroke_latency_ms(ms);
+                    dirty = true;
+                }
+                EngineEvent::StrokeEnded => {
+                    self.graph_revision = self.graph_revision.wrapping_add(1);
+                    self.graph_revision_changed();
+                    dirty = true;
+                }
+                EngineEvent::Error(e) => {
+                    eprintln!("[phototux] paint worker: {e}");
+                }
+            }
+        }
+        if dirty {
+            self.sync_from_engine();
+            self.composite_ms_changed();
+            self.stroke_latency_ms_changed();
+            self.can_undo_changed();
+            self.can_redo_changed();
+            self.status_text_changed();
+        }
+    }
+
+    fn now_ms() -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0)
+    }
+
+    /// Begin paint stroke at canvas-local coordinates (pixels).
+    #[qslot]
+    fn stroke_begin(&mut self, sx: f32, sy: f32, pressure: f32) {
+        if !self.engine.has_document {
+            return;
+        }
+        let tool = self.engine.active_tool.as_str();
+        if tool != tool_id::BRUSH && tool != tool_id::ERASER {
+            return;
+        }
+        self.engine.sync_brush_from_tool();
+        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        let Some(layer) = self.active_id() else {
+            return;
+        };
+        let (x, y) = self.engine.screen_to_document(sx, sy);
+        self.worker.send(EngineCommand::BeginStroke {
+            layer,
+            x,
+            y,
+            pressure: pressure.clamp(0.05, 1.0),
+            t_ms: Self::now_ms(),
+        });
+    }
+
+    #[qslot]
+    fn stroke_move(&mut self, sx: f32, sy: f32, pressure: f32) {
+        if !self.engine.has_document {
+            return;
+        }
+        let (x, y) = self.engine.screen_to_document(sx, sy);
+        self.worker.send(EngineCommand::StrokePoint {
+            x,
+            y,
+            pressure: pressure.clamp(0.05, 1.0),
+            t_ms: Self::now_ms(),
+        });
+    }
+
+    #[qslot]
+    fn stroke_end(&mut self) {
+        self.worker.send(EngineCommand::EndStroke);
     }
 
     #[qslot]
@@ -500,6 +646,15 @@ impl AppSession {
 
     #[qslot]
     fn undo(&mut self) {
+        if phototux_canvas::can_undo_stroke() {
+            if let Ok(ms) = phototux_canvas::undo_stroke() {
+                self.engine.set_composite_ms(ms);
+                self.sync_from_engine();
+                self.emit_layer_fields();
+                self.graph_revision_changed();
+            }
+            return;
+        }
         let ok = {
             let SessionState { graph, undo, .. } = &mut self.engine;
             graph.as_mut().is_some_and(|g| undo.undo(g))
@@ -513,6 +668,15 @@ impl AppSession {
 
     #[qslot]
     fn redo(&mut self) {
+        if phototux_canvas::can_redo_stroke() {
+            if let Ok(ms) = phototux_canvas::redo_stroke() {
+                self.engine.set_composite_ms(ms);
+                self.sync_from_engine();
+                self.emit_layer_fields();
+                self.graph_revision_changed();
+            }
+            return;
+        }
         let ok = {
             let SessionState { graph, undo, .. } = &mut self.engine;
             graph.as_mut().is_some_and(|g| undo.redo(g))

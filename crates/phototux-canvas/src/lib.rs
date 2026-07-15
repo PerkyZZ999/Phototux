@@ -1,8 +1,14 @@
-//! Production GPU canvas interop: hybrid C++ `QQuickRhiItem` + document composite.
+//! Production GPU canvas interop: hybrid C++ `QQuickRhiItem` + document composite + paint.
 
 mod document_gpu;
+mod paint_worker;
 
-pub use document_gpu::{close_document, last_composite_ms, open_document, sync_and_composite};
+pub use document_gpu::{
+    begin_stroke, can_redo_stroke, can_undo_stroke, close_document, end_stroke, last_composite_ms,
+    last_stroke_latency_ms, open_document, redo_stroke, stamp_dabs, sync_and_composite,
+    undo_stroke,
+};
+pub use paint_worker::PaintWorker;
 
 use std::sync::Mutex;
 

@@ -786,6 +786,7 @@ dependencies = [
  "cc",
  "phototux_engine",
  "phototux_gpu",
+ "wgpu",
 ]
 
 [[package]]

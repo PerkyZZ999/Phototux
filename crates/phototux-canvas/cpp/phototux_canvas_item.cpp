@@ -325,14 +325,22 @@ void PhototuxCanvasRenderer::updateGeometry(QRhiResourceUpdateBatch *u)
     u->updateDynamicBuffer(m_vbuf, 0, sizeof(verts), verts);
 
     UBuf ub{};
-    // Document surface: cool slate (DESIGN surfaceOverlay-ish) with primary tint edge later.
-    ub.color[0] = 0.18f;
-    ub.color[1] = 0.20f;
-    ub.color[2] = 0.28f;
+    // Document surface tint; phase/revision shifts hue slightly so paint cycles are visible
+    // even when composite import sampling is not wired.
+    const float pulse = 0.5f + 0.5f * std::sin(m_phase * 0.15f);
+    ub.color[0] = 0.16f + 0.08f * pulse;
+    ub.color[1] = 0.18f + 0.04f * pulse;
+    ub.color[2] = 0.26f + 0.10f * (1.f - pulse);
     ub.color[3] = 1.f;
+    if (m_importOk) {
+        // Hint successful composite path with cooler primary-leaning fill.
+        ub.color[0] = 0.14f;
+        ub.color[1] = 0.22f;
+        ub.color[2] = 0.38f;
+    }
     ub.params[0] = m_hasDoc ? 1.f : 0.f;
     ub.params[1] = m_phase;
-    ub.params[2] = 0.f;
+    ub.params[2] = m_importOk ? 1.f : 0.f;
     ub.params[3] = 0.f;
     u->updateDynamicBuffer(m_ubuf, 0, sizeof(ub), &ub);
 }

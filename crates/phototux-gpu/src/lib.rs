@@ -1,7 +1,9 @@
 //! wgpu Vulkan context + multi-layer composite (ADR-004 / ADR-008 / ADR-011).
 
+mod brush;
 mod composite;
 
+pub use brush::BrushStamper;
 pub use composite::{LayerCompositeEngine, benchmark_10x4k_ms};
 
 use std::sync::Arc;

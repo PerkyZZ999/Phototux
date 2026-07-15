@@ -1,13 +1,17 @@
 //! Pure document/session types — no Qt (ADR-006, ADR-011).
 
 mod camera;
+mod command;
 mod document;
 mod layer;
+mod stroke;
 mod undo;
 
 pub use camera::{Camera2D, FpsTracker, Rect};
+pub use command::{EngineCommand, EngineEvent};
 pub use document::DocumentGraph;
 pub use layer::{BlendMode, Layer, LayerId};
+pub use stroke::{BrushParams, Dab, StrokeBuilder};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 
 /// Pixel dimensions of the open document canvas.
@@ -84,6 +88,7 @@ impl SizePreset {
 /// Tool ids aligned with `assets/icons/ICON_MAP.md` (Phase 1 subset).
 pub mod tool_id {
     pub const BRUSH: &str = "tool.brush";
+    pub const ERASER: &str = "tool.eraser";
     pub const PAN: &str = "tool.pan";
     pub const ZOOM: &str = "tool.zoom";
 }
@@ -94,30 +99,39 @@ pub struct SessionState {
     pub size: DocumentSize,
     pub camera: Camera2D,
     pub brush_size: f32,
+    pub brush_hardness: f32,
+    pub brush_color: [f32; 4],
     pub active_tool: String,
     pub has_document: bool,
     pub fps: f32,
     pub composite_ms: f32,
+    pub stroke_latency_ms: f32,
     pub viewport_w: f32,
     pub viewport_h: f32,
     pub graph: Option<DocumentGraph>,
     pub undo: UndoStack,
+    pub brush: BrushParams,
 }
 
 impl Default for SessionState {
     fn default() -> Self {
+        let brush = BrushParams::default();
         Self {
             size: SizePreset::P1080.size(),
             camera: Camera2D::default(),
-            brush_size: 12.0,
+            brush_size: brush.size,
+            brush_hardness: brush.hardness,
+            brush_color: brush.color,
             active_tool: tool_id::BRUSH.to_owned(),
             has_document: false,
             fps: 0.0,
             composite_ms: 0.0,
+            stroke_latency_ms: 0.0,
             viewport_w: 800.0,
             viewport_h: 600.0,
             graph: None,
             undo: UndoStack::new(128),
+            brush,
         }
     }
 }
@@ -129,6 +143,29 @@ impl SessionState {
 
     pub fn set_brush_size(&mut self, size: f32) {
         self.brush_size = size.clamp(1.0, 500.0);
+        self.brush.size = self.brush_size;
+    }
+
+    pub fn set_brush_hardness(&mut self, hardness: f32) {
+        self.brush_hardness = hardness.clamp(0.0, 1.0);
+        self.brush.hardness = self.brush_hardness;
+    }
+
+    pub fn set_brush_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
+        self.brush_color = [
+            r.clamp(0.0, 1.0),
+            g.clamp(0.0, 1.0),
+            b.clamp(0.0, 1.0),
+            a.clamp(0.0, 1.0),
+        ];
+        self.brush.color = self.brush_color;
+    }
+
+    pub fn sync_brush_from_tool(&mut self) {
+        self.brush.eraser = self.active_tool == tool_id::ERASER;
+        self.brush.size = self.brush_size;
+        self.brush.hardness = self.brush_hardness;
+        self.brush.color = self.brush_color;
     }
 
     pub fn set_viewport(&mut self, width: f32, height: f32) {
@@ -171,6 +208,17 @@ impl SessionState {
 
     pub fn set_active_tool(&mut self, tool: &str) {
         self.active_tool = tool.to_owned();
+        self.sync_brush_from_tool();
+    }
+
+    pub fn set_stroke_latency_ms(&mut self, ms: f32) {
+        self.stroke_latency_ms = ms.max(0.0);
+    }
+
+    /// Screen pixel → document coordinates using session camera.
+    pub fn screen_to_document(&self, sx: f32, sy: f32) -> (f32, f32) {
+        self.camera
+            .screen_to_world(sx, sy, self.viewport_w, self.viewport_h)
     }
 
     pub fn set_fps(&mut self, fps: f32) {

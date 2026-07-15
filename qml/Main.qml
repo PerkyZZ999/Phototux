@@ -109,7 +109,7 @@ ApplicationWindow {
             Item { Layout.fillWidth: true }
 
             Label {
-                text: qsTr("Phase 3 · layers")
+                text: qsTr("Phase 4 · brush")
                 color: root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
@@ -160,6 +160,15 @@ ApplicationWindow {
             }
 
             Label {
+                text: AppSession.strokeLatencyMs > 0
+                      ? (qsTr("lat ") + Math.round(AppSession.strokeLatencyMs) + " ms")
+                      : ""
+                color: AppSession.strokeLatencyMs > 0 && AppSession.strokeLatencyMs < 8
+                       ? root.primary : root.colorOnSurfaceMuted
+                font.pixelSize: 11
+            }
+
+            Label {
                 id: fpsLabel
                 text: AppSession.fps > 0
                       ? (qsTr("FPS: ") + Math.round(AppSession.fps))
@@ -196,6 +205,7 @@ ApplicationWindow {
                 Repeater {
                     model: [
                         { id: "tool.brush", stem: "paint-brush", tip: qsTr("Brush") },
+                        { id: "tool.eraser", stem: "eraser", tip: qsTr("Eraser") },
                         { id: "tool.pan", stem: "hand", tip: qsTr("Pan") },
                         { id: "tool.zoom", stem: "magnifying-glass", tip: qsTr("Zoom") }
                     ]
@@ -248,7 +258,26 @@ ApplicationWindow {
                 docWidth: AppSession.docWidth
                 docHeight: AppSession.docHeight
                 hasDocument: AppSession.hasDocument
-                phase: frameClock.phase
+                phase: frameClock.phase + AppSession.graphRevision * 0.01
+            }
+
+            // Brush size cursor (visual guide)
+            Rectangle {
+                id: brushCursor
+                visible: AppSession.hasDocument
+                         && (AppSession.activeTool === "tool.brush"
+                             || AppSession.activeTool === "tool.eraser")
+                         && canvasInput.containsMouse
+                width: Math.max(4, AppSession.brushSize * AppSession.zoom)
+                height: width
+                radius: width / 2
+                color: "transparent"
+                border.color: AppSession.activeTool === "tool.eraser"
+                              ? "#E06060" : root.primary
+                border.width: 1
+                x: canvasInput.mouseX - width / 2
+                y: canvasInput.mouseY - height / 2
+                z: 3
             }
 
             Label {
@@ -260,7 +289,7 @@ ApplicationWindow {
                 font.pixelSize: 14
             }
 
-            // Continuous phase + FPS measurement (drives canvas update)
+            // Continuous phase + FPS + worker poll
             FrameAnimation {
                 id: frameClock
                 running: root.visible
@@ -268,7 +297,7 @@ ApplicationWindow {
                 property real fpsEma: 0
                 onTriggered: {
                     phase = (phase + frameTime * 2.0) % 1000.0
-                    // frameTime is seconds; EMA smooths FPS
+                    AppSession.pollEngine()
                     if (frameTime > 0) {
                         var inst = 1.0 / frameTime
                         fpsEma = fpsEma > 0 ? (fpsEma * 0.9 + inst * 0.1) : inst
@@ -277,7 +306,7 @@ ApplicationWindow {
                 }
             }
 
-            // Pointer: pan / zoom / wheel
+            // Pointer: brush / eraser / pan / zoom / wheel
             MouseArea {
                 id: canvasInput
                 anchors.fill: parent
@@ -288,20 +317,40 @@ ApplicationWindow {
                         return Qt.OpenHandCursor
                     if (AppSession.activeTool === "tool.zoom")
                         return Qt.CrossCursor
+                    if (AppSession.activeTool === "tool.brush"
+                            || AppSession.activeTool === "tool.eraser")
+                        return Qt.BlankCursor
                     return Qt.ArrowCursor
                 }
                 property real lastX: 0
                 property real lastY: 0
                 property bool dragging: false
+                property bool painting: false
 
                 onPressed: function (mouse) {
                     lastX = mouse.x
                     lastY = mouse.y
                     dragging = true
-                    if (AppSession.activeTool === "tool.pan" || mouse.button === Qt.MiddleButton)
+                    if (mouse.button === Qt.MiddleButton
+                            || AppSession.activeTool === "tool.pan") {
                         cursorShape = Qt.ClosedHandCursor
+                        painting = false
+                        return
+                    }
+                    if (AppSession.activeTool === "tool.brush"
+                            || AppSession.activeTool === "tool.eraser") {
+                        painting = true
+                        // pressure: tablet via mouse.pressure if available, else 1
+                        var p = (typeof mouse.pressure === "number" && mouse.pressure > 0)
+                                ? mouse.pressure : 1.0
+                        AppSession.strokeBegin(mouse.x, mouse.y, p)
+                    }
                 }
                 onReleased: function (mouse) {
+                    if (painting) {
+                        AppSession.strokeEnd()
+                        painting = false
+                    }
                     dragging = false
                     if (AppSession.activeTool === "tool.pan")
                         cursorShape = Qt.OpenHandCursor
@@ -313,14 +362,18 @@ ApplicationWindow {
                     var dy = mouse.y - lastY
                     lastX = mouse.x
                     lastY = mouse.y
-                    var panMode = AppSession.activeTool === "tool.pan" || (mouse.buttons & Qt.MiddleButton)
+                    var panMode = AppSession.activeTool === "tool.pan"
+                                  || (mouse.buttons & Qt.MiddleButton)
                     if (panMode) {
                         AppSession.panBy(dx, dy)
                     } else if (AppSession.activeTool === "tool.zoom") {
-                        // Drag up = zoom in
                         var factor = Math.exp(-dy * 0.01)
                         AppSession.zoomAt(factor, mouse.x, mouse.y)
                         zoomSlider.value = AppSession.zoom
+                    } else if (painting) {
+                        var p = (typeof mouse.pressure === "number" && mouse.pressure > 0)
+                                ? mouse.pressure : 1.0
+                        AppSession.strokeMove(mouse.x, mouse.y, p)
                     }
                 }
                 onWheel: function (wheel) {
@@ -390,6 +443,74 @@ ApplicationWindow {
                         Layout.preferredWidth: 40
                         horizontalAlignment: Text.AlignRight
                     }
+                }
+
+                Label {
+                    text: qsTr("Hardness")
+                    color: root.colorOnSurfaceMuted
+                    font.pixelSize: 11
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Slider {
+                        id: hardnessSlider
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 1
+                        value: AppSession.brushHardness
+                        enabled: AppSession.hasDocument
+                        onMoved: AppSession.setBrushHardness(value)
+                    }
+                    Label {
+                        text: Math.round(hardnessSlider.value * 100) + "%"
+                        color: root.colorOnSurface
+                        font.pixelSize: 11
+                        Layout.preferredWidth: 40
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                Label {
+                    text: qsTr("Color")
+                    color: root.colorOnSurfaceMuted
+                    font.pixelSize: 11
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Rectangle {
+                        width: 28
+                        height: 28
+                        radius: 4
+                        color: Qt.rgba(AppSession.brushR, AppSession.brushG, AppSession.brushB, 1)
+                        border.color: root.border
+                    }
+                    Slider {
+                        id: colorR
+                        Layout.fillWidth: true
+                        from: 0; to: 1
+                        value: AppSession.brushR
+                        enabled: AppSession.hasDocument
+                        onMoved: AppSession.setBrushColor(value, colorG.value, colorB.value)
+                    }
+                }
+                Slider {
+                    id: colorG
+                    Layout.fillWidth: true
+                    from: 0; to: 1
+                    value: AppSession.brushG
+                    enabled: AppSession.hasDocument
+                    onMoved: AppSession.setBrushColor(colorR.value, value, colorB.value)
+                }
+                Slider {
+                    id: colorB
+                    Layout.fillWidth: true
+                    from: 0; to: 1
+                    value: AppSession.brushB
+                    enabled: AppSession.hasDocument
+                    onMoved: AppSession.setBrushColor(colorR.value, colorG.value, value)
                 }
 
                 Label {
