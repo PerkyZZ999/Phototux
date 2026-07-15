@@ -75,3 +75,19 @@ All notable decision milestones and project state changes.
 Earlier “spike skipped” is **partially reversed**: interop spike is required before Phase 2 production canvas code.
 
 ---
+
+## [grill-round-2-owner-lock] — 2026-07-15
+
+| ID | Lock |
+|----|------|
+| G6 | Multi-crate workspace, strict `phototux_*` naming (ADR-006) |
+| G7 | Command queue / phased worker (ADR-007) |
+| G8 | Controls 2 first; Kirigami deferred (ADR-002) |
+| G9 | SLOs hard gates; ≥60 FPS fluid UX (ADR-008) |
+| G10 | Layered testing + HUD/tracing (ADR-009) |
+| G11 | Full document graph in Phase 3 only (ADR-011) |
+| G12 | GPL-3.0-or-later; public OSS late (ADR-012) |
+
+**Grill status:** Rounds 1–2 complete. Core stack + process locked. Optional Round 3 only for secondary product prefs.
+
+---

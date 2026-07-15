@@ -34,11 +34,15 @@
 
 ### Crate boundaries (ADR-006)
 - `phototux` — binary / `QApp` entry
-- `phototux-ui` — qtbridge types only
-- `phototux-engine` — pure Rust document/canvas state (**no Qt deps**)
-- `phototux-gpu` — wgpu pipelines/shaders
-- `phototux-canvas` — Scene Graph / RHI interop (unsafe + optional C++)
+- `phototux_ui` (dir `phototux-ui`) — qtbridge types only
+- `phototux_engine` — pure Rust document/canvas state (**no Qt deps**)
+- `phototux_gpu` — wgpu pipelines/shaders (from Phase 2)
+- `phototux_canvas` — Scene Graph / RHI interop (unsafe + optional C++)
+- Paths kebab-case; package names `phototux_*` underscore
 - QML lives in repo-root `qml/`
+- Controls 2 first; **no Kirigami** until ADR-002 need is documented
+- Full layer graph only from Phase 3 (ADR-011)
+- License: **GPL-3.0-or-later** (ADR-012)
 
 ### Threading (ADR-007)
 - Shape UI→engine interactions as **commands**, not ad-hoc mutates

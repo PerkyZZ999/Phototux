@@ -48,6 +48,14 @@
   ├─ Depends on → [ADR-003, ADR-004, ADR-005]
   ├─ Informs → [ADR-003 hybrid vs pure, ADR-005 path choice]
   └─ Blocks → Phase 2 production canvas “done”
+
+[ADR-011: Document model timing]
+  ├─ Depends on → [ADR-004, ADR-006, ADR-008]
+  └─ Blocks → Phase 3 graph work start criteria
+
+[ADR-012: License GPL-3.0-or-later]
+  ├─ Depends on → [ADR-002, ADR-003]
+  └─ Blocks → public release packaging checklist
 ```
 
 ## Load-Bearing vs. Reversible Decisions

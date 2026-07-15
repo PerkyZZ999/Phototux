@@ -37,10 +37,11 @@ qtbridge holds QObjects in `Rc<RefCell<_>>`. Long mut borrows and GPU work on UI
 
 ## Decision
 
-**Option 2**, phased:
+**Option 2**, phased. Owner lock (grill R2): **G7 = B**.
 
 - **Phase 1:** Synchronous slots OK for sliders/labels; **no** heavy work in slots. Shape APIs as commands.
 - **Phase 2+:** Dedicated engine/render worker; UI sends `EngineCommand`; results/signals marshalled back via `QmlMethodInvoker` or qtbridge-safe path.
+- **Phase 4:** Brush/stroke path **must** be off UI thread (worker); hard expectation for &lt;8 ms latency gate.
 - **Rule:** Never `await` while holding RefCell mut borrow across QML re-entry.
 
 ## Consequences
@@ -62,4 +63,4 @@ Start of Phase 4 brush work (must be on worker by then).
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | G7=B confirmed | Interactive grill R2 |

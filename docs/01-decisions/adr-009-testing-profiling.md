@@ -31,7 +31,7 @@ GPU + QML app needs layered verification without requiring GPU in every unit tes
 
 ## Decision
 
-**Option 1.**
+**Option 1.** Owner lock (grill R2): **G10 = A**.
 
 - `phototux-engine`: unit + property tests (no Qt)
 - `phototux-gpu`: shader/pipeline tests behind feature `gpu-tests` when device present

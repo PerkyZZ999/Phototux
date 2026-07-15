@@ -40,9 +40,11 @@ Need dense multi-pane editor chrome (toolbars, docks, properties, menus) aligned
 
 ## Decision
 
-**Option 1.** Qt **6.10+** (host 6.11.1). Prefer **Controls 2** dense desktop patterns; Breeze-dark inspired palette. Kirigami only if a desktop pattern needs it — not mobile-first.
+**Option 1.** Qt **6.10+** (host 6.11.1). Prefer **Controls 2** dense desktop patterns; Breeze-dark inspired palette (`DESIGN.md`).
 
 **Owner lock (grill 2026-07-15):** **G2 = A** — Qt 6 QML confirmed as product UI toolkit.
+
+**Owner lock (grill R2):** **G8 = C** — **Qt Quick Controls 2 is the default shell**. **Kirigami is deferred** until a concrete need appears (e.g. a complex settings/about pattern that Controls alone makes painful). No Kirigami dependency in Phase 1–2. If introduced later, isolate to non-canvas chrome and match `DESIGN.md` tokens — no mobile-first layouts.
 
 ## Consequences
 
@@ -63,4 +65,4 @@ End of Phase 1 (if shell ergonomics fail) or major Qt 7 migration.
 
 | Date | Amendment | Reason |
 |------|-----------|--------|
-| | | |
+| 2026-07-15 | Confirmed Option 1 in interactive grill (G2=A) | Owner explicit lock |
