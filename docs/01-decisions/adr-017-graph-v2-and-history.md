@@ -29,7 +29,7 @@ Phase 3 shipped a flat `Vec<Layer>` metadata graph and a separate GPU stroke sna
 ## Consequences
 
 - UI Undo/Redo must consult the unified timeline.
-- Compositor may ignore non-raster nodes until their GPU paths land; metadata still round-trips in `.ptx`.
+- Brightness/Contrast and Levels adjustment layers evaluate in the single-pass compositor; Gaussian Blur is a nondestructive `FilterEffect` pre-pass (2026-07-16). Other non-raster kinds may still be metadata-only until their GPU paths land; `.ptx` round-trips the graph.
 - Groups/masks/text/adjustments land incrementally without another ADR unless the kind set changes.
 
 ## Revisit Date

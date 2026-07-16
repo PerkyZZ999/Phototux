@@ -121,6 +121,100 @@ pub fn cpu_brightness_rgba(pixels: &mut [u8], brightness: f32) {
     }
 }
 
+/// CPU reference levels remap (matches GPU `apply_levels` intent).
+pub fn cpu_levels_rgba(pixels: &mut [u8], black: f32, white: f32, gamma: f32) {
+    let black = black.clamp(0.0, 1.0);
+    let white = white.clamp(0.0, 1.0).max(black + 1e-4);
+    let gamma = gamma.clamp(0.01, 10.0);
+    let span = white - black;
+    for px in pixels.chunks_exact_mut(4) {
+        for c in &mut px[..3] {
+            let mut t = (f32::from(*c) / 255.0 - black) / span;
+            t = t.clamp(0.0, 1.0).powf(1.0 / gamma);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "levels output clamped to 0..255 before cast"
+            )]
+            let v = (t * 255.0).round().clamp(0.0, 255.0) as u8;
+            *c = v;
+        }
+    }
+}
+
+/// Separable box-ish Gaussian approximation for unit tests (horizontal then vertical).
+pub fn cpu_gaussian_rgba(pixels: &mut [u8], width: u32, height: u32, radius: f32) {
+    let radius = radius.clamp(0.0, 64.0);
+    if radius < 0.01 || width == 0 || height == 0 {
+        return;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let support = radius.ceil() as usize;
+    let sigma = (radius * 0.5).max(0.5);
+    let two_sigma2 = 2.0 * sigma * sigma;
+    let mut weights = Vec::with_capacity(support * 2 + 1);
+    let mut wsum = 0.0_f32;
+    for i in -(support as i32)..=support as i32 {
+        let weight = (-(i * i) as f32 / two_sigma2).exp();
+        weights.push(weight);
+        wsum += weight;
+    }
+    for weight in &mut weights {
+        *weight /= wsum;
+    }
+
+    let mut temp = pixels.to_vec();
+    // Horizontal
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = [0.0_f32; 4];
+            for (k, &weight) in weights.iter().enumerate() {
+                let ox = (x as i32 + k as i32 - support as i32).clamp(0, w as i32 - 1) as usize;
+                let idx = (y * w + ox) * 4;
+                for c in 0..4 {
+                    acc[c] += f32::from(pixels[idx + c]) * weight;
+                }
+            }
+            let out = (y * w + x) * 4;
+            for c in 0..4 {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "blur accumulator clamped to byte"
+                )]
+                {
+                    temp[out + c] = acc[c].round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+    // Vertical
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = [0.0_f32; 4];
+            for (k, &weight) in weights.iter().enumerate() {
+                let oy = (y as i32 + k as i32 - support as i32).clamp(0, h as i32 - 1) as usize;
+                let idx = (oy * w + x) * 4;
+                for c in 0..4 {
+                    acc[c] += f32::from(temp[idx + c]) * weight;
+                }
+            }
+            let out = (y * w + x) * 4;
+            for c in 0..4 {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "blur accumulator clamped to byte"
+                )]
+                {
+                    pixels[out + c] = acc[c].round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +230,24 @@ mod tests {
     fn adjustment_maps_invert() {
         let pass = adjustment_pass(&AdjustmentParams::Invert);
         assert_eq!(pass.shader_key, "adjust.invert");
+    }
+
+    #[test]
+    fn levels_pulls_midtones() {
+        let mut px = [128_u8, 128, 128, 255];
+        cpu_levels_rgba(&mut px, 0.0, 1.0, 2.0);
+        assert!(px[0] > 128);
+    }
+
+    #[test]
+    fn gaussian_softens_edge() {
+        let mut px = vec![0_u8; 9 * 4];
+        px[4 * 4] = 255;
+        px[4 * 4 + 1] = 255;
+        px[4 * 4 + 2] = 255;
+        px[4 * 4 + 3] = 255;
+        cpu_gaussian_rgba(&mut px, 3, 3, 1.0);
+        assert!(px[0] > 0);
+        assert!(px[4 * 4] < 255);
     }
 }

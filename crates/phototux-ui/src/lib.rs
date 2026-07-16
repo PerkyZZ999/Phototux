@@ -10,9 +10,9 @@ use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AdjustmentParams, BlendMode, CropRect, DocumentError, DocumentGraph, DocumentSize,
-    EngineCommand, EngineEvent, HistoryKind, LayerId, LayerTransform, MAX_LAYERS, SelectionCombine,
-    SelectionRect, SelectionShape, SelectionState, SessionState, SizePreset, TextContent,
-    TransformSession, tool_id, undo_actions,
+    EngineCommand, EngineEvent, FilterParams, HistoryKind, LayerId, LayerTransform, MAX_LAYERS,
+    SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, SizePreset,
+    TextContent, TransformSession, tool_id, undo_actions,
 };
 
 #[derive(Clone)]
@@ -133,6 +133,12 @@ pub struct AppSession {
     document_path: String,
     graph_revision: i32,
     active_opacity: f32,
+    adjustment_kind: String,
+    adjustment_p0: f32,
+    adjustment_p1: f32,
+    adjustment_p2: f32,
+    has_gaussian_blur: bool,
+    gaussian_radius: f32,
     icon_root: String,
     document_name: String,
     dirty: bool,
@@ -231,6 +237,12 @@ impl AppSession {
             document_path: String::new(),
             graph_revision: 0,
             active_opacity: 1.0,
+            adjustment_kind: String::new(),
+            adjustment_p0: 0.0,
+            adjustment_p1: 0.0,
+            adjustment_p2: 1.0,
+            has_gaussian_blur: false,
+            gaussian_radius: 0.0,
             icon_root,
             document_name: "Untitled".to_owned(),
             dirty: false,
@@ -326,7 +338,69 @@ impl AppSession {
             .and_then(|g| g.active_id().and_then(|id| g.get(id)))
             .map(|l| l.opacity)
             .unwrap_or(1.0);
+        self.sync_adjustment_fields();
         self.status_text = self.engine.status_summary();
+    }
+
+    fn sync_adjustment_fields(&mut self) {
+        let layer = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)));
+        let Some(layer) = layer else {
+            self.adjustment_kind.clear();
+            self.adjustment_p0 = 0.0;
+            self.adjustment_p1 = 0.0;
+            self.adjustment_p2 = 1.0;
+            self.has_gaussian_blur = false;
+            self.gaussian_radius = 0.0;
+            return;
+        };
+        match layer.adjustment.as_ref() {
+            Some(AdjustmentParams::BrightnessContrast {
+                brightness,
+                contrast,
+            }) => {
+                self.adjustment_kind = "brightness".into();
+                self.adjustment_p0 = *brightness;
+                self.adjustment_p1 = *contrast;
+                self.adjustment_p2 = 0.0;
+            }
+            Some(AdjustmentParams::Levels {
+                black,
+                white,
+                gamma,
+            }) => {
+                self.adjustment_kind = "levels".into();
+                self.adjustment_p0 = *black;
+                self.adjustment_p1 = *white;
+                self.adjustment_p2 = *gamma;
+            }
+            Some(other) => {
+                self.adjustment_kind = other.kind_key().into();
+                self.adjustment_p0 = 0.0;
+                self.adjustment_p1 = 0.0;
+                self.adjustment_p2 = 0.0;
+            }
+            None => {
+                self.adjustment_kind.clear();
+                self.adjustment_p0 = 0.0;
+                self.adjustment_p1 = 0.0;
+                self.adjustment_p2 = 1.0;
+            }
+        }
+        let gaussian = layer.effects.iter().find_map(|effect| {
+            if !effect.enabled {
+                return None;
+            }
+            match effect.params {
+                FilterParams::GaussianBlur { radius } => Some(radius),
+                _ => None,
+            }
+        });
+        self.has_gaussian_blur = gaussian.is_some();
+        self.gaussian_radius = gaussian.unwrap_or(0.0);
     }
 
     fn emit_camera_fields(&mut self) {
@@ -353,6 +427,12 @@ impl AppSession {
         self.document_path_changed();
         self.graph_revision_changed();
         self.active_opacity_changed();
+        self.adjustment_kind_changed();
+        self.adjustment_p0_changed();
+        self.adjustment_p1_changed();
+        self.adjustment_p2_changed();
+        self.has_gaussian_blur_changed();
+        self.gaussian_radius_changed();
         self.composite_ms_changed();
         self.status_text_changed();
     }
@@ -820,6 +900,36 @@ impl AppSession {
         Member = active_opacity,
         Notify = active_opacity_changed
     );
+    qproperty!(
+        "adjustmentKind",
+        Member = adjustment_kind,
+        Notify = adjustment_kind_changed
+    );
+    qproperty!(
+        "adjustmentP0",
+        Member = adjustment_p0,
+        Notify = adjustment_p0_changed
+    );
+    qproperty!(
+        "adjustmentP1",
+        Member = adjustment_p1,
+        Notify = adjustment_p1_changed
+    );
+    qproperty!(
+        "adjustmentP2",
+        Member = adjustment_p2,
+        Notify = adjustment_p2_changed
+    );
+    qproperty!(
+        "hasGaussianBlur",
+        Member = has_gaussian_blur,
+        Notify = has_gaussian_blur_changed
+    );
+    qproperty!(
+        "gaussianRadius",
+        Member = gaussian_radius,
+        Notify = gaussian_radius_changed
+    );
     qproperty!("iconRoot", Member = icon_root, Notify = icon_root_changed);
     qproperty!(
         "documentName",
@@ -945,6 +1055,18 @@ impl AppSession {
     fn graph_revision_changed(&mut self);
     #[qsignal]
     fn active_opacity_changed(&mut self);
+    #[qsignal]
+    fn adjustment_kind_changed(&mut self);
+    #[qsignal]
+    fn adjustment_p0_changed(&mut self);
+    #[qsignal]
+    fn adjustment_p1_changed(&mut self);
+    #[qsignal]
+    fn adjustment_p2_changed(&mut self);
+    #[qsignal]
+    fn has_gaussian_blur_changed(&mut self);
+    #[qsignal]
+    fn gaussian_radius_changed(&mut self);
     #[qsignal]
     fn icon_root_changed(&mut self);
     #[qsignal]
@@ -2126,24 +2248,38 @@ impl AppSession {
 
     #[qslot]
     fn add_adjustment_layer(&mut self, kind: String) {
-        let params = match kind.as_str() {
-            "invert" => AdjustmentParams::Invert,
-            "threshold" => AdjustmentParams::Threshold { level: 0.5 },
-            "posterize" => AdjustmentParams::Posterize { levels: 8 },
-            "hue" => AdjustmentParams::HueSaturation {
-                hue: 0.0,
-                saturation: 0.0,
-                lightness: 0.0,
-            },
-            _ => AdjustmentParams::BrightnessContrast {
-                brightness: 0.0,
-                contrast: 0.0,
-            },
+        let (name, params) = match kind.as_str() {
+            "levels" => (
+                "Levels",
+                AdjustmentParams::Levels {
+                    black: 0.0,
+                    white: 1.0,
+                    gamma: 1.0,
+                },
+            ),
+            "invert" => ("Invert", AdjustmentParams::Invert),
+            "threshold" => ("Threshold", AdjustmentParams::Threshold { level: 0.5 }),
+            "posterize" => ("Posterize", AdjustmentParams::Posterize { levels: 8 }),
+            "hue" => (
+                "Hue/Saturation",
+                AdjustmentParams::HueSaturation {
+                    hue: 0.0,
+                    saturation: 0.0,
+                    lightness: 0.0,
+                },
+            ),
+            _ => (
+                "Brightness/Contrast",
+                AdjustmentParams::BrightnessContrast {
+                    brightness: 0.0,
+                    contrast: 0.0,
+                },
+            ),
         };
         let result = (|| {
             let SessionState { graph, history, .. } = &mut self.engine;
             let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
-            let id = graph.add_adjustment_top(None, params)?;
+            let id = graph.add_adjustment_top(Some(name.into()), params)?;
             let index = graph.index_of(id).unwrap_or(0);
             let layer = graph
                 .get(id)
@@ -2164,6 +2300,148 @@ impl AppSession {
             }
             Err(error) => self.report_gpu("add adjustment", &error.to_string()),
         }
+    }
+
+    #[qslot]
+    fn set_adjustment_params(&mut self, p0: f32, p1: f32, p2: f32) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(prev) = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .and_then(|l| l.adjustment.clone())
+        else {
+            return;
+        };
+        let next = match &prev {
+            AdjustmentParams::BrightnessContrast { .. } => AdjustmentParams::BrightnessContrast {
+                brightness: p0,
+                contrast: p1,
+            },
+            AdjustmentParams::Levels { .. } => AdjustmentParams::Levels {
+                black: p0,
+                white: p1,
+                gamma: p2,
+            },
+            other => other.clone(),
+        };
+        let next = next.clamped();
+        if next == prev {
+            return;
+        }
+        {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            if graph.set_adjustment(id, Some(next.clone())).is_none() {
+                return;
+            }
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::SetAdjustment {
+                    id,
+                    prev: Some(prev),
+                    next: Some(next),
+                },
+                "Adjustment",
+            );
+        }
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn add_gaussian_blur(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let is_raster = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .is_some_and(|l| l.kind == phototux_engine::LayerKind::Raster);
+        if !is_raster {
+            self.status_text = "Gaussian Blur requires an active raster layer".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let already = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .is_some_and(|l| {
+                l.effects
+                    .iter()
+                    .any(|e| matches!(e.params, FilterParams::GaussianBlur { .. }))
+            });
+        if already {
+            self.status_text = "Layer already has Gaussian Blur".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let Some((prev, _)) = self
+            .engine
+            .graph
+            .as_mut()
+            .and_then(|g| g.add_gaussian_blur(id, 4.0))
+        else {
+            return;
+        };
+        let next = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .map(|l| l.effects.clone())
+            .unwrap_or_default();
+        self.engine.history.push_graph_applied(
+            phototux_engine::GraphCommand::SetEffects { id, prev, next },
+            "Gaussian Blur",
+        );
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn set_gaussian_radius(&mut self, radius: f32) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(prev) = self
+            .engine
+            .graph
+            .as_mut()
+            .and_then(|g| g.set_gaussian_radius(id, radius))
+        else {
+            return;
+        };
+        let next = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .map(|l| l.effects.clone())
+            .unwrap_or_default();
+        if next == prev {
+            return;
+        }
+        self.engine.history.push_graph_applied(
+            phototux_engine::GraphCommand::SetEffects { id, prev, next },
+            "Blur radius",
+        );
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
     }
 
     #[qslot]

@@ -1,5 +1,6 @@
 //! wgpu Vulkan context + multi-layer composite (ADR-004 / ADR-008 / ADR-011).
 
+mod blur;
 mod brush;
 mod composite;
 mod filters;
@@ -11,7 +12,10 @@ mod transform_bake;
 pub use brush::{BrushStamper, StampRequest};
 pub use composite::LayerCompositeEngine;
 pub use composite::benchmark_10x4k_ms;
-pub use filters::{FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_invert_rgba, filter_pass};
+pub use filters::{
+    FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_gaussian_rgba, cpu_invert_rgba,
+    cpu_levels_rgba, filter_pass,
+};
 pub use layer_mask::LayerMaskChannel;
 pub use mask_stamp::MaskStamper;
 pub use phototux_engine::MAX_LAYERS;

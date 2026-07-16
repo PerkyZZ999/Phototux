@@ -348,10 +348,27 @@ ApplicationWindow {
                 enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
                 onTriggered: AppSession.setClipsToBelowOnActive(checked)
             }
-            MenuItem {
-                text: qsTr("New &Adjustment…")
+            Menu {
+                title: qsTr("New &Adjustment")
                 enabled: AppSession.hasDocument
-                onTriggered: AppSession.addAdjustmentLayer("brightness")
+                MenuItem {
+                    text: qsTr("Brightness/Contrast")
+                    enabled: AppSession.hasDocument
+                    onTriggered: AppSession.addAdjustmentLayer("brightness")
+                }
+                MenuItem {
+                    text: qsTr("Levels")
+                    enabled: AppSession.hasDocument
+                    onTriggered: AppSession.addAdjustmentLayer("levels")
+                }
+            }
+        }
+        Menu {
+            title: qsTr("Filte&r")
+            MenuItem {
+                text: qsTr("Gaussian &Blur")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addGaussianBlur()
             }
         }
         Menu {
@@ -1509,6 +1526,179 @@ ApplicationWindow {
                                                  value,
                                                  AppSession.transformConstrain)
                                 }
+                            }
+                        }
+
+                        // Adjustment layer params
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.adjustmentKind === "brightness"
+                                     || AppSession.adjustmentKind === "levels"
+                            Label {
+                                text: AppSession.adjustmentKind === "levels"
+                                      ? qsTr("Levels") : qsTr("Brightness/Contrast")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "brightness"
+                                Label {
+                                    text: qsTr("Brightness")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(AppSession.adjustmentP0 * 100)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "brightness"
+                                from: -1
+                                to: 1
+                                value: AppSession.adjustmentP0
+                                onMoved: AppSession.setAdjustmentParams(
+                                             value, AppSession.adjustmentP1, 0)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "brightness"
+                                Label {
+                                    text: qsTr("Contrast")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(AppSession.adjustmentP1 * 100)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "brightness"
+                                from: -1
+                                to: 1
+                                value: AppSession.adjustmentP1
+                                onMoved: AppSession.setAdjustmentParams(
+                                             AppSession.adjustmentP0, value, 0)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "levels"
+                                Label {
+                                    text: qsTr("Black")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(AppSession.adjustmentP0 * 255)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "levels"
+                                from: 0
+                                to: 1
+                                value: AppSession.adjustmentP0
+                                onMoved: AppSession.setAdjustmentParams(
+                                             value, AppSession.adjustmentP1, AppSession.adjustmentP2)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "levels"
+                                Label {
+                                    text: qsTr("White")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(AppSession.adjustmentP1 * 255)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "levels"
+                                from: 0
+                                to: 1
+                                value: AppSession.adjustmentP1
+                                onMoved: AppSession.setAdjustmentParams(
+                                             AppSession.adjustmentP0, value, AppSession.adjustmentP2)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "levels"
+                                Label {
+                                    text: qsTr("Gamma")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: AppSession.adjustmentP2.toFixed(2)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "levels"
+                                from: 0.1
+                                to: 3
+                                value: AppSession.adjustmentP2
+                                onMoved: AppSession.setAdjustmentParams(
+                                             AppSession.adjustmentP0, AppSession.adjustmentP1, value)
+                            }
+                        }
+
+                        // Gaussian blur effect
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.hasGaussianBlur
+                            Label {
+                                text: qsTr("Gaussian Blur")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Radius")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: AppSession.gaussianRadius.toFixed(1) + " px"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 64
+                                value: AppSession.gaussianRadius
+                                onMoved: AppSession.setGaussianRadius(value)
                             }
                         }
 

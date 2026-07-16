@@ -1,7 +1,7 @@
 //! Gesture-level undo stack (ADR-013 G16).
 
 use crate::document::DocumentGraph;
-use crate::layer::{BlendMode, Layer, LayerId, LayerMask};
+use crate::layer::{AdjustmentParams, BlendMode, FilterEffect, Layer, LayerId, LayerMask};
 
 /// One undoable gesture applied to the document graph (structure only in Phase 3).
 #[derive(Debug, Clone)]
@@ -56,6 +56,16 @@ pub enum GraphCommand {
         prev: bool,
         next: bool,
     },
+    SetAdjustment {
+        id: LayerId,
+        prev: Option<AdjustmentParams>,
+        next: Option<AdjustmentParams>,
+    },
+    SetEffects {
+        id: LayerId,
+        prev: Vec<FilterEffect>,
+        next: Vec<FilterEffect>,
+    },
 }
 
 impl GraphCommand {
@@ -93,6 +103,12 @@ impl GraphCommand {
             }
             Self::SetClipsToBelow { id, next, .. } => {
                 let _ = graph.set_clips_to_below(*id, *next);
+            }
+            Self::SetAdjustment { id, next, .. } => {
+                let _ = graph.set_adjustment(*id, next.clone());
+            }
+            Self::SetEffects { id, next, .. } => {
+                let _ = graph.set_effects(*id, next.clone());
             }
         }
     }
@@ -156,6 +172,16 @@ impl GraphCommand {
                 id: *id,
                 prev: *next,
                 next: *prev,
+            },
+            Self::SetAdjustment { id, prev, next } => Self::SetAdjustment {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetEffects { id, prev, next } => Self::SetEffects {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
             },
         }
     }
@@ -399,5 +425,60 @@ mod tests {
         assert!((g.get(id).unwrap().opacity - 0.25).abs() < 1e-5);
         h.undo_next(&mut g);
         assert!((g.get(id).unwrap().opacity - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn undo_adjustment_params() {
+        use crate::AdjustmentParams;
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let mut h = crate::HistoryService::new(64);
+        let id = g
+            .add_adjustment_top(
+                Some("BC".into()),
+                AdjustmentParams::BrightnessContrast {
+                    brightness: 0.0,
+                    contrast: 0.0,
+                },
+            )
+            .expect("add");
+        let prev = g.get(id).and_then(|l| l.adjustment.clone());
+        let next = AdjustmentParams::BrightnessContrast {
+            brightness: 0.4,
+            contrast: -0.1,
+        };
+        g.set_adjustment(id, Some(next.clone())).expect("set");
+        h.push_graph_applied(
+            GraphCommand::SetAdjustment {
+                id,
+                prev,
+                next: Some(next),
+            },
+            "Adjustment",
+        );
+        h.undo_next(&mut g);
+        let restored = g.get(id).and_then(|l| l.adjustment.clone());
+        assert_eq!(
+            restored,
+            Some(AdjustmentParams::BrightnessContrast {
+                brightness: 0.0,
+                contrast: 0.0,
+            })
+        );
+    }
+
+    #[test]
+    fn undo_gaussian_effect() {
+        use crate::FilterParams;
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let mut h = crate::HistoryService::new(64);
+        let id = g.layers()[0].id;
+        let (prev, _) = g.add_gaussian_blur(id, 8.0).expect("blur");
+        let next = g.get(id).map(|l| l.effects.clone()).unwrap_or_default();
+        h.push_graph_applied(GraphCommand::SetEffects { id, prev, next }, "Blur");
+        assert!(g.get(id).unwrap().effects.iter().any(|e| {
+            matches!(e.params, FilterParams::GaussianBlur { radius } if (radius - 8.0).abs() < 1e-5)
+        }));
+        h.undo_next(&mut g);
+        assert!(g.get(id).unwrap().effects.is_empty());
     }
 }

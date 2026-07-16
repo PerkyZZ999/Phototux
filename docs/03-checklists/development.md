@@ -248,11 +248,11 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 
 ### Adjustments
 
-Adjustment **layer kinds + params** exist; full nondestructive GPU evaluation per kind is remaining work.
+Brightness/Contrast and Levels evaluate on GPU; other kinds remain contracts / deferred.
 
-- [~] Brightness / Contrast
+- [x] Brightness / Contrast
 - [~] Invert
-- [ ] Levels / Curves / Exposure / Vibrance
+- [~] Levels / Curves / Exposure / Vibrance (Levels GPU shipped; Curves+ deferred)
 - [ ] Hue / Saturation / Color Balance / Black & White
 - [ ] Photo Filter / Channel Mixer / Color Lookup
 - [ ] Posterize / Threshold / Gradient Map / Selective Color
@@ -261,12 +261,12 @@ Adjustment **layer kinds + params** exist; full nondestructive GPU evaluation pe
 
 ### Filters
 
-Filter **param / pass descriptors** exist; product filter menu + GPU implementations TBD.
+Gaussian Blur ships as nondestructive layer effect; other filters deferred.
 
 #### Blur
 
 - [ ] Average / Blur / Blur More / Box Blur
-- [ ] Gaussian Blur / Motion / Radial / Surface Blur
+- [~] Gaussian Blur / Motion / Radial / Surface Blur (Gaussian shipped)
 
 #### Sharpen
 
@@ -393,7 +393,7 @@ Post-MVP per FEATURES_TODO — do not block core production path.
 - [!] Multiple image editing (ADR-013)
 - [x] PSD compatibility (subset import/export + report)
 - [ ] Unlimited canvas (memory-dependent tiling)
-- [~] Non-destructive workflow (graph v2 foundation; styles/SO/filters incomplete)
+- [~] Non-destructive workflow (graph v2 + Brightness/Levels/Gaussian; styles/SO incomplete)
 - [~] Photoshop-like shortcuts (partial)
 
 ---
@@ -407,7 +407,7 @@ Order is guidance, not locked ADR:
 3. ~~**Mask paint + clipping**~~ — **shipped 2026-07-16** (R8 paint, composite, clip, `.ptx`)
 4. ~~**Lasso + GPU edge ants**~~ — **shipped 2026-07-16** (freehand/polygonal; mask-edge ants)
 5. ~~**PSD depth**~~ — **shipped 2026-07-16** (Raw/RLE composite + layers; subset export)
-6. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first
+6. ~~**Adjustment/filter GPU**~~ — **shipped 2026-07-16** (Brightness/Levels + Gaussian effect)
 7. **Panels** — Swatches, Navigator, Properties completeness
 8. **Vector / shapes / rich text** — after raster core feels solid
 9. **Multi-doc** — only after ADR-013 amendment

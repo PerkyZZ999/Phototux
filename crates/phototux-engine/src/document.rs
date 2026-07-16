@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::DocumentSize;
 use crate::error::DocumentError;
 use crate::layer::{
-    AdjustmentParams, BlendMode, Layer, LayerId, LayerKind, LayerMask, TextContent,
+    AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
+    MAX_BLUR_RADIUS, TextContent,
 };
 
 /// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
@@ -130,13 +131,13 @@ impl DocumentGraph {
         }
     }
 
-    /// Visible raster-capable layers bottom→top for composite (groups expand later).
+    /// Visible layers bottom→top for composite (groups expand later).
     pub fn composite_order(&self) -> impl Iterator<Item = &Layer> {
         self.layers.iter().filter(|l| {
             l.visible
                 && matches!(
                     l.kind,
-                    LayerKind::Raster | LayerKind::Text | LayerKind::Group
+                    LayerKind::Raster | LayerKind::Text | LayerKind::Group | LayerKind::Adjustment
                 )
         })
     }
@@ -355,6 +356,93 @@ impl DocumentGraph {
         if prev != blend {
             self.bump();
         }
+        Some(prev)
+    }
+
+    /// Replace adjustment parameters on an adjustment layer.
+    pub fn set_adjustment(
+        &mut self,
+        id: LayerId,
+        params: Option<AdjustmentParams>,
+    ) -> Option<Option<AdjustmentParams>> {
+        let layer = self.get_mut(id)?;
+        if layer.kind != LayerKind::Adjustment {
+            return None;
+        }
+        let prev = layer.adjustment.clone();
+        layer.adjustment = params.map(AdjustmentParams::clamped);
+        self.bump();
+        Some(prev)
+    }
+
+    /// Replace the full nondestructive effect stack on a layer.
+    pub fn set_effects(
+        &mut self,
+        id: LayerId,
+        effects: Vec<FilterEffect>,
+    ) -> Option<Vec<FilterEffect>> {
+        let layer = self.get_mut(id)?;
+        let prev = layer.effects.clone();
+        layer.effects = effects
+            .into_iter()
+            .map(|mut effect| {
+                effect.params = effect.params.clamped();
+                effect.opacity = effect.opacity.clamp(0.0, 1.0);
+                effect
+            })
+            .collect();
+        self.bump();
+        Some(prev)
+    }
+
+    /// Append a Gaussian Blur effect to a raster layer. Returns `(prev_effects, effect_id)`.
+    pub fn add_gaussian_blur(
+        &mut self,
+        id: LayerId,
+        radius: f32,
+    ) -> Option<(Vec<FilterEffect>, u64)> {
+        let layer = self.get(id)?;
+        if layer.kind != LayerKind::Raster {
+            return None;
+        }
+        let effect_id = layer
+            .effects
+            .iter()
+            .map(|e| e.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let prev = layer.effects.clone();
+        let mut next = prev.clone();
+        next.push(FilterEffect::gaussian_blur(
+            effect_id,
+            radius.clamp(0.0, MAX_BLUR_RADIUS),
+        ));
+        let _ = self.set_effects(id, next)?;
+        Some((prev, effect_id))
+    }
+
+    /// Update the first Gaussian Blur effect radius (creates nothing).
+    pub fn set_gaussian_radius(&mut self, id: LayerId, radius: f32) -> Option<Vec<FilterEffect>> {
+        let layer = self.get(id)?;
+        let prev = layer.effects.clone();
+        let mut next = prev.clone();
+        let radius = radius.clamp(0.0, MAX_BLUR_RADIUS);
+        let mut found = false;
+        for effect in &mut next {
+            if let FilterParams::GaussianBlur { radius: r } = &mut effect.params {
+                if (*r - radius).abs() < f32::EPSILON {
+                    return Some(prev);
+                }
+                *r = radius;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return None;
+        }
+        let _ = self.set_effects(id, next)?;
         Some(prev)
     }
 

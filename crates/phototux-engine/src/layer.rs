@@ -257,6 +257,62 @@ impl Default for AdjustmentParams {
     }
 }
 
+impl AdjustmentParams {
+    /// Clamp parameters into UI/GPU-safe ranges.
+    pub fn clamped(self) -> Self {
+        match self {
+            Self::BrightnessContrast {
+                brightness,
+                contrast,
+            } => Self::BrightnessContrast {
+                brightness: brightness.clamp(-1.0, 1.0),
+                contrast: contrast.clamp(-1.0, 1.0),
+            },
+            Self::Levels {
+                black,
+                white,
+                gamma,
+            } => {
+                let black = black.clamp(0.0, 1.0);
+                let white = white.clamp(0.0, 1.0).max(black + 1e-4);
+                Self::Levels {
+                    black,
+                    white,
+                    gamma: gamma.clamp(0.01, 10.0),
+                }
+            }
+            Self::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+            } => Self::HueSaturation {
+                hue: hue.clamp(-1.0, 1.0),
+                saturation: saturation.clamp(-1.0, 1.0),
+                lightness: lightness.clamp(-1.0, 1.0),
+            },
+            Self::Invert => Self::Invert,
+            Self::Threshold { level } => Self::Threshold {
+                level: level.clamp(0.0, 1.0),
+            },
+            Self::Posterize { levels } => Self::Posterize {
+                levels: levels.clamp(2, 256),
+            },
+        }
+    }
+
+    /// Short kind key for QML (`brightness`, `levels`, …).
+    pub fn kind_key(&self) -> &'static str {
+        match self {
+            Self::BrightnessContrast { .. } => "brightness",
+            Self::Levels { .. } => "levels",
+            Self::HueSaturation { .. } => "hue",
+            Self::Invert => "invert",
+            Self::Threshold { .. } => "threshold",
+            Self::Posterize { .. } => "posterize",
+        }
+    }
+}
+
 /// One nondestructive filter/effect node on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FilterEffect {
@@ -276,6 +332,44 @@ pub enum FilterParams {
     Sharpen { amount: f32 },
     Invert,
     Offset { x: i32, y: i32 },
+}
+
+/// Maximum Gaussian/box blur radius accepted by the engine.
+pub const MAX_BLUR_RADIUS: f32 = 64.0;
+
+impl FilterParams {
+    /// Clamp parameters into UI/GPU-safe ranges.
+    pub fn clamped(self) -> Self {
+        match self {
+            Self::GaussianBlur { radius } => Self::GaussianBlur {
+                radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
+            },
+            Self::BoxBlur { radius } => Self::BoxBlur {
+                radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
+            },
+            Self::Sharpen { amount } => Self::Sharpen {
+                amount: amount.clamp(0.0, 4.0),
+            },
+            Self::Invert => Self::Invert,
+            Self::Offset { x, y } => Self::Offset { x, y },
+        }
+    }
+}
+
+impl FilterEffect {
+    /// Create an enabled Gaussian Blur effect.
+    pub fn gaussian_blur(id: u64, radius: f32) -> Self {
+        Self {
+            id,
+            name: "Gaussian Blur".into(),
+            enabled: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            params: FilterParams::GaussianBlur {
+                radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
+            },
+        }
+    }
 }
 
 /// Where brush/eraser strokes apply.

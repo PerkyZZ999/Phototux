@@ -7,8 +7,12 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId, MAX_LAYERS};
+use phototux_engine::{
+    AdjustmentParams, BlendMode, DocumentSize, FilterParams, Layer, LayerId, LayerKind, MAX_LAYERS,
+};
 
+use crate::blur::SeparableBlur;
+use crate::filters::adjustment_pass;
 use crate::layer_mask::LayerMaskChannel;
 use crate::transform_bake::inverse_affine_coeffs;
 use crate::{GpuContext, TextureTransferError};
@@ -28,9 +32,13 @@ struct LayerParams {
     mask_enabled: u32,
     mask_inverted: u32,
     clips_to_below: u32,
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
+    kind: u32,
+    adj_op: u32,
+    _pad0: u32,
+    p0: f32,
+    p1: f32,
+    p2: f32,
+    p3: f32,
 };
 
 struct Uniforms {
@@ -94,6 +102,21 @@ fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
     }
 }
 
+fn apply_brightness_contrast(rgb: vec3<f32>, brightness: f32, contrast: f32) -> vec3<f32> {
+    let c = contrast + 1.0;
+    var out = (rgb - vec3<f32>(0.5)) * c + vec3<f32>(0.5);
+    out = out + vec3<f32>(brightness);
+    return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn apply_levels(rgb: vec3<f32>, black: f32, white: f32, gamma: f32) -> vec3<f32> {
+    let span = max(white - black, 1e-5);
+    var t = clamp((rgb - vec3<f32>(black)) / span, vec3<f32>(0.0), vec3<f32>(1.0));
+    let g = max(gamma, 0.01);
+    t = pow(t, vec3<f32>(1.0 / g));
+    return clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -108,17 +131,38 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let dest = in.uv * dims;
         let src = vec2<f32>(p.a * dest.x + p.b * dest.y + p.tx, p.c * dest.x + p.d * dest.y + p.ty);
         let src_uv = src / dims;
-        var over = vec4<f32>(0.0);
-        if (src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0) {
-            over = textureSample(layers_tex, samp, src_uv, i32(i));
-        }
         var mask_f = 1.0;
         if (p.has_mask != 0u && p.mask_enabled != 0u) {
-            var m = textureSample(masks_tex, samp, src_uv, i32(i)).r;
+            var m = 0.0;
+            if (src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0) {
+                m = textureSample(masks_tex, samp, src_uv, i32(i)).r;
+            }
             if (p.mask_inverted != 0u) {
                 m = 1.0 - m;
             }
             mask_f = m;
+        }
+
+        // Adjustment layers transform the running composite (not paint).
+        if (p.kind == 1u) {
+            let strength = clamp(p.opacity * mask_f, 0.0, 1.0);
+            if (strength < 0.0001) {
+                continue;
+            }
+            var adjusted = acc.rgb;
+            if (p.adj_op == 1u) {
+                adjusted = apply_brightness_contrast(acc.rgb, p.p0, p.p1);
+            } else if (p.adj_op == 2u) {
+                adjusted = apply_levels(acc.rgb, p.p0, p.p1, p.p2);
+            }
+            let rgb = mix(acc.rgb, adjusted, strength);
+            acc = vec4<f32>(rgb, acc.a);
+            continue;
+        }
+
+        var over = vec4<f32>(0.0);
+        if (src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0) {
+            over = textureSample(layers_tex, samp, src_uv, i32(i));
         }
         var oa = over.a * p.opacity * mask_f;
         if (p.clips_to_below != 0u) {
@@ -126,7 +170,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
         if (oa < 0.0001) {
             if (p.clips_to_below == 0u) {
-                // Still update clip base from unclipped visible layers.
                 clip_base = over.a * p.opacity * mask_f;
             }
             continue;
@@ -159,9 +202,13 @@ struct LayerParamsGpu {
     mask_enabled: u32,
     mask_inverted: u32,
     clips_to_below: u32,
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
+    kind: u32,
+    adj_op: u32,
+    _pad0: u32,
+    p0: f32,
+    p1: f32,
+    p2: f32,
+    p3: f32,
 }
 
 #[repr(C)]
@@ -204,6 +251,9 @@ pub struct LayerCompositeEngine {
     bind_group: Option<wgpu::BindGroup>,
     last_composite_ms: f32,
     stack_order: Vec<LayerId>,
+    /// First enabled Gaussian radius per layer (0 = none).
+    gaussian_radius: HashMap<LayerId, f32>,
+    blur: SeparableBlur,
 }
 
 impl LayerCompositeEngine {
@@ -372,6 +422,8 @@ impl LayerCompositeEngine {
             bind_group: None,
             last_composite_ms: 0.0,
             stack_order: Vec::new(),
+            gaussian_radius: HashMap::new(),
+            blur: SeparableBlur::new(ctx, width, height),
         }
     }
 
@@ -462,12 +514,30 @@ impl LayerCompositeEngine {
             [0.20, 0.70, 0.75, 0.70],
             [0.95, 0.55, 0.30, 0.65],
         ];
+        let mut gaussian_radius = HashMap::new();
         for (i, layer) in layers.iter().enumerate() {
-            let color = PALETTE[i % PALETTE.len()];
-            self.ensure_layer(ctx, layer.id, color);
+            match layer.kind {
+                LayerKind::Adjustment => {
+                    self.ensure_layer(ctx, layer.id, [0.0, 0.0, 0.0, 0.0]);
+                }
+                _ => {
+                    let color = PALETTE[i % PALETTE.len()];
+                    self.ensure_layer(ctx, layer.id, color);
+                }
+            }
             if layer.mask.is_some() {
                 self.ensure_mask(ctx, layer.id);
             }
+            if let Some(radius) = first_gaussian_radius(layer) {
+                gaussian_radius.insert(layer.id, radius);
+            }
+        }
+        if gaussian_radius != self.gaussian_radius {
+            self.gaussian_radius = gaussian_radius;
+            self.array_dirty = true;
+            self.dirty_slices.clear();
+        } else {
+            self.gaussian_radius = gaussian_radius;
         }
         let new_order: Vec<LayerId> = layers.iter().map(|l| l.id).collect();
         if new_order != self.stack_order {
@@ -477,6 +547,37 @@ impl LayerCompositeEngine {
             self.dirty_slices.clear();
             self.dirty_mask_slices.clear();
         }
+        Ok(())
+    }
+
+    fn copy_layer_slice(
+        &mut self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        id: LayerId,
+        slice: u32,
+    ) -> Result<(), String> {
+        let Some(src) = self.layer_tex.get(&id) else {
+            return Ok(());
+        };
+        let src = src.clone();
+        let pack_src = if let Some(&radius) = self.gaussian_radius.get(&id) {
+            if radius > 0.01 {
+                self.blur.blur(ctx, encoder, &src, radius).clone()
+            } else {
+                src
+            }
+        } else {
+            src
+        };
+        copy_slice_2d(
+            encoder,
+            &pack_src,
+            &self.array_tex,
+            slice,
+            self.width,
+            self.height,
+        );
         Ok(())
     }
 
@@ -495,35 +596,28 @@ impl LayerCompositeEngine {
 
         if self.array_dirty {
             self.layer_index.clear();
+            let mut pack = Vec::with_capacity(self.stack_order.len().min(MAX_LAYERS));
             for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
                 let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
-                self.layer_index.insert(*id, slice);
-                if let Some(src) = self.layer_tex.get(id) {
-                    copy_slice_2d(
-                        &mut encoder,
-                        src,
-                        &self.array_tex,
-                        slice,
-                        self.width,
-                        self.height,
-                    );
-                }
+                pack.push((*id, slice));
+            }
+            for (id, slice) in pack {
+                self.layer_index.insert(id, slice);
+                self.copy_layer_slice(ctx, &mut encoder, id, slice)?;
             }
         } else {
-            for &slice in &self.dirty_slices {
-                let Some(id) = self.stack_order.get(slice as usize).copied() else {
-                    continue;
-                };
-                if let Some(src) = self.layer_tex.get(&id) {
-                    copy_slice_2d(
-                        &mut encoder,
-                        src,
-                        &self.array_tex,
-                        slice,
-                        self.width,
-                        self.height,
-                    );
-                }
+            let dirty: Vec<(LayerId, u32)> = self
+                .dirty_slices
+                .iter()
+                .filter_map(|&slice| {
+                    self.stack_order
+                        .get(slice as usize)
+                        .copied()
+                        .map(|id| (id, slice))
+                })
+                .collect();
+            for (id, slice) in dirty {
+                self.copy_layer_slice(ctx, &mut encoder, id, slice)?;
             }
         }
 
@@ -646,9 +740,13 @@ impl LayerCompositeEngine {
                 mask_enabled: 0,
                 mask_inverted: 0,
                 clips_to_below: 0,
-                _pad1: 0,
-                _pad2: 0,
-                _pad3: 0,
+                kind: 0,
+                adj_op: 0,
+                _pad0: 0,
+                p0: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                p3: 0.0,
             }; MAX_LAYERS],
         };
 
@@ -662,6 +760,7 @@ impl LayerCompositeEngine {
                 }
                 _ => (0, 0, 0),
             };
+            let (kind, adj_op, p0, p1, p2, p3) = adjustment_gpu_params(layer);
             uniforms.layers[i] = LayerParamsGpu {
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 mode: layer.blend.as_u32(),
@@ -676,9 +775,13 @@ impl LayerCompositeEngine {
                 mask_enabled,
                 mask_inverted,
                 clips_to_below: u32::from(layer.clips_to_below),
-                _pad1: 0,
-                _pad2: 0,
-                _pad3: 0,
+                kind,
+                adj_op,
+                _pad0: 0,
+                p0,
+                p1,
+                p2,
+                p3,
             };
         }
 
@@ -1135,6 +1238,41 @@ fn copy_slice_2d(
             depth_or_array_layers: 1,
         },
     );
+}
+
+fn first_gaussian_radius(layer: &Layer) -> Option<f32> {
+    layer.effects.iter().find_map(|effect| {
+        if !effect.enabled {
+            return None;
+        }
+        match effect.params {
+            FilterParams::GaussianBlur { radius } if radius > 0.01 => Some(radius),
+            _ => None,
+        }
+    })
+}
+
+fn adjustment_gpu_params(layer: &Layer) -> (u32, u32, f32, f32, f32, f32) {
+    if layer.kind != LayerKind::Adjustment {
+        return (0, 0, 0.0, 0.0, 0.0, 0.0);
+    }
+    let Some(params) = layer.adjustment.as_ref() else {
+        return (1, 0, 0.0, 0.0, 0.0, 0.0);
+    };
+    let pass = adjustment_pass(params);
+    let adj_op = match params {
+        AdjustmentParams::BrightnessContrast { .. } => 1,
+        AdjustmentParams::Levels { .. } => 2,
+        _ => 0,
+    };
+    (
+        1,
+        adj_op,
+        pass.params[0],
+        pass.params[1],
+        pass.params[2],
+        pass.params[3],
+    )
 }
 
 fn rgba_byte_len(width: u32, height: u32) -> Result<usize, TextureTransferError> {

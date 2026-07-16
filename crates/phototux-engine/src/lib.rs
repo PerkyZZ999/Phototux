@@ -26,7 +26,7 @@ pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
-    LayerTransform, LockFlags, PaintTarget, TextContent,
+    LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, TextContent,
 };
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
