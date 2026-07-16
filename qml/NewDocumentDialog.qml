@@ -1,15 +1,16 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import phototux_ui
 
 Popup {
     id: dialog
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
-    width: 420
-    height: 340
-    padding: 16
+    width: 720
+    height: 480
+    padding: 0
 
     signal accepted(string presetLabel, int width, int height)
 
@@ -17,10 +18,30 @@ Popup {
     property int customW: 1920
     property int customH: 1080
 
+    readonly property var presets: [
+        { label: "720p",  sub: "1280 × 720",  w: 1280, h: 720,  tip: qsTr("HD ready") },
+        { label: "1080p", sub: "1920 × 1080", w: 1920, h: 1080, tip: qsTr("Recommended") },
+        { label: "2K",    sub: "2560 × 1440", w: 2560, h: 1440, tip: qsTr("QHD") },
+        { label: "4K",    sub: "3840 × 2160", w: 3840, h: 2160, tip: qsTr("UHD") }
+    ]
+
+    function selectPreset(label) {
+        selectedPreset = label
+        for (var i = 0; i < presets.length; ++i) {
+            if (presets[i].label === label) {
+                customW = presets[i].w
+                customH = presets[i].h
+                spinW.value = presets[i].w
+                spinH.value = presets[i].h
+                break
+            }
+        }
+    }
+
     background: Rectangle {
-        color: "#2B2B30"
-        border.color: "#3D3D45"
-        radius: 6
+        color: Theme.surface
+        border.color: Theme.border
+        radius: Theme.radiusLg
     }
 
     Overlay.modal: Rectangle {
@@ -29,127 +50,316 @@ Popup {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: 0
 
-        Label {
-            text: qsTr("New Document")
-            color: "#EFF0F1"
-            font.bold: true
-            font.pixelSize: 14
+        // Header
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.toolbarHeight
+            color: Theme.surface
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.border
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spaceMd
+                anchors.rightMargin: Theme.spaceSm
+                spacing: Theme.spaceSm
+
+                Label {
+                    text: qsTr("New Document")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontWindow
+                    font.weight: Font.DemiBold
+                }
+
+                Item { Layout.fillWidth: true }
+
+                ToolButton {
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    icon.source: Theme.iconUrl(AppSession.iconRoot, "x")
+                    icon.width: 16
+                    icon.height: 16
+                    onClicked: dialog.close()
+                    ToolTip.text: qsTr("Close")
+                    ToolTip.visible: hovered
+                }
+            }
         }
 
-        Label {
-            text: qsTr("Choose a size preset (ADR-013). 1080p is recommended.")
-            color: "#A0A0A8"
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
+        RowLayout {
             Layout.fillWidth: true
-        }
+            Layout.fillHeight: true
+            spacing: 0
 
-        GridLayout {
-            columns: 2
-            Layout.fillWidth: true
-            columnSpacing: 8
-            rowSpacing: 8
+            // Preset grid
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 0
 
-            Repeater {
-                model: [
-                    { label: "720p", sub: "1280×720" },
-                    { label: "1080p", sub: "1920×1080" },
-                    { label: "2K", sub: "2560×1440" },
-                    { label: "4K", sub: "3840×2160" }
-                ]
-                delegate: Button {
+                Item {
                     Layout.fillWidth: true
-                    checkable: true
-                    checked: dialog.selectedPreset === modelData.label
-                    text: modelData.label + "\n" + modelData.sub
-                    onClicked: {
-                        dialog.selectedPreset = modelData.label
-                        // clear custom mode
+                    Layout.fillHeight: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.spaceXl
+                        spacing: Theme.spaceMd
+
+                        Label {
+                            text: qsTr("Blank Document Presets")
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontHeadlineSm
+                            font.weight: Font.DemiBold
+                        }
+
+                        Label {
+                            text: qsTr("Choose a size (ADR-013). 1080p is recommended for most work.")
+                            color: Theme.colorOnSurfaceMuted
+                            font.pixelSize: Theme.fontBodySm
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 4
+                            columnSpacing: Theme.spaceMd
+                            rowSpacing: Theme.spaceMd
+
+                            Repeater {
+                                model: dialog.presets
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 148
+                                    radius: Theme.radiusMd
+                                    color: dialog.selectedPreset === modelData.label
+                                           ? Theme.surfaceRaised : Theme.surface
+                                    border.color: dialog.selectedPreset === modelData.label
+                                                  ? Theme.primary : Theme.border
+                                    border.width: dialog.selectedPreset === modelData.label ? 1 : 1
+
+                                    Rectangle {
+                                        visible: dialog.selectedPreset === modelData.label
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: Theme.spaceSm
+                                        width: 8
+                                        height: 8
+                                        radius: 4
+                                        color: Theme.primary
+                                    }
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: Theme.spaceSm
+                                        width: parent.width - Theme.spaceLg
+
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            width: Math.max(36, Math.min(72, modelData.w / modelData.h * 48))
+                                            height: Math.max(28, Math.min(56, modelData.h / modelData.w * 48))
+                                            color: Theme.surfaceSunken
+                                            border.color: dialog.selectedPreset === modelData.label
+                                                          ? Theme.primary : Theme.border
+                                            radius: Theme.radiusXs
+
+                                            Image {
+                                                anchors.centerIn: parent
+                                                source: Theme.iconUrl(AppSession.iconRoot, "monitor")
+                                                width: 18
+                                                height: 18
+                                                sourceSize: Qt.size(18, 18)
+                                                opacity: dialog.selectedPreset === modelData.label ? 1.0 : 0.55
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            text: modelData.label
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontLabel
+                                            font.weight: Font.DemiBold
+                                        }
+
+                                        Label {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            text: modelData.sub
+                                            color: Theme.colorOnSurfaceMuted
+                                            font.pixelSize: Theme.fontBodySm
+                                        }
+
+                                        Label {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            text: modelData.tip
+                                            color: dialog.selectedPreset === modelData.label
+                                                   ? Theme.primary : Theme.colorOnSurfaceDisabled
+                                            font.pixelSize: Theme.fontLabelSm
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: dialog.selectPreset(modelData.label)
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
                     }
-                    background: Rectangle {
-                        radius: 4
-                        color: parent.checked ? "#3DAEE940" : "#323238"
-                        border.color: parent.checked ? "#3DAEE9" : "#3D3D45"
-                        border.width: 1
+                }
+            }
+
+            // Details dock
+            Rectangle {
+                Layout.preferredWidth: 260
+                Layout.fillHeight: true
+                color: Theme.surface
+
+                Rectangle {
+                    anchors.left: parent.left
+                    width: 1
+                    height: parent.height
+                    color: Theme.border
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 0
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.toolbarHeight
+                        color: Theme.surface
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.border
+                        }
+
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.spaceMd
+                            text: qsTr("Preset Details")
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontHeadlineSm
+                            font.weight: Font.DemiBold
+                        }
                     }
-                    contentItem: Text {
-                        text: parent.text
-                        color: "#EFF0F1"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: 12
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.margins: Theme.spaceMd
+                        spacing: Theme.spaceMd
+
+                        Label {
+                            text: qsTr("Width")
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabelSm
+                        }
+
+                        SpinBox {
+                            id: spinW
+                            Layout.fillWidth: true
+                            from: 1
+                            to: 32768
+                            value: dialog.customW
+                            editable: true
+                            onValueModified: {
+                                dialog.customW = value
+                                dialog.selectedPreset = ""
+                            }
+                        }
+
+                        Label {
+                            text: qsTr("Height")
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabelSm
+                        }
+
+                        SpinBox {
+                            id: spinH
+                            Layout.fillWidth: true
+                            from: 1
+                            to: 32768
+                            value: dialog.customH
+                            editable: true
+                            onValueModified: {
+                                dialog.customH = value
+                                dialog.selectedPreset = ""
+                            }
+                        }
+
+                        Label {
+                            text: qsTr("Pixels · RGB document")
+                            color: Theme.colorOnSurfaceMuted
+                            font.pixelSize: Theme.fontBodySm
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Item { Layout.fillHeight: true }
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("Cancel")
+                            onClicked: dialog.close()
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: parent.down ? Theme.surfaceContainerHigh : Theme.surfaceRaised
+                                border.color: Theme.border
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                color: Theme.colorOnSurface
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: Theme.fontLabel
+                            }
+                        }
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("Create")
+                            onClicked: {
+                                if (dialog.selectedPreset && dialog.selectedPreset.length > 0)
+                                    dialog.accepted(dialog.selectedPreset, 0, 0)
+                                else
+                                    dialog.accepted("", spinW.value, spinH.value)
+                                dialog.close()
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: parent.down ? Theme.primaryHover : Theme.primary
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                color: Theme.primaryOn
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: Theme.fontLabel
+                            }
+                        }
                     }
-                }
-            }
-        }
-
-        Label {
-            text: qsTr("Or custom size (px)")
-            color: "#A0A0A8"
-            font.pixelSize: 11
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-            SpinBox {
-                id: spinW
-                from: 1
-                to: 32768
-                value: dialog.customW
-                editable: true
-                onValueModified: {
-                    dialog.customW = value
-                    dialog.selectedPreset = ""
-                }
-            }
-            Label { text: "×"; color: "#A0A0A8" }
-            SpinBox {
-                id: spinH
-                from: 1
-                to: 32768
-                value: dialog.customH
-                editable: true
-                onValueModified: {
-                    dialog.customH = value
-                    dialog.selectedPreset = ""
-                }
-            }
-        }
-
-        Item { Layout.fillHeight: true }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Item { Layout.fillWidth: true }
-            Button {
-                text: qsTr("Cancel")
-                onClicked: dialog.close()
-            }
-            Button {
-                text: qsTr("Create")
-                highlighted: true
-                onClicked: {
-                    if (dialog.selectedPreset && dialog.selectedPreset.length > 0)
-                        dialog.accepted(dialog.selectedPreset, 0, 0)
-                    else
-                        dialog.accepted("", spinW.value, spinH.value)
-                    dialog.close()
-                }
-                background: Rectangle {
-                    radius: 4
-                    color: parent.down ? "#5CB8ED" : "#3DAEE9"
-                }
-                contentItem: Text {
-                    text: parent.text
-                    color: "#0A1620"
-                    font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
                 }
             }
         }
     }
+
+    Component.onCompleted: selectPreset("1080p")
 }

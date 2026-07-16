@@ -6,6 +6,7 @@ Install release artifacts under the standard XDG prefixes:
 /usr/bin/phototux
 /usr/share/applications/io.github.PerkyZZ999.PhotoTux.desktop
 /usr/share/icons/hicolor/scalable/apps/io.github.PerkyZZ999.PhotoTux.svg
+/usr/share/icons/hicolor/256x256/apps/io.github.PerkyZZ999.PhotoTux.png
 /usr/share/metainfo/io.github.PerkyZZ999.PhotoTux.metainfo.xml
 ```
 

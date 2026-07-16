@@ -48,9 +48,17 @@ where
 }
 
 fn main() {
+    #[expect(
+        clippy::expect_used,
+        reason = "Cargo always sets CARGO_MANIFEST_DIR for build scripts"
+    )]
     let manifest = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR").expect("Cargo must set CARGO_MANIFEST_DIR"),
     );
+    #[expect(
+        clippy::expect_used,
+        reason = "Cargo always sets OUT_DIR for build scripts"
+    )]
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo must set OUT_DIR"));
     let source = manifest.join("qml-aot");
     let build = out.join("qml-aot-build");
@@ -70,7 +78,10 @@ fn main() {
     println!("cargo:rerun-if-changed=qml-aot/phototux_qml_anchor.cpp");
     println!("cargo:rerun-if-changed=../../qml/Main.qml");
     println!("cargo:rerun-if-changed=../../qml/NewDocumentDialog.qml");
+    println!("cargo:rerun-if-changed=../../qml/WelcomeDialog.qml");
+    println!("cargo:rerun-if-changed=../../qml/Theme.qml");
     println!("cargo:rerun-if-changed=../../assets/icons/phosphor/regular");
+    println!("cargo:rerun-if-changed=../../assets/logo-ui.png");
 
     run_cmake([
         OsStr::new("-S"),

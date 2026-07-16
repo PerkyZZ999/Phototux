@@ -16,35 +16,26 @@ ApplicationWindow {
               ? qsTr("%1* — PhotoTux").arg(AppSession.documentName)
               : qsTr("%1 — PhotoTux").arg(AppSession.documentName))
            : qsTr("PhotoTux")
-    color: "#1E1E22"
+    color: Theme.neutral
     property string pendingDestructiveAction: ""
 
-    // DESIGN.md tokens
-    readonly property color primary: "#3DAEE9"
-    readonly property color surface: "#2B2B30"
-    readonly property color surfaceRaised: "#323238"
-    readonly property color surfaceSunken: "#121214"
-    readonly property color surfaceOverlay: "#232328"
-    readonly property color border: "#3D3D45"
-    // Avoid names starting with "on" — QML reserves on* for signal handlers.
-    readonly property color colorOnSurface: "#EFF0F1"
-    readonly property color colorOnSurfaceMuted: "#A0A0A8"
-    readonly property color warning: "#FF9F1A"
-    readonly property color canvasLetterbox: "#0C0C0E"
-    readonly property color toolActiveBg: "#3DAEE940"
-    readonly property int toolStripWidth: 48
-    readonly property int dockWidth: 280
-    readonly property int statusHeight: 28
+    readonly property int toolStripWidth: Theme.toolStripWidth
+    readonly property int dockWidth: Theme.dockWidth
+    readonly property int statusHeight: Theme.statusbarHeight
+    readonly property color primary: Theme.primary
+    readonly property color surface: Theme.surface
+    readonly property color surfaceRaised: Theme.surfaceRaised
+    readonly property color surfaceSunken: Theme.surfaceSunken
+    readonly property color surfaceOverlay: Theme.surfaceOverlay
+    readonly property color border: Theme.border
+    readonly property color colorOnSurface: Theme.colorOnSurface
+    readonly property color colorOnSurfaceMuted: Theme.colorOnSurfaceMuted
+    readonly property color warning: Theme.warning
+    readonly property color canvasLetterbox: Theme.canvasLetterbox
+    readonly property color toolActiveBg: Theme.toolActiveBg
 
     function iconUrl(stem) {
-        var root = AppSession.iconRoot
-        if (!root || root.length === 0)
-            return ""
-        if (root.indexOf("qrc:") === 0)
-            return root + "/" + stem + ".svg"
-        if (root.charAt(0) === "/")
-            return "file://" + root + "/" + stem + ".svg"
-        return "file:///" + root + "/" + stem + ".svg"
+        return Theme.iconUrl(AppSession.iconRoot, stem)
     }
 
     function executeDestructiveAction(action) {
@@ -194,67 +185,95 @@ ApplicationWindow {
 
     Component.onCompleted: {
         if (!AppSession.hasDocument && !AppSession.ioBusy)
-            newDocDialog.open()
+            welcomeDialog.open()
     }
 
     // —— Top chrome ——
     header: ToolBar {
-        height: 40
+        height: Theme.toolbarHeight
         background: Rectangle {
-            color: root.surface
+            color: Theme.surface
             Rectangle {
                 anchors.bottom: parent.bottom
                 width: parent.width
                 height: 1
-                color: root.border
+                color: Theme.border
             }
         }
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 8
-            anchors.rightMargin: 8
-            spacing: 4
+            anchors.leftMargin: Theme.spaceMd
+            anchors.rightMargin: Theme.spaceMd
+            spacing: Theme.spaceSm
+
+            Image {
+                source: Theme.logoUrl
+                sourceSize: Qt.size(64, 64)
+                Layout.preferredWidth: 22
+                Layout.preferredHeight: 22
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+            }
 
             Label {
-                text: "PhotoTux"
-                color: root.primary
-                font.bold: true
-                font.pixelSize: 13
+                text: qsTr("PhotoTux")
+                color: Theme.colorOnSurface
+                font.weight: Font.DemiBold
+                font.pixelSize: Theme.fontWindow
             }
 
             ToolSeparator {
-                contentItem: Rectangle { implicitWidth: 1; color: root.border }
+                contentItem: Rectangle { implicitWidth: 1; color: Theme.border }
             }
 
             ToolButton {
                 action: newAction
-                display: AbstractButton.TextOnly
+                display: AbstractButton.IconOnly
+                icon.width: 16
+                icon.height: 16
+                ToolTip.visible: hovered
+                ToolTip.text: newAction.text
             }
 
             ToolButton {
                 action: openAction
-                display: AbstractButton.TextOnly
+                display: AbstractButton.IconOnly
+                icon.width: 16
+                icon.height: 16
+                ToolTip.visible: hovered
+                ToolTip.text: openAction.text
             }
 
             ToolButton {
                 action: exportAction
-                display: AbstractButton.TextOnly
+                display: AbstractButton.IconOnly
+                icon.width: 16
+                icon.height: 16
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Export flattened PNG or JPEG")
             }
 
             ToolSeparator {
-                contentItem: Rectangle { implicitWidth: 1; color: root.border }
+                contentItem: Rectangle { implicitWidth: 1; color: Theme.border }
             }
 
             ToolButton {
                 action: undoAction
-                display: AbstractButton.TextOnly
+                display: AbstractButton.IconOnly
+                icon.width: 16
+                icon.height: 16
+                ToolTip.visible: hovered
+                ToolTip.text: undoAction.text
             }
             ToolButton {
                 action: redoAction
-                display: AbstractButton.TextOnly
+                display: AbstractButton.IconOnly
+                icon.width: 16
+                icon.height: 16
+                ToolTip.visible: hovered
+                ToolTip.text: redoAction.text
             }
 
             Item { Layout.fillWidth: true }
@@ -262,14 +281,26 @@ ApplicationWindow {
             BusyIndicator {
                 visible: AppSession.ioBusy
                 running: visible
-                Layout.preferredWidth: 20
-                Layout.preferredHeight: 20
+                Layout.preferredWidth: 18
+                Layout.preferredHeight: 18
             }
 
             Label {
-                text: AppSession.ioBusy ? qsTr("File operation…") : qsTr("Phase 5 · desktop")
-                color: AppSession.ioBusy ? root.primary : root.colorOnSurfaceMuted
-                font.pixelSize: 11
+                visible: AppSession.ioBusy
+                text: qsTr("Working…")
+                color: Theme.primary
+                font.pixelSize: Theme.fontBodySm
+            }
+
+            ToolButton {
+                implicitWidth: 28
+                implicitHeight: 28
+                icon.source: root.iconUrl("question")
+                icon.width: 16
+                icon.height: 16
+                onClicked: aboutDialog.open()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("About PhotoTux")
             }
         }
     }
@@ -277,78 +308,83 @@ ApplicationWindow {
     footer: ToolBar {
         height: root.statusHeight
         background: Rectangle {
-            color: root.surface
+            color: Theme.surfaceContainer
             Rectangle {
                 anchors.top: parent.top
                 width: parent.width
                 height: 1
-                color: root.border
+                color: Theme.border
             }
         }
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            spacing: 16
+            anchors.leftMargin: Theme.spaceMd
+            anchors.rightMargin: Theme.spaceMd
+            spacing: Theme.spaceLg
 
             Label {
-                text: AppSession.statusText
-                color: root.colorOnSurface
-                font.pixelSize: 11
+                text: AppSession.hasDocument
+                      ? (qsTr("%1 × %2 px").arg(AppSession.docWidth).arg(AppSession.docHeight)
+                         + "  ·  " + AppSession.statusText)
+                      : AppSession.statusText
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
 
             RowLayout {
                 visible: AppSession.dirty
-                spacing: 4
+                spacing: Theme.spaceXs
                 Image {
                     source: root.iconUrl("circle-notch")
-                    sourceSize: Qt.size(14, 14)
-                    Layout.preferredWidth: 14
-                    Layout.preferredHeight: 14
+                    sourceSize: Qt.size(12, 12)
+                    Layout.preferredWidth: 12
+                    Layout.preferredHeight: 12
                 }
                 Label {
                     text: qsTr("Unsaved")
-                    color: root.warning
-                    font.pixelSize: 11
+                    color: Theme.warning
+                    font.pixelSize: Theme.fontMono
+                    font.family: "Noto Sans Mono"
                 }
             }
 
             Label {
                 text: AppSession.hasDocument
-                      ? (Math.round(AppSession.zoom * 100) + "% · "
-                         + AppSession.docWidth + "×" + AppSession.docHeight)
+                      ? (qsTr("Zoom: %1%").arg(Math.round(AppSession.zoom * 100)))
                       : ""
-                color: root.colorOnSurfaceMuted
-                font.pixelSize: 11
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
             }
 
             Label {
                 text: AppSession.compositeMs > 0
-                      ? (qsTr("comp ") + AppSession.compositeMs.toFixed(2) + " ms")
+                      ? (qsTr("comp %1 ms").arg(AppSession.compositeMs.toFixed(2)))
                       : ""
                 color: AppSession.compositeMs > 0 && AppSession.compositeMs < 2.0
-                       ? root.primary : root.colorOnSurfaceMuted
-                font.pixelSize: 11
+                       ? Theme.primary : Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
             }
 
             Label {
-                text: AppSession.strokeLatencyMs > 0
-                      ? (qsTr("lat ") + Math.round(AppSession.strokeLatencyMs) + " ms")
-                      : ""
-                color: AppSession.strokeLatencyMs > 0 && AppSession.strokeLatencyMs < 8
-                       ? root.primary : root.colorOnSurfaceMuted
-                font.pixelSize: 11
-            }
-
-            Label {
-                id: fpsLabel
                 text: AppSession.fps > 0
-                      ? (qsTr("FPS: ") + Math.round(AppSession.fps))
+                      ? (qsTr("FPS: %1").arg(Math.round(AppSession.fps)))
                       : qsTr("FPS: —")
-                color: AppSession.fps >= 60 ? root.primary : root.colorOnSurfaceMuted
-                font.pixelSize: 11
+                color: AppSession.fps >= 60 ? Theme.primary : Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
+            }
+
+            Label {
+                text: qsTr("GPU ACCELERATED")
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
+                opacity: 0.7
             }
         }
     }
@@ -362,20 +398,22 @@ ApplicationWindow {
         Rectangle {
             Layout.preferredWidth: root.toolStripWidth
             Layout.fillHeight: true
-            color: root.surface
+            color: Theme.surface
 
             Rectangle {
                 anchors.right: parent.right
                 width: 1
                 height: parent.height
-                color: root.border
+                color: Theme.border
             }
 
             Column {
+                id: toolColumn
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
-                anchors.topMargin: 8
-                spacing: 4
+                anchors.topMargin: Theme.spaceXs
+                spacing: Theme.spaceXs
+                width: parent.width - Theme.spaceXs * 2
 
                 Repeater {
                     model: [
@@ -384,33 +422,62 @@ ApplicationWindow {
                         { id: "tool.pan", stem: "hand", tip: qsTr("Pan") },
                         { id: "tool.zoom", stem: "magnifying-glass", tip: qsTr("Zoom") }
                     ]
-                    delegate: Rectangle {
-                        width: 36
-                        height: 36
-                        radius: 4
-                        color: AppSession.activeTool === modelData.id ? root.toolActiveBg : "transparent"
-                        border.color: AppSession.activeTool === modelData.id ? root.primary : "transparent"
-                        border.width: 1
+                    delegate: Item {
+                        width: toolColumn.width
+                        height: Theme.toolHit
 
-                        Image {
-                            anchors.centerIn: parent
-                            source: root.iconUrl(modelData.stem)
-                            width: 20
-                            height: 20
-                            sourceSize: Qt.size(20, 20)
-                        }
-
-                        MouseArea {
+                        Rectangle {
                             anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: AppSession.setActiveTool(modelData.id)
-                            ToolTip.visible: containsMouse
-                            ToolTip.text: modelData.tip
-                            ToolTip.delay: 400
+                            anchors.leftMargin: 2
+                            anchors.rightMargin: 2
+                            radius: Theme.radiusSm
+                            color: AppSession.activeTool === modelData.id
+                                   ? Theme.toolActiveBg : (toolHover.hovered ? Theme.surfaceContainerHigh : "transparent")
+
+                            Rectangle {
+                                visible: AppSession.activeTool === modelData.id
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                width: 2
+                                color: Theme.primary
+                            }
+
+                            Image {
+                                anchors.centerIn: parent
+                                source: root.iconUrl(modelData.stem)
+                                width: 20
+                                height: 20
+                                sourceSize: Qt.size(20, 20)
+                            }
+
+                            HoverHandler { id: toolHover }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: AppSession.setActiveTool(modelData.id)
+                                ToolTip.visible: containsMouse
+                                ToolTip.text: modelData.tip
+                                ToolTip.delay: 400
+                                hoverEnabled: true
+                            }
                         }
                     }
                 }
+            }
+
+            ToolButton {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.spaceSm
+                implicitWidth: 36
+                implicitHeight: 36
+                icon.source: root.iconUrl("gear")
+                icon.width: 18
+                icon.height: 18
+                enabled: false
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Settings (coming later)")
             }
         }
 
@@ -419,6 +486,12 @@ ApplicationWindow {
             id: canvasHost
             Layout.fillWidth: true
             Layout.fillHeight: true
+
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.canvasLetterbox
+                z: -1
+            }
 
             onWidthChanged: AppSession.setViewportSize(width, height)
             onHeightChanged: AppSession.setViewportSize(width, height)
@@ -459,9 +532,9 @@ ApplicationWindow {
                 visible: !AppSession.hasDocument
                 anchors.centerIn: parent
                 z: 2
-                text: qsTr("No document — File → New")
-                color: root.colorOnSurfaceMuted
-                font.pixelSize: 14
+                text: qsTr("No document open")
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontBody
             }
 
             // Continuous phase + FPS + worker poll
@@ -578,280 +651,323 @@ ApplicationWindow {
         Rectangle {
             Layout.preferredWidth: root.dockWidth
             Layout.fillHeight: true
-            color: root.surface
+            color: Theme.surface
 
             Rectangle {
                 anchors.left: parent.left
                 width: 1
                 height: parent.height
-                color: root.border
+                color: Theme.border
             }
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 12
-                spacing: 12
+                spacing: 0
 
-                Label {
-                    text: qsTr("Properties")
-                    color: root.colorOnSurface
-                    font.bold: true
-                    font.pixelSize: 12
-                }
-
-                Label {
-                    text: qsTr("Brush size")
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 11
-                }
-
-                RowLayout {
+                // Properties panel header
+                Rectangle {
                     Layout.fillWidth: true
-                    Slider {
-                        id: brushSlider
-                        Layout.fillWidth: true
-                        from: 1
-                        to: 200
-                        value: AppSession.brushSize
-                        enabled: AppSession.hasDocument
-                        onMoved: AppSession.setBrushSize(value)
-                    }
-                    Label {
-                        text: Math.round(brushSlider.value) + "px"
-                        color: root.colorOnSurface
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 40
-                        horizontalAlignment: Text.AlignRight
-                    }
-                }
-
-                Label {
-                    text: qsTr("Hardness")
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 11
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Slider {
-                        id: hardnessSlider
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 1
-                        value: AppSession.brushHardness
-                        enabled: AppSession.hasDocument
-                        onMoved: AppSession.setBrushHardness(value)
-                    }
-                    Label {
-                        text: Math.round(hardnessSlider.value * 100) + "%"
-                        color: root.colorOnSurface
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 40
-                        horizontalAlignment: Text.AlignRight
-                    }
-                }
-
-                Label {
-                    text: qsTr("Color")
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 11
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
+                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    color: Theme.surfaceContainer
                     Rectangle {
-                        width: 28
-                        height: 28
-                        radius: 4
-                        color: Qt.rgba(AppSession.brushR, AppSession.brushG, AppSession.brushB, 1)
-                        border.color: root.border
-                    }
-                    Slider {
-                        id: colorR
-                        Layout.fillWidth: true
-                        from: 0; to: 1
-                        value: AppSession.brushR
-                        enabled: AppSession.hasDocument
-                        onMoved: AppSession.setBrushColor(value, colorG.value, colorB.value)
-                    }
-                }
-                Slider {
-                    id: colorG
-                    Layout.fillWidth: true
-                    from: 0; to: 1
-                    value: AppSession.brushG
-                    enabled: AppSession.hasDocument
-                    onMoved: AppSession.setBrushColor(colorR.value, value, colorB.value)
-                }
-                Slider {
-                    id: colorB
-                    Layout.fillWidth: true
-                    from: 0; to: 1
-                    value: AppSession.brushB
-                    enabled: AppSession.hasDocument
-                    onMoved: AppSession.setBrushColor(colorR.value, colorG.value, value)
-                }
-
-                Label {
-                    text: qsTr("Zoom")
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 11
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Slider {
-                        id: zoomSlider
-                        Layout.fillWidth: true
-                        from: 0.05
-                        to: 8.0
-                        value: AppSession.zoom
-                        enabled: AppSession.hasDocument
-                        onMoved: AppSession.setZoom(value)
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
                     }
                     Label {
-                        text: Math.round(zoomSlider.value * 100) + "%"
-                        color: root.colorOnSurface
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 48
-                        horizontalAlignment: Text.AlignRight
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.spaceSm
+                        text: qsTr("Properties")
+                        color: Theme.colorOnSurfaceVariant
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.Medium
                     }
                 }
 
-                Button {
-                    text: qsTr("Fit to view")
+                Flickable {
                     Layout.fillWidth: true
-                    enabled: AppSession.hasDocument
-                    onClicked: {
-                        AppSession.zoomToFit()
-                        zoomSlider.value = AppSession.zoom
+                    Layout.fillHeight: true
+                    Layout.preferredHeight: parent.height * 0.52
+                    contentHeight: propsCol.implicitHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: propsCol
+                        width: parent.width
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: Theme.spaceMd
+                        spacing: Theme.spaceMd
+
+                        // Brush size
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Brush Size")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(brushSlider.value) + " px"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                id: brushSlider
+                                Layout.fillWidth: true
+                                from: 1
+                                to: 200
+                                value: AppSession.brushSize
+                                enabled: AppSession.hasDocument
+                                onMoved: AppSession.setBrushSize(value)
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Hardness")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(hardnessSlider.value * 100) + " %"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                id: hardnessSlider
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 1
+                                value: AppSession.brushHardness
+                                enabled: AppSession.hasDocument
+                                onMoved: AppSession.setBrushHardness(value)
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            Label {
+                                text: qsTr("Color")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceSm
+                                Rectangle {
+                                    width: 28
+                                    height: 28
+                                    radius: Theme.radiusSm
+                                    color: Qt.rgba(AppSession.brushR, AppSession.brushG, AppSession.brushB, 1)
+                                    border.color: Theme.border
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Slider {
+                                        id: colorR
+                                        Layout.fillWidth: true
+                                        from: 0; to: 1
+                                        value: AppSession.brushR
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushColor(value, colorG.value, colorB.value)
+                                    }
+                                    Slider {
+                                        id: colorG
+                                        Layout.fillWidth: true
+                                        from: 0; to: 1
+                                        value: AppSession.brushG
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushColor(colorR.value, value, colorB.value)
+                                    }
+                                    Slider {
+                                        id: colorB
+                                        Layout.fillWidth: true
+                                        from: 0; to: 1
+                                        value: AppSession.brushB
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushColor(colorR.value, colorG.value, value)
+                                    }
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Zoom")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(zoomSlider.value * 100) + " %"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                id: zoomSlider
+                                Layout.fillWidth: true
+                                from: 0.05
+                                to: 8.0
+                                value: AppSession.zoom
+                                enabled: AppSession.hasDocument
+                                onMoved: AppSession.setZoom(value)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceSm
+                                Button {
+                                    text: qsTr("Fit")
+                                    Layout.fillWidth: true
+                                    enabled: AppSession.hasDocument
+                                    onClicked: {
+                                        AppSession.zoomToFit()
+                                        zoomSlider.value = AppSession.zoom
+                                    }
+                                }
+                                Button {
+                                    text: qsTr("100%")
+                                    Layout.fillWidth: true
+                                    enabled: AppSession.hasDocument
+                                    onClicked: {
+                                        AppSession.setZoom(1.0)
+                                        zoomSlider.value = 1.0
+                                    }
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Layer Opacity")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(layerOpacitySlider.value * 100) + " %"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                id: layerOpacitySlider
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 1
+                                value: AppSession.activeOpacity
+                                enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
+                                onMoved: AppSession.setActiveOpacity(value)
+                            }
+                        }
+
+                        Label {
+                            text: gpuCanvas.gpuStatus
+                            color: Theme.colorOnSurfaceMuted
+                            font.pixelSize: Theme.fontLabelSm
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
                     }
                 }
 
-                Button {
-                    text: qsTr("Reset zoom 100%")
+                // Layers panel
+                Rectangle {
                     Layout.fillWidth: true
-                    enabled: AppSession.hasDocument
-                    onClicked: {
-                        AppSession.setZoom(1.0)
-                        zoomSlider.value = 1.0
+                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    color: Theme.surfaceContainer
+                    Rectangle {
+                        anchors.top: parent.top
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
+                    }
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
+                    }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spaceSm
+                        anchors.rightMargin: Theme.spaceXs
+                        spacing: Theme.spaceXs
+                        Label {
+                            text: qsTr("Layers")
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.Medium
+                            Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            icon.source: root.iconUrl("plus")
+                            icon.width: 14
+                            icon.height: 14
+                            enabled: AppSession.hasDocument
+                            onClicked: AppSession.addLayer()
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Add layer")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            icon.source: root.iconUrl("trash")
+                            icon.width: 14
+                            icon.height: 14
+                            enabled: AppSession.hasDocument && AppSession.layerCount > 1
+                            onClicked: AppSession.deleteActiveLayer()
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Delete layer")
+                        }
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
-                    color: root.border
-                }
+                    Layout.fillHeight: true
+                    color: Theme.surfaceSunken
 
-                Label {
-                    text: qsTr("Layer opacity")
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 11
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Slider {
-                        id: layerOpacitySlider
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 1
-                        value: AppSession.activeOpacity
-                        enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
-                        onMoved: AppSession.setActiveOpacity(value)
-                    }
-                    Label {
-                        text: Math.round(layerOpacitySlider.value * 100) + "%"
-                        color: root.colorOnSurface
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 40
-                        horizontalAlignment: Text.AlignRight
-                    }
-                }
-
-                Label {
-                    text: qsTr("GPU")
-                    color: root.colorOnSurface
-                    font.bold: true
-                    font.pixelSize: 12
-                }
-
-                Label {
-                    text: gpuCanvas.gpuStatus
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 10
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
-
-                Label {
-                    text: AppSession.compositeMs > 0
-                          ? (qsTr("Composite: ") + AppSession.compositeMs.toFixed(2) + " ms")
-                          : qsTr("Composite: —")
-                    color: root.colorOnSurfaceMuted
-                    font.pixelSize: 10
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: 1
-                    color: root.border
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Label {
-                        text: qsTr("Layers")
-                        color: root.colorOnSurface
-                        font.bold: true
-                        font.pixelSize: 12
-                        Layout.fillWidth: true
-                    }
-                    Label {
-                        text: AppSession.layerCount
-                        color: root.colorOnSurfaceMuted
-                        font.pixelSize: 10
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Button {
-                        text: qsTr("Add")
-                        Layout.fillWidth: true
-                        enabled: AppSession.hasDocument
-                        onClicked: AppSession.addLayer()
-                    }
-                    Button {
-                        text: qsTr("Del")
-                        Layout.fillWidth: true
-                        enabled: AppSession.hasDocument && AppSession.layerCount > 1
-                        onClicked: AppSession.deleteActiveLayer()
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 160
-                    color: root.surfaceOverlay
-                    border.color: root.border
-                    radius: 4
-
-                    // Top of stack drawn at top of list (reverse index).
                     ListView {
                         id: layerList
                         anchors.fill: parent
-                        anchors.margins: 6
                         clip: true
-                        spacing: 2
+                        spacing: 0
                         model: AppSession.layerCount
                         delegate: Rectangle {
                             width: layerList.width
-                            height: 28
-                            radius: 3
-                            // stack bottom = index 0; UI shows top first
+                            height: 36
                             readonly property int stackIndex: AppSession.layerCount - 1 - index
                             readonly property var nameParts: AppSession.layerNames.split("|")
                             readonly property var visParts: AppSession.layerVisibility.split("|")
@@ -859,17 +975,17 @@ ApplicationWindow {
                                 ? nameParts[stackIndex] : ""
                             readonly property bool layerVis: stackIndex >= 0 && stackIndex < visParts.length
                                 ? visParts[stackIndex] === "1" : true
-                            color: AppSession.activeLayerIndex === stackIndex
-                                   ? root.toolActiveBg : "transparent"
-                            border.color: AppSession.activeLayerIndex === stackIndex
-                                          ? root.primary : "transparent"
-                            border.width: 1
+                            readonly property bool isActive: AppSession.activeLayerIndex === stackIndex
+                            color: isActive ? Theme.surfaceRaised
+                                   : (layerHover.hovered ? Theme.surfaceContainer : "transparent")
+                            border.color: isActive ? Theme.primary : "transparent"
+                            border.width: isActive ? 1 : 0
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.leftMargin: 6
-                                anchors.rightMargin: 6
-                                spacing: 6
+                                anchors.leftMargin: Theme.spaceSm
+                                anchors.rightMargin: Theme.spaceSm
+                                spacing: Theme.spaceSm
 
                                 Image {
                                     source: root.iconUrl(layerVis ? "eye" : "eye-slash")
@@ -882,15 +998,24 @@ ApplicationWindow {
                                     }
                                 }
 
+                                Rectangle {
+                                    width: 24
+                                    height: 24
+                                    radius: Theme.radiusXs
+                                    color: Theme.surface
+                                    border.color: Theme.border
+                                }
+
                                 Label {
                                     Layout.fillWidth: true
                                     text: layerName
-                                    color: root.colorOnSurface
-                                    font.pixelSize: 11
+                                    color: isActive ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
                                     elide: Text.ElideRight
                                 }
                             }
 
+                            HoverHandler { id: layerHover }
                             MouseArea {
                                 anchors.fill: parent
                                 anchors.leftMargin: 28
@@ -898,15 +1023,6 @@ ApplicationWindow {
                             }
                         }
                     }
-                }
-
-                Item { Layout.fillHeight: true }
-
-                Label {
-                    text: qsTr("composite · undo")
-                    color: root.primary
-                    font.pixelSize: 10
-                    Layout.alignment: Qt.AlignHCenter
                 }
             }
         }
@@ -927,7 +1043,7 @@ ApplicationWindow {
 
     FileDialog {
         id: exportFileDialog
-        title: qsTr("Export Flattened Image")
+        title: qsTr("Export Image")
         currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
         fileMode: FileDialog.SaveFile
         nameFilters: [
@@ -946,11 +1062,20 @@ ApplicationWindow {
         title: qsTr("Discard unsaved changes?")
         closePolicy: Popup.CloseOnEscape
         onRejected: root.pendingDestructiveAction = ""
+        width: 440
+
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
 
         contentItem: Label {
-            width: 400
+            width: parent ? parent.width - 32 : 400
             text: qsTr("PhotoTux project saving is not available yet. Export preserves a flattened image only. Discard changes and continue?")
             wrapMode: Text.WordWrap
+            color: Theme.colorOnSurface
+            font.pixelSize: Theme.fontBody
         }
 
         footer: DialogButtonBox {
@@ -972,11 +1097,20 @@ ApplicationWindow {
         modal: true
         title: qsTr("File operation failed")
         standardButtons: Dialog.Ok
+        width: 440
+
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
 
         contentItem: Label {
-            width: 400
+            width: parent ? parent.width - 32 : 400
             text: AppSession.ioError
             wrapMode: Text.WordWrap
+            color: Theme.colorOnSurface
+            font.pixelSize: Theme.fontBody
         }
     }
 
@@ -986,12 +1120,63 @@ ApplicationWindow {
         modal: true
         title: qsTr("About PhotoTux")
         standardButtons: Dialog.Ok
+        width: 400
 
-        contentItem: Label {
-            width: 360
-            text: qsTr("PhotoTux\nGPU-first image editor for Linux and Wayland.")
-            horizontalAlignment: Text.AlignHCenter
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
         }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spaceMd
+            width: 360
+
+            Image {
+                Layout.alignment: Qt.AlignHCenter
+                source: Theme.logoUrl
+                sourceSize: Qt.size(256, 256)
+                Layout.preferredWidth: 96
+                Layout.preferredHeight: 96
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+            }
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("PhotoTux")
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontHeadline
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("Professional Image Environment\nGPU-first editor for Linux and Wayland.")
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontBodySm
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("Version 0.1.0  ·  GPU ACCELERATED")
+                color: Theme.colorOnSurfaceDisabled
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
+            }
+        }
+    }
+
+    WelcomeDialog {
+        id: welcomeDialog
+        anchors.centerIn: parent
+        onRequestNew: newDocDialog.open()
+        onRequestOpen: openFileDialog.open()
     }
 
     NewDocumentDialog {

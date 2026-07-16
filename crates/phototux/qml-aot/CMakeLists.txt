@@ -12,6 +12,8 @@ set(QML_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../qml")
 set(QML_FILES
     "${QML_ROOT}/Main.qml"
     "${QML_ROOT}/NewDocumentDialog.qml"
+    "${QML_ROOT}/WelcomeDialog.qml"
+    "${QML_ROOT}/Theme.qml"
 )
 set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular")
 set(ICON_NAMES
@@ -26,10 +28,16 @@ set(ICON_NAMES
     file-plus
     floppy-disk
     folder-open
+    gear
     hand
+    image-square
     info
     magnifying-glass
+    monitor
     paint-brush
+    plus
+    question
+    trash
     x
 )
 set(ICON_FILES)
@@ -42,6 +50,13 @@ foreach(ICON_NAME IN LISTS ICON_NAMES)
     )
 endforeach()
 
+set(LOGO_UI "${CMAKE_CURRENT_LIST_DIR}/../../../assets/logo-ui.png")
+list(APPEND ICON_FILES "${LOGO_UI}")
+set_source_files_properties(
+    "${LOGO_UI}"
+    PROPERTIES QT_RESOURCE_ALIAS "logo-ui.png"
+)
+
 set_source_files_properties(
     "${QML_ROOT}/Main.qml"
     PROPERTIES QT_RESOURCE_ALIAS "Main.qml"
@@ -49,6 +64,16 @@ set_source_files_properties(
 set_source_files_properties(
     "${QML_ROOT}/NewDocumentDialog.qml"
     PROPERTIES QT_RESOURCE_ALIAS "NewDocumentDialog.qml"
+)
+set_source_files_properties(
+    "${QML_ROOT}/WelcomeDialog.qml"
+    PROPERTIES QT_RESOURCE_ALIAS "WelcomeDialog.qml"
+)
+set_source_files_properties(
+    "${QML_ROOT}/Theme.qml"
+    PROPERTIES
+        QT_RESOURCE_ALIAS "Theme.qml"
+        QT_QML_SINGLETON_TYPE TRUE
 )
 
 qt_add_qml_module(phototux_qml
