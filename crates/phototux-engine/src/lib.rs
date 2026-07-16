@@ -28,7 +28,9 @@ pub use layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
     LayerTransform, LockFlags, TextContent,
 };
-pub use selection::{SelectionCombine, SelectionEllipse, SelectionRect, SelectionState};
+pub use selection::{
+    SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
+};
 pub use stroke::{BrushParams, Dab, StrokeBuilder};
 pub use transform::{CropRect, ResizeRequest, TransformPreview};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};

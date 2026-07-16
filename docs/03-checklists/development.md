@@ -146,8 +146,8 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 #### Tools
 
 - [x] Move (viewport / layer interaction baseline)
-- [~] Marquee — Rectangular
-- [ ] Marquee — Elliptical / Single Row / Single Column
+- [x] Marquee — Rectangular (GPU mask + ants + combine)
+- [~] Marquee — Elliptical (ellipse marquee done; Single Row / Column TBD)
 - [ ] Lasso — Freehand / Polygonal / Magnetic
 - [ ] Magic Wand
 - [ ] Quick Selection
@@ -156,11 +156,13 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 #### Operations
 
 - [x] Select All / Deselect
-- [~] Add / Subtract / Intersect (engine `SelectionCombine`; UI incomplete)
+- [x] Add / Subtract / Intersect (UI toggles + Shift/Alt modifiers; GPU mask)
+- [x] Invert Selection
 - [x] Clipboard copy / paste-as-layer
 - [ ] Feather / Expand / Contract / Border / Smooth
-- [ ] Inverse / Grow / Similar / Reselect
-- [ ] Marching-ants / GPU selection overlay polish
+- [ ] Grow / Similar / Reselect
+- [x] Marching-ants overlay (QML bounds; GPU edge-ants deferred for lasso)
+- [x] Selection undo/redo restores mask + outline
 
 ---
 
@@ -400,14 +402,15 @@ Post-MVP per FEATURES_TODO — do not block core production path.
 
 Order is guidance, not locked ADR:
 
-1. **Selection polish** — overlay/marching ants, elliptical/lasso, combine modes in UI
+1. ~~**Selection polish**~~ — **shipped 2026-07-16** (rect/ellipse, GPU mask, ants, combine, undo)
 2. **Transform chrome** — free-transform handles + quality resample; flip/rotate canvas
 3. **Mask paint + clipping** — usable layer masks end-to-end
-4. **PSD depth** — channel decompress, layered import fidelity, subset export
-5. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first
-6. **Panels** — Swatches, Navigator, Properties completeness
-7. **Vector / shapes / rich text** — after raster core feels solid
-8. **Multi-doc** — only after ADR-013 amendment
+4. **Lasso + GPU edge ants** — freehand/polygonal; irregular outline overlay
+5. **PSD depth** — channel decompress, layered import fidelity, subset export
+6. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first
+7. **Panels** — Swatches, Navigator, Properties completeness
+8. **Vector / shapes / rich text** — after raster core feels solid
+9. **Multi-doc** — only after ADR-013 amendment
 
 ---
 

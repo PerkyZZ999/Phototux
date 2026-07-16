@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtQuick.Shapes
 import phototux_ui
 import PhototuxCanvas 1.0
 
@@ -28,15 +29,43 @@ ApplicationWindow {
     readonly property color surfaceSunken: Theme.surfaceSunken
     readonly property color surfaceOverlay: Theme.surfaceOverlay
     readonly property color border: Theme.border
+
+    function iconUrl(stem) {
+        return Theme.iconUrl(AppSession.iconRoot, stem)
+    }
+
+    function docToScreenX(docX) {
+        return canvasHost.width / 2 + (docX - AppSession.panX) * AppSession.zoom
+    }
+    function docToScreenY(docY) {
+        return canvasHost.height / 2 + (docY - AppSession.panY) * AppSession.zoom
+    }
+    function screenToDocX(screenX) {
+        return (screenX - canvasHost.width / 2) / Math.max(0.001, AppSession.zoom) + AppSession.panX
+    }
+    function screenToDocY(screenY) {
+        return (screenY - canvasHost.height / 2) / Math.max(0.001, AppSession.zoom) + AppSession.panY
+    }
+    function selectionCombineFromModifiers(modifiers) {
+        var shift = (modifiers & Qt.ShiftModifier) !== 0
+        var alt = (modifiers & Qt.AltModifier) !== 0
+        if (shift && alt)
+            return "intersect"
+        if (shift)
+            return "add"
+        if (alt)
+            return "subtract"
+        return AppSession.selectionCombine
+    }
+    function isSelectTool() {
+        return AppSession.activeTool === "tool.select.rect"
+                || AppSession.activeTool === "tool.select.ellipse"
+    }
     readonly property color colorOnSurface: Theme.colorOnSurface
     readonly property color colorOnSurfaceMuted: Theme.colorOnSurfaceMuted
     readonly property color warning: Theme.warning
     readonly property color canvasLetterbox: Theme.canvasLetterbox
     readonly property color toolActiveBg: Theme.toolActiveBg
-
-    function iconUrl(stem) {
-        return Theme.iconUrl(AppSession.iconRoot, stem)
-    }
 
     function executeDestructiveAction(action) {
         pendingDestructiveAction = ""
@@ -197,9 +226,15 @@ ApplicationWindow {
                 onTriggered: AppSession.selectNone()
             }
             MenuItem {
+                text: qsTr("&Invert Selection")
+                shortcut: "Ctrl+Shift+I"
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.invertSelection()
+            }
+            MenuItem {
                 text: qsTr("&Copy")
                 shortcut: "Ctrl+C"
-                enabled: AppSession.hasDocument
+                enabled: AppSession.hasDocument && AppSession.selectionActive
                 onTriggered: AppSession.copySelection()
             }
             MenuItem {
@@ -484,6 +519,7 @@ ApplicationWindow {
                         { id: "tool.brush", stem: "paint-brush", tip: qsTr("Brush") },
                         { id: "tool.eraser", stem: "eraser", tip: qsTr("Eraser") },
                         { id: "tool.select.rect", stem: "selection", tip: qsTr("Rectangular Marquee") },
+                        { id: "tool.select.ellipse", stem: "circle-dashed", tip: qsTr("Elliptical Marquee") },
                         { id: "tool.move", stem: "arrows-out-cardinal", tip: qsTr("Move") },
                         { id: "tool.transform", stem: "arrows-out", tip: qsTr("Free Transform") },
                         { id: "tool.crop", stem: "crop", tip: qsTr("Crop") },
@@ -600,6 +636,98 @@ ApplicationWindow {
                 z: 3
             }
 
+            // Live marquee drag preview
+            Item {
+                id: selectionPreview
+                visible: AppSession.selectionPreviewActive && AppSession.hasDocument
+                z: 4
+                x: root.docToScreenX(AppSession.selectionPreviewX)
+                y: root.docToScreenY(AppSession.selectionPreviewY)
+                width: Math.max(1, AppSession.selectionPreviewW * AppSession.zoom)
+                height: Math.max(1, AppSession.selectionPreviewH * AppSession.zoom)
+
+                Shape {
+                    anchors.fill: parent
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeWidth: 1
+                        strokeColor: root.primary
+                        fillColor: "transparent"
+                        strokeStyle: ShapePath.DashLine
+                        dashPattern: [4, 4]
+                        PathSvg {
+                            path: AppSession.activeTool === "tool.select.ellipse"
+                                  ? ("M " + (selectionPreview.width / 2) + " 0 "
+                                     + "A " + (selectionPreview.width / 2) + " "
+                                     + (selectionPreview.height / 2) + " 0 1 1 "
+                                     + (selectionPreview.width / 2) + " " + selectionPreview.height + " "
+                                     + "A " + (selectionPreview.width / 2) + " "
+                                     + (selectionPreview.height / 2) + " 0 1 1 "
+                                     + (selectionPreview.width / 2) + " 0")
+                                  : ("M 0 0 H " + selectionPreview.width + " V "
+                                     + selectionPreview.height + " H 0 Z")
+                        }
+                    }
+                }
+            }
+
+            // Marching ants for committed selection
+            Item {
+                id: selectionAnts
+                visible: AppSession.selectionActive && AppSession.hasDocument
+                         && AppSession.selectionW > 0 && AppSession.selectionH > 0
+                z: 5
+                x: root.docToScreenX(AppSession.selectionX)
+                y: root.docToScreenY(AppSession.selectionY)
+                width: Math.max(1, AppSession.selectionW * AppSession.zoom)
+                height: Math.max(1, AppSession.selectionH * AppSession.zoom)
+
+                Shape {
+                    anchors.fill: parent
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeWidth: 1
+                        strokeColor: "#000000"
+                        fillColor: "transparent"
+                        strokeStyle: ShapePath.DashLine
+                        dashPattern: [4, 4]
+                        dashOffset: frameClock.phase * 12
+                        PathSvg {
+                            path: AppSession.selectionShape === "ellipse"
+                                  ? ("M " + (selectionAnts.width / 2) + " 0 "
+                                     + "A " + (selectionAnts.width / 2) + " "
+                                     + (selectionAnts.height / 2) + " 0 1 1 "
+                                     + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
+                                     + "A " + (selectionAnts.width / 2) + " "
+                                     + (selectionAnts.height / 2) + " 0 1 1 "
+                                     + (selectionAnts.width / 2) + " 0")
+                                  : ("M 0 0 H " + selectionAnts.width + " V "
+                                     + selectionAnts.height + " H 0 Z")
+                        }
+                    }
+                    ShapePath {
+                        strokeWidth: 1
+                        strokeColor: root.primary
+                        fillColor: "transparent"
+                        strokeStyle: ShapePath.DashLine
+                        dashPattern: [4, 4]
+                        dashOffset: frameClock.phase * 12 + 4
+                        PathSvg {
+                            path: AppSession.selectionShape === "ellipse"
+                                  ? ("M " + (selectionAnts.width / 2) + " 0 "
+                                     + "A " + (selectionAnts.width / 2) + " "
+                                     + (selectionAnts.height / 2) + " 0 1 1 "
+                                     + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
+                                     + "A " + (selectionAnts.width / 2) + " "
+                                     + (selectionAnts.height / 2) + " 0 1 1 "
+                                     + (selectionAnts.width / 2) + " 0")
+                                  : ("M 0 0 H " + selectionAnts.width + " V "
+                                     + selectionAnts.height + " H 0 Z")
+                        }
+                    }
+                }
+            }
+
             Label {
                 visible: !AppSession.hasDocument
                 anchors.centerIn: parent
@@ -640,7 +768,7 @@ ApplicationWindow {
                 cursorShape: {
                     if (AppSession.activeTool === "tool.pan")
                         return Qt.OpenHandCursor
-                    if (AppSession.activeTool === "tool.zoom")
+                    if (AppSession.activeTool === "tool.zoom" || root.isSelectTool())
                         return Qt.CrossCursor
                     if (AppSession.activeTool === "tool.brush"
                             || AppSession.activeTool === "tool.eraser")
@@ -666,7 +794,7 @@ ApplicationWindow {
                         selecting = false
                         return
                     }
-                    if (AppSession.activeTool === "tool.select.rect") {
+                    if (root.isSelectTool()) {
                         selecting = true
                         painting = false
                         selStartX = mouse.x
@@ -692,12 +820,21 @@ ApplicationWindow {
                         var y0 = Math.min(selStartY, mouse.y)
                         var w = Math.abs(mouse.x - selStartX)
                         var h = Math.abs(mouse.y - selStartY)
-                        // Approximate screen→doc via zoom/pan (engine uses same camera).
-                        var dx = (x0 - canvasHost.width / 2) / Math.max(0.001, AppSession.zoom) + AppSession.panX
-                        var dy = (y0 - canvasHost.height / 2) / Math.max(0.001, AppSession.zoom) + AppSession.panY
+                        var dx = root.screenToDocX(x0)
+                        var dy = root.screenToDocY(y0)
                         var dw = w / Math.max(0.001, AppSession.zoom)
                         var dh = h / Math.max(0.001, AppSession.zoom)
-                        AppSession.selectRect(Math.round(dx), Math.round(dy), Math.round(dw), Math.round(dh), "replace")
+                        var combine = root.selectionCombineFromModifiers(mouse.modifiers)
+                        if (AppSession.activeTool === "tool.select.ellipse") {
+                            AppSession.selectEllipse(
+                                        Math.round(dx), Math.round(dy),
+                                        Math.round(dw), Math.round(dh), combine)
+                        } else {
+                            AppSession.selectRect(
+                                        Math.round(dx), Math.round(dy),
+                                        Math.round(dw), Math.round(dh), combine)
+                        }
+                        AppSession.setSelectionPreview(false, 0, 0, 0, 0)
                         selecting = false
                     }
                     if (painting) {
@@ -711,6 +848,19 @@ ApplicationWindow {
                 onPositionChanged: function (mouse) {
                     if (!dragging || !AppSession.hasDocument)
                         return
+                    if (selecting) {
+                        var x0 = Math.min(selStartX, mouse.x)
+                        var y0 = Math.min(selStartY, mouse.y)
+                        var w = Math.abs(mouse.x - selStartX)
+                        var h = Math.abs(mouse.y - selStartY)
+                        AppSession.setSelectionPreview(
+                                    true,
+                                    Math.round(root.screenToDocX(x0)),
+                                    Math.round(root.screenToDocY(y0)),
+                                    Math.round(w / Math.max(0.001, AppSession.zoom)),
+                                    Math.round(h / Math.max(0.001, AppSession.zoom)))
+                        return
+                    }
                     var dx = mouse.x - lastX
                     var dy = mouse.y - lastY
                     lastX = mouse.x
@@ -802,10 +952,64 @@ ApplicationWindow {
                         anchors.margins: Theme.spaceMd
                         spacing: Theme.spaceMd
 
+                        // Selection combine modes
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: root.isSelectTool()
+                            Label {
+                                text: qsTr("Selection")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Repeater {
+                                    model: [
+                                        { id: "replace", stem: "selection", tip: qsTr("Replace") },
+                                        { id: "add", stem: "selection-plus", tip: qsTr("Add") },
+                                        { id: "subtract", stem: "minus-circle", tip: qsTr("Subtract") },
+                                        { id: "intersect", stem: "intersect", tip: qsTr("Intersect") }
+                                    ]
+                                    delegate: ToolButton {
+                                        implicitWidth: 32
+                                        implicitHeight: 28
+                                        checkable: true
+                                        checked: AppSession.selectionCombine === modelData.id
+                                        icon.source: root.iconUrl(modelData.stem)
+                                        icon.width: 16
+                                        icon.height: 16
+                                        enabled: AppSession.hasDocument
+                                        onClicked: AppSession.setSelectionCombine(modelData.id)
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: modelData.tip
+                                        background: Rectangle {
+                                            radius: Theme.radiusSm
+                                            color: parent.checked
+                                                   ? Theme.toolActiveBg
+                                                   : (parent.hovered ? Theme.surfaceContainerHigh : "transparent")
+                                            border.color: parent.checked ? Theme.primary : "transparent"
+                                            border.width: 1
+                                        }
+                                    }
+                                }
+                            }
+                            Label {
+                                text: qsTr("Shift add · Alt subtract · Shift+Alt intersect")
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
                         // Brush size
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
+                            visible: AppSession.activeTool === "tool.brush"
+                                     || AppSession.activeTool === "tool.eraser"
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {
@@ -835,6 +1039,8 @@ ApplicationWindow {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
+                            visible: AppSession.activeTool === "tool.brush"
+                                     || AppSession.activeTool === "tool.eraser"
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {

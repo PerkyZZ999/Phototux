@@ -3,8 +3,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use phototux_engine::{BrushParams, Dab, DocumentSize, Layer, LayerId};
-use phototux_gpu::{BrushStamper, GpuContext, LayerCompositeEngine, StampRequest};
+use phototux_engine::{
+    BrushParams, Dab, DocumentSize, Layer, LayerId, SelectionCombine, SelectionRect,
+};
+use phototux_gpu::{BrushStamper, GpuContext, LayerCompositeEngine, SelectionMask, StampRequest};
 
 struct StrokeBackup {
     layer: LayerId,
@@ -15,6 +17,7 @@ struct DocGpu {
     ctx: Arc<GpuContext>,
     engine: LayerCompositeEngine,
     stamper: BrushStamper,
+    selection: SelectionMask,
     stroke_backup: Option<StrokeBackup>,
     stroke_undo: Vec<StrokeBackup>,
     stroke_redo: Vec<StrokeBackup>,
@@ -66,11 +69,13 @@ pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String
     let ms = engine.composite(&ctx, layers)?;
     publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let selection = SelectionMask::new(&ctx, size);
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
         engine,
         stamper,
+        selection,
         stroke_backup: None,
         stroke_undo: Vec::new(),
         stroke_redo: Vec::new(),
@@ -100,11 +105,13 @@ pub fn open_raster_document(
     let ms = engine.composite(&ctx, layers)?;
     publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let selection = SelectionMask::new(&ctx, size);
     let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
     *guard = Some(DocGpu {
         ctx,
         engine,
         stamper,
+        selection,
         stroke_backup: None,
         stroke_undo: Vec::new(),
         stroke_redo: Vec::new(),
@@ -222,6 +229,77 @@ pub fn last_stroke_latency_ms() -> f32 {
         .ok()
         .and_then(|g| g.as_ref().map(|d| d.last_latency_ms))
         .unwrap_or(0.0)
+}
+
+fn with_selection_mut<R>(
+    f: impl FnOnce(&GpuContext, &mut SelectionMask) -> R,
+) -> Result<R, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let ctx = Arc::clone(&doc.ctx);
+    Ok(f(&ctx, &mut doc.selection))
+}
+
+/// Clear the document selection mask.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_clear() -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.clear(ctx))
+}
+
+/// Select the entire document in the selection mask.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_select_all() -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.select_all(ctx))
+}
+
+/// Invert the document selection mask.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_invert() -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.invert(ctx))
+}
+
+/// Apply a rectangular selection with the given combine mode.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_apply_rect(rect: SelectionRect, combine: SelectionCombine) -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.apply_rect(ctx, rect, combine))
+}
+
+/// Apply an elliptical selection with the given combine mode.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_apply_ellipse(
+    rect: SelectionRect,
+    combine: SelectionCombine,
+) -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.apply_ellipse(ctx, rect, combine))
+}
+
+/// Snapshot the current selection mask CPU mirror for undo.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_snapshot() -> Result<Vec<u8>, String> {
+    with_selection_mut(|_ctx, mask| mask.snapshot_cpu())
+}
+
+/// Restore a selection mask from a CPU snapshot.
+///
+/// # Errors
+/// Returns an error when no document is open or the snapshot size mismatches.
+pub fn selection_restore(bytes: &[u8]) -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.restore_cpu(ctx, bytes)).and_then(|r| r)
 }
 
 pub fn close_document() {

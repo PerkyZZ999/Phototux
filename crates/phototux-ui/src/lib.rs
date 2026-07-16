@@ -10,9 +10,17 @@ use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AdjustmentParams, BlendMode, DocumentError, DocumentGraph, DocumentSize, EngineCommand,
-    EngineEvent, HistoryKind, LayerId, MAX_LAYERS, SelectionCombine, SelectionRect, SessionState,
-    SizePreset, TextContent, tool_id, undo_actions,
+    EngineEvent, HistoryKind, LayerId, MAX_LAYERS, SelectionCombine, SelectionRect, SelectionShape,
+    SelectionState, SessionState, SizePreset, TextContent, tool_id, undo_actions,
 };
+
+#[derive(Clone)]
+struct SelectionSnapshot {
+    state: SelectionState,
+    mask: Vec<u8>,
+}
+
+const SELECTION_UNDO_LIMIT: usize = 64;
 use phototux_io::{RasterFormat, format_report};
 use qtbridge::qobject;
 
@@ -83,6 +91,17 @@ pub struct AppSession {
     layer_kinds: String,
     history_labels: String,
     selection_active: bool,
+    selection_x: i32,
+    selection_y: i32,
+    selection_w: i32,
+    selection_h: i32,
+    selection_shape: String,
+    selection_combine: String,
+    selection_preview_active: bool,
+    selection_preview_x: i32,
+    selection_preview_y: i32,
+    selection_preview_w: i32,
+    selection_preview_h: i32,
     compatibility_report: String,
     document_path: String,
     graph_revision: i32,
@@ -97,6 +116,8 @@ pub struct AppSession {
     worker: PaintWorker,
     file_worker: FileWorker,
     clipboard_rgba: Option<(u32, u32, Vec<u8>)>,
+    selection_undo: Vec<SelectionSnapshot>,
+    selection_redo: Vec<SelectionSnapshot>,
 }
 
 impl Default for AppSession {
@@ -149,6 +170,17 @@ impl AppSession {
             layer_kinds: String::new(),
             history_labels: String::new(),
             selection_active: false,
+            selection_x: 0,
+            selection_y: 0,
+            selection_w: 0,
+            selection_h: 0,
+            selection_shape: "rect".to_owned(),
+            selection_combine: SelectionCombine::Replace.as_str().to_owned(),
+            selection_preview_active: false,
+            selection_preview_x: 0,
+            selection_preview_y: 0,
+            selection_preview_w: 0,
+            selection_preview_h: 0,
             compatibility_report: String::new(),
             document_path: String::new(),
             graph_revision: 0,
@@ -163,6 +195,8 @@ impl AppSession {
             worker: PaintWorker::start(),
             file_worker: FileWorker::start(),
             clipboard_rgba: None,
+            selection_undo: Vec::new(),
+            selection_redo: Vec::new(),
         };
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
@@ -218,7 +252,7 @@ impl AppSession {
         self.layer_visibility = self.engine.layer_visibility_joined();
         self.layer_kinds = self.engine.layer_kinds_joined();
         self.history_labels = self.engine.history_labels_joined();
-        self.selection_active = self.engine.selection.active;
+        self.sync_selection_fields();
         self.document_path = self.engine.document_path.clone().unwrap_or_default();
         self.graph_revision = self.engine.graph_revision() as i32;
         self.active_opacity = self
@@ -247,12 +281,68 @@ impl AppSession {
         self.layer_visibility_changed();
         self.layer_kinds_changed();
         self.history_labels_changed();
-        self.selection_active_changed();
+        self.emit_selection_fields();
         self.document_path_changed();
         self.graph_revision_changed();
         self.active_opacity_changed();
         self.composite_ms_changed();
         self.status_text_changed();
+    }
+
+    fn sync_selection_fields(&mut self) {
+        self.selection_active = self.engine.selection.active;
+        self.selection_combine = self.engine.selection.combine.as_str().to_owned();
+        self.selection_shape = self.engine.selection.shape.as_str().to_owned();
+        if let Some(b) = self.engine.selection.bounds {
+            self.selection_x = b.x;
+            self.selection_y = b.y;
+            self.selection_w = i32::try_from(b.width).unwrap_or(i32::MAX);
+            self.selection_h = i32::try_from(b.height).unwrap_or(i32::MAX);
+        } else {
+            self.selection_x = 0;
+            self.selection_y = 0;
+            self.selection_w = 0;
+            self.selection_h = 0;
+        }
+    }
+
+    fn emit_selection_fields(&mut self) {
+        self.selection_active_changed();
+        self.selection_x_changed();
+        self.selection_y_changed();
+        self.selection_w_changed();
+        self.selection_h_changed();
+        self.selection_shape_changed();
+        self.selection_combine_changed();
+        self.selection_preview_active_changed();
+        self.selection_preview_x_changed();
+        self.selection_preview_y_changed();
+        self.selection_preview_w_changed();
+        self.selection_preview_h_changed();
+    }
+
+    fn clear_selection_stacks(&mut self) {
+        self.selection_undo.clear();
+        self.selection_redo.clear();
+    }
+
+    fn push_selection_snapshot(&mut self) {
+        let mask = phototux_canvas::selection_snapshot().unwrap_or_default();
+        self.selection_undo.push(SelectionSnapshot {
+            state: self.engine.selection.clone(),
+            mask,
+        });
+        if self.selection_undo.len() > SELECTION_UNDO_LIMIT {
+            self.selection_undo.remove(0);
+        }
+        self.selection_redo.clear();
+    }
+
+    fn restore_selection_snapshot(&mut self, snap: SelectionSnapshot) {
+        self.engine.selection = snap.state;
+        if let Err(error) = phototux_canvas::selection_restore(&snap.mask) {
+            self.report_gpu("selection restore", &error);
+        }
     }
 
     fn emit_doc_fields(&mut self) {
@@ -297,10 +387,18 @@ impl AppSession {
     }
 
     fn open_gpu_document(&mut self) {
-        let Some(graph) = self.engine.graph.as_ref() else {
+        let Some((size, layers)) = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|graph| (graph.size, graph.layers().to_vec()))
+        else {
             return;
         };
-        match phototux_canvas::open_document(graph.size, graph.layers()) {
+        self.clear_selection_stacks();
+        self.engine.selection.clear();
+        self.selection_preview_active = false;
+        match phototux_canvas::open_document(size, &layers) {
             Ok(ms) => self.engine.set_composite_ms(ms),
             Err(e) => self.report_gpu("open_document GPU", &e),
         }
@@ -418,6 +516,61 @@ impl AppSession {
         Notify = selection_active_changed
     );
     qproperty!(
+        "selectionX",
+        Member = selection_x,
+        Notify = selection_x_changed
+    );
+    qproperty!(
+        "selectionY",
+        Member = selection_y,
+        Notify = selection_y_changed
+    );
+    qproperty!(
+        "selectionW",
+        Member = selection_w,
+        Notify = selection_w_changed
+    );
+    qproperty!(
+        "selectionH",
+        Member = selection_h,
+        Notify = selection_h_changed
+    );
+    qproperty!(
+        "selectionShape",
+        Member = selection_shape,
+        Notify = selection_shape_changed
+    );
+    qproperty!(
+        "selectionCombine",
+        Member = selection_combine,
+        Notify = selection_combine_changed
+    );
+    qproperty!(
+        "selectionPreviewActive",
+        Member = selection_preview_active,
+        Notify = selection_preview_active_changed
+    );
+    qproperty!(
+        "selectionPreviewX",
+        Member = selection_preview_x,
+        Notify = selection_preview_x_changed
+    );
+    qproperty!(
+        "selectionPreviewY",
+        Member = selection_preview_y,
+        Notify = selection_preview_y_changed
+    );
+    qproperty!(
+        "selectionPreviewW",
+        Member = selection_preview_w,
+        Notify = selection_preview_w_changed
+    );
+    qproperty!(
+        "selectionPreviewH",
+        Member = selection_preview_h,
+        Notify = selection_preview_h_changed
+    );
+    qproperty!(
         "compatibilityReport",
         Member = compatibility_report,
         Notify = compatibility_report_changed
@@ -498,6 +651,28 @@ impl AppSession {
     fn history_labels_changed(&mut self);
     #[qsignal]
     fn selection_active_changed(&mut self);
+    #[qsignal]
+    fn selection_x_changed(&mut self);
+    #[qsignal]
+    fn selection_y_changed(&mut self);
+    #[qsignal]
+    fn selection_w_changed(&mut self);
+    #[qsignal]
+    fn selection_h_changed(&mut self);
+    #[qsignal]
+    fn selection_shape_changed(&mut self);
+    #[qsignal]
+    fn selection_combine_changed(&mut self);
+    #[qsignal]
+    fn selection_preview_active_changed(&mut self);
+    #[qsignal]
+    fn selection_preview_x_changed(&mut self);
+    #[qsignal]
+    fn selection_preview_y_changed(&mut self);
+    #[qsignal]
+    fn selection_preview_w_changed(&mut self);
+    #[qsignal]
+    fn selection_preview_h_changed(&mut self);
     #[qsignal]
     fn compatibility_report_changed(&mut self);
     #[qsignal]
@@ -626,6 +801,7 @@ impl AppSession {
                         self.fail_io("Open", "decoded document has no layer");
                         continue;
                     };
+                    self.clear_selection_stacks();
                     match phototux_canvas::open_raster_document(
                         size,
                         graph.layers(),
@@ -646,6 +822,7 @@ impl AppSession {
                 }
                 FileEvent::PtxOpened { path, document } => {
                     let (graph, rasters) = document.into_graph();
+                    self.clear_selection_stacks();
                     match phototux_canvas::open_document(graph.size, graph.layers()) {
                         Ok(ms) => {
                             for (id, raster) in rasters {
@@ -684,6 +861,7 @@ impl AppSession {
                         self.fail_io("Open", "PSD import has no layer");
                         continue;
                     };
+                    self.clear_selection_stacks();
                     match phototux_canvas::open_raster_document(
                         size,
                         graph.layers(),
@@ -978,10 +1156,12 @@ impl AppSession {
         let viewport_width = self.engine.viewport_w;
         let viewport_height = self.engine.viewport_h;
         phototux_canvas::close_document();
+        self.clear_selection_stacks();
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
         self.document_name = "Untitled".to_owned();
         self.dirty = false;
+        self.selection_preview_active = false;
         self.sync_from_engine();
         self.emit_doc_fields();
     }
@@ -1199,8 +1379,17 @@ impl AppSession {
                 self.recomposite();
             }
             HistoryKind::Selection => {
-                // Selection GPU restore lands with mask snapshots; metadata cleared for now.
-                self.engine.selection.clear();
+                let current = SelectionSnapshot {
+                    state: self.engine.selection.clone(),
+                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
+                };
+                if let Some(prev) = self.selection_undo.pop() {
+                    self.selection_redo.push(current);
+                    self.restore_selection_snapshot(prev);
+                } else {
+                    self.engine.selection.clear();
+                    let _ = phototux_canvas::selection_clear();
+                }
             }
             HistoryKind::Transform => {}
         }
@@ -1229,50 +1418,115 @@ impl AppSession {
             HistoryKind::Graph => {
                 self.recomposite();
             }
-            HistoryKind::Selection | HistoryKind::Transform => {}
+            HistoryKind::Selection => {
+                let current = SelectionSnapshot {
+                    state: self.engine.selection.clone(),
+                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
+                };
+                if let Some(next) = self.selection_redo.pop() {
+                    self.selection_undo.push(current);
+                    self.restore_selection_snapshot(next);
+                }
+            }
+            HistoryKind::Transform => {}
         }
         self.mark_dirty();
         self.sync_from_engine();
         self.emit_layer_fields();
     }
 
-    #[qslot]
-    fn select_rect(&mut self, x: i32, y: i32, width: i32, height: i32, combine: String) {
+    fn commit_selection_shape(
+        &mut self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        combine: &str,
+        shape: SelectionShape,
+        label: &str,
+    ) {
         if !self.engine.has_document || width <= 0 || height <= 0 {
             return;
         }
-        let mode = match combine.as_str() {
-            "add" => SelectionCombine::Add,
-            "subtract" => SelectionCombine::Subtract,
-            "intersect" => SelectionCombine::Intersect,
-            _ => SelectionCombine::Replace,
+        let mode = SelectionCombine::parse(combine);
+        let rect = SelectionRect {
+            x,
+            y,
+            width: width as u32,
+            height: height as u32,
         };
-        self.engine.selection.set_rect(
-            SelectionRect {
-                x,
-                y,
-                width: width as u32,
-                height: height as u32,
-            },
-            mode,
-        );
-        self.engine.history.push_selection("Selection");
+        self.push_selection_snapshot();
+        let gpu_result = match shape {
+            SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
+            SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
+        };
+        if let Err(error) = gpu_result {
+            self.report_gpu("selection apply", &error);
+        }
+        match shape {
+            SelectionShape::Rect => self.engine.selection.set_rect(rect, mode),
+            SelectionShape::Ellipse => self.engine.selection.set_ellipse(rect, mode),
+        }
+        self.selection_preview_active = false;
+        self.engine.history.push_selection(label);
         self.mark_dirty();
         self.sync_from_engine();
-        self.selection_active_changed();
+        self.emit_selection_fields();
         self.can_undo_changed();
         self.history_labels_changed();
         self.status_text_changed();
     }
 
     #[qslot]
+    fn select_rect(&mut self, x: i32, y: i32, width: i32, height: i32, combine: String) {
+        self.commit_selection_shape(
+            x,
+            y,
+            width,
+            height,
+            &combine,
+            SelectionShape::Rect,
+            "Rectangular selection",
+        );
+    }
+
+    #[qslot]
+    fn select_ellipse(&mut self, x: i32, y: i32, width: i32, height: i32, combine: String) {
+        self.commit_selection_shape(
+            x,
+            y,
+            width,
+            height,
+            &combine,
+            SelectionShape::Ellipse,
+            "Elliptical selection",
+        );
+    }
+
+    #[qslot]
     fn select_none(&mut self) {
+        if !self.engine.has_document {
+            return;
+        }
+        if !self.engine.selection.active
+            && phototux_canvas::selection_snapshot()
+                .map(|m| m.iter().all(|&v| v == 0))
+                .unwrap_or(true)
+        {
+            return;
+        }
+        self.push_selection_snapshot();
+        if let Err(error) = phototux_canvas::selection_clear() {
+            self.report_gpu("deselect", &error);
+        }
         self.engine.selection.clear();
+        self.selection_preview_active = false;
         self.engine.history.push_selection("Deselect");
         self.sync_from_engine();
-        self.selection_active_changed();
+        self.emit_selection_fields();
         self.can_undo_changed();
         self.history_labels_changed();
+        self.status_text_changed();
     }
 
     #[qslot]
@@ -1280,14 +1534,63 @@ impl AppSession {
         if !self.engine.has_document {
             return;
         }
+        self.push_selection_snapshot();
+        if let Err(error) = phototux_canvas::selection_select_all() {
+            self.report_gpu("select all", &error);
+        }
         self.engine
             .selection
             .select_all(self.engine.size.width, self.engine.size.height);
+        self.selection_preview_active = false;
         self.engine.history.push_selection("Select all");
         self.sync_from_engine();
-        self.selection_active_changed();
+        self.emit_selection_fields();
         self.can_undo_changed();
         self.history_labels_changed();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn invert_selection(&mut self) {
+        if !self.engine.has_document {
+            return;
+        }
+        self.push_selection_snapshot();
+        if let Err(error) = phototux_canvas::selection_invert() {
+            self.report_gpu("invert selection", &error);
+        }
+        self.engine
+            .selection
+            .invert_bounds(self.engine.size.width, self.engine.size.height);
+        self.selection_preview_active = false;
+        self.engine.history.push_selection("Invert selection");
+        self.sync_from_engine();
+        self.emit_selection_fields();
+        self.can_undo_changed();
+        self.history_labels_changed();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn set_selection_combine(&mut self, combine: String) {
+        let mode = SelectionCombine::parse(&combine);
+        self.engine.selection.combine = mode;
+        self.selection_combine = mode.as_str().to_owned();
+        self.selection_combine_changed();
+    }
+
+    #[qslot]
+    fn set_selection_preview(&mut self, active: bool, x: i32, y: i32, width: i32, height: i32) {
+        self.selection_preview_active = active;
+        self.selection_preview_x = x;
+        self.selection_preview_y = y;
+        self.selection_preview_w = width.max(0);
+        self.selection_preview_h = height.max(0);
+        self.selection_preview_active_changed();
+        self.selection_preview_x_changed();
+        self.selection_preview_y_changed();
+        self.selection_preview_w_changed();
+        self.selection_preview_h_changed();
     }
 
     #[qslot]

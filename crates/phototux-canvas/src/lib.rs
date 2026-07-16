@@ -6,7 +6,9 @@ mod paint_worker;
 pub use document_gpu::{
     begin_stroke, can_redo_stroke, can_undo_stroke, close_document, end_stroke, last_composite_ms,
     last_stroke_latency_ms, open_document, open_raster_document, read_all_layer_rgba,
-    read_composite_rgba, read_layer_rgba, redo_stroke, stamp_dabs, sync_and_composite, undo_stroke,
+    read_composite_rgba, read_layer_rgba, redo_stroke, selection_apply_ellipse,
+    selection_apply_rect, selection_clear, selection_invert, selection_restore,
+    selection_select_all, selection_snapshot, stamp_dabs, sync_and_composite, undo_stroke,
     write_layer_rgba,
 };
 pub use paint_worker::PaintWorker;
