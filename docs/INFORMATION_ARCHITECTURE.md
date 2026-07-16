@@ -1,252 +1,237 @@
-# Information Architecture: PhotoTux
+# Information Architecture: PhotoTux Workspace
 
-> Structural skeleton for the PhotoTux **desktop workspace** (not a multi-page website).  
-> Builds on [DESIGN_BRIEF.md](./DESIGN_BRIEF.md). Implementation-facing terms align with ADRs and `SPEC.md`.
+> Structural map of the PhotoTux desktop editor: navigation, content hierarchy, user flows, naming, and reuse.  
+> Complements [DESIGN_BRIEF.md](./DESIGN_BRIEF.md), [DESIGN.md](./DESIGN.md), [SPEC.md](../SPEC.md), and ADRs.  
+> Capability status: **current / planned / deferred**. Single-document and desktop-only navigation remain until their ADRs are amended.
 
-## Site Map (Application Map)
-
-PhotoTux is a **document-centric single-window app**. “Routes” are **workspace modes and transient surfaces**, not URLs.
+## Application Map
 
 ```
-PhotoTux Application
-├── Main Workspace                          [always-on primary surface]
-│   ├── Menu Bar / Global Menu hooks        [Phase 5: KDE integration]
-│   ├── Top Tool Bar                        [document + common actions]
-│   ├── Left Tool Strip                     [exclusive tool modes]
-│   ├── Center Canvas Viewport              [document view; 80% time-on-task]
-│   ├── Right Dock Column
-│   │   ├── Properties Inspector            [context: tool | layer | selection]
-│   │   └── Layers Panel                    [stack; visibility; selection]
-│   ├── Optional Bottom / Floating
-│   │   ├── Timeline / Animation            [out of MVP]
-│   │   └── Brush Presets drawer            [Phase 4+]
-│   └── Status / HUD Bar                    [zoom, tool, metrics]
-│
-├── Document Lifecycle Surfaces
-│   ├── New Document                        [dialog]
-│   ├── Open Image / Project                [XDG portal — Phase 5]
-│   ├── Save / Save As / Export             [XDG portal — Phase 5]
-│   └── Close / Unsaved changes             [confirm dialog]
-│
-├── Preferences                             [dialog; later]
-│   ├── Input (tablet curves)
-│   ├── Performance / GPU
-│   └── Appearance (theme tokens later)
-│
-├── Help
-│   ├── Keyboard Shortcuts                  [overlay or dialog]
-│   └── About                               [dialog]
-│
-└── Debug / Dev (non-user)
-    └── FPS / latency / GPU HUD toggles     [dev builds; ADR-008]
+PhotoTux (desktop window)
+├── Menu bar
+│   ├── File — New, Open, Save, Save As, Open Recent, Export, Recover…, Quit
+│   ├── Edit — Undo, Redo, Cut, Copy, Paste, Paste as New Layer, Clear, Preferences…
+│   ├── Image — Canvas Size, Image Size, Crop, Rotate Canvas…
+│   ├── Layer — New, Duplicate, Delete, Group, Mask ops, Rasterize…
+│   ├── Select — All, None, Invert, Modify (feather/grow/shrink), Load/Save Selection…
+│   ├── Filter — Adjustments & filters (nondestructive when applicable)
+│   ├── View — Zoom, Fit, Actual, Rulers, Guides, Grid, Snap
+│   ├── Window — Show/hide docks, Reset Layout
+│   └── Help — Shortcuts, About
+├── Top tool bar — New/Open/Save, Undo/Redo, mode actions, optional search/command palette
+├── Left tool strip — tools (paint, select, transform, fill, text, …)
+├── Center — Canvas viewport (+ selection/transform overlays, optional rulers)
+├── Right docks
+│   ├── Properties / Tool Options (contextual)
+│   ├── Layers (hierarchy, masks, effects)
+│   └── Optional: History, Color/Swatches, Brush Presets
+├── Status / HUD — zoom, tool, FPS, dirty, GPU, progress
+└── Dialogs — Welcome/New, Export, Adjust/Filter, Preferences, Compatibility Report, Recovery, Alerts
 ```
 
-**MVP focus (Phases 1–2):** Main Workspace chrome + Canvas Viewport (placeholder → GPU).  
-**Later phases** attach Layers depth, tools, portals, menus without changing the core map.
+| Entry | Destination | Notes |
+|-------|-------------|-------|
+| Desktop launcher / `cargo run -p phototux` | Main window | Single process; developer run is not a product CLI surface |
+| File → New / Welcome | New Document dialog | Presets 720p / 1080p / 2K / 4K + custom; zoom-to-fit on create |
+| File → Open | Native file dialog | Raster import + later `.ptx` / PSD subset |
+| File → Save / Save As | Native `.ptx` | Atomic write; planned |
+| File → Export | Export dialog | Flattened PNG/JPEG (current); WebP/TIFF planned |
+| File → Recover… | Recovery UI | Crash journal / autosave; planned |
+| Tool strip | Active tool + Tool Options schema | Exclusive tool mode |
+| Layers dock | Active layer / mask / effect target | Hierarchy planned |
+| History dock | Transaction list | Planned |
+| Close / Quit | Unsaved changes dialog | Dirty check |
 
-## Navigation Model
+**Capability notes**
 
-This is **spatial workspace navigation**, not hierarchical site nav.
-
-| Layer | What | Rules |
-|-------|------|-------|
-| **Primary** | Main Workspace always visible | No “home page.” Opening the app *is* the workspace. |
-| **Secondary** | Docks (Properties, Layers) | Collapsible; order fixed in v1; user rearrange later |
-| **Tool navigation** | Left tool strip + shortcuts | Exclusive selection (radio group). Max ~8–12 tools visible; overflow menu later |
-| **Utility** | Menu bar, preferences, help, portals | Document lifecycle and system integration |
-| **Transient** | Dialogs, confirmations, shortcut overlay | Modal only when data loss risk |
-| **Mobile** | N/A for v1 | Desktop Linux only (ADR-001) |
-
-**Depth limit:** ≤2 levels of chrome (window → dock panel). No nested “apps inside apps.”
-
-**80% time surface:** **Center Canvas Viewport.** IA and layout protect this region first.
+- **Current**: shell, GPU canvas, brush/eraser/pan/zoom, flat layers, stroke undo, PNG/JPEG I/O, QML AOT startup
+- **Planned**: `.ptx`, selections, transforms, masks/groups, text, adjustments/filters, history, clipboard, PSD subset
+- **Deferred**: multi-document tabs (ADR-013), KDE global menu, floating multi-monitor docks, photography/RAW/DAM
 
 ## Content Hierarchy
 
-### Main Workspace (default)
+```
+Document session (single document v1)
+├── Document metadata — size, name, path, dirty, color/depth policy
+├── History — transactional undo/redo (+ planned named snapshots)
+├── Selection — GPU selection channel + boolean mode + feather metadata
+├── Canvas viewport state — zoom, pan, fit mode, overlays (ants, transform, guides)
+└── Layer graph (typed, hierarchical — planned graph v2)
+    ├── RasterLayer — pixels, opacity, blend, transform, locks, label color
+    ├── Group — children, pass-through / blend, visibility
+    ├── TextLayer — content + typography + transform (rasterized/cached for composite)
+    ├── AdjustmentLayer — typed params + optional mask
+    ├── Layer mask (optional) — density, feather, linked, enabled
+    └── Filter / effect stack (optional) — reorderable nondestructive nodes
+```
 
-1. **Canvas / image content** — Why first: core job is create/edit pixels  
-2. **Active tool + immediate parameters** (tool strip + key properties) — Why second: continuous control while painting  
-3. **Layer stack state** — Why third: non-destructive structure (grows Phase 3–4)  
-4. **Document meta / status** (filename, zoom %, FPS) — Below fold of attention; always available in status bar  
-5. **Menus and secondary tools** — On demand  
+**Presentation priority (on-screen)**
 
-### Properties Inspector
-
-1. Context title (Tool name or Layer name)  
-2. Primary parameter (e.g. brush size, layer opacity)  
-3. Secondary parameters (hardness, blend mode…)  
-4. Advanced / collapsed sections  
-
-### Layers Panel
-
-1. Active layer highlight  
-2. Visibility / lock affordances  
-3. Layer name + thumbnail (thumbnail later)  
-4. Blend mode / opacity summary  
-5. Layer group structure (Phase 3+)  
-
-### Open / Export dialogs (system)
-
-Content owned by **XDG portals** — PhotoTux supplies filters and last paths only.
+1. Canvas composite (always primary)
+2. Active tool affordance (cursor, overlays, Tool Options)
+3. Active layer / mask / effect target (Layers + Properties)
+4. Selection / transform state
+5. Document dirty / save / recovery status
+6. Secondary docks (History, Color, Presets)
+7. HUD metrics (FPS, composite time) — diagnostic, not content
 
 ## User Flows
 
-### F1 — Cold start to first stroke (MVP path)
+### Flow: First run → paint (current)
 
-1. User launches PhotoTux from the **desktop** (app menu / icon) — **GUI only** (ADR-014; no CLI/TUI product)  
-2. **New Document** flow (ADR-013): user picks size via dialog or presets (**720p / 1080p / 2K / 4K**), then workspace opens; **zoom-to-fit**  
-3. Brush tool pre-selected (when tools exist; Phase 1 may show shell only)  
-4. User adjusts brush size in Properties (or shortcuts) when painting lands  
-5. User strokes on canvas → paint appears (Phase 4 full; Phase 2 may be pan/zoom only)  
-6. Status bar reflects tool + zoom  
+1. Launch → main window (empty or last session policy TBD)
+2. Welcome / File → New → choose preset → OK
+3. Document created; zoom-to-fit; default RasterLayer active; Brush selected
+4. Adjust size/opacity/hardness in Properties
+5. Paint on canvas; stroke completes → one undo step
+6. Continue editing or File → Export / Save (when `.ptx` available)
 
-### F2 — Zoom and pan while inspecting
+### Flow: Native Save / Recovery (planned)
 
-1. User focuses canvas  
-2. Scroll / zoom control → zoom around cursor; status updates  
-3. Space+drag or middle-drag → pan  
-4. Frame rate stays ≥60 (Phase 2 gate)  
-5. Properties/layers remain interactive without hitching chrome  
+1. Edit until dirty indicator shows
+2. File → Save (or Save As if untitled)
+3. Atomic `.ptx` write with progress for large docs
+4. On crash: next launch or File → Recover offers journaled snapshot
+5. Failed save never overwrites the previous good file
 
-### F3 — Layer-aware edit (Phase 3–4)
+### Flow: Selection → transform (planned)
 
-1. User selects layer in Layers panel  
-2. Properties show layer opacity/blend  
-3. User paints → only active layer mutates  
-4. User toggles visibility → composite updates on GPU  
-5. Undo → graph/transaction reverts; selection preserved if possible  
+1. Choose Marquee / Ellipse / Lasso; set replace/add/subtract/intersect
+2. Drag on canvas → selection ants appear
+3. Choose Move / Free Transform
+4. Manipulate handles / numeric fields; live preview
+5. Enter/Apply → one undo transaction; Escape → cancel without mutation
 
-### F4 — Open existing image (Phase 5)
+### Flow: Selection → mask (planned)
 
-1. File → Open (or Ctrl+O)  
-2. XDG portal file picker  
-3. Decode → document graph + GPU textures  
-4. Canvas frames image; zoom-to-fit optional  
-5. If unsaved changes on previous doc → confirm  
+1. Create selection
+2. Layer → Add Mask from Selection (or Layers context menu)
+3. Mask thumbnail appears; optional enter mask-edit mode
+4. Paint on mask with black/white/gray; toggle enable/link/invert
+5. Undo restores mask + selection policy per transaction design
 
-### F5 — Export (Phase 5)
+### Flow: Nondestructive adjustment / filter (planned)
 
-1. File → Export  
-2. Portal + format options (PNG/JPEG… minimal set)  
-3. Progress if large; cancelible  
-4. Status: “Exported path”  
+1. Select target layer or group
+2. Layer → New Adjustment / Filter → choose type
+3. Dialog or Properties show params with live preview
+4. OK adds editable stack entry (hideable/reorderable)
+5. Explicit “Apply destructively” flattens when user requests
 
-### F6 — Tool switch mid-work
+### Flow: Text creation (planned)
 
-1. User presses `V` / clicks transform (example)  
-2. Tool strip selection moves  
-3. Properties inspector swaps schema  
-4. Canvas cursors/overlays change  
-5. Brush dynamics idle until brush re-selected  
+1. Select Text tool; click or drag on canvas
+2. Type content; Properties show font/size/color/alignment
+3. Commit creates/updates TextLayer; remains editable until rasterize
+4. Missing fonts show fallback + warning in Properties / status
 
-## Naming Conventions
+### Flow: Clipboard transfer (planned)
 
-| Concept | Label in UI | Notes |
-|---------|-------------|-------|
-| Application | PhotoTux | Product name |
-| Open document | Document | Not “Project” in v1 (single-doc) |
-| Pixel stack item | Layer | Industry standard |
-| Non-destructive graph | (internal) Image State Graph | Not exposed as jargon in UI |
-| Drawing surface | Canvas | Viewport shows the canvas |
-| Tool mode | Tool | Brush, Eraser, Select, Transform, Eyedropper… |
-| Right panel parameters | Properties | Not “Inspector” in chrome title (Properties is clearer) |
-| Layer list | Layers | Panel title |
-| Left exclusive tools | Tools | Tool strip / toolbox |
-| Top bar | Toolbar | Document + frequent actions |
-| Bottom bar | Status | Includes optional HUD metrics |
-| Blend operation | Blend mode | Multiply, Overlay… |
-| History step | Undo / Redo | Not “History panel” in MVP |
-| Stylus input | Tablet | Wayland tablet |
-| File open/save OS UI | (system) | Never rebrand portal chrome |
-| Performance overlay | HUD | Dev/debug; “Performance” in prefs later |
+1. Selection + Copy/Cut → one-shot CPU clipboard transfer at boundary
+2. Paste → new pixels on active layer or Paste as New Layer
+3. Undoable as one transaction
 
-**Glossary rule:** One term per concept. Prefer **Layer**, **Canvas**, **Tool**, **Properties**, **Document**.
+### Flow: PSD import with disclosure (planned)
 
-## Component Reuse Map
+1. File → Open → choose PSD
+2. Importer maps supported subset into graph v2
+3. Compatibility Report lists unsupported effects/features
+4. User acknowledges; document opens dirty or clean per policy
+5. Native Save writes `.ptx` as authoritative
 
-| Structural component | Used on | Behavior differences |
-|---------------------|---------|----------------------|
-| `ApplicationWindow` shell | Always | Theme tokens from DESIGN.md |
-| Top Toolbar | Main workspace | Actions enable/disable by document state |
-| ToolStrip | Main workspace | Tool set grows by phase |
-| CanvasViewport | Main workspace | Placeholder → GPU item; same slot in layout |
-| DockColumn | Right side | Hosts Properties + Layers; collapsible |
-| PropertiesForm | Properties dock | Schema switches by tool/layer context |
-| LayerList | Layers dock | Model-backed list (qtbridge model later) |
-| StatusBar | Always | FPS/HUD only when enabled |
-| DialogShell | New/Open/Save/Prefs/About | Shared margins/buttons |
-| ConfirmDialog | Close unsaved, destructive | Danger emphasis on confirm |
+### Flow: Export flattened (current → expand)
 
-## Content Growth Plan
+1. File → Export → format + quality/path
+2. Worker encodes flattened composite; progress for large images
+3. Success toast/status or error dialog
 
-| Area | Growth over time | IA accommodation |
-|------|------------------|------------------|
-| Tools | Many tools/plugins later | Tool strip + overflow; categories; search later |
-| Layers | Hundreds on large docs | Virtualized list; filter; groups |
-| Brush presets | Large libraries | Drawer/panel with search; not all in Properties |
-| Documents | Multi-doc tabs later | Optional tab bar above canvas; out of MVP |
-| History | Long undo stacks | Command list panel optional; memory caps |
-| Preferences | Many keys | Grouped pages; search |
-| Locale strings | i18n | All user-visible strings via `qsTr` |
+## Taxonomy & Naming Conventions
 
-## Launch & session strategy (desktop GUI)
+| Concept | Preferred term | Avoid |
+|---------|----------------|-------|
+| App window workspace | Workspace | IDE, dashboard, site |
+| Image editing surface | Canvas | Stage, artboard (unless multi-artboard later) |
+| Document file (native) | PhotoTux Document / `.ptx` | Project pack, PSD (unless interchange) |
+| Pixel stack entry | Layer | Track, clip |
+| Folder of layers | Group | Folder (UI may say Group) |
+| Alpha mask on layer | Mask / Layer Mask | Stencil (unless tool name) |
+| Pixel selection | Selection | Region (except API) |
+| Nondestructive color op | Adjustment / Adjustment Layer | LUT panel, develop module |
+| Nondestructive effect | Filter / Effect | Smart Object (Adobe-only jargon in UI) |
+| Text content layer | Text Layer | Label, caption |
+| Tool parameter strip | Tool Options / Properties | Inspector (OK in docs), sidebar only |
+| Layer list | Layers | Timeline |
+| Undo list | History | Log |
+| Brush library | Brush Presets | Skins |
+| Color pair | Foreground / Background | Primary / Secondary (OK in code) |
+| Import warning UI | Compatibility Report | Error dump |
+| View transform | Zoom / Pan | Scale gesture (ok in impl notes) |
+| Composite result | Composite | Flattened preview (export context) |
+| Input device | Stylus / tablet | Mouse-only assumptions |
+| Engine message | Command | Request (unless HTTP) |
+| Bridge object | `AppController` / document session | ViewModel soup |
+| Present path | Zero-copy / shared texture | Texture upload (forbidden steady-state) |
 
-**Not a website** and **not a CLI/TUI product** (ADR-014).
+**UI copy**: sentence case for controls; menu bar may follow platform/Plasma conventions. User-facing strings via `qsTr(...)`.
 
-| Concern | Rule |
-|---------|------|
-| Primary launch | Desktop entry / app menu / icon → main editor window |
-| Open file from DE | Phase 5+: MIME / file-manager “Open with” / optional argv from the desktop environment only — **not** a documented CLI tool |
-| CLI / TUI product | **Out of scope** for MVP/v1 |
-| Session restore | Window geometry + dock visibility + last paths (Phase 5+) |
-| Deep links | Not required for v1 |
+## Screen Inventory
 
-### State that is *not* navigation
+| Screen / surface | Purpose | Primary actions | Status |
+|------------------|---------|-----------------|--------|
+| Main workspace | Edit document | Tools, layers, canvas, docks | Current |
+| Welcome / New Document | Create sized document | Preset cards, OK/Cancel | Current |
+| Export dialog | Flattened raster out | Path, format, quality | Current |
+| About / Shortcuts | Version & keymap | Close | Current / Planned |
+| Preferences | App + tablet + performance | Apply/OK | Planned |
+| Save / Save As | Persist `.ptx` | Path, confirm overwrite | Planned |
+| Recovery | Restore autosave/journal | Restore / Discard | Planned |
+| Adjustment / Filter dialog | Parametric edit | Preview, OK, Cancel | Planned |
+| Compatibility Report | Disclose import limits | Continue / Cancel | Planned |
+| Unsaved changes | Block data loss | Save / Discard / Cancel | Current |
+| Progress overlay | Long I/O or filter | Cancel when safe | Planned |
+| Brush Presets panel | Pick/save presets | Search, import/export | Planned |
+| Color / Swatches | FG/BG & entry | Sample, HEX/RGB/HSV | Planned |
+| History panel | Navigate transactions | Click step, clear (policy) | Planned |
 
-Zoom level, pan offset, active layer id, tool id — **view state**, restored with session or document as appropriate, not separate “pages.”
-## Workspace Layout Blueprint (structure only)
+No marketing pages, settings websites, or mobile shells.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Menu (optional global) │  Toolbar (File, Edit, …, tool actions)        │
-├────┬──────────────────────────────────────────────────────┬─────────────┤
-│ T  │                                                      │ Properties  │
-│ o  │                                                      │ (context)   │
-│ o  │              Canvas Viewport                         ├─────────────┤
-│ l  │              (document pixels)                       │ Layers      │
-│ s  │                                                      │             │
-├────┴──────────────────────────────────────────────────────┴─────────────┤
-│ Status: document · tool · zoom · [HUD: FPS / latency]                   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+## Menu / Navigation Structure
 
-**Reference sizes (from design tokens / brief):** tool strip ~48px; right dock ~280px default; window ≥1280×720 usable.
+| Region | Contents | Behavior |
+|--------|----------|----------|
+| Menu bar | File, Edit, Image, Layer, Select, Filter, View, Window, Help | Always available; disable items when no document |
+| Tool strip | Brush, Eraser, Select tools, Move/Transform, Crop, Fill, Gradient, Eyedropper, Text, Pan, Zoom, … | Exclusive; one primary tool |
+| Tool Options | Schema for active tool | Updates instantly on tool change |
+| Layers | Hierarchy, visibility, locks, masks, effects | Keyboard navigable; drag reparent planned |
+| Properties | Layer + mask + effect + text contexts | Complements Tool Options |
+| History | Transactions | Optional dock |
+| Color / Presets | Painting aids | Optional docks |
+| Status bar | Zoom, tool name, FPS/ms, dirty, messages | Read-mostly; zoom control allowed |
+| Context menus | Canvas, layer row, mask, effect | Planned expansion |
 
-## Priority ranking (user jobs)
+Depth target: ≤3 steps for paint, select, transform, mask, save, export.
 
-| Rank | Job to be done | Primary surface |
-|------|----------------|-----------------|
-| 1 | Paint / edit pixels with low latency | Canvas + Tool |
-| 2 | Navigate canvas (zoom/pan) | Canvas |
-| 3 | Adjust tool parameters | Properties |
-| 4 | Manage layer stack | Layers |
-| 5 | Open/save/export | Utility / portals |
-| 6 | Configure app | Preferences |
+## Design System Reuse Map
 
-## Alignment with roadmap
+| Need | Reuse | New? |
+|------|-------|------|
+| Color, type, space, radius, elevation | `DESIGN.md` tokens → QML Theme | Extend tokens only when required |
+| Buttons, sliders, checkboxes, combos | Qt QC2 + PhotoTux styling | Per-control styles |
+| Tool strip button | Icon button pattern | Shared `ToolButton` |
+| Dock panel chrome | Shared header + scroll body | `Panel` / `DockColumn` |
+| Layer / mask / effect row | List delegate family | Hierarchical delegate planned |
+| Dialogs | Shared modal scaffold | `AppDialog` |
+| Canvas overlays | Selection ants, transform handles | New overlay items planned |
+| Icons | Phosphor under `assets/icons/` + `ICON_MAP.md` | Add mapped assets only |
+| Status chips | Compact label / HUD | Small components |
+| Compatibility / recovery copy | Alert + report list pattern | Planned |
+| Empty canvas vs open doc | Distinct empty state vs document chrome | Keep simple |
 
-| Phase | IA unlock |
-|-------|-----------|
-| 1 | Main Workspace chrome; Properties bind to Rust state; canvas placeholder |
-| 2 | Canvas becomes true document viewport (GPU) |
-| 3 | Layers + graph semantics behind Layers panel |
-| 4 | Full tool set + tablet flows |
-| 5 | Portals, menus, session — outer IA ring |
+**Rule**: Prefer shared QML components over one-off rectangles. New visual values go into `DESIGN.md` first.
 
-## Out of IA scope
+## Implementation Notes
 
-- Marketing site IA  
-- Multi-user / cloud spaces  
-- Plugin store taxonomy  
-- Mobile navigation patterns  
+- Shell lives in `phototux_ui` + `qml/`; canvas in `phototux_canvas` / GPU crates — do not put wgpu in the UI crate.
+- IA changes that imply multi-document UI, photography modules, or non-desktop surfaces require ADR amendments first.
+- Update this file and `DESIGN_BRIEF.md` when a feature adds a tool mode, dock, dialog, document state, or primary flow.
+- Checklists: `docs/03-checklists/development.md`, `blockers.md`.

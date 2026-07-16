@@ -44,7 +44,7 @@ Choose **Option 1**.
 | Open PNG/JPEG | Decode off UI thread, apply EXIF orientation, normalize to 8-bit RGBA sRGB, create one flattened editable layer, upload once |
 | Export PNG | One-shot composite readback; preserve RGBA |
 | Export JPEG | One-shot composite readback; flatten alpha over white; quality 92 |
-| Save | Disabled until a native, versioned document format has its own ADR |
+| Save | Native `.ptx` per ADR-016 (atomic write; GPU readback only at Save boundary) |
 
 Use the Rust `image` crate with default features disabled and only PNG/JPEG codecs enabled. Decode limits: maximum dimension 32,768, maximum decoded RGBA allocation 512 MiB, and checked width×height arithmetic. Unsupported color/profile metadata is normalized or rejected with a user-visible typed error; ICC/HDR preservation is deferred.
 
@@ -70,11 +70,15 @@ Forbidden:
 
 - **Positive:** File I/O is testable as pure Rust; interactive zero-copy path remains intact.
 - **Negative:** Very large open/export operations need progress and cancellation later.
-- **Neutral:** Native project save, ICC round-trip, 16-bit/HDR, and multi-layer interchange remain deferred.
+- **Neutral:** ICC round-trip and 16-bit/HDR remain deferred; layered PSD is ADR-018.
+
+## Amendment (2026-07-16)
+
+Native Save/Open for versioned `.ptx` is accepted in ADR-016. Flattened PNG/JPEG(/WebP/TIFF/…) export remains a separate one-shot readback path. Crash recovery journals are part of the `.ptx` boundary, not a steady-state CPU mirror.
 
 ## Revisit Date
 
-Before native project save or 16-bit/HDR import/export.
+Before 16-bit/HDR import/export or multi-document sessions.
 
 ## Dependencies
 

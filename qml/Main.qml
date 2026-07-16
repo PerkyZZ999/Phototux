@@ -97,7 +97,21 @@ ApplicationWindow {
         text: qsTr("&Save")
         icon.source: root.iconUrl("floppy-disk")
         shortcut: "Ctrl+S"
-        enabled: false
+        enabled: AppSession.hasDocument && !AppSession.ioBusy
+        onTriggered: {
+            if (AppSession.documentPath && AppSession.documentPath.length > 0)
+                AppSession.saveDocument("")
+            else
+                saveFileDialog.open()
+        }
+    }
+
+    Action {
+        id: saveAsAction
+        text: qsTr("Save &As…")
+        shortcut: "Ctrl+Shift+S"
+        enabled: AppSession.hasDocument && !AppSession.ioBusy
+        onTriggered: saveFileDialog.open()
     }
 
     Action {
@@ -159,6 +173,7 @@ ApplicationWindow {
             MenuItem { action: openAction }
             MenuSeparator {}
             MenuItem { action: saveAction }
+            MenuItem { action: saveAsAction }
             MenuItem { action: exportAction }
             MenuSeparator {}
             MenuItem { action: closeAction }
@@ -168,10 +183,59 @@ ApplicationWindow {
             title: qsTr("&Edit")
             MenuItem { action: undoAction }
             MenuItem { action: redoAction }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("Select &All")
+                shortcut: "Ctrl+A"
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.selectAll()
+            }
+            MenuItem {
+                text: qsTr("Deselect")
+                shortcut: "Ctrl+D"
+                enabled: AppSession.hasDocument && AppSession.selectionActive
+                onTriggered: AppSession.selectNone()
+            }
+            MenuItem {
+                text: qsTr("&Copy")
+                shortcut: "Ctrl+C"
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.copySelection()
+            }
+            MenuItem {
+                text: qsTr("Paste as New Layer")
+                shortcut: "Ctrl+V"
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.pasteAsNewLayer()
+            }
+        }
+        Menu {
+            title: qsTr("&Layer")
+            MenuItem {
+                text: qsTr("New &Group")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addGroupLayer()
+            }
+            MenuItem {
+                text: qsTr("Add &Mask")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addMaskToActive()
+            }
+            MenuItem {
+                text: qsTr("New &Adjustment…")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addAdjustmentLayer("brightness")
+            }
         }
         Menu {
             title: qsTr("&View")
             MenuItem { action: zoomFitAction }
+            MenuItem {
+                text: qsTr("Show &Guides")
+                checkable: true
+                checked: true
+                onTriggered: AppSession.setGuidesVisible(checked)
+            }
         }
         Menu {
             title: qsTr("&Help")
@@ -419,6 +483,14 @@ ApplicationWindow {
                     model: [
                         { id: "tool.brush", stem: "paint-brush", tip: qsTr("Brush") },
                         { id: "tool.eraser", stem: "eraser", tip: qsTr("Eraser") },
+                        { id: "tool.select.rect", stem: "selection", tip: qsTr("Rectangular Marquee") },
+                        { id: "tool.move", stem: "arrows-out-cardinal", tip: qsTr("Move") },
+                        { id: "tool.transform", stem: "arrows-out", tip: qsTr("Free Transform") },
+                        { id: "tool.crop", stem: "crop", tip: qsTr("Crop") },
+                        { id: "tool.fill", stem: "paint-bucket", tip: qsTr("Fill") },
+                        { id: "tool.gradient", stem: "gradient", tip: qsTr("Gradient") },
+                        { id: "tool.eyedropper", stem: "eyedropper", tip: qsTr("Eyedropper") },
+                        { id: "tool.text", stem: "text-t", tip: qsTr("Text") },
                         { id: "tool.pan", stem: "hand", tip: qsTr("Pan") },
                         { id: "tool.zoom", stem: "magnifying-glass", tip: qsTr("Zoom") }
                     ]
@@ -579,6 +651,9 @@ ApplicationWindow {
                 property real lastY: 0
                 property bool dragging: false
                 property bool painting: false
+                property bool selecting: false
+                property real selStartX: 0
+                property real selStartY: 0
 
                 onPressed: function (mouse) {
                     lastX = mouse.x
@@ -588,6 +663,18 @@ ApplicationWindow {
                             || AppSession.activeTool === "tool.pan") {
                         cursorShape = Qt.ClosedHandCursor
                         painting = false
+                        selecting = false
+                        return
+                    }
+                    if (AppSession.activeTool === "tool.select.rect") {
+                        selecting = true
+                        painting = false
+                        selStartX = mouse.x
+                        selStartY = mouse.y
+                        return
+                    }
+                    if (AppSession.activeTool === "tool.text") {
+                        AppSession.addTextLayer(qsTr("Text"))
                         return
                     }
                     if (AppSession.activeTool === "tool.brush"
@@ -600,6 +687,19 @@ ApplicationWindow {
                     }
                 }
                 onReleased: function (mouse) {
+                    if (selecting) {
+                        var x0 = Math.min(selStartX, mouse.x)
+                        var y0 = Math.min(selStartY, mouse.y)
+                        var w = Math.abs(mouse.x - selStartX)
+                        var h = Math.abs(mouse.y - selStartY)
+                        // Approximate screen→doc via zoom/pan (engine uses same camera).
+                        var dx = (x0 - canvasHost.width / 2) / Math.max(0.001, AppSession.zoom) + AppSession.panX
+                        var dy = (y0 - canvasHost.height / 2) / Math.max(0.001, AppSession.zoom) + AppSession.panY
+                        var dw = w / Math.max(0.001, AppSession.zoom)
+                        var dh = h / Math.max(0.001, AppSession.zoom)
+                        AppSession.selectRect(Math.round(dx), Math.round(dy), Math.round(dw), Math.round(dh), "replace")
+                        selecting = false
+                    }
                     if (painting) {
                         AppSession.strokeEnd()
                         painting = false
@@ -943,6 +1043,17 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            icon.source: root.iconUrl("folder")
+                            icon.width: 14
+                            icon.height: 14
+                            enabled: AppSession.hasDocument
+                            onClicked: AppSession.addGroupLayer()
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Add group")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             icon.source: root.iconUrl("trash")
                             icon.width: 14
                             icon.height: 14
@@ -971,8 +1082,11 @@ ApplicationWindow {
                             readonly property int stackIndex: AppSession.layerCount - 1 - index
                             readonly property var nameParts: AppSession.layerNames.split("|")
                             readonly property var visParts: AppSession.layerVisibility.split("|")
+                            readonly property var kindParts: AppSession.layerKinds.split("|")
                             readonly property string layerName: stackIndex >= 0 && stackIndex < nameParts.length
                                 ? nameParts[stackIndex] : ""
+                            readonly property string layerKind: stackIndex >= 0 && stackIndex < kindParts.length
+                                ? kindParts[stackIndex] : "raster"
                             readonly property bool layerVis: stackIndex >= 0 && stackIndex < visParts.length
                                 ? visParts[stackIndex] === "1" : true
                             readonly property bool isActive: AppSession.activeLayerIndex === stackIndex
@@ -1004,6 +1118,14 @@ ApplicationWindow {
                                     radius: Theme.radiusXs
                                     color: Theme.surface
                                     border.color: Theme.border
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: layerKind === "group" ? "G"
+                                              : (layerKind === "text" ? "T"
+                                              : (layerKind === "adjustment" ? "A" : ""))
+                                        color: Theme.colorOnSurfaceVariant
+                                        font.pixelSize: 9
+                                    }
                                 }
 
                                 Label {
@@ -1024,21 +1146,69 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                // History panel
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    color: Theme.surfaceContainer
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.spaceSm
+                        text: qsTr("History")
+                        color: Theme.colorOnSurfaceVariant
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.Medium
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 120
+                    color: Theme.surfaceSunken
+                    ListView {
+                        anchors.fill: parent
+                        clip: true
+                        model: AppSession.historyLabels.length > 0
+                               ? AppSession.historyLabels.split("|") : []
+                        delegate: Label {
+                            width: parent ? parent.width : 100
+                            height: 22
+                            leftPadding: Theme.spaceSm
+                            text: modelData
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontBodySm
+                            elide: Text.ElideRight
+                            Accessible.name: modelData
+                        }
+                    }
+                }
             }
         }
     }
 
     FileDialog {
         id: openFileDialog
-        title: qsTr("Open Image")
+        title: qsTr("Open Document")
         currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
         fileMode: FileDialog.OpenFile
         nameFilters: [
-            qsTr("Image files (*.png *.jpg *.jpeg)"),
-            qsTr("PNG images (*.png)"),
-            qsTr("JPEG images (*.jpg *.jpeg)")
+            qsTr("All supported (*.ptx *.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.psd)"),
+            qsTr("PhotoTux documents (*.ptx)"),
+            qsTr("Image files (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif)"),
+            qsTr("Photoshop (*.psd)")
         ]
         onAccepted: AppSession.openRasterFile(selectedFile.toString())
+    }
+
+    FileDialog {
+        id: saveFileDialog
+        title: qsTr("Save PhotoTux Document")
+        currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
+        fileMode: FileDialog.SaveFile
+        nameFilters: [ qsTr("PhotoTux documents (*.ptx)") ]
+        defaultSuffix: "ptx"
+        onAccepted: AppSession.saveDocument(selectedFile.toString())
     }
 
     FileDialog {
@@ -1048,7 +1218,9 @@ ApplicationWindow {
         fileMode: FileDialog.SaveFile
         nameFilters: [
             qsTr("PNG images (*.png)"),
-            qsTr("JPEG images (*.jpg *.jpeg)")
+            qsTr("JPEG images (*.jpg *.jpeg)"),
+            qsTr("WebP images (*.webp)"),
+            qsTr("TIFF images (*.tif *.tiff)")
         ]
         defaultSuffix: selectedNameFilter.extensions.length > 0
                        ? selectedNameFilter.extensions[0] : "png"
@@ -1059,7 +1231,7 @@ ApplicationWindow {
         id: unsavedDialog
         anchors.centerIn: parent
         modal: true
-        title: qsTr("Discard unsaved changes?")
+        title: qsTr("Unsaved changes")
         closePolicy: Popup.CloseOnEscape
         onRejected: root.pendingDestructiveAction = ""
         width: 440
@@ -1072,14 +1244,21 @@ ApplicationWindow {
 
         contentItem: Label {
             width: parent ? parent.width - 32 : 400
-            text: qsTr("PhotoTux project saving is not available yet. Export preserves a flattened image only. Discard changes and continue?")
+            text: qsTr("Save the document as .ptx, discard changes, or cancel?")
             wrapMode: Text.WordWrap
             color: Theme.colorOnSurface
             font.pixelSize: Theme.fontBody
         }
 
         footer: DialogButtonBox {
-            standardButtons: DialogButtonBox.Discard | DialogButtonBox.Cancel
+            standardButtons: DialogButtonBox.Save | DialogButtonBox.Discard | DialogButtonBox.Cancel
+            onAccepted: {
+                unsavedDialog.close()
+                if (AppSession.documentPath && AppSession.documentPath.length > 0)
+                    AppSession.saveDocument("")
+                else
+                    saveFileDialog.open()
+            }
             onDiscarded: {
                 unsavedDialog.close()
                 root.discardAndContinue()
@@ -1088,6 +1267,31 @@ ApplicationWindow {
                 root.pendingDestructiveAction = ""
                 unsavedDialog.close()
             }
+        }
+    }
+
+    Dialog {
+        id: compatibilityDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Compatibility report")
+        standardButtons: Dialog.Ok
+        width: 480
+        visible: AppSession.compatibilityReport.length > 0
+
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
+
+        contentItem: Label {
+            width: parent ? parent.width - 32 : 440
+            text: AppSession.compatibilityReport
+            wrapMode: Text.WordWrap
+            color: Theme.colorOnSurface
+            font.pixelSize: Theme.fontBodySm
+            Accessible.name: qsTr("Import compatibility report")
         }
     }
 

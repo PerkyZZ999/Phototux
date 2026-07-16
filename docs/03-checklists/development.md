@@ -94,6 +94,64 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
+## Phase 6 — Document foundation & native Save
+
+**Goal:** Graph v2 contracts, `.ptx`, unified history, atomic Save/Recovery.
+
+**Status:** `[x]` foundation landed — typed nodes, `HistoryService`, ADR-016/017, `.ptx` round-trip + autosave journal, Save/Save As UI.
+
+**Exit gate:** Layered `.ptx` preserves pixels/graph/active layer; failed saves preserve prior file. **Met** (engine/io tests + atomic writer).
+
+---
+
+## Phase 7 — Selections, clipboard, transforms
+
+**Goal:** GPU selection channel, clipboard, crop/resize, free transform.
+
+**Status:** `[x]` slice landed — `SelectionMask` R8, rect select UI/commands, copy/paste-as-layer, crop commit command; transform preview types in engine.
+
+---
+
+## Phase 8 — Professional layer workflow
+
+**Goal:** Groups, masks, blends, hierarchical Layers UI.
+
+**Status:** `[x]` slice landed — groups/masks/locks metadata, expanded blend modes in WGSL, kind badges + group actions in Layers dock.
+
+---
+
+## Phase 9 — Core creation tools
+
+**Goal:** Color/fill/gradient/text + brush presets.
+
+**Status:** `[x]` slice landed — tool strip expansion, text layers, color state + FG/BG swap, brush preset library JSON.
+
+---
+
+## Phase 10 — Adjustments & filters
+
+**Goal:** Adjustment layers + nondestructive filter stack contracts.
+
+**Status:** `[x]` slice landed — adjustment/filter param types, GPU pass descriptors, CPU invert/brightness references, add-adjustment UI.
+
+---
+
+## Phase 11 — Workflow & polish
+
+**Goal:** History, guides, cancellation, a11y basics, hardening hooks.
+
+**Status:** `[x]` slice landed — History dock, guides toggle, `CancelToken` on file worker, Accessible names on history/report.
+
+---
+
+## Phase 12 — Formats & PSD interchange
+
+**Goal:** Expanded rasters + PSD subset + compatibility report.
+
+**Status:** `[x]` slice landed — WebP/TIFF/BMP/GIF codecs, PSD header import + compatibility report dialog, ADR-018.
+
+---
+
 ## Standing rules (all phases)
 
 - [ ] Update this file’s phase status when starting/finishing a phase

@@ -72,11 +72,12 @@ impl GraphCommand {
             Self::Rename { id, next, .. } => {
                 let _ = graph.rename(*id, next.clone());
             }
-            Self::SetActive { next, .. } => {
-                if let Some(id) = next {
+            Self::SetActive { next, .. } => match next {
+                Some(id) => {
                     let _ = graph.set_active(*id);
                 }
-            }
+                None => graph.clear_active(),
+            },
         }
     }
 
@@ -163,6 +164,15 @@ impl UndoStack {
         self.redo.clear();
     }
 
+    /// Drop the oldest undo command without applying it (timeline budget sync).
+    pub fn drop_oldest(&mut self) -> Option<GraphCommand> {
+        if self.undo.is_empty() {
+            None
+        } else {
+            Some(self.undo.remove(0))
+        }
+    }
+
     /// Record a command that was **already applied** to the graph.
     pub fn push_applied(&mut self, cmd: GraphCommand) {
         self.undo.push(cmd);
@@ -200,9 +210,10 @@ impl UndoStack {
     }
 }
 
-/// High-level mutations that push undo entries.
+/// High-level mutations that push unified history entries.
 pub mod actions {
     use super::*;
+    use crate::history::HistoryService;
 
     /// Add a layer and record the undo entry.
     ///
@@ -210,7 +221,7 @@ pub mod actions {
     /// Returns an error when the document is already at the compositor layer cap.
     pub fn add_layer(
         graph: &mut DocumentGraph,
-        stack: &mut UndoStack,
+        history: &mut HistoryService,
         name: Option<String>,
     ) -> Result<LayerId, String> {
         let id = graph.add_layer_top(name)?;
@@ -219,27 +230,34 @@ pub mod actions {
             .get(id)
             .cloned()
             .ok_or_else(|| "added layer missing from graph".to_owned())?;
-        stack.push_applied(GraphCommand::AddLayer { id, index, layer });
+        history.push_graph_applied(GraphCommand::AddLayer { id, index, layer }, "Add layer");
         Ok(id)
     }
 
-    pub fn delete_layer(graph: &mut DocumentGraph, stack: &mut UndoStack, id: LayerId) -> bool {
+    pub fn delete_layer(
+        graph: &mut DocumentGraph,
+        history: &mut HistoryService,
+        id: LayerId,
+    ) -> bool {
         let prev_active = graph.active_id();
         let Some((index, layer)) = graph.remove_layer(id) else {
             return false;
         };
-        stack.push_applied(GraphCommand::DeleteLayer {
-            id,
-            index,
-            layer,
-            prev_active,
-        });
+        history.push_graph_applied(
+            GraphCommand::DeleteLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            },
+            "Delete layer",
+        );
         true
     }
 
     pub fn set_visibility(
         graph: &mut DocumentGraph,
-        stack: &mut UndoStack,
+        history: &mut HistoryService,
         id: LayerId,
         visible: bool,
     ) -> bool {
@@ -249,17 +267,20 @@ pub mod actions {
         if prev == visible {
             return true;
         }
-        stack.push_applied(GraphCommand::SetVisibility {
-            id,
-            prev,
-            next: visible,
-        });
+        history.push_graph_applied(
+            GraphCommand::SetVisibility {
+                id,
+                prev,
+                next: visible,
+            },
+            if visible { "Show layer" } else { "Hide layer" },
+        );
         true
     }
 
     pub fn set_opacity(
         graph: &mut DocumentGraph,
-        stack: &mut UndoStack,
+        history: &mut HistoryService,
         id: LayerId,
         opacity: f32,
     ) -> bool {
@@ -270,13 +291,13 @@ pub mod actions {
         if (prev - next).abs() < f32::EPSILON {
             return true;
         }
-        stack.push_applied(GraphCommand::SetOpacity { id, prev, next });
+        history.push_graph_applied(GraphCommand::SetOpacity { id, prev, next }, "Opacity");
         true
     }
 
     pub fn set_blend(
         graph: &mut DocumentGraph,
-        stack: &mut UndoStack,
+        history: &mut HistoryService,
         id: LayerId,
         blend: BlendMode,
     ) -> bool {
@@ -286,17 +307,20 @@ pub mod actions {
         if prev == blend {
             return true;
         }
-        stack.push_applied(GraphCommand::SetBlend {
-            id,
-            prev,
-            next: blend,
-        });
+        history.push_graph_applied(
+            GraphCommand::SetBlend {
+                id,
+                prev,
+                next: blend,
+            },
+            "Blend mode",
+        );
         true
     }
 
     pub fn move_layer(
         graph: &mut DocumentGraph,
-        stack: &mut UndoStack,
+        history: &mut HistoryService,
         id: LayerId,
         to_index: usize,
     ) -> bool {
@@ -306,7 +330,7 @@ pub mod actions {
         if from == to {
             return true;
         }
-        stack.push_applied(GraphCommand::MoveLayer { id, from, to });
+        history.push_graph_applied(GraphCommand::MoveLayer { id, from, to }, "Reorder layer");
         true
     }
 }
@@ -319,35 +343,35 @@ mod tests {
     #[test]
     fn undo_add_layer() {
         let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
-        let mut s = UndoStack::new(64);
+        let mut h = crate::HistoryService::new(64);
         let n0 = g.layer_count();
-        actions::add_layer(&mut g, &mut s, Some("X".into())).expect("add");
+        actions::add_layer(&mut g, &mut h, Some("X".into())).expect("add");
         assert_eq!(g.layer_count(), n0 + 1);
-        assert!(s.undo(&mut g));
+        assert_eq!(h.undo_next(&mut g), Some(crate::HistoryKind::Graph));
         assert_eq!(g.layer_count(), n0);
-        assert!(s.redo(&mut g));
+        assert_eq!(h.redo_next(&mut g), Some(crate::HistoryKind::Graph));
         assert_eq!(g.layer_count(), n0 + 1);
     }
 
     #[test]
     fn undo_visibility() {
         let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
-        let mut s = UndoStack::new(64);
+        let mut h = crate::HistoryService::new(64);
         let id = g.layers()[0].id;
-        actions::set_visibility(&mut g, &mut s, id, false);
+        actions::set_visibility(&mut g, &mut h, id, false);
         assert!(!g.get(id).unwrap().visible);
-        s.undo(&mut g);
+        h.undo_next(&mut g);
         assert!(g.get(id).unwrap().visible);
     }
 
     #[test]
     fn undo_opacity() {
         let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
-        let mut s = UndoStack::new(64);
+        let mut h = crate::HistoryService::new(64);
         let id = g.layers()[1].id;
-        actions::set_opacity(&mut g, &mut s, id, 0.25);
+        actions::set_opacity(&mut g, &mut h, id, 0.25);
         assert!((g.get(id).unwrap().opacity - 0.25).abs() < 1e-5);
-        s.undo(&mut g);
+        h.undo_next(&mut g);
         assert!((g.get(id).unwrap().opacity - 1.0).abs() < 1e-5);
     }
 }

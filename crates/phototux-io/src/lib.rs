@@ -1,4 +1,20 @@
-//! Bounded PNG/JPEG decode and encode at explicit document I/O boundaries.
+//! Document I/O boundaries: rasters, native `.ptx`, recovery, PSD subset (ADR-015/016).
+
+mod psd;
+mod ptx;
+mod recovery;
+
+pub use psd::{
+    CompatibilityIssue, PsdError, PsdImport, format_report, import_psd_bytes, import_psd_path,
+};
+pub use ptx::{
+    PTX_FORMAT_VERSION, PtxDocument, PtxError, PtxManifest, decode_ptx, encode_ptx, load_ptx,
+    save_ptx_atomic,
+};
+pub use recovery::{
+    RecoveryEntry, RecoveryError, discard_recovery, list_recoverable, load_recovery, recovery_dir,
+    write_autosave,
+};
 
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
@@ -22,11 +38,15 @@ pub const JPEG_QUALITY: u8 = 92;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-/// Raster formats supported by the Phase 5 release slice.
+/// Raster formats supported at the file boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RasterFormat {
     Png,
     Jpeg,
+    Webp,
+    Tiff,
+    Bmp,
+    Gif,
 }
 
 impl RasterFormat {
@@ -44,6 +64,10 @@ impl RasterFormat {
         match extension.as_str() {
             "png" => Ok(Self::Png),
             "jpg" | "jpeg" => Ok(Self::Jpeg),
+            "webp" => Ok(Self::Webp),
+            "tif" | "tiff" => Ok(Self::Tiff),
+            "bmp" => Ok(Self::Bmp),
+            "gif" => Ok(Self::Gif),
             _ => Err(RasterIoError::UnsupportedExtension),
         }
     }
@@ -52,6 +76,10 @@ impl RasterFormat {
         match format {
             ImageFormat::Png => Ok(Self::Png),
             ImageFormat::Jpeg => Ok(Self::Jpeg),
+            ImageFormat::WebP => Ok(Self::Webp),
+            ImageFormat::Tiff => Ok(Self::Tiff),
+            ImageFormat::Bmp => Ok(Self::Bmp),
+            ImageFormat::Gif => Ok(Self::Gif),
             _ => Err(RasterIoError::UnsupportedFormat),
         }
     }
@@ -106,9 +134,9 @@ impl Raster {
 /// Recoverable raster file-boundary failures.
 #[derive(Debug, Error)]
 pub enum RasterIoError {
-    #[error("only PNG and JPEG images are supported")]
+    #[error("unsupported raster image format")]
     UnsupportedFormat,
-    #[error("destination must end in .png, .jpg, or .jpeg")]
+    #[error("destination must end in a supported raster extension")]
     UnsupportedExtension,
     #[error("image dimensions exceed the 32,768 pixel limit")]
     DimensionsTooLarge,
@@ -122,7 +150,7 @@ pub enum RasterIoError {
     Io(#[from] std::io::Error),
 }
 
-/// Decode PNG/JPEG content, apply orientation, and normalize it to RGBA8.
+/// Decode raster content, apply orientation, and normalize it to RGBA8.
 ///
 /// # Errors
 ///
@@ -148,7 +176,7 @@ where
     Raster::new(width, height, rgba.into_raw().into_boxed_slice())
 }
 
-/// Decode a PNG/JPEG file from disk.
+/// Decode a raster file from disk.
 ///
 /// # Errors
 ///
@@ -158,14 +186,14 @@ pub fn decode_path(path: &Path) -> Result<Raster, RasterIoError> {
     decode(BufReader::new(file))
 }
 
-/// Encode a normalized raster as PNG or JPEG.
+/// Encode a normalized raster.
 ///
-/// PNG preserves RGBA. JPEG composites alpha over white before quality-92 encoding.
+/// PNG/WebP/TIFF/BMP/GIF preserve RGBA where the codec allows. JPEG composites alpha over white.
 ///
 /// # Errors
 ///
 /// Returns [`RasterIoError`] when encoding or writing fails.
-pub fn encode<W>(writer: W, raster: &Raster, format: RasterFormat) -> Result<(), RasterIoError>
+pub fn encode<W>(mut writer: W, raster: &Raster, format: RasterFormat) -> Result<(), RasterIoError>
 where
     W: Write,
 {
@@ -184,6 +212,28 @@ where
                 raster.height(),
                 ExtendedColorType::Rgb8,
             )?;
+        }
+        RasterFormat::Webp | RasterFormat::Tiff | RasterFormat::Bmp | RasterFormat::Gif => {
+            let image = image::RgbaImage::from_raw(
+                raster.width(),
+                raster.height(),
+                raster.pixels().to_vec(),
+            )
+            .ok_or(RasterIoError::InvalidPixelLength {
+                expected: raster.pixels().len(),
+                actual: raster.pixels().len(),
+            })?;
+            let dynamic = DynamicImage::ImageRgba8(image);
+            let fmt = match format {
+                RasterFormat::Webp => ImageFormat::WebP,
+                RasterFormat::Tiff => ImageFormat::Tiff,
+                RasterFormat::Bmp => ImageFormat::Bmp,
+                RasterFormat::Gif => ImageFormat::Gif,
+                RasterFormat::Png | RasterFormat::Jpeg => unreachable!(),
+            };
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            dynamic.write_to(&mut cursor, fmt)?;
+            writer.write_all(cursor.get_ref())?;
         }
     }
     Ok(())

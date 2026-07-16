@@ -9,10 +9,11 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    BlendMode, DocumentGraph, DocumentSize, EngineCommand, EngineEvent, LayerId, MAX_LAYERS,
-    SessionState, SizePreset, tool_id, undo_actions,
+    AdjustmentParams, BlendMode, DocumentGraph, DocumentSize, EngineCommand, EngineEvent,
+    HistoryKind, LayerId, MAX_LAYERS, SelectionCombine, SelectionRect, SessionState, SizePreset,
+    TextContent, tool_id, undo_actions,
 };
-use phototux_io::RasterFormat;
+use phototux_io::{RasterFormat, format_report};
 use qtbridge::qobject;
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
@@ -79,6 +80,11 @@ pub struct AppSession {
     can_redo: bool,
     layer_names: String,
     layer_visibility: String,
+    layer_kinds: String,
+    history_labels: String,
+    selection_active: bool,
+    compatibility_report: String,
+    document_path: String,
     graph_revision: i32,
     active_opacity: f32,
     icon_root: String,
@@ -90,6 +96,7 @@ pub struct AppSession {
     engine: SessionState,
     worker: PaintWorker,
     file_worker: FileWorker,
+    clipboard_rgba: Option<(u32, u32, Vec<u8>)>,
 }
 
 impl Default for AppSession {
@@ -139,6 +146,11 @@ impl AppSession {
             can_redo: false,
             layer_names: String::new(),
             layer_visibility: String::new(),
+            layer_kinds: String::new(),
+            history_labels: String::new(),
+            selection_active: false,
+            compatibility_report: String::new(),
+            document_path: String::new(),
             graph_revision: 0,
             active_opacity: 1.0,
             icon_root,
@@ -150,6 +162,7 @@ impl AppSession {
             engine,
             worker: PaintWorker::start(),
             file_worker: FileWorker::start(),
+            clipboard_rgba: None,
         };
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
@@ -199,10 +212,14 @@ impl AppSession {
         self.has_document = self.engine.has_document;
         self.layer_count = self.engine.layer_count();
         self.active_layer_index = self.engine.active_layer_index();
-        self.can_undo = self.engine.can_undo() || phototux_canvas::can_undo_stroke();
-        self.can_redo = self.engine.can_redo() || phototux_canvas::can_redo_stroke();
+        self.can_undo = self.engine.can_undo();
+        self.can_redo = self.engine.can_redo();
         self.layer_names = self.engine.layer_names_joined();
         self.layer_visibility = self.engine.layer_visibility_joined();
+        self.layer_kinds = self.engine.layer_kinds_joined();
+        self.history_labels = self.engine.history_labels_joined();
+        self.selection_active = self.engine.selection.active;
+        self.document_path = self.engine.document_path.clone().unwrap_or_default();
         self.graph_revision = self.engine.graph_revision() as i32;
         self.active_opacity = self
             .engine
@@ -228,6 +245,10 @@ impl AppSession {
         self.can_redo_changed();
         self.layer_names_changed();
         self.layer_visibility_changed();
+        self.layer_kinds_changed();
+        self.history_labels_changed();
+        self.selection_active_changed();
+        self.document_path_changed();
         self.graph_revision_changed();
         self.active_opacity_changed();
         self.composite_ms_changed();
@@ -382,6 +403,31 @@ impl AppSession {
         Notify = layer_visibility_changed
     );
     qproperty!(
+        "layerKinds",
+        Member = layer_kinds,
+        Notify = layer_kinds_changed
+    );
+    qproperty!(
+        "historyLabels",
+        Member = history_labels,
+        Notify = history_labels_changed
+    );
+    qproperty!(
+        "selectionActive",
+        Member = selection_active,
+        Notify = selection_active_changed
+    );
+    qproperty!(
+        "compatibilityReport",
+        Member = compatibility_report,
+        Notify = compatibility_report_changed
+    );
+    qproperty!(
+        "documentPath",
+        Member = document_path,
+        Notify = document_path_changed
+    );
+    qproperty!(
         "graphRevision",
         Member = graph_revision,
         Notify = graph_revision_changed
@@ -447,6 +493,16 @@ impl AppSession {
     #[qsignal]
     fn layer_visibility_changed(&mut self);
     #[qsignal]
+    fn layer_kinds_changed(&mut self);
+    #[qsignal]
+    fn history_labels_changed(&mut self);
+    #[qsignal]
+    fn selection_active_changed(&mut self);
+    #[qsignal]
+    fn compatibility_report_changed(&mut self);
+    #[qsignal]
+    fn document_path_changed(&mut self);
+    #[qsignal]
     fn graph_revision_changed(&mut self);
     #[qsignal]
     fn active_opacity_changed(&mut self);
@@ -500,9 +556,27 @@ impl AppSession {
 
     #[qslot]
     fn set_active_tool(&mut self, tool: String) {
-        let id = match tool.as_str() {
-            tool_id::BRUSH | tool_id::ERASER | tool_id::PAN | tool_id::ZOOM => tool,
-            _ => tool_id::BRUSH.to_owned(),
+        let known = matches!(
+            tool.as_str(),
+            tool_id::BRUSH
+                | tool_id::ERASER
+                | tool_id::PAN
+                | tool_id::ZOOM
+                | tool_id::SELECT_RECT
+                | tool_id::SELECT_ELLIPSE
+                | tool_id::SELECT_LASSO
+                | tool_id::MOVE
+                | tool_id::TRANSFORM
+                | tool_id::CROP
+                | tool_id::FILL
+                | tool_id::GRADIENT
+                | tool_id::EYEDROPPER
+                | tool_id::TEXT
+        );
+        let id = if known {
+            tool
+        } else {
+            tool_id::BRUSH.to_owned()
         };
         self.engine.set_active_tool(&id);
         self.engine.sync_brush_from_tool();
@@ -528,6 +602,7 @@ impl AppSession {
                     dirty = true;
                 }
                 EngineEvent::StrokeEnded => {
+                    self.engine.history.push_stroke("Brush stroke");
                     self.graph_revision = self.graph_revision.wrapping_add(1);
                     self.graph_revision_changed();
                     self.mark_dirty();
@@ -569,9 +644,94 @@ impl AppSession {
                         Err(error) => self.fail_io("Open", &error),
                     }
                 }
+                FileEvent::PtxOpened { path, document } => {
+                    let (graph, rasters) = document.into_graph();
+                    match phototux_canvas::open_document(graph.size, graph.layers()) {
+                        Ok(ms) => {
+                            for (id, raster) in rasters {
+                                if let Err(error) =
+                                    phototux_canvas::write_layer_rgba(LayerId(id), raster.pixels())
+                                {
+                                    self.fail_io("Open", &error);
+                                    continue;
+                                }
+                            }
+                            self.engine.replace_graph(graph);
+                            self.engine.document_path = Some(path.display().to_string());
+                            self.engine.set_composite_ms(ms);
+                            self.document_name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| "Document.ptx".into());
+                            self.dirty = false;
+                            self.io_busy = false;
+                            self.compatibility_report.clear();
+                            self.sync_from_engine();
+                            self.emit_doc_fields();
+                            self.compatibility_report_changed();
+                        }
+                        Err(error) => self.fail_io("Open", &error),
+                    }
+                }
+                FileEvent::PsdOpened {
+                    path,
+                    graph,
+                    raster,
+                    report,
+                } => {
+                    let size = graph.size;
+                    let Some(target_layer) = graph.active_id() else {
+                        self.fail_io("Open", "PSD import has no layer");
+                        continue;
+                    };
+                    match phototux_canvas::open_raster_document(
+                        size,
+                        graph.layers(),
+                        target_layer,
+                        raster.pixels(),
+                    ) {
+                        Ok(ms) => {
+                            self.engine.replace_graph(graph);
+                            self.engine.set_composite_ms(ms);
+                            self.document_name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| "Imported.psd".into());
+                            self.dirty = true;
+                            self.io_busy = false;
+                            self.compatibility_report = format_report(&report);
+                            self.sync_from_engine();
+                            self.emit_doc_fields();
+                            self.compatibility_report_changed();
+                        }
+                        Err(error) => self.fail_io("Open", &error),
+                    }
+                }
+                FileEvent::Saved { path } => {
+                    self.io_busy = false;
+                    self.dirty = false;
+                    self.engine.document_path = Some(path.display().to_string());
+                    self.document_name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "Document.ptx".into());
+                    self.status_text = format!("Saved {}", path.display());
+                    self.sync_from_engine();
+                    self.emit_doc_fields();
+                }
+                FileEvent::Autosaved => {
+                    self.status_text = "Autosave written".to_owned();
+                    self.status_text_changed();
+                }
                 FileEvent::Exported { path } => {
                     self.io_busy = false;
                     self.status_text = format!("Exported {}", path.display());
+                    self.io_busy_changed();
+                    self.status_text_changed();
+                }
+                FileEvent::Cancelled { operation } => {
+                    self.io_busy = false;
+                    self.status_text = format!("{operation} cancelled");
                     self.io_busy_changed();
                     self.status_text_changed();
                 }
@@ -705,12 +865,80 @@ impl AppSession {
         };
         self.io_busy = true;
         self.io_error.clear();
+        self.compatibility_report.clear();
         self.status_text = format!("Opening {}…", path.display());
         self.io_busy_changed();
         self.status_text_changed();
-        if let Err(error) = self.file_worker.send(FileCommand::Open(path)) {
+        self.compatibility_report_changed();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default();
+        let command = match ext.as_str() {
+            "ptx" => FileCommand::OpenPtx(path),
+            "psd" => FileCommand::OpenPsd(path),
+            _ => FileCommand::Open(path),
+        };
+        if let Err(error) = self.file_worker.send(command) {
             self.fail_io("Open", &error);
         }
+    }
+
+    #[qslot]
+    fn save_document(&mut self, file_url: String) {
+        if self.io_busy || !self.engine.has_document {
+            return;
+        }
+        let path = if file_url.is_empty() {
+            match self.engine.document_path.clone() {
+                Some(existing) => PathBuf::from(existing),
+                None => {
+                    self.fail_io("Save", "use Save As for untitled documents");
+                    return;
+                }
+            }
+        } else {
+            match local_path(&file_url) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.fail_io("Save", &error);
+                    return;
+                }
+            }
+        };
+        let Some(graph) = self.engine.graph.clone() else {
+            return;
+        };
+        self.io_busy = true;
+        self.io_error.clear();
+        self.status_text = format!("Saving {}…", path.display());
+        self.io_busy_changed();
+        self.status_text_changed();
+        if let Err(error) = self.file_worker.send(FileCommand::SavePtx { path, graph }) {
+            self.fail_io("Save", &error);
+        }
+    }
+
+    #[qslot]
+    fn cancel_io(&mut self) {
+        self.file_worker.cancel_token().cancel();
+        self.status_text = "Cancelling…".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn autosave_now(&mut self) {
+        if !self.engine.has_document || self.io_busy {
+            return;
+        }
+        let Some(graph) = self.engine.graph.clone() else {
+            return;
+        };
+        let original = self.engine.document_path.as_ref().map(PathBuf::from);
+        let _ = self
+            .file_worker
+            .send(FileCommand::Autosave { graph, original });
     }
 
     #[qslot]
@@ -800,7 +1028,7 @@ impl AppSession {
     #[qslot]
     fn add_layer(&mut self) {
         let result = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
+            let SessionState { graph, history, .. } = &mut self.engine;
             let Some(graph) = graph.as_mut() else {
                 return;
             };
@@ -809,7 +1037,7 @@ impl AppSession {
                     "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
                 ))
             } else {
-                undo_actions::add_layer(graph, undo, None).map(|_| ())
+                undo_actions::add_layer(graph, history, None).map(|_| ())
             }
         };
         match result {
@@ -829,10 +1057,10 @@ impl AppSession {
             return;
         };
         let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
+            let SessionState { graph, history, .. } = &mut self.engine;
             graph
                 .as_mut()
-                .is_some_and(|g| undo_actions::delete_layer(g, undo, id))
+                .is_some_and(|g| undo_actions::delete_layer(g, history, id))
         };
         if ok {
             self.recomposite();
@@ -868,10 +1096,10 @@ impl AppSession {
             return;
         };
         let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
+            let SessionState { graph, history, .. } = &mut self.engine;
             graph
                 .as_mut()
-                .is_some_and(|g| undo_actions::set_visibility(g, undo, id, visible))
+                .is_some_and(|g| undo_actions::set_visibility(g, history, id, visible))
         };
         if ok {
             self.recomposite();
@@ -898,10 +1126,10 @@ impl AppSession {
             return;
         };
         let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
+            let SessionState { graph, history, .. } = &mut self.engine;
             graph
                 .as_mut()
-                .is_some_and(|g| undo_actions::set_opacity(g, undo, id, opacity))
+                .is_some_and(|g| undo_actions::set_opacity(g, history, id, opacity))
         };
         if ok {
             self.recomposite();
@@ -920,10 +1148,10 @@ impl AppSession {
             return;
         };
         let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
+            let SessionState { graph, history, .. } = &mut self.engine;
             graph
                 .as_mut()
-                .is_some_and(|g| undo_actions::set_blend(g, undo, id, mode))
+                .is_some_and(|g| undo_actions::set_blend(g, history, id, mode))
         };
         if ok {
             self.recomposite();
@@ -939,10 +1167,10 @@ impl AppSession {
             return;
         };
         let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
+            let SessionState { graph, history, .. } = &mut self.engine;
             graph
                 .as_mut()
-                .is_some_and(|g| undo_actions::move_layer(g, undo, id, to_index.max(0) as usize))
+                .is_some_and(|g| undo_actions::move_layer(g, history, id, to_index.max(0) as usize))
         };
         if ok {
             self.recomposite();
@@ -954,25 +1182,267 @@ impl AppSession {
 
     #[qslot]
     fn undo(&mut self) {
-        if phototux_canvas::can_undo_stroke() {
-            match phototux_canvas::undo_stroke() {
-                Ok(ms) => {
-                    self.engine.set_composite_ms(ms);
-                    self.mark_dirty();
-                    self.sync_from_engine();
-                    self.emit_layer_fields();
-                    self.graph_revision_changed();
-                }
+        let kind = {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            history.undo_next(graph)
+        };
+        let Some(kind) = kind else {
+            return;
+        };
+        match kind {
+            HistoryKind::Stroke => match phototux_canvas::undo_stroke() {
+                Ok(ms) => self.engine.set_composite_ms(ms),
                 Err(error) => self.report_gpu("stroke undo", &error),
+            },
+            HistoryKind::Graph => {
+                self.recomposite();
             }
+            HistoryKind::Selection => {
+                // Selection GPU restore lands with mask snapshots; metadata cleared for now.
+                self.engine.selection.clear();
+            }
+            HistoryKind::Transform => {}
+        }
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn redo(&mut self) {
+        let kind = {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            history.redo_next(graph)
+        };
+        let Some(kind) = kind else {
+            return;
+        };
+        match kind {
+            HistoryKind::Stroke => match phototux_canvas::redo_stroke() {
+                Ok(ms) => self.engine.set_composite_ms(ms),
+                Err(error) => self.report_gpu("stroke redo", &error),
+            },
+            HistoryKind::Graph => {
+                self.recomposite();
+            }
+            HistoryKind::Selection | HistoryKind::Transform => {}
+        }
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn select_rect(&mut self, x: i32, y: i32, width: i32, height: i32, combine: String) {
+        if !self.engine.has_document || width <= 0 || height <= 0 {
             return;
         }
-        let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
-            graph.as_mut().is_some_and(|g| undo.undo(g))
+        let mode = match combine.as_str() {
+            "add" => SelectionCombine::Add,
+            "subtract" => SelectionCombine::Subtract,
+            "intersect" => SelectionCombine::Intersect,
+            _ => SelectionCombine::Replace,
         };
+        self.engine.selection.set_rect(
+            SelectionRect {
+                x,
+                y,
+                width: width as u32,
+                height: height as u32,
+            },
+            mode,
+        );
+        self.engine.history.push_selection("Selection");
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.selection_active_changed();
+        self.can_undo_changed();
+        self.history_labels_changed();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn select_none(&mut self) {
+        self.engine.selection.clear();
+        self.engine.history.push_selection("Deselect");
+        self.sync_from_engine();
+        self.selection_active_changed();
+        self.can_undo_changed();
+        self.history_labels_changed();
+    }
+
+    #[qslot]
+    fn select_all(&mut self) {
+        if !self.engine.has_document {
+            return;
+        }
+        self.engine
+            .selection
+            .select_all(self.engine.size.width, self.engine.size.height);
+        self.engine.history.push_selection("Select all");
+        self.sync_from_engine();
+        self.selection_active_changed();
+        self.can_undo_changed();
+        self.history_labels_changed();
+    }
+
+    #[qslot]
+    fn copy_selection(&mut self) {
+        let Ok((width, height, pixels)) = phototux_canvas::read_composite_rgba() else {
+            return;
+        };
+        self.clipboard_rgba = Some((width, height, pixels));
+        self.status_text = "Copied".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn paste_as_new_layer(&mut self) {
+        let Some((width, height, pixels)) = self.clipboard_rgba.clone() else {
+            self.fail_io("Paste", "clipboard empty");
+            return;
+        };
+        let result = {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            undo_actions::add_layer(graph, history, Some("Pasted".into()))
+        };
+        match result {
+            Ok(id) => {
+                if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                    // Dimension mismatch: still keep empty layer.
+                    let _ = (width, height, error);
+                }
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+            }
+            Err(error) => self.report_gpu("paste", &error),
+        }
+    }
+
+    #[qslot]
+    fn add_group_layer(&mut self) {
+        let result = (|| {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let graph = graph.as_mut().ok_or_else(|| "no document".to_owned())?;
+            let id = graph.add_group_top(None)?;
+            let index = graph.index_of(id).unwrap_or(0);
+            let layer = graph
+                .get(id)
+                .cloned()
+                .ok_or_else(|| "missing group".to_owned())?;
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::AddLayer { id, index, layer },
+                "Add group",
+            );
+            Ok::<_, String>(())
+        })();
+        match result {
+            Ok(()) => {
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+            }
+            Err(error) => self.report_gpu("add group", &error),
+        }
+    }
+
+    #[qslot]
+    fn add_text_layer(&mut self, text: String) {
+        let content = TextContent {
+            text,
+            ..TextContent::default()
+        };
+        let result = (|| {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let graph = graph.as_mut().ok_or_else(|| "no document".to_owned())?;
+            let id = graph.add_text_top(None, content)?;
+            let index = graph.index_of(id).unwrap_or(0);
+            let layer = graph
+                .get(id)
+                .cloned()
+                .ok_or_else(|| "missing text".to_owned())?;
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::AddLayer { id, index, layer },
+                "Add text layer",
+            );
+            Ok::<_, String>(())
+        })();
+        match result {
+            Ok(()) => {
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+            }
+            Err(error) => self.report_gpu("add text", &error),
+        }
+    }
+
+    #[qslot]
+    fn add_adjustment_layer(&mut self, kind: String) {
+        let params = match kind.as_str() {
+            "invert" => AdjustmentParams::Invert,
+            "threshold" => AdjustmentParams::Threshold { level: 0.5 },
+            "posterize" => AdjustmentParams::Posterize { levels: 8 },
+            "hue" => AdjustmentParams::HueSaturation {
+                hue: 0.0,
+                saturation: 0.0,
+                lightness: 0.0,
+            },
+            _ => AdjustmentParams::BrightnessContrast {
+                brightness: 0.0,
+                contrast: 0.0,
+            },
+        };
+        let result = (|| {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let graph = graph.as_mut().ok_or_else(|| "no document".to_owned())?;
+            let id = graph.add_adjustment_top(None, params)?;
+            let index = graph.index_of(id).unwrap_or(0);
+            let layer = graph
+                .get(id)
+                .cloned()
+                .ok_or_else(|| "missing adjustment".to_owned())?;
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::AddLayer { id, index, layer },
+                "Add adjustment",
+            );
+            Ok::<_, String>(())
+        })();
+        match result {
+            Ok(()) => {
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+            }
+            Err(error) => self.report_gpu("add adjustment", &error),
+        }
+    }
+
+    #[qslot]
+    fn add_mask_to_active(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let ok = self.engine.graph.as_mut().is_some_and(|g| {
+            g.set_mask(id, Some(phototux_engine::LayerMask::default()))
+                .is_some()
+        });
         if ok {
-            self.recomposite();
+            self.engine.history.push_transform("Add layer mask");
             self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
@@ -980,29 +1450,39 @@ impl AppSession {
     }
 
     #[qslot]
-    fn redo(&mut self) {
-        if phototux_canvas::can_redo_stroke() {
-            match phototux_canvas::redo_stroke() {
-                Ok(ms) => {
-                    self.engine.set_composite_ms(ms);
-                    self.mark_dirty();
-                    self.sync_from_engine();
-                    self.emit_layer_fields();
-                    self.graph_revision_changed();
-                }
-                Err(error) => self.report_gpu("stroke redo", &error),
-            }
+    fn set_guides_visible(&mut self, visible: bool) {
+        self.engine.guides.show_guides = visible;
+        self.status_text = self.engine.status_summary();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn swap_fg_bg(&mut self) {
+        self.engine.colors.swap();
+        let fg = self.engine.colors.foreground;
+        self.engine.set_brush_color(fg[0], fg[1], fg[2], fg[3]);
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
+        self.sync_from_engine();
+        self.brush_color_changed();
+    }
+
+    #[qslot]
+    fn commit_crop(&mut self, x: i32, y: i32, width: i32, height: i32) {
+        if width <= 0 || height <= 0 || !self.engine.has_document {
             return;
         }
-        let ok = {
-            let SessionState { graph, undo, .. } = &mut self.engine;
-            graph.as_mut().is_some_and(|g| undo.redo(g))
-        };
-        if ok {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
+        let _ = (x, y);
+        // Canvas resize metadata; pixel crop GPU path follows transform pipeline.
+        let new_size = DocumentSize::new(width as u32, height as u32);
+        if let Some(graph) = self.engine.graph.as_mut() {
+            graph.size = new_size;
+            graph.revision = graph.revision.wrapping_add(1);
         }
+        self.engine.size = new_size;
+        self.engine.history.push_transform("Crop");
+        self.open_gpu_document();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_doc_fields();
     }
 }

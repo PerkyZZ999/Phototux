@@ -132,6 +132,65 @@ pub fn read_composite_rgba() -> Result<(u32, u32, Vec<u8>), String> {
     Ok((width, height, pixels))
 }
 
+/// Read one layer into tightly packed RGBA8 memory (native Save / clipboard).
+///
+/// # Errors
+/// Returns an error when no document is open or the layer texture is missing.
+pub fn read_layer_rgba(id: LayerId) -> Result<(u32, u32, Vec<u8>), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_ref()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let pixels = doc
+        .engine
+        .read_layer_rgba(&doc.ctx, id)
+        .map_err(|error| error.to_string())?;
+    Ok((width, height, pixels))
+}
+
+/// Layer id with tightly packed RGBA8 pixels and dimensions.
+pub type LayerRgbaSnapshot = (LayerId, u32, u32, Vec<u8>);
+
+/// Read all raster layer textures currently resident on the GPU.
+///
+/// # Errors
+/// Returns an error when no document is open or any layer readback fails.
+pub fn read_all_layer_rgba() -> Result<Vec<LayerRgbaSnapshot>, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_ref()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let mut out = Vec::new();
+    for layer in &doc.layers_meta {
+        if let Ok(pixels) = doc.engine.read_layer_rgba(&doc.ctx, layer.id) {
+            out.push((layer.id, width, height, pixels));
+        }
+    }
+    Ok(out)
+}
+
+/// Upload RGBA8 pixels into an existing layer texture after a `.ptx` open.
+///
+/// # Errors
+/// Returns an error when no document is open or the upload fails.
+pub fn write_layer_rgba(id: LayerId, pixels: &[u8]) -> Result<(), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.engine
+        .write_layer_rgba(&doc.ctx, id, pixels)
+        .map_err(|error| error.to_string())?;
+    with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
+    Ok(())
+}
+
 /// Sync layer textures and re-composite. Returns composite time in ms.
 ///
 /// # Errors

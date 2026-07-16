@@ -1,14 +1,24 @@
-//! Ordered layer stack document graph (ADR-011).
+//! Ordered hierarchical document graph (ADR-011, ADR-017).
+
+use serde::{Deserialize, Serialize};
 
 use crate::DocumentSize;
-use crate::layer::{BlendMode, Layer, LayerId};
+use crate::layer::{
+    AdjustmentParams, BlendMode, Layer, LayerId, LayerKind, LayerMask, TextContent,
+};
 
 /// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 16;
 
-/// Non-destructive ordered stack. Index 0 = bottom (background).
-#[derive(Debug, Clone)]
+/// Graph schema version embedded in `.ptx` manifests.
+pub const GRAPH_SCHEMA_VERSION: u32 = 2;
+
+/// Non-destructive ordered stack with typed nodes. Index 0 = bottom (background).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentGraph {
+    pub schema_version: u32,
+    /// Stable document identity for recovery / session.
+    pub document_id: u128,
     pub size: DocumentSize,
     layers: Vec<Layer>,
     next_id: u64,
@@ -20,13 +30,14 @@ pub struct DocumentGraph {
 impl DocumentGraph {
     pub fn new(size: DocumentSize) -> Self {
         let mut g = Self {
+            schema_version: GRAPH_SCHEMA_VERSION,
+            document_id: new_document_id(),
             size,
             layers: Vec::new(),
             next_id: 1,
             active: None,
             revision: 0,
         };
-        // Default: Background + Layer 1 (IA)
         let bg = g.alloc_layer("Background");
         let l1 = g.alloc_layer("Layer 1");
         g.layers.push(bg);
@@ -39,6 +50,8 @@ impl DocumentGraph {
     /// Create a document containing one flattened raster layer.
     pub fn new_flattened(size: DocumentSize, layer_name: impl Into<String>) -> Self {
         let mut graph = Self {
+            schema_version: GRAPH_SCHEMA_VERSION,
+            document_id: new_document_id(),
             size,
             layers: Vec::new(),
             next_id: 1,
@@ -99,6 +112,10 @@ impl DocumentGraph {
         true
     }
 
+    pub fn clear_active(&mut self) {
+        self.active = None;
+    }
+
     pub fn set_active_index(&mut self, index: usize) -> bool {
         if let Some(l) = self.layers.get(index) {
             self.active = Some(l.id);
@@ -108,16 +125,29 @@ impl DocumentGraph {
         }
     }
 
-    /// Visible layers bottom→top for composite.
+    /// Visible raster-capable layers bottom→top for composite (groups expand later).
     pub fn composite_order(&self) -> impl Iterator<Item = &Layer> {
-        self.layers.iter().filter(|l| l.visible)
+        self.layers.iter().filter(|l| {
+            l.visible
+                && matches!(
+                    l.kind,
+                    LayerKind::Raster | LayerKind::Text | LayerKind::Group
+                )
+        })
+    }
+
+    /// Flat raster layers that own GPU textures today.
+    pub fn raster_layers(&self) -> impl Iterator<Item = &Layer> {
+        self.layers
+            .iter()
+            .filter(|l| l.kind == LayerKind::Raster || l.kind == LayerKind::Text)
     }
 
     pub fn can_add_layer(&self) -> bool {
         self.layers.len() < MAX_LAYERS
     }
 
-    /// Add a layer on top of the stack.
+    /// Add a raster layer on top of the stack.
     ///
     /// # Errors
     /// Returns an error when the document already has [`MAX_LAYERS`] layers.
@@ -142,6 +172,93 @@ impl DocumentGraph {
         Ok(id)
     }
 
+    /// Add a group on top.
+    ///
+    /// # Errors
+    /// Returns an error when the layer cap is reached.
+    pub fn add_group_top(&mut self, name: Option<String>) -> Result<LayerId, String> {
+        if !self.can_add_layer() {
+            return Err(format!(
+                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
+            ));
+        }
+        let id = LayerId(self.next_id);
+        self.next_id += 1;
+        let layer = Layer::group(id, name.unwrap_or_else(|| "Group".into()));
+        self.layers.push(layer);
+        self.active = Some(id);
+        self.bump();
+        Ok(id)
+    }
+
+    /// Add a text layer on top.
+    ///
+    /// # Errors
+    /// Returns an error when the layer cap is reached.
+    pub fn add_text_top(
+        &mut self,
+        name: Option<String>,
+        content: TextContent,
+    ) -> Result<LayerId, String> {
+        if !self.can_add_layer() {
+            return Err(format!(
+                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
+            ));
+        }
+        let id = LayerId(self.next_id);
+        self.next_id += 1;
+        let layer = Layer::text_layer(id, name.unwrap_or_else(|| "Text".into()), content);
+        self.layers.push(layer);
+        self.active = Some(id);
+        self.bump();
+        Ok(id)
+    }
+
+    /// Add an adjustment layer on top.
+    ///
+    /// # Errors
+    /// Returns an error when the layer cap is reached.
+    pub fn add_adjustment_top(
+        &mut self,
+        name: Option<String>,
+        params: AdjustmentParams,
+    ) -> Result<LayerId, String> {
+        if !self.can_add_layer() {
+            return Err(format!(
+                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
+            ));
+        }
+        let id = LayerId(self.next_id);
+        self.next_id += 1;
+        let layer =
+            Layer::adjustment_layer(id, name.unwrap_or_else(|| "Adjustment".into()), params);
+        self.layers.push(layer);
+        self.active = Some(id);
+        self.bump();
+        Ok(id)
+    }
+
+    pub fn set_parent(&mut self, id: LayerId, parent: Option<LayerId>) -> Option<Option<LayerId>> {
+        if let Some(parent_id) = parent {
+            if parent_id == id || self.get(parent_id).map(|l| l.kind) != Some(LayerKind::Group) {
+                return None;
+            }
+        }
+        let layer = self.get_mut(id)?;
+        let prev = layer.parent;
+        layer.parent = parent;
+        self.bump();
+        Some(prev)
+    }
+
+    pub fn set_mask(&mut self, id: LayerId, mask: Option<LayerMask>) -> Option<Option<LayerMask>> {
+        let layer = self.get_mut(id)?;
+        let prev = layer.mask.clone();
+        layer.mask = mask;
+        self.bump();
+        Some(prev)
+    }
+
     /// Insert a fully-specified layer (used by undo).
     pub fn insert_layer_at(&mut self, index: usize, layer: Layer) {
         let idx = index.min(self.layers.len());
@@ -155,7 +272,13 @@ impl DocumentGraph {
     pub fn remove_layer(&mut self, id: LayerId) -> Option<(usize, Layer)> {
         let idx = self.index_of(id)?;
         if self.layers.len() <= 1 {
-            return None; // keep at least one layer
+            return None;
+        }
+        // Detach children from removed group.
+        for layer in &mut self.layers {
+            if layer.parent == Some(id) {
+                layer.parent = None;
+            }
         }
         let layer = self.layers.remove(idx);
         if self.active == Some(id) {
@@ -220,6 +343,38 @@ impl DocumentGraph {
         self.bump();
         Some(prev)
     }
+
+    /// Kind labels bottom→top for QML (`raster|group|…`).
+    pub fn layer_kinds_joined(&self) -> String {
+        self.layers
+            .iter()
+            .map(|l| l.kind.as_str())
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
+    /// Parent ids as decimal or `-` when root.
+    pub fn layer_parents_joined(&self) -> String {
+        self.layers
+            .iter()
+            .map(|l| {
+                l.parent
+                    .map(|id| id.0.to_string())
+                    .unwrap_or_else(|| "-".into())
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+}
+
+fn new_document_id() -> u128 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = u128::from(std::process::id());
+    nanos ^ (pid << 64) ^ 0x5054_582D_444F_432D_u128
 }
 
 #[cfg(test)]
@@ -232,6 +387,7 @@ mod tests {
         assert_eq!(g.layer_count(), 2);
         assert_eq!(g.layers()[0].name, "Background");
         assert!(g.active_id().is_some());
+        assert_eq!(g.schema_version, GRAPH_SCHEMA_VERSION);
     }
 
     #[test]
@@ -285,5 +441,14 @@ mod tests {
         let id = g.layers()[0].id;
         g.set_visibility(id, false);
         assert_eq!(g.composite_order().count(), 1);
+    }
+
+    #[test]
+    fn group_and_reparent() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(Some("G".into())).expect("group");
+        let child = g.layers()[0].id;
+        assert_eq!(g.set_parent(child, Some(group)), Some(None));
+        assert_eq!(g.get(child).and_then(|l| l.parent), Some(group));
     }
 }

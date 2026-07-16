@@ -5,8 +5,13 @@ license.workspace = true
 version.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Bounded PNG/JPEG codecs for PhotoTux raster file operations"
+description = "Raster codecs and native .ptx document I/O for PhotoTux"
 
 [dependencies]
-image = { workspace = true, features = ["png", "jpeg"] }
+image = { workspace = true, features = ["png", "jpeg", "webp", "tiff", "bmp", "gif"] }
 thiserror.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+flate2 = { workspace = true }
+crc32fast = { workspace = true }
+phototux_engine = { workspace = true }

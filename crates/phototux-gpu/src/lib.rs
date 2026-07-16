@@ -2,11 +2,15 @@
 
 mod brush;
 mod composite;
+mod filters;
+mod selection;
 
 pub use brush::{BrushStamper, StampRequest};
 pub use composite::LayerCompositeEngine;
 pub use composite::benchmark_10x4k_ms;
+pub use filters::{FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_invert_rgba, filter_pass};
 pub use phototux_engine::MAX_LAYERS;
+pub use selection::SelectionMask;
 
 use std::sync::Arc;
 

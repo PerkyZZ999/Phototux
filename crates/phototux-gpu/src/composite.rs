@@ -48,13 +48,33 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
 
 fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
     switch mode {
-        case 1u: { return b * o; }
-        case 2u: { return 1.0 - (1.0 - b) * (1.0 - o); }
-        case 3u: {
+        case 1u: { return b * o; } // multiply
+        case 2u: { return 1.0 - (1.0 - b) * (1.0 - o); } // screen
+        case 3u: { // overlay
             let low = 2.0 * b * o;
             let high = 1.0 - 2.0 * (1.0 - b) * (1.0 - o);
             return select(high, low, b < vec3<f32>(0.5));
         }
+        case 4u: { return min(b, o); } // darken
+        case 5u: { return max(b, o); } // lighten
+        case 6u: { // color dodge
+            return select(vec3<f32>(1.0), min(vec3<f32>(1.0), b / max(vec3<f32>(1.0) - o, vec3<f32>(1e-5))), o >= vec3<f32>(1.0));
+        }
+        case 7u: { // color burn
+            return select(vec3<f32>(0.0), vec3<f32>(1.0) - min(vec3<f32>(1.0), (vec3<f32>(1.0) - b) / max(o, vec3<f32>(1e-5))), o <= vec3<f32>(0.0));
+        }
+        case 8u: { // hard light
+            let low = 2.0 * b * o;
+            let high = 1.0 - 2.0 * (1.0 - b) * (1.0 - o);
+            return select(high, low, o < vec3<f32>(0.5));
+        }
+        case 9u: { // soft light (approx)
+            return (vec3<f32>(1.0) - 2.0 * o) * b * b + 2.0 * o * b;
+        }
+        case 10u: { return abs(b - o); } // difference
+        case 11u: { return b + o - 2.0 * b * o; } // exclusion
+        case 12u, 13u, 14u, 15u: { return o; } // hue/sat/color/lum: RGB fallback
+        case 16u: { return o; } // pass-through treated as normal in flat stack
         default: { return o; }
     }
 }
@@ -584,6 +604,28 @@ impl LayerCompositeEngine {
 
     /// Read the composite once into tightly packed RGBA8 host memory.
     pub fn read_result_rgba(&self, ctx: &GpuContext) -> Result<Vec<u8>, TextureTransferError> {
+        self.read_texture_rgba(ctx, &self.result, "composite-readback")
+    }
+
+    /// Read one layer texture into tightly packed RGBA8 host memory (Save / clipboard).
+    pub fn read_layer_rgba(
+        &self,
+        ctx: &GpuContext,
+        id: LayerId,
+    ) -> Result<Vec<u8>, TextureTransferError> {
+        let texture = self
+            .layer_tex
+            .get(&id)
+            .ok_or(TextureTransferError::LayerNotFound)?;
+        self.read_texture_rgba(ctx, texture, "layer-readback")
+    }
+
+    fn read_texture_rgba(
+        &self,
+        ctx: &GpuContext,
+        texture: &wgpu::Texture,
+        label: &str,
+    ) -> Result<Vec<u8>, TextureTransferError> {
         let unpadded_row = self
             .width
             .checked_mul(4)
@@ -597,19 +639,17 @@ impl LayerCompositeEngine {
             .checked_mul(u64::from(self.height))
             .ok_or(TextureTransferError::DimensionOverflow)?;
         let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("composite-readback"),
+            label: Some(label),
             size: buffer_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         let mut encoder = ctx
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("composite-readback-encoder"),
-            });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.result,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -631,7 +671,7 @@ impl LayerCompositeEngine {
         encoder.transition_resources(
             std::iter::empty(),
             std::iter::once(wgpu::TextureTransition {
-                texture: &self.result,
+                texture,
                 selector: None,
                 state: wgpu::TextureUses::RESOURCE,
             }),

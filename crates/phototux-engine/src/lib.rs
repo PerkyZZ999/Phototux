@@ -1,21 +1,40 @@
-//! Pure document/session types — no Qt (ADR-006, ADR-011).
+//! Pure document/session types — no Qt (ADR-006, ADR-011, ADR-017).
 
+mod brush_preset;
 mod camera;
+mod cancel;
+mod color;
 mod command;
 mod document;
+mod guides;
+mod history;
 mod layer;
+mod selection;
 mod stroke;
+mod transform;
 mod undo;
 
+pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};
+pub use cancel::CancelToken;
+pub use color::{ColorState, SampleSource};
 pub use command::{EngineCommand, EngineEvent};
-pub use document::{DocumentGraph, MAX_LAYERS};
-pub use layer::{BlendMode, Layer, LayerId};
+pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
+pub use guides::{Guide, GuideOrientation, ViewGuides};
+pub use history::{HistoryEntry, HistoryKind, HistoryService};
+pub use layer::{
+    AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
+    LayerTransform, LockFlags, TextContent,
+};
+pub use selection::{SelectionCombine, SelectionEllipse, SelectionRect, SelectionState};
 pub use stroke::{BrushParams, Dab, StrokeBuilder};
+pub use transform::{CropRect, ResizeRequest, TransformPreview};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 
+use serde::{Deserialize, Serialize};
+
 /// Pixel dimensions of the open document canvas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentSize {
     pub width: u32,
     pub height: u32,
@@ -85,15 +104,25 @@ impl SizePreset {
     }
 }
 
-/// Tool ids aligned with `assets/icons/ICON_MAP.md` (Phase 1 subset).
+/// Tool ids aligned with `assets/icons/ICON_MAP.md`.
 pub mod tool_id {
     pub const BRUSH: &str = "tool.brush";
     pub const ERASER: &str = "tool.eraser";
     pub const PAN: &str = "tool.pan";
     pub const ZOOM: &str = "tool.zoom";
+    pub const SELECT_RECT: &str = "tool.select.rect";
+    pub const SELECT_ELLIPSE: &str = "tool.select.ellipse";
+    pub const SELECT_LASSO: &str = "tool.select.lasso";
+    pub const MOVE: &str = "tool.move";
+    pub const TRANSFORM: &str = "tool.transform";
+    pub const CROP: &str = "tool.crop";
+    pub const FILL: &str = "tool.fill";
+    pub const GRADIENT: &str = "tool.gradient";
+    pub const EYEDROPPER: &str = "tool.eyedropper";
+    pub const TEXT: &str = "tool.text";
 }
 
-/// Session state: camera + document graph + undo (Phase 3).
+/// Session state: camera + document graph + unified history.
 #[derive(Debug)]
 pub struct SessionState {
     pub size: DocumentSize,
@@ -109,8 +138,13 @@ pub struct SessionState {
     pub viewport_w: f32,
     pub viewport_h: f32,
     pub graph: Option<DocumentGraph>,
-    pub undo: UndoStack,
+    pub history: HistoryService,
     pub brush: BrushParams,
+    pub selection: SelectionState,
+    pub colors: ColorState,
+    pub guides: ViewGuides,
+    pub brush_presets: BrushPresetLibrary,
+    pub document_path: Option<String>,
 }
 
 impl Default for SessionState {
@@ -130,8 +164,13 @@ impl Default for SessionState {
             viewport_w: 800.0,
             viewport_h: 600.0,
             graph: None,
-            undo: UndoStack::new(128),
+            history: HistoryService::new(128),
             brush,
+            selection: SelectionState::default(),
+            colors: ColorState::default(),
+            guides: ViewGuides::default(),
+            brush_presets: BrushPresetLibrary::with_defaults(),
+            document_path: None,
         }
     }
 }
@@ -159,6 +198,7 @@ impl SessionState {
             a.clamp(0.0, 1.0),
         ];
         self.brush.color = self.brush_color;
+        self.colors.set_foreground(self.brush_color);
     }
 
     pub fn sync_brush_from_tool(&mut self) {
@@ -198,7 +238,9 @@ impl SessionState {
         self.size = DocumentSize::new(w, h);
         self.has_document = true;
         self.graph = Some(DocumentGraph::new(self.size));
-        self.undo.clear();
+        self.history.clear();
+        self.selection.clear();
+        self.document_path = None;
         self.zoom_to_fit();
     }
 
@@ -213,7 +255,8 @@ impl SessionState {
         self.size = graph.size;
         self.has_document = true;
         self.graph = Some(graph);
-        self.undo.clear();
+        self.history.clear();
+        self.selection.clear();
         self.zoom_to_fit();
     }
 
@@ -260,11 +303,16 @@ impl SessionState {
     }
 
     pub fn can_undo(&self) -> bool {
-        self.undo.can_undo()
+        self.history.can_undo()
     }
 
     pub fn can_redo(&self) -> bool {
-        self.undo.can_redo()
+        self.history.can_redo()
+    }
+
+    /// Compatibility alias used by older call sites.
+    pub fn undo(&self) -> &HistoryService {
+        &self.history
     }
 
     pub fn graph_revision(&self) -> u64 {
@@ -299,6 +347,17 @@ impl SessionState {
             .unwrap_or_default()
     }
 
+    pub fn layer_kinds_joined(&self) -> String {
+        self.graph
+            .as_ref()
+            .map(|g| g.layer_kinds_joined())
+            .unwrap_or_default()
+    }
+
+    pub fn history_labels_joined(&self) -> String {
+        self.history.labels_newest_first().join("|")
+    }
+
     pub fn status_summary(&self) -> String {
         if !self.has_document {
             return "PhotoTux — create or open a document".to_owned();
@@ -309,13 +368,15 @@ impl SessionState {
         } else {
             String::new()
         };
+        let sel = if self.selection.active { " · sel" } else { "" };
         format!(
-            "{}×{} · zoom {:.0}% · {} layers · {}{}",
+            "{}×{} · zoom {:.0}% · {} layers · {}{}{}",
             self.size.width,
             self.size.height,
             self.camera.zoom * 100.0,
             layers,
             self.active_tool,
+            sel,
             comp
         )
     }

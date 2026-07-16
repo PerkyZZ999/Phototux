@@ -1,14 +1,32 @@
-//! Background raster file operations for the desktop session.
+//! Background document file operations for the desktop session.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
-use phototux_io::{Raster, RasterFormat};
+use phototux_engine::{CancelToken, DocumentGraph};
+use phototux_io::{
+    CompatibilityIssue, PtxDocument, Raster, RasterFormat, import_psd_path, load_ptx,
+    save_ptx_atomic, write_autosave,
+};
 
 pub(crate) enum FileCommand {
     Open(PathBuf),
-    Export { path: PathBuf, format: RasterFormat },
+    OpenPtx(PathBuf),
+    OpenPsd(PathBuf),
+    SavePtx {
+        path: PathBuf,
+        graph: DocumentGraph,
+    },
+    Export {
+        path: PathBuf,
+        format: RasterFormat,
+    },
+    Autosave {
+        graph: DocumentGraph,
+        original: Option<PathBuf>,
+    },
     Shutdown,
 }
 
@@ -17,12 +35,29 @@ pub(crate) enum FileEvent {
         path: PathBuf,
         raster: Raster,
     },
+    PtxOpened {
+        path: PathBuf,
+        document: PtxDocument,
+    },
+    PsdOpened {
+        path: PathBuf,
+        graph: DocumentGraph,
+        raster: Raster,
+        report: Vec<CompatibilityIssue>,
+    },
+    Saved {
+        path: PathBuf,
+    },
+    Autosaved,
     Exported {
         path: PathBuf,
     },
     Failed {
         operation: &'static str,
         message: String,
+    },
+    Cancelled {
+        operation: &'static str,
     },
 }
 
@@ -31,33 +66,42 @@ pub(crate) struct FileWorker {
     events: Receiver<FileEvent>,
     join: Option<JoinHandle<()>>,
     start_error: Option<String>,
+    cancel: CancelToken,
 }
 
 impl FileWorker {
     pub(crate) fn start() -> Self {
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let cancel_worker = cancel.clone();
         match thread::Builder::new()
             .name("phototux-file-io".into())
-            .spawn(move || worker_loop(command_rx, event_tx))
+            .spawn(move || worker_loop(command_rx, event_tx, cancel_worker))
         {
             Ok(join) => Self {
                 commands: Some(command_tx),
                 events: event_rx,
                 join: Some(join),
                 start_error: None,
+                cancel,
             },
             Err(error) => Self {
                 commands: None,
                 events: event_rx,
                 join: None,
                 start_error: Some(format!("failed to spawn raster I/O worker: {error}")),
+                cancel,
             },
         }
     }
 
     pub(crate) fn start_error(&self) -> Option<&str> {
         self.start_error.as_deref()
+    }
+
+    pub(crate) fn cancel_token(&self) -> &CancelToken {
+        &self.cancel
     }
 
     pub(crate) fn send(&self, command: FileCommand) -> Result<(), String> {
@@ -67,6 +111,7 @@ impl FileWorker {
                 .clone()
                 .unwrap_or_else(|| "raster I/O worker unavailable".to_owned()));
         };
+        self.cancel.reset();
         commands
             .send(command)
             .map_err(|_| "raster I/O worker stopped".to_owned())
@@ -88,7 +133,7 @@ impl Drop for FileWorker {
     }
 }
 
-fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>) {
+fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cancel: CancelToken) {
     while let Ok(command) = commands.recv() {
         let event = match command {
             FileCommand::Open(path) => match phototux_io::decode_path(&path) {
@@ -98,7 +143,36 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>) {
                     message: error.to_string(),
                 },
             },
-            FileCommand::Export { path, format } => export_document(path, format),
+            FileCommand::OpenPtx(path) => match load_ptx(&path) {
+                Ok(document) => FileEvent::PtxOpened { path, document },
+                Err(error) => FileEvent::Failed {
+                    operation: "Open",
+                    message: error.to_string(),
+                },
+            },
+            FileCommand::OpenPsd(path) => match import_psd_path(&path) {
+                Ok(imported) => {
+                    let raster = imported.flattened.unwrap_or_else(|| {
+                        Raster::new(1, 1, vec![0, 0, 0, 255].into_boxed_slice())
+                            .expect("1x1 placeholder")
+                    });
+                    FileEvent::PsdOpened {
+                        path,
+                        graph: imported.graph,
+                        raster,
+                        report: imported.report,
+                    }
+                }
+                Err(error) => FileEvent::Failed {
+                    operation: "Open",
+                    message: error.to_string(),
+                },
+            },
+            FileCommand::SavePtx { path, graph } => save_document(path, graph, &cancel),
+            FileCommand::Autosave { graph, original } => {
+                autosave_document(graph, original, &cancel)
+            }
+            FileCommand::Export { path, format } => export_document(path, format, &cancel),
             FileCommand::Shutdown => break,
         };
         if events.send(event).is_err() {
@@ -107,7 +181,72 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>) {
     }
 }
 
-fn export_document(path: PathBuf, format: RasterFormat) -> FileEvent {
+fn save_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken) -> FileEvent {
+    if cancel.is_cancelled() {
+        return FileEvent::Cancelled { operation: "Save" };
+    }
+    let result = (|| {
+        let layers = phototux_canvas::read_all_layer_rgba().map_err(|e| e.to_string())?;
+        if cancel.is_cancelled() {
+            return Err("cancelled".to_owned());
+        }
+        let mut rasters = HashMap::new();
+        for (id, width, height, pixels) in layers {
+            let raster =
+                Raster::new(width, height, pixels.into_boxed_slice()).map_err(|e| e.to_string())?;
+            rasters.insert(id.0, raster);
+        }
+        let doc = PtxDocument::from_graph(graph, rasters);
+        save_ptx_atomic(&path, &doc).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(()) => FileEvent::Saved { path },
+        Err(message) if message == "cancelled" || cancel.is_cancelled() => {
+            FileEvent::Cancelled { operation: "Save" }
+        }
+        Err(message) => FileEvent::Failed {
+            operation: "Save",
+            message,
+        },
+    }
+}
+
+fn autosave_document(
+    graph: DocumentGraph,
+    original: Option<PathBuf>,
+    cancel: &CancelToken,
+) -> FileEvent {
+    if cancel.is_cancelled() {
+        return FileEvent::Cancelled {
+            operation: "Autosave",
+        };
+    }
+    let result = (|| {
+        let layers = phototux_canvas::read_all_layer_rgba().map_err(|e| e.to_string())?;
+        let mut rasters = HashMap::new();
+        for (id, width, height, pixels) in layers {
+            let raster =
+                Raster::new(width, height, pixels.into_boxed_slice()).map_err(|e| e.to_string())?;
+            rasters.insert(id.0, raster);
+        }
+        let doc = PtxDocument::from_graph(graph, rasters);
+        write_autosave(&doc, original.as_deref()).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(_) => FileEvent::Autosaved,
+        Err(message) => FileEvent::Failed {
+            operation: "Autosave",
+            message,
+        },
+    }
+}
+
+fn export_document(path: PathBuf, format: RasterFormat, cancel: &CancelToken) -> FileEvent {
+    if cancel.is_cancelled() {
+        return FileEvent::Cancelled {
+            operation: "Export",
+        };
+    }
     let result = (|| {
         let (width, height, pixels) =
             phototux_canvas::read_composite_rgba().map_err(|error| error.to_string())?;
