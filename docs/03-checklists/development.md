@@ -1,160 +1,420 @@
 # Development Checklist
 
-Living, **phase-level** tracker. Detailed implementation plans are written **at the start of each phase**, not here.
+Living tracker. **Phases 0–12** = foundation (closed). **Production readiness** below maps [`docs/FEATURES_TODO.md`](../FEATURES_TODO.md) — the feature bar for a production-ready desktop editor.
 
-Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
+Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[!]` blocked · `[P]` post-MVP (explicitly deferred)
 
-**Product surface (ADR-014):** desktop GUI only for MVP/v1 — **no** CLI product, **no** TUI, **no** web shell. `cargo` commands are developer tooling only.
+**Product surface (ADR-014):** desktop GUI only — **no** CLI / TUI / web product. `cargo` = developer tooling.
 
-**Governing docs:** ADRs `docs/01-decisions/`, `docs/DESIGN.md`, IA, `AGENTS.md`, `SPEC.md`.
+**Governing docs:** ADRs `docs/01-decisions/`, `docs/DESIGN.md`, IA, `AGENTS.md`, `SPEC.md`, `docs/FEATURES_TODO.md`.
 
----
-
-## Phase 0 — Foundation (docs & decisions)
-
-- [x] Inception, constraints, research dossier
-- [x] Design brief, IA, DESIGN.md tokens
-- [x] Grill R1–R3 + ADR-001…013; desktop surface ADR-014
-- [x] AGENTS.md + pre-commit (fmt / clippy / rust-doctor)
-- [x] Doc alignment review (2026-07-15)
-- [x] FOSS icon pack: **Phosphor Icons** → `assets/icons/phosphor/` + license note
-- [ ] Optional: human design pass on DESIGN.md
-
-**Exit:** Decisions and design sufficient to implement Phase 1.
+**Known ADR tension:** FEATURES_TODO lists multi-document / tabs; ADR-013 is **single document** until amended. Track multi-doc as `[!]` until ADR change.
 
 ---
 
-## Phase 1 — Desktop shell bootstrap
+## Foundation — Phases 0–12 (closed)
 
-**Goal:** Launchable **GUI** workspace; Rust↔QML bindings; chrome matches design intent. No GPU canvas requirement yet.
+| Phase | Goal | Status |
+|-------|------|--------|
+| 0 | Docs & decisions | `[x]` |
+| 1 | Desktop shell bootstrap | `[x]` 2026-07-15 |
+| 1.5 | Interop spike (ADR-010) | `[x]` 2026-07-15 |
+| 2 | GPU viewport (zero-copy) | `[x]` 2026-07-15 |
+| 3 | Layer / composite engine | `[x]` 2026-07-15 (10×4K &lt; 2 ms) |
+| 4 | Tools & brush | `[x]` 2026-07-15 |
+| 5 | Desktop integration | `[x]` 2026-07-15 (cold boot gate met) |
+| 6 | Graph v2, `.ptx`, history, Save | `[x]` foundation 2026-07-16 |
+| 7 | Selections, clipboard, transforms | `[x]` slice 2026-07-16 |
+| 8 | Groups, masks, blends, Layers UI | `[x]` slice 2026-07-16 |
+| 9 | Color / text / brush presets | `[x]` slice 2026-07-16 |
+| 10 | Adjustments & filters contracts | `[x]` slice 2026-07-16 |
+| 11 | History dock, guides, cancel, a11y | `[x]` slice 2026-07-16 |
+| 12 | Rasters + PSD subset + report | `[x]` slice 2026-07-16 |
 
-**Status:** `[x]` done (2026-07-15) — workspace + qtbridge shell + New Document presets + Phase 1 icons; `./scripts/check-rust.sh` green; engine tests pass.
-
-**Exit:** App window runs as desktop editor shell; state binding works; design/IA respected. **Met.**
-
-**Refs:** ADR-002, 003, 006, 009, 012, 013, 014 · design docs · mockups under `docs/design_mockup/` (inspiration only)
----
-
-## Phase 1.5 — Interop spike (mandatory)
-
-**Goal:** Prove zero-copy (or document hard fail) **before** production GPU viewport.
-
-**Status:** `[x]` **closed 2026-07-15** (branch `spike/wgpu-qt-rhi-interop`) — hybrid C++ `QQuickRhiItem` + wgpu on Arc B580/Xe **proven**; VkImage export OK; **full texture import/DMA-BUF glue → Phase 2**. See `docs/04-journal/spike-findings-interop.md`.
-
-**Exit:** Written recipe **or** written blocker — **no** silent CPU full-frame product path. **Met (findings journal).**
-
-**Refs:** ADR-003, 004, 005, 010
----
-
-## Phase 2 — GPU viewport
-
-**Goal:** Canvas is real GPU surface; pan/zoom fluid.
-
-**Status:** `[x]` **closed 2026-07-15; corrected during Phase 5 preflight** — production `PhototuxCanvas` + `Camera2D` pan/zoom; Qt Quick adopts wgpu's Vulkan device and samples the retained composite `VkImage` through `QRhiTexture`; frame and worker queue access is serialized. Isolated KWin visual run reached **60 FPS**.
-
-**Exit gate:** ≥ **60 FPS** zoom/pan (ADR-008); zero-copy hot path showing real document pixels (ADR-005). **Met.**
-
-**Refs:** ADR-004, 005, 007, 008, 010 findings · `phototux_gpu` / `phototux_canvas`
+Pre-commit gate: rustfmt + clippy (`./scripts/check-rust.sh`). Full rust-doctor: `CHECK_RUST_FULL=1`.
 
 ---
 
-## Phase 3 — Layer / composite engine
+## Production readiness (from FEATURES_TODO)
 
-**Goal:** Non-destructive graph, blends, undo (gesture-level, ADR-013).
+Work remaining to close the production feature bar. Prefer vertical slices; amend ADRs when scope conflicts.
 
-**Status:** `[x]` **closed 2026-07-15** (branch `feat/phase3-layer-composite`) — `DocumentGraph` + undo; single-pass WGSL composite; **10×4K &lt; 2.05 ms** host-measured on Arc B580; live Layers panel + Undo/Redo. See `docs/04-journal/2026-07-15-phase3-composite.md`.
+### File Support
 
-**Exit gate:** 10×4K composite **&lt; 2 ms** GPU (ADR-008). **Met** (release best-of-10; debug may use 2.05 ms host-clock slack).
+#### Native / open
 
-**Refs:** ADR-011, 004, 007, 008, 009
+- [x] PNG
+- [x] JPG / JPEG
+- [x] WebP
+- [x] TIFF
+- [x] BMP
+- [x] GIF
+- [x] Native `.ptx` (ADR-016)
+- [~] PSD (subset import + compatibility report; ADR-018 — expand channels/layers/export)
+- [ ] PSB
+- [ ] XD
+- [ ] Sketch
+- [ ] PDF
+- [ ] AI
+- [ ] SVG
+- [ ] RAW
+- [ ] ICO
+- [ ] HEIC
+- [ ] DDS
+- [ ] AVIF
+- [ ] OpenEXR
+- [ ] TGA
+- [ ] PPM
+- [ ] HDR
 
----
+#### Export / save
 
-## Phase 4 — Tools & brush
-
-**Goal:** Painting and essential tools; tablet path; layers UI real.
-
-**Status:** `[x]` **closed 2026-07-15; visually accepted during Phase 5 preflight** — brush/eraser GPU dabs, paint worker queue (ADR-007), stroke undo, hardness/color, and latency HUD. Real sampled stroke and undo verified in isolated KWin.
-
-**Exit gate:** ≥60 FPS while brushing; input→render **&lt; 8 ms** path (ADR-008); worker for heavy work (ADR-007); visible stroke result. **Architecture and visible path met; release latency rerun remains in Phase 5 verification.**
-
-**Refs:** ADR-007, 008, 013 · IA tool/layer flows
-
----
-
-## Phase 5 — Desktop integration
-
-**Goal:** Feel like a finished Plasma citizen (menus, portals, polish).
-
-**Status:** `[x]` **closed 2026-07-15** on `feat/phase5-desktop` — PNG/JPEG Open/Export, async lifecycle, dirty/unsaved flows, native dialogs, menus, open-with identity, packaging metadata, embedded QML AOT, and startup instrumentation are implemented and verified. See `docs/04-journal/2026-07-15-phase5-release-slice.md`.
-
-**Exit gate:** Cold boot **&lt; 1,000 ms** interactive median; **&lt; 250 ms** remains a stretch target (ADR-008 amendment). Optimized 10-run release series: **685.94 ms median**, **648.17 ms best**, **706.10 ms max**. **Met; B3 closed.**
-
-**Refs:** ADR-001, 008, 012, 014 · IA open/export flows (GUI + portals, not CLI)
-
----
-
-## Phase 6 — Document foundation & native Save
-
-**Goal:** Graph v2 contracts, `.ptx`, unified history, atomic Save/Recovery.
-
-**Status:** `[x]` foundation landed — typed nodes, `HistoryService`, ADR-016/017, `.ptx` round-trip + autosave journal, Save/Save As UI.
-
-**Exit gate:** Layered `.ptx` preserves pixels/graph/active layer; failed saves preserve prior file. **Met** (engine/io tests + atomic writer).
-
----
-
-## Phase 7 — Selections, clipboard, transforms
-
-**Goal:** GPU selection channel, clipboard, crop/resize, free transform.
-
-**Status:** `[x]` slice landed — `SelectionMask` R8, rect select UI/commands, copy/paste-as-layer, crop commit command; transform preview types in engine.
+- [x] Save / Save As (`.ptx`)
+- [x] Export PNG / JPEG
+- [x] Export WebP / TIFF / BMP / GIF
+- [~] PSD export (subset TBD)
+- [ ] SVG export
+- [ ] PDF export
+- [ ] ICO export
+- [ ] Animated GIF export
+- [~] PNG / JPEG / WebP quality controls (defaults exist; UI polish)
 
 ---
 
-## Phase 8 — Professional layer workflow
+### Workspace & UI
 
-**Goal:** Groups, masks, blends, hierarchical Layers UI.
+#### Panels
 
-**Status:** `[x]` slice landed — groups/masks/locks metadata, expanded blend modes in WGSL, kind badges + group actions in Layers dock.
+- [x] Layers
+- [x] History
+- [~] Properties (tool/doc chrome; expand)
+- [~] Color (FG/BG state; full panel TBD)
+- [ ] Brushes
+- [ ] Characters / Fonts
+- [ ] Paragraph
+- [ ] Swatches
+- [ ] Navigator
+- [ ] Info
+- [ ] Channels
+- [ ] Paths
 
----
+#### Interface
 
-## Phase 9 — Core creation tools
-
-**Goal:** Color/fill/gradient/text + brush presets.
-
-**Status:** `[x]` slice landed — tool strip expansion, text layers, color state + FG/BG swap, brush preset library JSON.
-
----
-
-## Phase 10 — Adjustments & filters
-
-**Goal:** Adjustment layers + nondestructive filter stack contracts.
-
-**Status:** `[x]` slice landed — adjustment/filter param types, GPU pass descriptors, CPU invert/brightness references, add-adjustment UI.
-
----
-
-## Phase 11 — Workflow & polish
-
-**Goal:** History, guides, cancellation, a11y basics, hardening hooks.
-
-**Status:** `[x]` slice landed — History dock, guides toggle, `CancelToken` on file worker, Accessible names on history/report.
-
----
-
-## Phase 12 — Formats & PSD interchange
-
-**Goal:** Expanded rasters + PSD subset + compatibility report.
-
-**Status:** `[x]` slice landed — WebP/TIFF/BMP/GIF codecs, PSD header import + compatibility report dialog, ADR-018.
+- [x] Dark theme (DESIGN.md / Breeze-dark)
+- [x] Zoom (+ zoom-to-fit)
+- [~] Guides (toggle + engine types)
+- [ ] Fullscreen
+- [!] Multiple documents (needs ADR-013 amendment)
+- [!] Tabs (depends on multi-doc)
+- [ ] Rulers
+- [ ] Grid
+- [ ] Snap
+- [ ] Smart Guides
 
 ---
 
-## Standing rules (all phases)
+### Layers
 
-- [ ] Update this file’s phase status when starting/finishing a phase
+#### Types
+
+- [x] Raster layer
+- [x] Text layer (basic)
+- [x] Adjustment layer (types + add UI; full GPU eval TBD)
+- [x] Group
+- [~] Layer mask (metadata + add; paint/refine TBD)
+- [ ] Shape layer
+- [ ] Smart Object
+- [ ] Background layer (as distinct kind)
+- [ ] Vector mask
+
+#### Operations
+
+- [x] Duplicate / delete / rename (core graph ops)
+- [x] Hide / opacity / blend
+- [x] Group / ungroup (group create + hierarchy)
+- [~] Lock (lock flags present; UI completeness TBD)
+- [ ] Fill (layer fill %)
+- [ ] Merge / Merge Visible / Flatten
+- [ ] Clipping mask
+- [ ] Convert to Smart Object
+- [ ] Rasterize
+
+---
+
+### Selections
+
+#### Tools
+
+- [x] Move (viewport / layer interaction baseline)
+- [~] Marquee — Rectangular
+- [ ] Marquee — Elliptical / Single Row / Single Column
+- [ ] Lasso — Freehand / Polygonal / Magnetic
+- [ ] Magic Wand
+- [ ] Quick Selection
+- [ ] Object Selection
+
+#### Operations
+
+- [x] Select All / Deselect
+- [~] Add / Subtract / Intersect (engine `SelectionCombine`; UI incomplete)
+- [x] Clipboard copy / paste-as-layer
+- [ ] Feather / Expand / Contract / Border / Smooth
+- [ ] Inverse / Grow / Similar / Reselect
+- [ ] Marching-ants / GPU selection overlay polish
+
+---
+
+### Masks
+
+- [~] Layer mask (create + graph field)
+- [ ] Vector mask
+- [ ] Clipping mask
+- [ ] Disable / Apply / Delete mask
+- [ ] Refine Mask
+
+---
+
+### Transformations
+
+- [~] Crop (commit command)
+- [~] Free Transform (engine types / preview; handle chrome TBD)
+- [ ] Scale / Rotate / Skew / Distort / Perspective / Warp
+- [ ] Flip Horizontal / Vertical
+- [ ] Rotate Canvas
+- [ ] Perspective Crop
+
+---
+
+### Brushes & Painting
+
+#### Tools
+
+- [x] Brush
+- [x] Eraser
+- [ ] Pencil
+- [ ] Color Replacement
+- [ ] Mixer Brush
+- [ ] Clone Stamp / Pattern Stamp
+- [ ] History Brush
+- [ ] Background Eraser / Magic Eraser
+
+#### Features
+
+- [x] Size / Hardness / Opacity / Color
+- [x] Pressure support (tablet path)
+- [x] Brush presets (JSON library)
+- [ ] Flow / Smoothing / Spacing polish
+
+---
+
+### Vector Tools
+
+- [ ] Pen / Free Pen / Curvature Pen
+- [ ] Add / Delete / Convert anchor
+- [ ] Path Selection / Direct Selection
+
+---
+
+### Text Tools
+
+- [~] Horizontal text layer (basic create)
+- [ ] Vertical / Paragraph text
+- [ ] Character / Paragraph formatting panels
+- [ ] Font selection / OpenType
+- [ ] Kerning / Tracking / Leading / Baseline Shift
+- [ ] Warp Text
+
+---
+
+### Shape Tools
+
+- [ ] Rectangle / Rounded Rectangle / Ellipse / Polygon / Line / Custom Shape
+- [ ] Stroke / Fill / Corner Radius / Dashed Stroke
+- [ ] Align / Distribute shapes
+
+---
+
+### Color & Fill
+
+- [x] Foreground / Background color + swap
+- [~] Color picker / eyedropper (partial)
+- [ ] Gradient tool (Linear / Radial / Angle / Reflected / Diamond)
+- [ ] Paint Bucket
+- [ ] Swatches panel
+
+---
+
+### Adjustments
+
+Adjustment **layer kinds + params** exist; full nondestructive GPU evaluation per kind is remaining work.
+
+- [~] Brightness / Contrast
+- [~] Invert
+- [ ] Levels / Curves / Exposure / Vibrance
+- [ ] Hue / Saturation / Color Balance / Black & White
+- [ ] Photo Filter / Channel Mixer / Color Lookup
+- [ ] Posterize / Threshold / Gradient Map / Selective Color
+
+---
+
+### Filters
+
+Filter **param / pass descriptors** exist; product filter menu + GPU implementations TBD.
+
+#### Blur
+
+- [ ] Average / Blur / Blur More / Box Blur
+- [ ] Gaussian Blur / Motion / Radial / Surface Blur
+
+#### Sharpen
+
+- [ ] Sharpen / Sharpen More / Smart Sharpen / Unsharp Mask
+
+#### Noise / Pixelate / Distort / Stylize / Render / Other
+
+- [ ] Noise suite (Add / Dust & Scratches / Median / Reduce)
+- [ ] Pixelate suite (Mosaic / Crystallize / Facet / Fragment / Pointillize)
+- [ ] Distort suite (Displace … ZigZag)
+- [ ] Stylize suite (Emboss / Find Edges / Oil Paint / Solarize / Wind)
+- [ ] Render suite (Clouds / Difference Clouds / Lens Flare)
+- [ ] Other (High Pass / Maximum / Minimum / Offset)
+
+---
+
+### Layer Styles
+
+- [ ] Drop Shadow / Inner Shadow
+- [ ] Outer Glow / Inner Glow
+- [ ] Bevel & Emboss / Satin
+- [ ] Color / Gradient / Pattern Overlay
+- [ ] Stroke (style)
+
+---
+
+### Blending Modes
+
+Engine + WGSL cover a **core Photoshop-like set**; remaining modes listed as gaps.
+
+- [x] Normal
+- [x] Multiply / Screen / Overlay
+- [x] Darken / Lighten
+- [x] Color Dodge / Color Burn
+- [x] Hard Light / Soft Light
+- [x] Difference / Exclusion
+- [x] Hue / Saturation / Color / Luminosity
+- [x] Pass Through (groups)
+- [ ] Dissolve
+- [ ] Linear Burn / Darker Color
+- [ ] Linear Dodge / Lighter Color
+- [ ] Vivid Light / Linear Light / Pin Light / Hard Mix
+- [ ] Subtract / Divide
+
+---
+
+### Smart Objects
+
+- [ ] Embedded Smart Objects
+- [ ] Linked Smart Objects
+- [ ] Non-destructive editing via SO
+- [ ] Smart Filters
+- [ ] Replace Contents
+
+---
+
+### AI Features `[P]`
+
+Post-MVP per FEATURES_TODO — do not block core production path.
+
+- [P] Remove Background
+- [P] Magic Replace / AI Fill / AI Expand
+- [P] AI Image Generation
+- [P] AI Selection Improvements
+
+---
+
+### History
+
+- [x] Undo / Redo
+- [x] History panel
+- [x] Multiple history states (`HistoryService`)
+- [ ] Tile / delta undo for large documents (perf)
+
+---
+
+### Guides & Layout
+
+- [~] Guides (visibility + types)
+- [ ] Smart Guides
+- [ ] Grid
+- [ ] Snap
+- [ ] Align / Distribute
+- [ ] New Guide Layout
+
+---
+
+### Automation & Scripts
+
+- [~] Keyboard shortcuts (core menus; incomplete vs Photoshop parity)
+- [ ] Custom shortcuts
+- [ ] Batch processing
+
+---
+
+### Export (product UX)
+
+- [x] Save / Save As
+- [x] Export As (flattened rasters)
+- [ ] Export As dialog with format-specific optimization
+- [ ] SVG / PDF / animated GIF product paths
+
+---
+
+### Miscellaneous
+
+#### Retouching
+
+- [ ] Spot Healing / Healing Brush / Patch / Red Eye / Content-Aware Move
+
+#### Measurement
+
+- [ ] Ruler Tool / Notes / Count Tool
+
+#### Navigation
+
+- [x] Hand (pan) / Zoom
+- [ ] Rotate View Tool
+
+#### Misc
+
+- [x] Clipboard copy / paste (selection → layer)
+- [~] Drag & drop images
+- [!] Multiple image editing (ADR-013)
+- [~] PSD compatibility (subset + report)
+- [ ] Unlimited canvas (memory-dependent tiling)
+- [~] Non-destructive workflow (graph v2 foundation; styles/SO/filters incomplete)
+- [~] Photoshop-like shortcuts (partial)
+
+---
+
+## Suggested next slices (priority)
+
+Order is guidance, not locked ADR:
+
+1. **Selection polish** — overlay/marching ants, elliptical/lasso, combine modes in UI
+2. **Transform chrome** — free-transform handles + quality resample; flip/rotate canvas
+3. **Mask paint + clipping** — usable layer masks end-to-end
+4. **PSD depth** — channel decompress, layered import fidelity, subset export
+5. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first
+6. **Panels** — Swatches, Navigator, Properties completeness
+7. **Vector / shapes / rich text** — after raster core feels solid
+8. **Multi-doc** — only after ADR-013 amendment
+
+---
+
+## Standing rules (all work)
+
+- [ ] Update this file when starting/finishing a production slice
+- [ ] Keep `docs/FEATURES_TODO.md` and this checklist aligned (status lives here; wish-list source there)
 - [ ] Log blockers in `blockers.md` immediately
 - [ ] No major deps / surface changes without ADR
 - [ ] UI changes respect `DESIGN.md` (extend tokens if needed)
