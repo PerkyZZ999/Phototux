@@ -133,6 +133,12 @@ pub struct AppSession {
     document_path: String,
     graph_revision: i32,
     active_opacity: f32,
+    active_blend: String,
+    foreground_hex: String,
+    background_hex: String,
+    recent_colors: String,
+    viewport_width: f32,
+    viewport_height: f32,
     adjustment_kind: String,
     adjustment_p0: f32,
     adjustment_p1: f32,
@@ -237,6 +243,12 @@ impl AppSession {
             document_path: String::new(),
             graph_revision: 0,
             active_opacity: 1.0,
+            active_blend: "normal".to_owned(),
+            foreground_hex: "#000000".to_owned(),
+            background_hex: "#FFFFFF".to_owned(),
+            recent_colors: String::new(),
+            viewport_width: 1.0,
+            viewport_height: 1.0,
             adjustment_kind: String::new(),
             adjustment_p0: 0.0,
             adjustment_p1: 0.0,
@@ -331,15 +343,31 @@ impl AppSession {
         self.sync_transform_fields();
         self.document_path = self.engine.document_path.clone().unwrap_or_default();
         self.graph_revision = self.engine.graph_revision() as i32;
-        self.active_opacity = self
+        let active_layer = self
             .engine
             .graph
             .as_ref()
-            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
-            .map(|l| l.opacity)
-            .unwrap_or(1.0);
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)));
+        self.active_opacity = active_layer.map(|l| l.opacity).unwrap_or(1.0);
+        self.active_blend = active_layer
+            .map(|l| l.blend.as_str().to_owned())
+            .unwrap_or_else(|| "normal".to_owned());
+        self.sync_color_fields();
+        self.viewport_width = self.engine.viewport_w;
+        self.viewport_height = self.engine.viewport_h;
         self.sync_adjustment_fields();
         self.status_text = self.engine.status_summary();
+    }
+
+    fn sync_color_fields(&mut self) {
+        use phototux_engine::ColorState;
+        self.foreground_hex = ColorState::to_hex(self.engine.colors.foreground);
+        self.background_hex = ColorState::to_hex(self.engine.colors.background);
+        self.recent_colors = self.engine.colors.recent_hex_joined();
+        let fg = self.engine.colors.foreground;
+        self.brush_r = fg[0];
+        self.brush_g = fg[1];
+        self.brush_b = fg[2];
     }
 
     fn sync_adjustment_fields(&mut self) {
@@ -410,6 +438,13 @@ impl AppSession {
         self.status_text_changed();
     }
 
+    fn emit_color_fields(&mut self) {
+        self.brush_color_changed();
+        self.foreground_hex_changed();
+        self.background_hex_changed();
+        self.recent_colors_changed();
+    }
+
     fn emit_layer_fields(&mut self) {
         self.layer_count_changed();
         self.active_layer_index_changed();
@@ -427,6 +462,13 @@ impl AppSession {
         self.document_path_changed();
         self.graph_revision_changed();
         self.active_opacity_changed();
+        self.active_blend_changed();
+        self.foreground_hex_changed();
+        self.background_hex_changed();
+        self.recent_colors_changed();
+        self.viewport_width_changed();
+        self.viewport_height_changed();
+        self.brush_color_changed();
         self.adjustment_kind_changed();
         self.adjustment_p0_changed();
         self.adjustment_p1_changed();
@@ -901,6 +943,36 @@ impl AppSession {
         Notify = active_opacity_changed
     );
     qproperty!(
+        "activeBlend",
+        Member = active_blend,
+        Notify = active_blend_changed
+    );
+    qproperty!(
+        "foregroundHex",
+        Member = foreground_hex,
+        Notify = foreground_hex_changed
+    );
+    qproperty!(
+        "backgroundHex",
+        Member = background_hex,
+        Notify = background_hex_changed
+    );
+    qproperty!(
+        "recentColors",
+        Member = recent_colors,
+        Notify = recent_colors_changed
+    );
+    qproperty!(
+        "viewportWidth",
+        Member = viewport_width,
+        Notify = viewport_width_changed
+    );
+    qproperty!(
+        "viewportHeight",
+        Member = viewport_height,
+        Notify = viewport_height_changed
+    );
+    qproperty!(
         "adjustmentKind",
         Member = adjustment_kind,
         Notify = adjustment_kind_changed
@@ -1056,6 +1128,18 @@ impl AppSession {
     #[qsignal]
     fn active_opacity_changed(&mut self);
     #[qsignal]
+    fn active_blend_changed(&mut self);
+    #[qsignal]
+    fn foreground_hex_changed(&mut self);
+    #[qsignal]
+    fn background_hex_changed(&mut self);
+    #[qsignal]
+    fn recent_colors_changed(&mut self);
+    #[qsignal]
+    fn viewport_width_changed(&mut self);
+    #[qsignal]
+    fn viewport_height_changed(&mut self);
+    #[qsignal]
     fn adjustment_kind_changed(&mut self);
     #[qsignal]
     fn adjustment_p0_changed(&mut self);
@@ -1088,6 +1172,20 @@ impl AppSession {
     }
 
     #[qslot]
+    fn set_pan(&mut self, world_x: f32, world_y: f32) {
+        self.engine.set_pan(world_x, world_y);
+        self.sync_camera_from_engine();
+        self.emit_camera_fields();
+    }
+
+    #[qslot]
+    fn center_view_on(&mut self, doc_x: f32, doc_y: f32) {
+        self.engine.set_pan(doc_x, doc_y);
+        self.sync_camera_from_engine();
+        self.emit_camera_fields();
+    }
+
+    #[qslot]
     fn set_brush_size(&mut self, value: f32) {
         self.engine.set_brush_size(value);
         self.engine.sync_brush_from_tool();
@@ -1112,7 +1210,53 @@ impl AppSession {
         self.engine.sync_brush_from_tool();
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
-        self.brush_color_changed();
+        self.emit_color_fields();
+    }
+
+    #[qslot]
+    fn set_foreground_rgb(&mut self, r: f32, g: f32, b: f32) {
+        self.set_brush_color(r, g, b);
+    }
+
+    #[qslot]
+    fn set_foreground_hex(&mut self, hex: String) {
+        let Some(rgba) = phototux_engine::ColorState::from_hex(&hex) else {
+            return;
+        };
+        self.set_brush_color(rgba[0], rgba[1], rgba[2]);
+    }
+
+    #[qslot]
+    fn set_background_hex(&mut self, hex: String) {
+        let Some(rgba) = phototux_engine::ColorState::from_hex(&hex) else {
+            return;
+        };
+        self.engine.colors.set_background(rgba);
+        self.sync_from_engine();
+        self.emit_color_fields();
+    }
+
+    #[qslot]
+    fn set_background_rgb(&mut self, r: f32, g: f32, b: f32) {
+        self.engine.colors.set_background([
+            r.clamp(0.0, 1.0),
+            g.clamp(0.0, 1.0),
+            b.clamp(0.0, 1.0),
+            1.0,
+        ]);
+        self.sync_from_engine();
+        self.emit_color_fields();
+    }
+
+    #[qslot]
+    fn pick_recent_color(&mut self, index: i32) {
+        if index < 0 {
+            return;
+        }
+        let Some(rgba) = self.engine.colors.recent.get(index as usize).copied() else {
+            return;
+        };
+        self.set_brush_color(rgba[0], rgba[1], rgba[2]);
     }
 
     #[qslot]
@@ -1773,6 +1917,7 @@ impl AppSession {
             self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
+            self.active_blend_changed();
         }
     }
 
@@ -2642,10 +2787,13 @@ impl AppSession {
     fn swap_fg_bg(&mut self) {
         self.engine.colors.swap();
         let fg = self.engine.colors.foreground;
-        self.engine.set_brush_color(fg[0], fg[1], fg[2], fg[3]);
+        // Sync brush without re-pushing recent (swap already has both colors).
+        self.engine.brush_color = fg;
+        self.engine.brush.color = fg;
+        self.engine.sync_brush_from_tool();
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
-        self.brush_color_changed();
+        self.emit_color_fields();
     }
 
     #[qslot]

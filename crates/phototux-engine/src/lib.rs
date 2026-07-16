@@ -227,6 +227,12 @@ impl SessionState {
         self.camera.pan_by_screen(dx, dy);
     }
 
+    /// Set the world-space point shown at the viewport center.
+    pub fn set_pan(&mut self, world_x: f32, world_y: f32) {
+        self.camera.pan_x = world_x;
+        self.camera.pan_y = world_y;
+    }
+
     pub fn zoom_at(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
         self.camera
             .zoom_at(factor, anchor_x, anchor_y, self.viewport_w, self.viewport_h);

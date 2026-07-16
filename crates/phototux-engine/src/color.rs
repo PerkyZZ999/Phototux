@@ -47,6 +47,20 @@ impl ColorState {
         self.push_recent(c);
     }
 
+    pub fn set_background(&mut self, rgba: [f32; 4]) {
+        self.background = clamp_rgba(rgba);
+    }
+
+    /// Pipe-joined `#RRGGBB` recent colors for QML.
+    pub fn recent_hex_joined(&self) -> String {
+        self.recent
+            .iter()
+            .copied()
+            .map(Self::to_hex)
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
     fn push_recent(&mut self, rgba: [f32; 4]) {
         self.recent.retain(|c| !rgba_nearly_equal(*c, rgba));
         self.recent.insert(0, rgba);
@@ -118,5 +132,15 @@ mod tests {
         let hex = ColorState::to_hex(c);
         let back = ColorState::from_hex(&hex).expect("hex");
         assert!((back[0] - c[0]).abs() < 0.01);
+    }
+
+    #[test]
+    fn recent_hex_joined_lists_foreground_picks() {
+        let mut colors = ColorState::default();
+        colors.set_foreground([1.0, 0.0, 0.0, 1.0]);
+        colors.set_foreground([0.0, 1.0, 0.0, 1.0]);
+        let joined = colors.recent_hex_joined();
+        assert!(joined.contains("#00FF00"));
+        assert!(joined.contains("#FF0000"));
     }
 }

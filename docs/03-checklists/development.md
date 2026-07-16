@@ -87,13 +87,13 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 
 - [x] Layers
 - [x] History
-- [~] Properties (tool/doc chrome; expand)
-- [~] Color (FG/BG state; full panel TBD)
+- [x] Properties (tool chrome, blend, FG RGB, Fit/100%)
+- [x] Color (FG/BG + HEX + recent via Swatches)
 - [ ] Brushes
 - [ ] Characters / Fonts
 - [ ] Paragraph
-- [ ] Swatches
-- [ ] Navigator
+- [x] Swatches
+- [x] Navigator (geometric viewport; no GPU thumb)
 - [ ] Info
 - [ ] Channels
 - [ ] Paths
@@ -242,7 +242,7 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 - [~] Color picker / eyedropper (partial)
 - [ ] Gradient tool (Linear / Radial / Angle / Reflected / Diamond)
 - [ ] Paint Bucket
-- [ ] Swatches panel
+- [x] Swatches panel (defaults + recent; FG/BG swap)
 
 ---
 
@@ -408,7 +408,7 @@ Order is guidance, not locked ADR:
 4. ~~**Lasso + GPU edge ants**~~ — **shipped 2026-07-16** (freehand/polygonal; mask-edge ants)
 5. ~~**PSD depth**~~ — **shipped 2026-07-16** (Raw/RLE composite + layers; subset export)
 6. ~~**Adjustment/filter GPU**~~ — **shipped 2026-07-16** (Brightness/Levels + Gaussian effect)
-7. **Panels** — Swatches, Navigator, Properties completeness
+7. ~~**Panels**~~ — **shipped 2026-07-16** (Swatches, Navigator, blend/FG Properties)
 8. **Vector / shapes / rich text** — after raster core feels solid
 9. **Multi-doc** — only after ADR-013 amendment
 

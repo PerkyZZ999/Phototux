@@ -76,6 +76,18 @@ ApplicationWindow {
     function isLassoTool() {
         return AppSession.activeTool === "tool.select.lasso"
     }
+    function syncBlendCombo() {
+        if (typeof blendCombo === "undefined" || !blendCombo)
+            return
+        var id = AppSession.activeBlend
+        for (var i = 0; i < blendCombo.model.length; i++) {
+            if (blendCombo.model[i].id === id) {
+                blendCombo.currentIndex = i
+                return
+            }
+        }
+        blendCombo.currentIndex = 0
+    }
     function isPolygonTool() {
         return AppSession.activeTool === "tool.select.polygon"
     }
@@ -1309,7 +1321,6 @@ ApplicationWindow {
                     } else if (AppSession.activeTool === "tool.zoom") {
                         var factor = Math.exp(-dy * 0.01)
                         AppSession.zoomAt(factor, mouse.x, mouse.y)
-                        zoomSlider.value = AppSession.zoom
                     } else if (painting) {
                         var p = (typeof mouse.pressure === "number" && mouse.pressure > 0)
                                 ? mouse.pressure : 1.0
@@ -1322,14 +1333,11 @@ ApplicationWindow {
                     var steps = wheel.angleDelta.y / 120.0
                     var factor = Math.pow(1.12, steps)
                     AppSession.zoomAt(factor, wheel.x, wheel.y)
-                    zoomSlider.value = AppSession.zoom
                     wheel.accepted = true
                 }
                 onDoubleClicked: function (mouse) {
-                    if (AppSession.hasDocument) {
+                    if (AppSession.hasDocument)
                         AppSession.zoomToFit()
-                        zoomSlider.value = AppSession.zoom
-                    }
                 }
             }
         }
@@ -1805,8 +1813,38 @@ ApplicationWindow {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
+                            visible: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
                             Label {
-                                text: qsTr("Color")
+                                text: qsTr("Blend Mode")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            ComboBox {
+                                id: blendCombo
+                                Layout.fillWidth: true
+                                model: [
+                                    { label: qsTr("Normal"), id: "normal" },
+                                    { label: qsTr("Multiply"), id: "multiply" },
+                                    { label: qsTr("Screen"), id: "screen" },
+                                    { label: qsTr("Overlay"), id: "overlay" },
+                                    { label: qsTr("Soft Light"), id: "soft_light" },
+                                    { label: qsTr("Hard Light"), id: "hard_light" },
+                                    { label: qsTr("Darken"), id: "darken" },
+                                    { label: qsTr("Lighten"), id: "lighten" }
+                                ]
+                                textRole: "label"
+                                valueRole: "id"
+                                enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
+                                Component.onCompleted: root.syncBlendCombo()
+                                onActivated: AppSession.setActiveBlend(currentValue)
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            Label {
+                                text: qsTr("Foreground")
                                 color: Theme.colorOnSurface
                                 font.pixelSize: Theme.fontBodySm
                             }
@@ -1829,7 +1867,7 @@ ApplicationWindow {
                                         from: 0; to: 1
                                         value: AppSession.brushR
                                         enabled: AppSession.hasDocument
-                                        onMoved: AppSession.setBrushColor(value, colorG.value, colorB.value)
+                                        onMoved: AppSession.setForegroundRgb(value, colorG.value, colorB.value)
                                     }
                                     Slider {
                                         id: colorG
@@ -1837,7 +1875,7 @@ ApplicationWindow {
                                         from: 0; to: 1
                                         value: AppSession.brushG
                                         enabled: AppSession.hasDocument
-                                        onMoved: AppSession.setBrushColor(colorR.value, value, colorB.value)
+                                        onMoved: AppSession.setForegroundRgb(colorR.value, value, colorB.value)
                                     }
                                     Slider {
                                         id: colorB
@@ -1845,7 +1883,7 @@ ApplicationWindow {
                                         from: 0; to: 1
                                         value: AppSession.brushB
                                         enabled: AppSession.hasDocument
-                                        onMoved: AppSession.setBrushColor(colorR.value, colorG.value, value)
+                                        onMoved: AppSession.setForegroundRgb(colorR.value, colorG.value, value)
                                     }
                                 }
                             }
@@ -1854,29 +1892,10 @@ ApplicationWindow {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Zoom")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(zoomSlider.value * 100) + " %"
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                id: zoomSlider
-                                Layout.fillWidth: true
-                                from: 0.05
-                                to: 8.0
-                                value: AppSession.zoom
-                                enabled: AppSession.hasDocument
-                                onMoved: AppSession.setZoom(value)
+                            Label {
+                                text: qsTr("View")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -1885,19 +1904,13 @@ ApplicationWindow {
                                     text: qsTr("Fit")
                                     Layout.fillWidth: true
                                     enabled: AppSession.hasDocument
-                                    onClicked: {
-                                        AppSession.zoomToFit()
-                                        zoomSlider.value = AppSession.zoom
-                                    }
+                                    onClicked: AppSession.zoomToFit()
                                 }
                                 Button {
                                     text: qsTr("100%")
                                     Layout.fillWidth: true
                                     enabled: AppSession.hasDocument
-                                    onClicked: {
-                                        AppSession.setZoom(1.0)
-                                        zoomSlider.value = 1.0
-                                    }
+                                    onClicked: AppSession.setZoom(1.0)
                                 }
                             }
                         }
@@ -1937,6 +1950,287 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontLabelSm
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                        }
+                    }
+                }
+
+                // Navigator
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    color: Theme.surfaceContainer
+                    Rectangle {
+                        anchors.top: parent.top
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
+                    }
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.spaceSm
+                        text: qsTr("Navigator")
+                        color: Theme.colorOnSurfaceVariant
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.Medium
+                    }
+                }
+
+                Rectangle {
+                    id: navigatorPane
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 132
+                    color: Theme.surfaceSunken
+                    clip: true
+
+                    readonly property real pad: Theme.spaceSm
+                    readonly property real docW: Math.max(1, AppSession.docWidth)
+                    readonly property real docH: Math.max(1, AppSession.docHeight)
+                    readonly property real availW: width - pad * 2
+                    readonly property real availH: height - pad * 2
+                    readonly property real scale: Math.min(availW / docW, availH / docH)
+                    readonly property real frameW: docW * scale
+                    readonly property real frameH: docH * scale
+                    readonly property real frameX: (width - frameW) / 2
+                    readonly property real frameY: (height - frameH) / 2
+                    readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * scale)
+                    readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * scale)
+                    readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * scale)) * scale
+                    readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * scale)) * scale
+
+                    function panToLocal(lx, ly) {
+                        if (!AppSession.hasDocument || frameW < 1 || frameH < 1)
+                            return
+                        var docX = ((lx - frameX) / frameW) * docW
+                        var docY = ((ly - frameY) / frameH) * docH
+                        AppSession.centerViewOn(docX, docY)
+                    }
+
+                    // Checkerboard backdrop
+                    Canvas {
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            var s = 8
+                            for (var y = 0; y < height; y += s) {
+                                for (var x = 0; x < width; x += s) {
+                                    ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? "#2a2a2e" : "#222226"
+                                    ctx.fillRect(x, y, s, s)
+                                }
+                            }
+                        }
+                        Component.onCompleted: requestPaint()
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+                    }
+
+                    Rectangle {
+                        x: navigatorPane.frameX
+                        y: navigatorPane.frameY
+                        width: navigatorPane.frameW
+                        height: navigatorPane.frameH
+                        color: Theme.surfaceContainerHigh
+                        border.color: Theme.border
+                        border.width: 1
+                        opacity: AppSession.hasDocument ? 1 : 0.35
+                    }
+
+                    Rectangle {
+                        visible: AppSession.hasDocument
+                        x: Math.max(navigatorPane.frameX,
+                                    Math.min(navigatorPane.viewX,
+                                             navigatorPane.frameX + navigatorPane.frameW - width))
+                        y: Math.max(navigatorPane.frameY,
+                                    Math.min(navigatorPane.viewY,
+                                             navigatorPane.frameY + navigatorPane.frameH - height))
+                        width: Math.min(navigatorPane.viewW, navigatorPane.frameW)
+                        height: Math.min(navigatorPane.viewH, navigatorPane.frameH)
+                        color: "transparent"
+                        border.color: Theme.primary
+                        border.width: 1.5
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: AppSession.hasDocument
+                        cursorShape: Qt.OpenHandCursor
+                        onPressed: function (mouse) {
+                            navigatorPane.panToLocal(mouse.x, mouse.y)
+                        }
+                        onPositionChanged: function (mouse) {
+                            if (pressed)
+                                navigatorPane.panToLocal(mouse.x, mouse.y)
+                        }
+                    }
+                }
+
+                // Swatches
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    color: Theme.surfaceContainer
+                    Rectangle {
+                        anchors.top: parent.top
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
+                    }
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Theme.border
+                    }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spaceSm
+                        anchors.rightMargin: Theme.spaceXs
+                        Label {
+                            text: qsTr("Swatches")
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.Medium
+                            Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            icon.source: root.iconUrl("arrows-left-right")
+                            icon.width: 14
+                            icon.height: 14
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Swap foreground / background")
+                            onClicked: AppSession.swapFgBg()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: swatchesCol.implicitHeight + Theme.spaceMd * 2
+                    color: Theme.surfaceSunken
+
+                    ColumnLayout {
+                        id: swatchesCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.spaceMd
+                        spacing: Theme.spaceSm
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceMd
+
+                            Item {
+                                width: 44
+                                height: 36
+                                Rectangle {
+                                    x: 12
+                                    y: 10
+                                    width: 26
+                                    height: 26
+                                    radius: Theme.radiusSm
+                                    color: AppSession.backgroundHex
+                                    border.color: Theme.border
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: AppSession.swapFgBg()
+                                        ToolTip.visible: containsMouse
+                                        ToolTip.text: qsTr("Background (click to swap)")
+                                        hoverEnabled: true
+                                    }
+                                }
+                                Rectangle {
+                                    x: 0
+                                    y: 0
+                                    width: 26
+                                    height: 26
+                                    radius: Theme.radiusSm
+                                    color: AppSession.foregroundHex
+                                    border.color: Theme.primary
+                                    border.width: 1
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: hexField.forceActiveFocus()
+                                        ToolTip.visible: containsMouse
+                                        ToolTip.text: qsTr("Foreground")
+                                        hoverEnabled: true
+                                    }
+                                }
+                            }
+
+                            TextField {
+                                id: hexField
+                                Layout.fillWidth: true
+                                text: AppSession.foregroundHex
+                                selectByMouse: true
+                                font.family: "Noto Sans Mono"
+                                font.pixelSize: Theme.fontMono
+                                color: Theme.colorOnSurface
+                                background: Rectangle {
+                                    color: Theme.surfaceContainer
+                                    border.color: parent.activeFocus ? Theme.primary : Theme.border
+                                    radius: Theme.radiusSm
+                                }
+                                onEditingFinished: AppSession.setForegroundHex(text)
+                                Keys.onReturnPressed: {
+                                    AppSession.setForegroundHex(text)
+                                    event.accepted = true
+                                }
+                            }
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Repeater {
+                                model: [
+                                    "#000000", "#FFFFFF", "#FF0000", "#00FF00",
+                                    "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
+                                    "#808080", "#C0C0C0", "#800000", "#008080"
+                                ]
+                                delegate: Rectangle {
+                                    width: 18
+                                    height: 18
+                                    radius: 2
+                                    color: modelData
+                                    border.color: Theme.border
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: AppSession.setForegroundHex(modelData)
+                                    }
+                                }
+                            }
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            visible: AppSession.recentColors.length > 0
+                            Repeater {
+                                model: AppSession.recentColors.length > 0
+                                       ? AppSession.recentColors.split("|") : []
+                                delegate: Rectangle {
+                                    width: 18
+                                    height: 18
+                                    radius: 2
+                                    color: modelData
+                                    border.color: Theme.border
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: AppSession.pickRecentColor(index)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2403,9 +2697,9 @@ ApplicationWindow {
                 AppSession.applySizePreset(presetLabel)
             else
                 AppSession.applyDocumentSize(w, h)
-            zoomSlider.value = AppSession.zoom
             brushSlider.value = AppSession.brushSize
             layerOpacitySlider.value = AppSession.activeOpacity
+            root.syncBlendCombo()
         }
     }
 
@@ -2414,6 +2708,13 @@ ApplicationWindow {
         function onActiveOpacityChanged() {
             if (Math.abs(layerOpacitySlider.value - AppSession.activeOpacity) > 0.001)
                 layerOpacitySlider.value = AppSession.activeOpacity
+        }
+        function onActiveBlendChanged() {
+            root.syncBlendCombo()
+        }
+        function onForegroundHexChanged() {
+            if (hexField && !hexField.activeFocus && hexField.text !== AppSession.foregroundHex)
+                hexField.text = AppSession.foregroundHex
         }
         function onIoErrorChanged() {
             if (AppSession.ioError.length > 0)
