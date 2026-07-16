@@ -27,6 +27,9 @@ pub struct DocumentGraph {
     active: Option<LayerId>,
     /// Incremented when composite inputs change.
     pub revision: u64,
+    /// Monotonic document generation for snapshot leases / save receipts (handbook Phase 2).
+    #[serde(default)]
+    pub generation: u64,
 }
 
 impl DocumentGraph {
@@ -39,6 +42,7 @@ impl DocumentGraph {
             next_id: 1,
             active: None,
             revision: 0,
+            generation: 1,
         };
         let bg = g.alloc_layer("Background");
         let l1 = g.alloc_layer("Layer 1");
@@ -59,6 +63,7 @@ impl DocumentGraph {
             next_id: 1,
             active: None,
             revision: 0,
+            generation: 1,
         };
         let mut layer = graph.alloc_layer("Image");
         layer.name = layer_name.into();
@@ -76,6 +81,11 @@ impl DocumentGraph {
 
     fn bump(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Advance the document generation (command commits / host pixel commits).
+    pub fn bump_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1).max(1);
     }
 
     pub fn layers(&self) -> &[Layer] {

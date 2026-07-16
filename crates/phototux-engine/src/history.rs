@@ -22,6 +22,8 @@ pub struct HistoryEntry {
     pub id: u64,
     pub label: String,
     pub kind: HistoryKind,
+    /// Document generation at the time the entry was recorded (0 = unknown/legacy).
+    pub generation: u64,
 }
 
 /// Bounded undo/redo timeline coordinating graph + stroke (+ future) stacks.
@@ -76,11 +78,12 @@ impl HistoryService {
         self.undo.iter().rev().map(|e| e.label.clone()).collect()
     }
 
-    fn push_entry(&mut self, kind: HistoryKind, label: impl Into<String>) {
+    fn push_entry(&mut self, kind: HistoryKind, label: impl Into<String>, generation: u64) {
         let entry = HistoryEntry {
             id: self.next_id,
             label: label.into(),
             kind,
+            generation,
         };
         self.next_id = self.next_id.wrapping_add(1);
         self.undo.push(entry);
@@ -95,22 +98,27 @@ impl HistoryService {
     }
 
     /// Record a graph command that was already applied.
-    pub fn push_graph_applied(&mut self, cmd: GraphCommand, label: impl Into<String>) {
+    pub fn push_graph_applied(
+        &mut self,
+        cmd: GraphCommand,
+        label: impl Into<String>,
+        generation: u64,
+    ) {
         self.graph.push_applied(cmd);
-        self.push_entry(HistoryKind::Graph, label);
+        self.push_entry(HistoryKind::Graph, label, generation);
     }
 
     /// Record a committed stroke (GPU snapshot already stored).
-    pub fn push_stroke(&mut self, label: impl Into<String>) {
-        self.push_entry(HistoryKind::Stroke, label);
+    pub fn push_stroke(&mut self, label: impl Into<String>, generation: u64) {
+        self.push_entry(HistoryKind::Stroke, label, generation);
     }
 
-    pub fn push_selection(&mut self, label: impl Into<String>) {
-        self.push_entry(HistoryKind::Selection, label);
+    pub fn push_selection(&mut self, label: impl Into<String>, generation: u64) {
+        self.push_entry(HistoryKind::Selection, label, generation);
     }
 
-    pub fn push_transform(&mut self, label: impl Into<String>) {
-        self.push_entry(HistoryKind::Transform, label);
+    pub fn push_transform(&mut self, label: impl Into<String>, generation: u64) {
+        self.push_entry(HistoryKind::Transform, label, generation);
     }
 
     /// Pop the newest undo entry and describe what the host must reverse.
@@ -164,8 +172,9 @@ mod tests {
         h.push_graph_applied(
             crate::GraphCommand::AddLayer { id, index, layer },
             "Add layer",
+            1,
         );
-        h.push_stroke("Brush stroke");
+        h.push_stroke("Brush stroke", 2);
         assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Stroke));
         assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Graph));
         assert_eq!(g.layer_count(), 2);

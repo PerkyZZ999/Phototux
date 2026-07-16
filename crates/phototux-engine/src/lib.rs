@@ -5,6 +5,7 @@ mod camera;
 mod cancel;
 mod color;
 mod command;
+mod commands;
 mod document;
 mod error;
 mod guides;
@@ -20,6 +21,7 @@ pub use camera::{Camera2D, FpsTracker, Rect};
 pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
 pub use command::{EngineCommand, EngineEvent};
+pub use commands::{CommandArgs, CommandEffects, CommandError, HostHistoryAction, command_id};
 pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use error::DocumentError;
 pub use guides::{Guide, GuideOrientation, ViewGuides};
@@ -153,6 +155,20 @@ pub struct SessionState {
     pub guides: ViewGuides,
     pub brush_presets: BrushPresetLibrary,
     pub document_path: Option<String>,
+    /// Generation last successfully persisted (save receipt); `None` if never saved.
+    pub last_persisted_generation: Option<u64>,
+}
+
+/// Immutable metadata lease for render/save coordination (handbook Phase 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentSnapshotLease {
+    pub document_id: u128,
+    pub generation: u64,
+    pub revision: u64,
+    pub width: u32,
+    pub height: u32,
+    pub active_layer: Option<LayerId>,
+    pub layer_count: u32,
 }
 
 impl Default for SessionState {
@@ -181,6 +197,7 @@ impl Default for SessionState {
             guides: ViewGuides::default(),
             brush_presets: BrushPresetLibrary::with_defaults(),
             document_path: None,
+            last_persisted_generation: None,
         }
     }
 }
@@ -259,6 +276,7 @@ impl SessionState {
         self.transform_session = None;
         self.mask_edit_layer = None;
         self.document_path = None;
+        self.last_persisted_generation = None;
         self.zoom_to_fit();
     }
 
@@ -277,6 +295,7 @@ impl SessionState {
         self.selection.clear();
         self.transform_session = None;
         self.mask_edit_layer = None;
+        self.last_persisted_generation = None;
         self.zoom_to_fit();
     }
 
@@ -337,6 +356,45 @@ impl SessionState {
 
     pub fn graph_revision(&self) -> u64 {
         self.graph.as_ref().map(|g| g.revision).unwrap_or(0)
+    }
+
+    /// Metadata snapshot lease for the open document (no pixel buffers).
+    pub fn snapshot_lease(&self) -> Option<DocumentSnapshotLease> {
+        let graph = self.graph.as_ref()?;
+        Some(DocumentSnapshotLease {
+            document_id: graph.document_id,
+            generation: graph.generation,
+            revision: graph.revision,
+            width: graph.size.width,
+            height: graph.size.height,
+            active_layer: graph.active_id(),
+            layer_count: graph.layer_count() as u32,
+        })
+    }
+
+    /// Record a successful save of `generation`. Clears dirty only when it matches current.
+    pub fn mark_persisted(&mut self, generation: u64) -> bool {
+        self.last_persisted_generation = Some(generation);
+        self.document_generation() == generation
+    }
+
+    /// Whether the document has edits newer than the last save receipt.
+    pub fn is_dirty_vs_persisted(&self) -> bool {
+        match (self.document_generation(), self.last_persisted_generation) {
+            (0, _) => false,
+            (current, Some(persisted)) => current != persisted,
+            (_, None) => self.has_document,
+        }
+    }
+
+    /// Bump generation after a host-owned pixel commit (stroke/transform/fill).
+    pub fn bump_document_generation(&mut self) -> u64 {
+        if let Some(graph) = self.graph.as_mut() {
+            graph.bump_generation();
+            graph.generation
+        } else {
+            0
+        }
     }
 
     /// Layer names bottom→top, joined for QML (pipe-separated).
@@ -500,5 +558,19 @@ mod tests {
         s.mask_edit_layer = Some(active);
         assert_eq!(s.paint_target(), PaintTarget::LayerMask);
         assert!(s.status_summary().contains("mask"));
+    }
+
+    #[test]
+    fn snapshot_lease_and_save_receipt() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let lease = s.snapshot_lease().expect("lease");
+        assert_eq!(lease.width, 1280);
+        assert_eq!(lease.generation, 1);
+        assert!(s.is_dirty_vs_persisted());
+        assert!(s.mark_persisted(1));
+        assert!(!s.is_dirty_vs_persisted());
+        s.bump_document_generation();
+        assert!(s.is_dirty_vs_persisted());
     }
 }

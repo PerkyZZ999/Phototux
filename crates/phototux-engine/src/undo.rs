@@ -282,7 +282,12 @@ pub mod actions {
             .get(id)
             .cloned()
             .ok_or(crate::DocumentError::LayerMissingAfterAdd)?;
-        history.push_graph_applied(GraphCommand::AddLayer { id, index, layer }, "Add layer");
+        graph.bump_generation();
+        history.push_graph_applied(
+            GraphCommand::AddLayer { id, index, layer },
+            "Add layer",
+            graph.generation,
+        );
         Ok(id)
     }
 
@@ -295,6 +300,7 @@ pub mod actions {
         let Some((index, layer)) = graph.remove_layer(id) else {
             return false;
         };
+        graph.bump_generation();
         history.push_graph_applied(
             GraphCommand::DeleteLayer {
                 id,
@@ -303,6 +309,7 @@ pub mod actions {
                 prev_active,
             },
             "Delete layer",
+            graph.generation,
         );
         true
     }
@@ -319,6 +326,7 @@ pub mod actions {
         if prev == visible {
             return true;
         }
+        graph.bump_generation();
         history.push_graph_applied(
             GraphCommand::SetVisibility {
                 id,
@@ -326,6 +334,7 @@ pub mod actions {
                 next: visible,
             },
             if visible { "Show layer" } else { "Hide layer" },
+            graph.generation,
         );
         true
     }
@@ -343,7 +352,12 @@ pub mod actions {
         if (prev - next).abs() < f32::EPSILON {
             return true;
         }
-        history.push_graph_applied(GraphCommand::SetOpacity { id, prev, next }, "Opacity");
+        graph.bump_generation();
+        history.push_graph_applied(
+            GraphCommand::SetOpacity { id, prev, next },
+            "Opacity",
+            graph.generation,
+        );
         true
     }
 
@@ -359,6 +373,7 @@ pub mod actions {
         if prev == blend {
             return true;
         }
+        graph.bump_generation();
         history.push_graph_applied(
             GraphCommand::SetBlend {
                 id,
@@ -366,6 +381,7 @@ pub mod actions {
                 next: blend,
             },
             "Blend mode",
+            graph.generation,
         );
         true
     }
@@ -382,7 +398,12 @@ pub mod actions {
         if from == to {
             return true;
         }
-        history.push_graph_applied(GraphCommand::MoveLayer { id, from, to }, "Reorder layer");
+        graph.bump_generation();
+        history.push_graph_applied(
+            GraphCommand::MoveLayer { id, from, to },
+            "Reorder layer",
+            graph.generation,
+        );
         true
     }
 }
@@ -454,6 +475,7 @@ mod tests {
                 next: Some(next),
             },
             "Adjustment",
+            1,
         );
         h.undo_next(&mut g);
         let restored = g.get(id).and_then(|l| l.adjustment.clone());
@@ -474,7 +496,7 @@ mod tests {
         let id = g.layers()[0].id;
         let (prev, _) = g.add_gaussian_blur(id, 8.0).expect("blur");
         let next = g.get(id).map(|l| l.effects.clone()).unwrap_or_default();
-        h.push_graph_applied(GraphCommand::SetEffects { id, prev, next }, "Blur");
+        h.push_graph_applied(GraphCommand::SetEffects { id, prev, next }, "Blur", 1);
         assert!(g.get(id).unwrap().effects.iter().any(|e| {
             matches!(e.params, FilterParams::GaussianBlur { radius } if (radius - 8.0).abs() < 1e-5)
         }));

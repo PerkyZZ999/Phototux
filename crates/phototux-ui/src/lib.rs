@@ -9,10 +9,10 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    AdjustmentParams, BlendMode, CropRect, DocumentError, DocumentGraph, DocumentSize,
-    EngineCommand, EngineEvent, FilterParams, HistoryKind, LayerId, LayerTransform, MAX_LAYERS,
-    SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, SizePreset,
-    TextContent, TransformSession, tool_id, undo_actions,
+    AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentError,
+    DocumentGraph, DocumentSize, EngineCommand, EngineEvent, FilterParams, HistoryKind,
+    HostHistoryAction, LayerId, LayerTransform, SelectionCombine, SelectionRect, SelectionShape,
+    SelectionState, SessionState, TextContent, TransformSession, command_id, tool_id, undo_actions,
 };
 
 #[derive(Clone)]
@@ -159,6 +159,8 @@ pub struct AppSession {
     selection_redo: Vec<SelectionSnapshot>,
     transform_undo: Vec<TransformSnapshot>,
     transform_redo: Vec<TransformSnapshot>,
+    /// Generation pinned when a Save was submitted (Phase 2 receipt).
+    pending_save_generation: Option<u64>,
 }
 
 impl Default for AppSession {
@@ -269,6 +271,7 @@ impl AppSession {
             selection_redo: Vec::new(),
             transform_undo: Vec::new(),
             transform_redo: Vec::new(),
+            pending_save_generation: None,
         };
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
@@ -627,6 +630,119 @@ impl AppSession {
             self.dirty = true;
             self.dirty_changed();
         }
+    }
+
+    fn invoke_command(&mut self, id: &str, args: CommandArgs) -> Result<(), CommandError> {
+        let effects = self.engine.invoke(id, args)?;
+        self.apply_command_effects(effects);
+        Ok(())
+    }
+
+    fn apply_command_effects(&mut self, effects: CommandEffects) {
+        if let Some(host) = effects.host_history {
+            self.apply_host_history(host);
+        }
+        if effects.recomposite {
+            self.recomposite();
+        }
+        if effects.dirty {
+            self.mark_dirty();
+        }
+        if effects.sync_camera {
+            self.sync_camera_from_engine();
+            self.emit_camera_fields();
+        }
+        if effects.sync_layers {
+            self.sync_from_engine();
+            self.emit_layer_fields();
+            self.active_blend_changed();
+        }
+        if effects.sync_doc {
+            self.sync_from_engine();
+            self.emit_doc_fields();
+        }
+        if effects.generation > 0 {
+            self.graph_revision = effects.generation.min(i32::MAX as u64) as i32;
+            self.graph_revision_changed();
+        }
+    }
+
+    fn apply_host_history(&mut self, action: HostHistoryAction) {
+        match action {
+            HostHistoryAction::Undo(HistoryKind::Stroke) => match phototux_canvas::undo_stroke() {
+                Ok(ms) => self.engine.set_composite_ms(ms),
+                Err(error) => self.report_gpu("stroke undo", &error),
+            },
+            HostHistoryAction::Redo(HistoryKind::Stroke) => match phototux_canvas::redo_stroke() {
+                Ok(ms) => self.engine.set_composite_ms(ms),
+                Err(error) => self.report_gpu("stroke redo", &error),
+            },
+            HostHistoryAction::Undo(HistoryKind::Selection) => {
+                let current = SelectionSnapshot {
+                    state: self.engine.selection.clone(),
+                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
+                };
+                if let Some(prev) = self.selection_undo.pop() {
+                    self.selection_redo.push(current);
+                    self.restore_selection_snapshot(prev);
+                } else {
+                    self.engine.selection.clear();
+                    let _ = phototux_canvas::selection_clear();
+                }
+            }
+            HostHistoryAction::Redo(HistoryKind::Selection) => {
+                let current = SelectionSnapshot {
+                    state: self.engine.selection.clone(),
+                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
+                };
+                if let Some(next) = self.selection_redo.pop() {
+                    self.selection_undo.push(current);
+                    self.restore_selection_snapshot(next);
+                }
+            }
+            HostHistoryAction::Undo(HistoryKind::Transform) => {
+                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                    return;
+                };
+                let Some(graph) = self.engine.graph.clone() else {
+                    return;
+                };
+                let current = TransformSnapshot {
+                    size,
+                    layers,
+                    graph,
+                };
+                if let Some(prev) = self.transform_undo.pop() {
+                    self.transform_redo.push(current);
+                    self.restore_transform_snapshot(prev);
+                }
+            }
+            HostHistoryAction::Redo(HistoryKind::Transform) => {
+                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                    return;
+                };
+                let Some(graph) = self.engine.graph.clone() else {
+                    return;
+                };
+                let current = TransformSnapshot {
+                    size,
+                    layers,
+                    graph,
+                };
+                if let Some(next) = self.transform_redo.pop() {
+                    self.transform_undo.push(current);
+                    self.restore_transform_snapshot(next);
+                }
+            }
+            HostHistoryAction::Undo(HistoryKind::Graph)
+            | HostHistoryAction::Redo(HistoryKind::Graph) => {
+                self.recomposite();
+            }
+        }
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.emit_doc_fields();
     }
 
     fn fail_io(&mut self, operation: &str, message: &str) {
@@ -1166,23 +1282,26 @@ impl AppSession {
 
     #[qslot]
     fn set_zoom(&mut self, value: f32) {
-        self.engine.set_zoom(value);
-        self.sync_camera_from_engine();
-        self.emit_camera_fields();
+        let _ = self.invoke_command(command_id::VIEW_ZOOM_TO, CommandArgs::Zoom { zoom: value });
     }
 
     #[qslot]
     fn set_pan(&mut self, world_x: f32, world_y: f32) {
-        self.engine.set_pan(world_x, world_y);
-        self.sync_camera_from_engine();
-        self.emit_camera_fields();
+        let _ = self.invoke_command(
+            command_id::VIEW_PAN_TO,
+            CommandArgs::Pan { world_x, world_y },
+        );
     }
 
     #[qslot]
     fn center_view_on(&mut self, doc_x: f32, doc_y: f32) {
-        self.engine.set_pan(doc_x, doc_y);
-        self.sync_camera_from_engine();
-        self.emit_camera_fields();
+        let _ = self.invoke_command(
+            command_id::VIEW_PAN_TO,
+            CommandArgs::Pan {
+                world_x: doc_x,
+                world_y: doc_y,
+            },
+        );
     }
 
     #[qslot]
@@ -1284,10 +1403,9 @@ impl AppSession {
         } else {
             tool_id::BRUSH.to_owned()
         };
-        self.engine.set_active_tool(&id);
+        let _ = self.invoke_command(command_id::VIEW_SET_TOOL, CommandArgs::Tool { tool: id });
         self.engine.sync_brush_from_tool();
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
-        self.sync_from_engine();
         self.active_tool_changed();
         self.status_text_changed();
     }
@@ -1308,11 +1426,15 @@ impl AppSession {
                     dirty = true;
                 }
                 EngineEvent::StrokeEnded => {
-                    self.engine.history.push_stroke(if self.mask_edit_active {
-                        "Mask stroke"
-                    } else {
-                        "Brush stroke"
-                    });
+                    let __gen = self.engine.bump_document_generation();
+                    self.engine.history.push_stroke(
+                        if self.mask_edit_active {
+                            "Mask stroke"
+                        } else {
+                            "Brush stroke"
+                        },
+                        __gen,
+                    );
                     self.graph_revision = self.graph_revision.wrapping_add(1);
                     self.graph_revision_changed();
                     self.mark_dirty();
@@ -1447,7 +1569,12 @@ impl AppSession {
                 }
                 FileEvent::Saved { path } => {
                     self.io_busy = false;
-                    self.dirty = false;
+                    if let Some(pinned) = self.pending_save_generation.take() {
+                        let clean = self.engine.mark_persisted(pinned);
+                        self.dirty = !clean;
+                    } else {
+                        self.dirty = false;
+                    }
                     self.engine.document_path = Some(path.display().to_string());
                     self.document_name = path
                         .file_name()
@@ -1562,19 +1689,21 @@ impl AppSession {
 
     #[qslot]
     fn zoom_to_fit(&mut self) {
-        self.engine.zoom_to_fit();
-        self.sync_camera_from_engine();
-        self.emit_camera_fields();
+        let _ = self.invoke_command(command_id::VIEW_ZOOM_TO_FIT, CommandArgs::None);
     }
 
     #[qslot]
     fn apply_size_preset(&mut self, label: String) {
-        if let Some(preset) = SizePreset::from_label(&label) {
-            self.engine.apply_preset(preset);
+        if self
+            .invoke_command(
+                command_id::DOCUMENT_NEW_PRESET,
+                CommandArgs::NewPreset { label },
+            )
+            .is_ok()
+        {
             self.open_gpu_document();
             self.document_name = "Untitled".to_owned();
             self.dirty = false;
-            self.sync_from_engine();
             self.emit_doc_fields();
         }
     }
@@ -1583,12 +1712,21 @@ impl AppSession {
     fn apply_document_size(&mut self, width: i32, height: i32) {
         let w = width.max(1) as u32;
         let h = height.max(1) as u32;
-        self.engine.apply_size(DocumentSize::new(w, h));
-        self.open_gpu_document();
-        self.document_name = "Untitled".to_owned();
-        self.dirty = false;
-        self.sync_from_engine();
-        self.emit_doc_fields();
+        if self
+            .invoke_command(
+                command_id::DOCUMENT_NEW_SIZE,
+                CommandArgs::NewSize {
+                    width: w,
+                    height: h,
+                },
+            )
+            .is_ok()
+        {
+            self.open_gpu_document();
+            self.document_name = "Untitled".to_owned();
+            self.dirty = false;
+            self.emit_doc_fields();
+        }
     }
 
     #[qslot]
@@ -1650,12 +1788,14 @@ impl AppSession {
         let Some(graph) = self.engine.graph.clone() else {
             return;
         };
+        self.pending_save_generation = Some(graph.generation);
         self.io_busy = true;
         self.io_error.clear();
         self.status_text = format!("Saving {}…", path.display());
         self.io_busy_changed();
         self.status_text_changed();
         if let Err(error) = self.file_worker.send(FileCommand::SavePtx { path, graph }) {
+            self.pending_save_generation = None;
             self.fail_io("Save", &error);
         }
     }
@@ -1785,87 +1925,27 @@ impl AppSession {
 
     #[qslot]
     fn add_layer(&mut self) {
-        let result = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            if graph.layer_count() >= MAX_LAYERS {
-                Err(DocumentError::layer_limit(MAX_LAYERS))
-            } else {
-                undo_actions::add_layer(graph, history, None).map(|_| ())
-            }
-        };
-        match result {
-            Ok(()) => {
-                self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
-            }
-            Err(error) => self.report_gpu("add layer", &error.to_string()),
+        if let Err(error) = self.invoke_command(command_id::LAYER_CREATE, CommandArgs::None) {
+            self.report_gpu("add layer", &error.to_string());
         }
     }
 
     #[qslot]
     fn delete_active_layer(&mut self) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let ok = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            graph
-                .as_mut()
-                .is_some_and(|g| undo_actions::delete_layer(g, history, id))
-        };
-        if ok {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-        }
+        let _ = self.invoke_command(command_id::LAYER_DELETE, CommandArgs::None);
     }
 
     #[qslot]
     fn set_active_layer(&mut self, index: i32) {
-        let ok = self
-            .engine
-            .graph
-            .as_mut()
-            .is_some_and(|g| g.set_active_index(index.max(0) as usize));
-        if ok {
-            self.sync_from_engine();
-            self.active_layer_index_changed();
-            self.active_opacity_changed();
-            self.layer_mask_flags_changed();
-            self.layer_clips_changed();
-            self.mask_edit_active_changed();
-            self.status_text_changed();
-        }
+        let _ = self.invoke_command(command_id::LAYER_SET_ACTIVE, CommandArgs::LayerIndex(index));
     }
 
     #[qslot]
     fn set_layer_visible(&mut self, index: i32, visible: bool) {
-        let id = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.layers().get(index.max(0) as usize).map(|l| l.id));
-        let Some(id) = id else {
-            return;
-        };
-        let ok = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            graph
-                .as_mut()
-                .is_some_and(|g| undo_actions::set_visibility(g, history, id, visible))
-        };
-        if ok {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-        }
+        let _ = self.invoke_command(
+            command_id::LAYER_SET_VISIBILITY,
+            CommandArgs::SetVisibility { index, visible },
+        );
     }
 
     #[qslot]
@@ -1881,174 +1961,30 @@ impl AppSession {
 
     #[qslot]
     fn set_active_opacity(&mut self, opacity: f32) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let ok = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            graph
-                .as_mut()
-                .is_some_and(|g| undo_actions::set_opacity(g, history, id, opacity))
-        };
-        if ok {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-        }
+        let _ = self.invoke_command(
+            command_id::LAYER_SET_OPACITY,
+            CommandArgs::SetOpacity { opacity },
+        );
     }
 
     #[qslot]
     fn set_active_blend(&mut self, blend: String) {
-        let Some(mode) = BlendMode::from_str_label(&blend) else {
-            return;
-        };
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let ok = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            graph
-                .as_mut()
-                .is_some_and(|g| undo_actions::set_blend(g, history, id, mode))
-        };
-        if ok {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-            self.active_blend_changed();
-        }
+        let _ = self.invoke_command(command_id::LAYER_SET_BLEND, CommandArgs::SetBlend { blend });
     }
 
     #[qslot]
     fn move_active_layer(&mut self, to_index: i32) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let ok = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            graph
-                .as_mut()
-                .is_some_and(|g| undo_actions::move_layer(g, history, id, to_index.max(0) as usize))
-        };
-        if ok {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-        }
+        let _ = self.invoke_command(command_id::LAYER_REORDER, CommandArgs::Reorder { to_index });
     }
 
     #[qslot]
     fn undo(&mut self) {
-        let kind = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            history.undo_next(graph)
-        };
-        let Some(kind) = kind else {
-            return;
-        };
-        match kind {
-            HistoryKind::Stroke => match phototux_canvas::undo_stroke() {
-                Ok(ms) => self.engine.set_composite_ms(ms),
-                Err(error) => self.report_gpu("stroke undo", &error),
-            },
-            HistoryKind::Graph => {
-                self.recomposite();
-            }
-            HistoryKind::Selection => {
-                let current = SelectionSnapshot {
-                    state: self.engine.selection.clone(),
-                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
-                };
-                if let Some(prev) = self.selection_undo.pop() {
-                    self.selection_redo.push(current);
-                    self.restore_selection_snapshot(prev);
-                } else {
-                    self.engine.selection.clear();
-                    let _ = phototux_canvas::selection_clear();
-                }
-            }
-            HistoryKind::Transform => {
-                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
-                    return;
-                };
-                let Some(graph) = self.engine.graph.clone() else {
-                    return;
-                };
-                let current = TransformSnapshot {
-                    size,
-                    layers,
-                    graph,
-                };
-                if let Some(prev) = self.transform_undo.pop() {
-                    self.transform_redo.push(current);
-                    self.restore_transform_snapshot(prev);
-                }
-            }
-        }
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
-        self.emit_doc_fields();
+        let _ = self.invoke_command(command_id::HISTORY_UNDO, CommandArgs::None);
     }
 
     #[qslot]
     fn redo(&mut self) {
-        let kind = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            history.redo_next(graph)
-        };
-        let Some(kind) = kind else {
-            return;
-        };
-        match kind {
-            HistoryKind::Stroke => match phototux_canvas::redo_stroke() {
-                Ok(ms) => self.engine.set_composite_ms(ms),
-                Err(error) => self.report_gpu("stroke redo", &error),
-            },
-            HistoryKind::Graph => {
-                self.recomposite();
-            }
-            HistoryKind::Selection => {
-                let current = SelectionSnapshot {
-                    state: self.engine.selection.clone(),
-                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
-                };
-                if let Some(next) = self.selection_redo.pop() {
-                    self.selection_undo.push(current);
-                    self.restore_selection_snapshot(next);
-                }
-            }
-            HistoryKind::Transform => {
-                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
-                    return;
-                };
-                let Some(graph) = self.engine.graph.clone() else {
-                    return;
-                };
-                let current = TransformSnapshot {
-                    size,
-                    layers,
-                    graph,
-                };
-                if let Some(next) = self.transform_redo.pop() {
-                    self.transform_undo.push(current);
-                    self.restore_transform_snapshot(next);
-                }
-            }
-        }
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
-        self.emit_doc_fields();
+        let _ = self.invoke_command(command_id::HISTORY_REDO, CommandArgs::None);
     }
 
     fn commit_selection_shape(
@@ -2090,7 +2026,8 @@ impl AppSession {
         }
         self.selection_preview_active = false;
         self.clear_selection_path();
-        self.engine.history.push_selection(label);
+        let __gen = self.engine.bump_document_generation();
+        self.engine.history.push_selection(label, __gen);
         self.mark_dirty();
         self.sync_from_engine();
         self.emit_selection_fields();
@@ -2188,7 +2125,8 @@ impl AppSession {
         } else {
             "Polygonal selection"
         };
-        self.engine.history.push_selection(label);
+        let __gen = self.engine.bump_document_generation();
+        self.engine.history.push_selection(label, __gen);
         self.mark_dirty();
         self.sync_from_engine();
         self.emit_selection_fields();
@@ -2221,7 +2159,8 @@ impl AppSession {
         self.engine.selection.clear();
         self.selection_preview_active = false;
         self.clear_selection_path();
-        self.engine.history.push_selection("Deselect");
+        let __gen = self.engine.bump_document_generation();
+        self.engine.history.push_selection("Deselect", __gen);
         self.sync_from_engine();
         self.emit_selection_fields();
         self.can_undo_changed();
@@ -2242,7 +2181,8 @@ impl AppSession {
             .selection
             .select_all(self.engine.size.width, self.engine.size.height);
         self.selection_preview_active = false;
-        self.engine.history.push_selection("Select all");
+        let __gen = self.engine.bump_document_generation();
+        self.engine.history.push_selection("Select all", __gen);
         self.sync_from_engine();
         self.emit_selection_fields();
         self.can_undo_changed();
@@ -2263,7 +2203,10 @@ impl AppSession {
             .selection
             .invert_bounds(self.engine.size.width, self.engine.size.height);
         self.selection_preview_active = false;
-        self.engine.history.push_selection("Invert selection");
+        let __gen = self.engine.bump_document_generation();
+        self.engine
+            .history
+            .push_selection("Invert selection", __gen);
         self.sync_from_engine();
         self.emit_selection_fields();
         self.can_undo_changed();
@@ -2345,6 +2288,10 @@ impl AppSession {
             history.push_graph_applied(
                 phototux_engine::GraphCommand::AddLayer { id, index, layer },
                 "Add group",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
             );
             Ok::<_, DocumentError>(())
         })();
@@ -2377,6 +2324,10 @@ impl AppSession {
             history.push_graph_applied(
                 phototux_engine::GraphCommand::AddLayer { id, index, layer },
                 "Add text layer",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
             );
             Ok::<_, DocumentError>(())
         })();
@@ -2433,6 +2384,10 @@ impl AppSession {
             history.push_graph_applied(
                 phototux_engine::GraphCommand::AddLayer { id, index, layer },
                 "Add adjustment",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
             );
             Ok::<_, DocumentError>(())
         })();
@@ -2492,6 +2447,10 @@ impl AppSession {
                     next: Some(next),
                 },
                 "Adjustment",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
             );
         }
         self.recomposite();
@@ -2546,10 +2505,14 @@ impl AppSession {
             .and_then(|g| g.get(id))
             .map(|l| l.effects.clone())
             .unwrap_or_default();
-        self.engine.history.push_graph_applied(
-            phototux_engine::GraphCommand::SetEffects { id, prev, next },
-            "Gaussian Blur",
-        );
+        {
+            let generation = self.engine.bump_document_generation();
+            self.engine.history.push_graph_applied(
+                phototux_engine::GraphCommand::SetEffects { id, prev, next },
+                "Gaussian Blur",
+                generation,
+            );
+        }
         self.recomposite();
         self.mark_dirty();
         self.sync_from_engine();
@@ -2579,10 +2542,14 @@ impl AppSession {
         if next == prev {
             return;
         }
-        self.engine.history.push_graph_applied(
-            phototux_engine::GraphCommand::SetEffects { id, prev, next },
-            "Blur radius",
-        );
+        {
+            let generation = self.engine.bump_document_generation();
+            self.engine.history.push_graph_applied(
+                phototux_engine::GraphCommand::SetEffects { id, prev, next },
+                "Blur radius",
+                generation,
+            );
+        }
         self.recomposite();
         self.mark_dirty();
         self.sync_from_engine();
@@ -2620,6 +2587,10 @@ impl AppSession {
             history.push_graph_applied(
                 phototux_engine::GraphCommand::SetMask { id, prev, next },
                 "Add layer mask",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
             );
         }
         self.engine.mask_edit_layer = Some(id);
@@ -2663,6 +2634,10 @@ impl AppSession {
                     next: None,
                 },
                 "Delete layer mask",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
             );
         }
         if self.engine.mask_edit_layer == Some(id) {
@@ -2704,6 +2679,10 @@ impl AppSession {
                         "Enable layer mask"
                     } else {
                         "Disable layer mask"
+                    },
+                    {
+                        graph.bump_generation();
+                        graph.generation
                     },
                 );
                 changed = true;
@@ -2763,6 +2742,10 @@ impl AppSession {
                         "Create clipping mask"
                     } else {
                         "Release clipping mask"
+                    },
+                    {
+                        graph.bump_generation();
+                        graph.generation
                     },
                 );
                 changed = true;
@@ -2880,7 +2863,8 @@ impl AppSession {
                     graph.revision = graph.revision.wrapping_add(1);
                 }
                 self.engine.set_composite_ms(ms);
-                self.engine.history.push_transform("Free Transform");
+                let __gen = self.engine.bump_document_generation();
+                self.engine.history.push_transform("Free Transform", __gen);
                 self.mark_dirty();
             }
             Err(error) => {
@@ -2955,7 +2939,8 @@ impl AppSession {
                 }
                 self.engine.size = new_size;
                 self.engine.set_composite_ms(ms);
-                self.engine.history.push_transform("Crop");
+                let __gen = self.engine.bump_document_generation();
+                self.engine.history.push_transform("Crop", __gen);
                 self.engine.selection.clear();
                 self.crop_preview_active = false;
                 self.clear_selection_stacks();
@@ -2989,11 +2974,15 @@ impl AppSession {
         match phototux_canvas::flip_layer(id, horizontal, &layers) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
-                self.engine.history.push_transform(if horizontal {
-                    "Flip Horizontal"
-                } else {
-                    "Flip Vertical"
-                });
+                let __gen = self.engine.bump_document_generation();
+                self.engine.history.push_transform(
+                    if horizontal {
+                        "Flip Horizontal"
+                    } else {
+                        "Flip Vertical"
+                    },
+                    __gen,
+                );
                 self.mark_dirty();
             }
             Err(error) => self.report_gpu("flip", &error),
@@ -3022,7 +3011,8 @@ impl AppSession {
                 }
                 self.engine.size = new_size;
                 self.engine.set_composite_ms(ms);
-                self.engine.history.push_transform("Rotate 90° CW");
+                let __gen = self.engine.bump_document_generation();
+                self.engine.history.push_transform("Rotate 90° CW", __gen);
                 self.engine.selection.clear();
                 self.clear_selection_stacks();
                 self.mark_dirty();
@@ -3062,7 +3052,8 @@ impl AppSession {
         match phototux_canvas::fill_layer(id, fg, &layers, use_selection) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
-                self.engine.history.push_transform("Fill");
+                let __gen = self.engine.bump_document_generation();
+                self.engine.history.push_transform("Fill", __gen);
                 self.mark_dirty();
             }
             Err(error) => self.report_gpu("fill", &error),
@@ -3099,7 +3090,8 @@ impl AppSession {
         ) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
-                self.engine.history.push_transform("Gradient");
+                let __gen = self.engine.bump_document_generation();
+                self.engine.history.push_transform("Gradient", __gen);
                 self.mark_dirty();
             }
             Err(error) => self.report_gpu("gradient", &error),

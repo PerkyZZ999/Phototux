@@ -20,20 +20,21 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 
 ## Phase 1 — Command spine
 
-- [ ] CommandId + registry + invoke in `phototux_engine`
-- [ ] Wrap graph mutations (undo, layer ops, fill, …) as commands
-- [ ] `AppSession` routes through router (behavior-stable)
-- [ ] Command Taxonomy lists shipped IDs
-- [ ] Headless command tests (no Qt)
+- [x] CommandId + registry + invoke in `phototux_engine`
+- [x] Wrap core graph mutations (undo/redo, layer ops) as commands
+- [x] `AppSession` routes core slots through router (behavior-stable)
+- [x] Command Taxonomy lists shipped IDs
+- [x] Headless command tests (no Qt)
+- [ ] Remaining AppSession mutations (masks, filters, selection…) still direct — wrap in later slices
 
 ---
 
 ## Phase 2 — Version + snapshot leases
 
-- [ ] Document generation / version on commit
-- [ ] Snapshot metadata lease for recomposite
-- [ ] Save/export pin generation + receipt
-- [ ] History entries reference generation/transaction
+- [x] Document generation / version on commit
+- [x] Snapshot metadata lease for recomposite
+- [x] Save pin generation + receipt (`mark_persisted` / dirty vs persisted)
+- [x] History entries reference generation
 
 ---
 

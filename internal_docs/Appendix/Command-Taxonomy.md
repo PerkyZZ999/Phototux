@@ -374,7 +374,22 @@ Diagnostics MUST exclude pixel payloads and private paths by default ([08](../08
 - [ ] Mergeable stroke commands produce one undo step per gesture policy.
 - [ ] Export does not clear document modified state.
 - [ ] Extension commands are capability-scoped and budgeted.
-- [ ] Headless tests invoke commands without UI toolkits.
+- [x] Headless tests invoke commands without UI toolkits (engine `commands` module tests).
+
+## Shipped built-in IDs (Phase 1 — `phototux_engine::command_id`)
+
+Implemented via `SessionState::invoke`. Host (`AppSession`) routes QML slots through these IDs. Paint dabs remain `EngineCommand` (worker traffic), not taxonomy document commits until stroke-end history.
+
+| ID | Scope | Notes |
+| --- | --- | --- |
+| `history.undo` / `history.redo` | document / history-meta | Graph undo in-engine; stroke/selection/transform return host follow-up |
+| `layer.create` / `layer.delete` | document | |
+| `layer.set-active` | document | Does not mark dirty |
+| `layer.set-visibility` / `layer.set-opacity` / `layer.set-blend` / `layer.reorder` | document | |
+| `view.zoom-to` / `view.zoom-to-fit` / `view.pan-to` / `view.set-tool` | view | Undo policy none |
+| `document.new-preset` / `document.new-size` | document | Resets session graph; dirty cleared by host |
+
+Further IDs land as later phases wrap remaining `AppSession` mutations.
 
 ## Cross References
 
