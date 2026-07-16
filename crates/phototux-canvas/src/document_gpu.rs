@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use phototux_engine::{BrushParams, Dab, DocumentSize, Layer, LayerId};
-use phototux_gpu::{BrushStamper, GpuContext, LayerCompositeEngine};
+use phototux_gpu::{BrushStamper, GpuContext, LayerCompositeEngine, StampRequest};
 
 struct StrokeBackup {
     layer: LayerId,
@@ -25,26 +25,46 @@ struct DocGpu {
 
 static DOC_GPU: Mutex<Option<DocGpu>> = Mutex::new(None);
 
-fn publish_result(engine: &LayerCompositeEngine) {
+fn dim_to_i32(value: u32) -> Result<i32, String> {
+    i32::try_from(value).map_err(|_| format!("dimension {value} exceeds i32 for Qt export"))
+}
+
+fn publish_result(engine: &LayerCompositeEngine) -> Result<(), String> {
     // VkImageLayout::SHADER_READ_ONLY_OPTIMAL after the explicit wgpu RESOURCE transition.
     const SHADER_READ_ONLY_OPTIMAL: i32 = 5;
     if let Some(h) = engine.result_vk_handle() {
         let (w, hgt) = engine.size();
         // SAFETY: C ABI publishes composite for canvas present/import.
         unsafe {
-            super::set_wgpu_export(h, w as i32, hgt as i32, SHADER_READ_ONLY_OPTIMAL);
+            super::set_wgpu_export(
+                h,
+                dim_to_i32(w)?,
+                dim_to_i32(hgt)?,
+                SHADER_READ_ONLY_OPTIMAL,
+            );
         }
     }
+    Ok(())
+}
+
+fn with_layers_meta<R>(doc: &mut DocGpu, f: impl FnOnce(&mut DocGpu, &[Layer]) -> R) -> R {
+    let layers = std::mem::take(&mut doc.layers_meta);
+    let out = f(doc, &layers);
+    doc.layers_meta = layers;
+    out
 }
 
 /// Open / replace document GPU state for the given size and layers.
+///
+/// # Errors
+/// Returns an error when GPU init, layer sync, composite, or export fails.
 pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let ctx = super::gpu_context()?;
     let mut engine = LayerCompositeEngine::new(&ctx, size);
-    engine.sync_layers_from_graph(&ctx, layers);
-    let ms = engine.composite(&ctx, layers);
-    publish_result(&engine);
+    engine.sync_layers_from_graph(&ctx, layers)?;
+    let ms = engine.composite(&ctx, layers)?;
+    publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
@@ -61,6 +81,9 @@ pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String
 }
 
 /// Open a graph and replace its active layer with decoded RGBA8 pixels.
+///
+/// # Errors
+/// Returns an error when GPU init, upload, composite, or export fails.
 pub fn open_raster_document(
     size: DocumentSize,
     layers: &[Layer],
@@ -70,12 +93,12 @@ pub fn open_raster_document(
     let _queue_guard = super::SharedQueueGuard::lock();
     let ctx = super::gpu_context()?;
     let mut engine = LayerCompositeEngine::new(&ctx, size);
-    engine.sync_layers_from_graph(&ctx, layers);
+    engine.sync_layers_from_graph(&ctx, layers)?;
     engine
         .write_layer_rgba(&ctx, target_layer, pixels)
         .map_err(|error| error.to_string())?;
-    let ms = engine.composite(&ctx, layers);
-    publish_result(&engine);
+    let ms = engine.composite(&ctx, layers)?;
+    publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
     let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
     *guard = Some(DocGpu {
@@ -92,6 +115,9 @@ pub fn open_raster_document(
 }
 
 /// Read the current flattened composite into tightly packed RGBA8 memory.
+///
+/// # Errors
+/// Returns an error when no document is open or GPU readback fails.
 pub fn read_composite_rgba() -> Result<(u32, u32, Vec<u8>), String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
@@ -107,6 +133,9 @@ pub fn read_composite_rgba() -> Result<(u32, u32, Vec<u8>), String> {
 }
 
 /// Sync layer textures and re-composite. Returns composite time in ms.
+///
+/// # Errors
+/// Returns an error when no document is open or GPU sync/composite fails.
 pub fn sync_and_composite(layers: &[Layer]) -> Result<f32, String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
@@ -114,9 +143,9 @@ pub fn sync_and_composite(layers: &[Layer]) -> Result<f32, String> {
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
     doc.layers_meta = layers.to_vec();
-    doc.engine.sync_layers_from_graph(&doc.ctx, layers);
-    let ms = doc.engine.composite(&doc.ctx, layers);
-    publish_result(&doc.engine);
+    doc.engine.sync_layers_from_graph(&doc.ctx, layers)?;
+    let ms = doc.engine.composite(&doc.ctx, layers)?;
+    publish_result(&doc.engine)?;
     Ok(ms)
 }
 
@@ -148,6 +177,9 @@ pub fn close_document() {
 }
 
 /// Begin stroke: snapshot active layer for undo.
+///
+/// # Errors
+/// Returns an error when no document/layer texture is available.
 pub fn begin_stroke(layer: LayerId) -> Result<(), String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
@@ -167,6 +199,9 @@ pub fn begin_stroke(layer: LayerId) -> Result<(), String> {
 }
 
 /// Stamp dabs into the active layer. `t0_ms` is input timestamp for first dab latency.
+///
+/// # Errors
+/// Returns an error when no document is open, stamping fails, or composite/export fails.
 pub fn stamp_dabs(
     layer: LayerId,
     dabs: &[Dab],
@@ -181,26 +216,30 @@ pub fn stamp_dabs(
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
 
-    let Some(tex) = doc.engine.layer_texture(layer) else {
-        return Err("layer texture missing".into());
-    };
-    // Need non-borrow of engine while stamping — clone Arc device via stamper using ctx
-    for dab in dabs {
-        doc.stamper.stamp(
-            &doc.ctx,
-            tex,
-            dab.x,
-            dab.y,
-            dab.radius,
-            params,
-            dab.pressure,
-        );
+    if !dabs.is_empty() {
+        let requests: Vec<StampRequest> = dabs
+            .iter()
+            .copied()
+            .map(|dab| StampRequest::from_dab(dab, params))
+            .collect();
+        {
+            let Some(tex) = doc.engine.layer_texture(layer) else {
+                return Err("layer texture missing".into());
+            };
+            doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
+        }
+        doc.engine.mark_layer_painted(layer);
     }
-    doc.engine.mark_layer_painted(layer);
-    doc.ctx
-        .device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .ok();
+
+    if recomposite {
+        doc.ctx
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|error| format!("GPU poll failed after stamp: {error:?}"))?;
+    } else {
+        // Non-blocking: keep the stroke hot path from stalling on device idle.
+        let _ = doc.ctx.device.poll(wgpu::PollType::Poll);
+    }
 
     if let Some(t0) = t0_ms {
         let now = std::time::SystemTime::now()
@@ -212,14 +251,17 @@ pub fn stamp_dabs(
 
     let mut comp_ms = 0.0;
     if recomposite {
-        let layers = doc.layers_meta.clone();
-        comp_ms = doc.engine.composite(&doc.ctx, &layers);
-        publish_result(&doc.engine);
+        comp_ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
     }
     let _ = t_stamp;
     Ok(comp_ms)
 }
 
+/// Finalize the active stroke and push the pre-stroke backup onto the undo stack.
+///
+/// # Errors
+/// Returns an error when no document is open or final composite/export fails.
 pub fn end_stroke() -> Result<(), String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
@@ -232,10 +274,8 @@ pub fn end_stroke() -> Result<(), String> {
             doc.stroke_undo.remove(0);
         }
     }
-    // Final composite
-    let layers = doc.layers_meta.clone();
-    let _ = doc.engine.composite(&doc.ctx, &layers);
-    publish_result(&doc.engine);
+    with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
     Ok(())
 }
 
@@ -256,6 +296,9 @@ pub fn can_redo_stroke() -> bool {
 }
 
 /// Undo last stroke paint (GPU texture restore + recompose).
+///
+/// # Errors
+/// Returns an error when the undo stack is empty or snapshot/composite fails.
 pub fn undo_stroke() -> Result<f32, String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
@@ -265,21 +308,25 @@ pub fn undo_stroke() -> Result<f32, String> {
     let Some(prev) = doc.stroke_undo.pop() else {
         return Err("no stroke undo".into());
     };
-    // Push current as redo
-    if let Some(cur) = doc.engine.clone_layer_texture(&doc.ctx, prev.layer) {
-        doc.stroke_redo.push(StrokeBackup {
-            layer: prev.layer,
-            texture: cur,
-        });
-    }
+    let cur = doc
+        .engine
+        .clone_layer_texture(&doc.ctx, prev.layer)
+        .ok_or_else(|| "failed to snapshot layer for redo".to_owned())?;
+    doc.stroke_redo.push(StrokeBackup {
+        layer: prev.layer,
+        texture: cur,
+    });
     doc.engine
         .restore_layer_texture(&doc.ctx, prev.layer, &prev.texture);
-    let layers = doc.layers_meta.clone();
-    let ms = doc.engine.composite(&doc.ctx, &layers);
-    publish_result(&doc.engine);
+    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
     Ok(ms)
 }
 
+/// Redo last undone stroke paint.
+///
+/// # Errors
+/// Returns an error when the redo stack is empty or snapshot/composite fails.
 pub fn redo_stroke() -> Result<f32, String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
@@ -289,16 +336,28 @@ pub fn redo_stroke() -> Result<f32, String> {
     let Some(next) = doc.stroke_redo.pop() else {
         return Err("no stroke redo".into());
     };
-    if let Some(cur) = doc.engine.clone_layer_texture(&doc.ctx, next.layer) {
-        doc.stroke_undo.push(StrokeBackup {
-            layer: next.layer,
-            texture: cur,
-        });
-    }
+    let cur = doc
+        .engine
+        .clone_layer_texture(&doc.ctx, next.layer)
+        .ok_or_else(|| "failed to snapshot layer for undo".to_owned())?;
+    doc.stroke_undo.push(StrokeBackup {
+        layer: next.layer,
+        texture: cur,
+    });
     doc.engine
         .restore_layer_texture(&doc.ctx, next.layer, &next.texture);
-    let layers = doc.layers_meta.clone();
-    let ms = doc.engine.composite(&doc.ctx, &layers);
-    publish_result(&doc.engine);
+    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
     Ok(ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dim_to_i32;
+
+    #[test]
+    fn dim_to_i32_rejects_overflow() {
+        assert!(dim_to_i32(u32::MAX).is_err());
+        assert_eq!(dim_to_i32(1920).unwrap(), 1920);
+    }
 }

@@ -27,28 +27,47 @@ pub(crate) enum FileEvent {
 }
 
 pub(crate) struct FileWorker {
-    commands: Sender<FileCommand>,
+    commands: Option<Sender<FileCommand>>,
     events: Receiver<FileEvent>,
     join: Option<JoinHandle<()>>,
+    start_error: Option<String>,
 }
 
 impl FileWorker {
     pub(crate) fn start() -> Self {
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
-        let join = thread::Builder::new()
+        match thread::Builder::new()
             .name("phototux-file-io".into())
             .spawn(move || worker_loop(command_rx, event_tx))
-            .expect("spawn raster I/O worker");
-        Self {
-            commands: command_tx,
-            events: event_rx,
-            join: Some(join),
+        {
+            Ok(join) => Self {
+                commands: Some(command_tx),
+                events: event_rx,
+                join: Some(join),
+                start_error: None,
+            },
+            Err(error) => Self {
+                commands: None,
+                events: event_rx,
+                join: None,
+                start_error: Some(format!("failed to spawn raster I/O worker: {error}")),
+            },
         }
     }
 
+    pub(crate) fn start_error(&self) -> Option<&str> {
+        self.start_error.as_deref()
+    }
+
     pub(crate) fn send(&self, command: FileCommand) -> Result<(), String> {
-        self.commands
+        let Some(commands) = self.commands.as_ref() else {
+            return Err(self
+                .start_error
+                .clone()
+                .unwrap_or_else(|| "raster I/O worker unavailable".to_owned()));
+        };
+        commands
             .send(command)
             .map_err(|_| "raster I/O worker stopped".to_owned())
     }
@@ -60,7 +79,9 @@ impl FileWorker {
 
 impl Drop for FileWorker {
     fn drop(&mut self) {
-        let _ = self.commands.send(FileCommand::Shutdown);
+        if let Some(commands) = self.commands.take() {
+            let _ = commands.send(FileCommand::Shutdown);
+        }
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
@@ -101,5 +122,17 @@ fn export_document(path: PathBuf, format: RasterFormat) -> FileEvent {
             operation: "Export",
             message,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_reports_no_error_on_host() {
+        let worker = FileWorker::start();
+        assert!(worker.start_error().is_none());
+        worker.send(FileCommand::Shutdown).expect("shutdown");
     }
 }

@@ -9,8 +9,8 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    BlendMode, DocumentGraph, DocumentSize, EngineCommand, EngineEvent, LayerId, SessionState,
-    SizePreset, tool_id, undo_actions,
+    BlendMode, DocumentGraph, DocumentSize, EngineCommand, EngineEvent, LayerId, MAX_LAYERS,
+    SessionState, SizePreset, tool_id, undo_actions,
 };
 use phototux_io::RasterFormat;
 use qtbridge::qobject;
@@ -116,7 +116,7 @@ impl Default for AppSession {
 impl AppSession {
     pub fn new(icon_root: String) -> Self {
         let engine = SessionState::default();
-        Self {
+        let mut out = Self {
             doc_width: engine.size.width as i32,
             doc_height: engine.size.height as i32,
             zoom: engine.camera.zoom,
@@ -150,7 +150,35 @@ impl AppSession {
             engine,
             worker: PaintWorker::start(),
             file_worker: FileWorker::start(),
+        };
+        if let Some(error) = out.worker.start_error() {
+            out.status_text = error.to_owned();
+            out.io_error = error.to_owned();
         }
+        if let Some(error) = out.file_worker.start_error() {
+            out.status_text = error.to_owned();
+            out.io_error = error.to_owned();
+        }
+        out
+    }
+
+    fn sync_camera_from_engine(&mut self) {
+        self.zoom = self.engine.camera.zoom;
+        self.pan_x = self.engine.camera.pan_x;
+        self.pan_y = self.engine.camera.pan_y;
+        self.status_text = self.engine.status_summary();
+    }
+
+    fn send_paint(&mut self, command: EngineCommand) {
+        if let Err(error) = self.worker.send(command) {
+            self.fail_io("Paint", &error);
+        }
+    }
+
+    fn report_gpu(&mut self, operation: &str, error: &str) {
+        self.status_text = format!("{operation} failed: {error}");
+        self.status_text_changed();
+        eprintln!("[phototux] {operation}: {error}");
     }
 
     fn sync_from_engine(&mut self) {
@@ -242,7 +270,7 @@ impl AppSession {
                 self.engine.set_composite_ms(ms);
             }
             Err(e) => {
-                eprintln!("[phototux] composite: {e}");
+                self.report_gpu("composite", &e);
             }
         }
     }
@@ -253,7 +281,7 @@ impl AppSession {
         };
         match phototux_canvas::open_document(graph.size, graph.layers()) {
             Ok(ms) => self.engine.set_composite_ms(ms),
-            Err(e) => eprintln!("[phototux] open_document GPU: {e}"),
+            Err(e) => self.report_gpu("open_document GPU", &e),
         }
     }
 
@@ -438,7 +466,7 @@ impl AppSession {
     #[qslot]
     fn set_zoom(&mut self, value: f32) {
         self.engine.set_zoom(value);
-        self.sync_from_engine();
+        self.sync_camera_from_engine();
         self.emit_camera_fields();
     }
 
@@ -446,7 +474,7 @@ impl AppSession {
     fn set_brush_size(&mut self, value: f32) {
         self.engine.set_brush_size(value);
         self.engine.sync_brush_from_tool();
-        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_size_changed();
         self.status_text_changed();
@@ -456,7 +484,7 @@ impl AppSession {
     fn set_brush_hardness(&mut self, value: f32) {
         self.engine.set_brush_hardness(value);
         self.engine.sync_brush_from_tool();
-        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_hardness_changed();
     }
@@ -465,7 +493,7 @@ impl AppSession {
     fn set_brush_color(&mut self, r: f32, g: f32, b: f32) {
         self.engine.set_brush_color(r, g, b, 1.0);
         self.engine.sync_brush_from_tool();
-        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_color_changed();
     }
@@ -478,7 +506,7 @@ impl AppSession {
         };
         self.engine.set_active_tool(&id);
         self.engine.sync_brush_from_tool();
-        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.active_tool_changed();
         self.status_text_changed();
@@ -506,7 +534,7 @@ impl AppSession {
                     dirty = true;
                 }
                 EngineEvent::Error(e) => {
-                    eprintln!("[phototux] paint worker: {e}");
+                    self.report_gpu("paint worker", &e);
                 }
             }
         }
@@ -580,12 +608,12 @@ impl AppSession {
             return;
         }
         self.engine.sync_brush_from_tool();
-        self.worker.send(EngineCommand::SetBrush(self.engine.brush));
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         let Some(layer) = self.active_id() else {
             return;
         };
         let (x, y) = self.engine.screen_to_document(sx, sy);
-        self.worker.send(EngineCommand::BeginStroke {
+        self.send_paint(EngineCommand::BeginStroke {
             layer,
             x,
             y,
@@ -600,7 +628,7 @@ impl AppSession {
             return;
         }
         let (x, y) = self.engine.screen_to_document(sx, sy);
-        self.worker.send(EngineCommand::StrokePoint {
+        self.send_paint(EngineCommand::StrokePoint {
             x,
             y,
             pressure: pressure.clamp(0.05, 1.0),
@@ -610,7 +638,7 @@ impl AppSession {
 
     #[qslot]
     fn stroke_end(&mut self) {
-        self.worker.send(EngineCommand::EndStroke);
+        self.send_paint(EngineCommand::EndStroke);
     }
 
     #[qslot]
@@ -621,21 +649,21 @@ impl AppSession {
     #[qslot]
     fn pan_by(&mut self, dx: f32, dy: f32) {
         self.engine.pan_by(dx, dy);
-        self.sync_from_engine();
+        self.sync_camera_from_engine();
         self.emit_camera_fields();
     }
 
     #[qslot]
     fn zoom_at(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
         self.engine.zoom_at(factor, anchor_x, anchor_y);
-        self.sync_from_engine();
+        self.sync_camera_from_engine();
         self.emit_camera_fields();
     }
 
     #[qslot]
     fn zoom_to_fit(&mut self) {
         self.engine.zoom_to_fit();
-        self.sync_from_engine();
+        self.sync_camera_from_engine();
         self.emit_camera_fields();
     }
 
@@ -771,17 +799,28 @@ impl AppSession {
 
     #[qslot]
     fn add_layer(&mut self) {
-        {
+        let result = {
             let SessionState { graph, undo, .. } = &mut self.engine;
             let Some(graph) = graph.as_mut() else {
                 return;
             };
-            undo_actions::add_layer(graph, undo, None);
+            if graph.layer_count() >= MAX_LAYERS {
+                Err(format!(
+                    "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
+                ))
+            } else {
+                undo_actions::add_layer(graph, undo, None).map(|_| ())
+            }
+        };
+        match result {
+            Ok(()) => {
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+            }
+            Err(error) => self.report_gpu("add layer", &error),
         }
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]
@@ -916,12 +955,15 @@ impl AppSession {
     #[qslot]
     fn undo(&mut self) {
         if phototux_canvas::can_undo_stroke() {
-            if let Ok(ms) = phototux_canvas::undo_stroke() {
-                self.engine.set_composite_ms(ms);
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
-                self.graph_revision_changed();
+            match phototux_canvas::undo_stroke() {
+                Ok(ms) => {
+                    self.engine.set_composite_ms(ms);
+                    self.mark_dirty();
+                    self.sync_from_engine();
+                    self.emit_layer_fields();
+                    self.graph_revision_changed();
+                }
+                Err(error) => self.report_gpu("stroke undo", &error),
             }
             return;
         }
@@ -940,12 +982,15 @@ impl AppSession {
     #[qslot]
     fn redo(&mut self) {
         if phototux_canvas::can_redo_stroke() {
-            if let Ok(ms) = phototux_canvas::redo_stroke() {
-                self.engine.set_composite_ms(ms);
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
-                self.graph_revision_changed();
+            match phototux_canvas::redo_stroke() {
+                Ok(ms) => {
+                    self.engine.set_composite_ms(ms);
+                    self.mark_dirty();
+                    self.sync_from_engine();
+                    self.emit_layer_fields();
+                    self.graph_revision_changed();
+                }
+                Err(error) => self.report_gpu("stroke redo", &error),
             }
             return;
         }

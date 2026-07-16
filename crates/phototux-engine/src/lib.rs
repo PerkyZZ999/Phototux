@@ -9,7 +9,7 @@ mod undo;
 
 pub use camera::{Camera2D, FpsTracker, Rect};
 pub use command::{EngineCommand, EngineEvent};
-pub use document::DocumentGraph;
+pub use document::{DocumentGraph, MAX_LAYERS};
 pub use layer::{BlendMode, Layer, LayerId};
 pub use stroke::{BrushParams, Dab, StrokeBuilder};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};

@@ -3,6 +3,9 @@
 use crate::DocumentSize;
 use crate::layer::{BlendMode, Layer, LayerId};
 
+/// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
+pub const MAX_LAYERS: usize = 16;
+
 /// Non-destructive ordered stack. Index 0 = bottom (background).
 #[derive(Debug, Clone)]
 pub struct DocumentGraph {
@@ -110,7 +113,20 @@ impl DocumentGraph {
         self.layers.iter().filter(|l| l.visible)
     }
 
-    pub fn add_layer_top(&mut self, name: Option<String>) -> LayerId {
+    pub fn can_add_layer(&self) -> bool {
+        self.layers.len() < MAX_LAYERS
+    }
+
+    /// Add a layer on top of the stack.
+    ///
+    /// # Errors
+    /// Returns an error when the document already has [`MAX_LAYERS`] layers.
+    pub fn add_layer_top(&mut self, name: Option<String>) -> Result<LayerId, String> {
+        if !self.can_add_layer() {
+            return Err(format!(
+                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
+            ));
+        }
         let n = self
             .layers
             .iter()
@@ -123,7 +139,7 @@ impl DocumentGraph {
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
-        id
+        Ok(id)
     }
 
     /// Insert a fully-specified layer (used by undo).
@@ -229,11 +245,20 @@ mod tests {
     #[test]
     fn add_and_remove() {
         let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
-        let id = g.add_layer_top(None);
+        let id = g.add_layer_top(None).expect("add");
         assert_eq!(g.layer_count(), 3);
         assert_eq!(g.active_id(), Some(id));
         assert!(g.remove_layer(id).is_some());
         assert_eq!(g.layer_count(), 2);
+    }
+
+    #[test]
+    fn rejects_add_past_layer_cap() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        while g.layer_count() < MAX_LAYERS {
+            g.add_layer_top(None).expect("fill to cap");
+        }
+        assert!(g.add_layer_top(None).is_err());
     }
 
     #[test]

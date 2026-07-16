@@ -67,11 +67,13 @@ pub(crate) unsafe fn set_wgpu_export(handle: u64, width: i32, height: i32, layou
     unsafe {
         phototux_canvas_set_wgpu_export(handle, width, height, layout);
     }
+    let width_u = u32::try_from(width).unwrap_or(0);
+    let height_u = u32::try_from(height).unwrap_or(0);
     if let Ok(mut slot) = WGPU_HANDLE.lock() {
         *slot = Some(WgpuExport {
             handle,
-            width: width as u32,
-            height: height as u32,
+            width: width_u,
+            height: height_u,
             layout,
         });
     }

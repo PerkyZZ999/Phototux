@@ -204,16 +204,23 @@ impl UndoStack {
 pub mod actions {
     use super::*;
 
+    /// Add a layer and record the undo entry.
+    ///
+    /// # Errors
+    /// Returns an error when the document is already at the compositor layer cap.
     pub fn add_layer(
         graph: &mut DocumentGraph,
         stack: &mut UndoStack,
         name: Option<String>,
-    ) -> LayerId {
-        let id = graph.add_layer_top(name);
+    ) -> Result<LayerId, String> {
+        let id = graph.add_layer_top(name)?;
         let index = graph.index_of(id).unwrap_or(0);
-        let layer = graph.get(id).cloned().expect("just added");
+        let layer = graph
+            .get(id)
+            .cloned()
+            .ok_or_else(|| "added layer missing from graph".to_owned())?;
         stack.push_applied(GraphCommand::AddLayer { id, index, layer });
-        id
+        Ok(id)
     }
 
     pub fn delete_layer(graph: &mut DocumentGraph, stack: &mut UndoStack, id: LayerId) -> bool {
@@ -314,7 +321,7 @@ mod tests {
         let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
         let mut s = UndoStack::new(64);
         let n0 = g.layer_count();
-        actions::add_layer(&mut g, &mut s, Some("X".into()));
+        actions::add_layer(&mut g, &mut s, Some("X".into())).expect("add");
         assert_eq!(g.layer_count(), n0 + 1);
         assert!(s.undo(&mut g));
         assert_eq!(g.layer_count(), n0);

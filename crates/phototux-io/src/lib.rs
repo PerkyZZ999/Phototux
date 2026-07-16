@@ -149,6 +149,10 @@ where
 }
 
 /// Decode a PNG/JPEG file from disk.
+///
+/// # Errors
+///
+/// Returns [`RasterIoError`] when the path cannot be opened or decode fails.
 pub fn decode_path(path: &Path) -> Result<Raster, RasterIoError> {
     let file = File::open(path)?;
     decode(BufReader::new(file))
@@ -186,6 +190,10 @@ where
 }
 
 /// Encode to a temporary sibling and atomically replace the destination.
+///
+/// # Errors
+///
+/// Returns [`RasterIoError`] when temporary creation, encode, sync, or rename fails.
 pub fn encode_path_atomic(
     path: &Path,
     raster: &Raster,

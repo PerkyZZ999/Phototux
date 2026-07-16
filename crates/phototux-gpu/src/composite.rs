@@ -7,11 +7,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId};
+use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId, MAX_LAYERS};
 
 use crate::{GpuContext, TextureTransferError};
-
-pub const MAX_LAYERS: usize = 16;
 
 const BLEND_WGSL: &str = r#"
 struct LayerParams {
@@ -115,6 +113,8 @@ pub struct LayerCompositeEngine {
     /// Working array rebuilt only when stack membership changes (not every frame).
     array_tex: wgpu::Texture,
     array_dirty: bool,
+    /// Array-slice indices dirty from paint (incremental copy; avoids full repack).
+    dirty_slices: Vec<u32>,
     result: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
@@ -248,6 +248,7 @@ impl LayerCompositeEngine {
             layer_tex: HashMap::new(),
             array_tex,
             array_dirty: true,
+            dirty_slices: Vec::new(),
             result,
             pipeline,
             bind_layout,
@@ -282,7 +283,17 @@ impl LayerCompositeEngine {
         self.array_dirty = true;
     }
 
-    pub fn sync_layers_from_graph(&mut self, ctx: &GpuContext, layers: &[Layer]) {
+    pub fn sync_layers_from_graph(
+        &mut self,
+        ctx: &GpuContext,
+        layers: &[Layer],
+    ) -> Result<(), String> {
+        if layers.len() > MAX_LAYERS {
+            return Err(format!(
+                "document has {} layers; compositor supports at most {MAX_LAYERS}",
+                layers.len()
+            ));
+        }
         let ids: std::collections::HashSet<_> = layers.iter().map(|l| l.id).collect();
         self.layer_tex.retain(|id, _| ids.contains(id));
         const PALETTE: [[f32; 4]; 8] = [
@@ -303,84 +314,136 @@ impl LayerCompositeEngine {
         if new_order != self.stack_order {
             self.stack_order = new_order;
             self.array_dirty = true;
+            self.dirty_slices.clear();
         }
+        Ok(())
     }
 
-    fn repack_array_if_needed(&mut self, ctx: &GpuContext) {
-        if !self.array_dirty {
-            return;
+    fn repack_array_if_needed(&mut self, ctx: &GpuContext) -> Result<(), String> {
+        if !self.array_dirty && self.dirty_slices.is_empty() {
+            return Ok(());
         }
+
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("repack-array"),
             });
-        self.layer_index.clear();
-        for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
-            self.layer_index.insert(*id, i as u32);
-            if let Some(src) = self.layer_tex.get(id) {
-                encoder.copy_texture_to_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: src,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &self.array_tex,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d {
-                            x: 0,
-                            y: 0,
-                            z: i as u32,
+
+        if self.array_dirty {
+            self.layer_index.clear();
+            for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
+                let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
+                self.layer_index.insert(*id, slice);
+                if let Some(src) = self.layer_tex.get(id) {
+                    encoder.copy_texture_to_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: src,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
                         },
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    wgpu::Extent3d {
-                        width: self.width,
-                        height: self.height,
-                        depth_or_array_layers: 1,
-                    },
-                );
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.array_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d {
+                                x: 0,
+                                y: 0,
+                                z: slice,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: self.width,
+                            height: self.height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+            }
+        } else {
+            for &slice in &self.dirty_slices {
+                let Some(id) = self.stack_order.get(slice as usize).copied() else {
+                    continue;
+                };
+                if let Some(src) = self.layer_tex.get(&id) {
+                    encoder.copy_texture_to_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: src,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.array_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d {
+                                x: 0,
+                                y: 0,
+                                z: slice,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: self.width,
+                            height: self.height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
             }
         }
-        ctx.queue.submit(Some(encoder.finish()));
-        ctx.device.poll(wgpu::PollType::wait_indefinitely()).ok();
 
-        let array_view = self.array_tex.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("array-view"),
-            format: None,
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-        self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("composite-bg"),
-            layout: &self.bind_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&array_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.uniform_buf.as_entire_binding(),
-                },
-            ],
-        }));
+        ctx.queue.submit(Some(encoder.finish()));
+        ctx.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|error| format!("GPU poll failed during array repack: {error:?}"))?;
+
+        if self.array_dirty || self.bind_group.is_none() {
+            let array_view = self.array_tex.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("array-view"),
+                format: None,
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+            self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("composite-bg"),
+                layout: &self.bind_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&array_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.uniform_buf.as_entire_binding(),
+                    },
+                ],
+            }));
+        }
         self.array_dirty = false;
+        self.dirty_slices.clear();
+        Ok(())
     }
 
     /// Composite layers bottom→top in one full-screen pass. Returns host-measured ms (submit+poll).
-    pub fn composite(&mut self, ctx: &GpuContext, layers_bottom_to_top: &[Layer]) -> f32 {
-        self.repack_array_if_needed(ctx);
+    ///
+    /// # Errors
+    /// Returns an error when GPU poll fails or the bind group is missing after repack.
+    pub fn composite(
+        &mut self,
+        ctx: &GpuContext,
+        layers_bottom_to_top: &[Layer],
+    ) -> Result<f32, String> {
+        self.repack_array_if_needed(ctx)?;
 
         let count = layers_bottom_to_top.len().min(MAX_LAYERS);
         let mut uniforms = UniformsGpu {
-            layer_count: count as u32,
+            layer_count: u32::try_from(count).unwrap_or(0),
             _pad0: 0,
             _pad1: 0,
             _pad2: 0,
@@ -393,7 +456,6 @@ impl LayerCompositeEngine {
         };
 
         for (i, layer) in layers_bottom_to_top.iter().take(count).enumerate() {
-            // Shader indexes array by stack order i; repack uses same order.
             let _ = self.layer_index.get(&layer.id);
             uniforms.layers[i] = LayerParamsGpu {
                 opacity: layer.opacity.clamp(0.0, 1.0),
@@ -407,7 +469,7 @@ impl LayerCompositeEngine {
             .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniforms));
 
         let Some(bind) = self.bind_group.as_ref() else {
-            return 0.0;
+            return Err("composite bind group missing".to_owned());
         };
         let result_view = self
             .result
@@ -451,10 +513,12 @@ impl LayerCompositeEngine {
         );
 
         ctx.queue.submit(Some(encoder.finish()));
-        ctx.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        ctx.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|error| format!("GPU poll failed during composite: {error:?}"))?;
         let ms = t0.elapsed().as_secs_f32() * 1000.0;
         self.last_composite_ms = ms;
-        ms
+        Ok(ms)
     }
 
     pub fn result_texture(&self) -> &wgpu::Texture {
@@ -603,9 +667,13 @@ impl LayerCompositeEngine {
         Ok(output)
     }
 
-    /// After painting into a layer texture, force array repack on next composite.
+    /// After painting into a layer texture, mark only that array slice dirty.
     pub fn mark_layer_painted(&mut self, id: LayerId) {
-        if self.layer_tex.contains_key(&id) {
+        if let Some(&slice) = self.layer_index.get(&id) {
+            if !self.dirty_slices.contains(&slice) {
+                self.dirty_slices.push(slice);
+            }
+        } else if self.layer_tex.contains_key(&id) {
             self.array_dirty = true;
         }
     }
@@ -711,7 +779,9 @@ pub fn benchmark_10x4k_ms(ctx: &GpuContext) -> f32 {
     let size = DocumentSize::new(3840, 2160);
     let mut graph = DocumentGraph::new(size);
     while graph.layer_count() < 10 {
-        graph.add_layer_top(None);
+        if graph.add_layer_top(None).is_err() {
+            break;
+        }
     }
     for (i, layer) in graph.layers().to_vec().into_iter().enumerate() {
         let blend = match i % 4 {
@@ -725,13 +795,22 @@ pub fn benchmark_10x4k_ms(ctx: &GpuContext) -> f32 {
     }
 
     let mut engine = LayerCompositeEngine::new(ctx, size);
-    engine.sync_layers_from_graph(ctx, graph.layers());
+    if let Err(error) = engine.sync_layers_from_graph(ctx, graph.layers()) {
+        eprintln!("[phototux_gpu] 10×4K sync failed: {error}");
+        return f32::MAX;
+    }
     for _ in 0..5 {
         let _ = engine.composite(ctx, graph.layers());
     }
     let mut best = f32::MAX;
     for _ in 0..10 {
-        best = best.min(engine.composite(ctx, graph.layers()));
+        match engine.composite(ctx, graph.layers()) {
+            Ok(ms) => best = best.min(ms),
+            Err(error) => {
+                eprintln!("[phototux_gpu] 10×4K composite failed: {error}");
+                return f32::MAX;
+            }
+        }
     }
     best
 }
@@ -748,15 +827,50 @@ mod tests {
         let size = DocumentSize::new(256, 256);
         let graph = DocumentGraph::new(size);
         let mut eng = LayerCompositeEngine::new(&ctx, size);
-        eng.sync_layers_from_graph(&ctx, graph.layers());
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
         let layer_id = graph.layers()[0].id;
         let backup = eng
             .clone_layer_texture(&ctx, layer_id)
             .expect("clone layer texture");
         eng.restore_layer_texture(&ctx, layer_id, &backup);
-        let ms = eng.composite(&ctx, graph.layers());
+        let ms = eng.composite(&ctx, graph.layers()).expect("composite");
         assert!(ms >= 0.0);
         assert_eq!(eng.result_texture().width(), 256);
+    }
+
+    #[test]
+    fn painted_layer_marks_only_dirty_slice() {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(64, 64);
+        let graph = DocumentGraph::new(size);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        eng.composite(&ctx, graph.layers()).expect("composite");
+        let id = graph.layers()[0].id;
+        eng.mark_layer_painted(id);
+        // Incremental path: next composite must succeed without full membership rebuild.
+        assert!(eng.composite(&ctx, graph.layers()).is_ok());
+    }
+
+    #[test]
+    fn sync_rejects_over_max_layers() {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(32, 32);
+        let mut graph = DocumentGraph::new(size);
+        while graph.layer_count() < MAX_LAYERS {
+            graph.add_layer_top(None).expect("fill to cap");
+        }
+        // Bypass graph cap via insert to exercise compositor rejection.
+        let overflow = phototux_engine::Layer::new(phototux_engine::LayerId(10_000), "overflow");
+        graph.insert_layer_at(graph.layer_count(), overflow);
+        assert!(graph.layer_count() > MAX_LAYERS);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        let err = eng
+            .sync_layers_from_graph(&ctx, graph.layers())
+            .expect_err("over-cap sync");
+        assert!(err.contains("at most"));
     }
 
     #[test]
@@ -765,7 +879,9 @@ mod tests {
         let size = DocumentSize::new(2, 1);
         let graph = DocumentGraph::new(size);
         let mut engine = LayerCompositeEngine::new(&ctx, size);
-        engine.sync_layers_from_graph(&ctx, graph.layers());
+        engine
+            .sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
         let pixels = [12, 34, 56, 255, 12, 34, 56, 255];
 
         for layer in graph.layers() {
@@ -773,7 +889,7 @@ mod tests {
                 .write_layer_rgba(&ctx, layer.id, &pixels)
                 .expect("upload layer");
         }
-        engine.composite(&ctx, graph.layers());
+        engine.composite(&ctx, graph.layers()).expect("composite");
         let readback = engine.read_result_rgba(&ctx).expect("read composite");
 
         assert_eq!(readback, pixels);

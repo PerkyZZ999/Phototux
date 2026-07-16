@@ -4,6 +4,7 @@ edition.workspace = true
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
+publish = false
 description = "Bounded PNG/JPEG codecs for PhotoTux raster file operations"
 
 [dependencies]

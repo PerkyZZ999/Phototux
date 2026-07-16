@@ -1,7 +1,7 @@
 //! GPU circular dab stamps onto a layer texture.
 
 use bytemuck::{Pod, Zeroable};
-use phototux_engine::BrushParams;
+use phototux_engine::{BrushParams, Dab};
 
 use crate::GpuContext;
 
@@ -64,12 +64,35 @@ struct StampUniforms {
     _pad2: u32,
 }
 
+/// Packed stamp parameters for a single dab (avoids `too_many_arguments`).
+#[derive(Debug, Clone, Copy)]
+pub struct StampRequest {
+    pub x: f32,
+    pub y: f32,
+    pub radius_px: f32,
+    pub pressure: f32,
+    pub params: BrushParams,
+}
+
+impl StampRequest {
+    pub fn from_dab(dab: Dab, params: BrushParams) -> Self {
+        Self {
+            x: dab.x,
+            y: dab.y,
+            radius_px: dab.radius,
+            pressure: dab.pressure,
+            params,
+        }
+    }
+}
+
 /// Reusable stamp pipeline for dabbing into layer textures.
 pub struct BrushStamper {
     pipeline_paint: wgpu::RenderPipeline,
     pipeline_erase: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
-    uniform_buf: wgpu::Buffer,
+    /// One uniform buffer slot per dab in a batch; resized as needed.
+    uniform_bufs: Vec<wgpu::Buffer>,
     width: u32,
     height: u32,
 }
@@ -163,97 +186,145 @@ impl BrushStamper {
             },
         };
 
-        let uniform_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("stamp-ubo"),
-            size: std::mem::size_of::<StampUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         Self {
             pipeline_paint: make_pipe(paint_blend, "stamp-paint"),
             pipeline_erase: make_pipe(erase_blend, "stamp-erase"),
             bind_layout,
-            uniform_buf,
+            uniform_bufs: Vec::new(),
             width: width.max(1),
             height: height.max(1),
         }
     }
 
-    pub fn stamp(
-        &self,
-        ctx: &GpuContext,
-        target: &wgpu::Texture,
-        x: f32,
-        y: f32,
-        radius_px: f32,
-        params: BrushParams,
-        pressure: f32,
-    ) {
+    fn ensure_uniform_slots(&mut self, ctx: &GpuContext, count: usize) {
+        while self.uniform_bufs.len() < count {
+            let buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("stamp-ubo"),
+                size: std::mem::size_of::<StampUniforms>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.uniform_bufs.push(buf);
+        }
+    }
+
+    fn uniforms_for(&self, req: StampRequest) -> StampUniforms {
         let w = self.width as f32;
         let h = self.height as f32;
         let max_dim = w.max(h);
-        let cx = x / w;
-        let cy = y / h;
-        let radius_uv = (radius_px * pressure.clamp(0.05, 1.0)) / max_dim;
-        let u = StampUniforms {
+        let cx = req.x / w;
+        let cy = req.y / h;
+        let radius_uv = (req.radius_px * req.pressure.clamp(0.05, 1.0)) / max_dim;
+        StampUniforms {
             center_x: cx,
             center_y: cy,
             radius_uv,
-            hardness: params.hardness.clamp(0.0, 1.0),
-            color: params.color,
-            eraser: u32::from(params.eraser),
+            hardness: req.params.hardness.clamp(0.0, 1.0),
+            color: req.params.color,
+            eraser: u32::from(req.params.eraser),
             _pad0: 0,
             _pad1: 0,
             _pad2: 0,
-        };
-        // Fix fragment shader: center is vec2, we packed as center_x/y - shader expects u.center
-        // Our struct matches with center as first two floats = vec2 in std140 if aligned.
-        // WGSL uniform struct: center: vec2, radius, hardness, color vec4, eraser u32 — need matching layout.
+        }
+    }
 
-        ctx.queue
-            .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&u));
+    /// Stamp one dab (convenience wrapper around [`Self::stamp_batch`]).
+    pub fn stamp(&mut self, ctx: &GpuContext, target: &wgpu::Texture, request: StampRequest) {
+        self.stamp_batch(ctx, target, &[request]);
+    }
 
+    /// Stamp many dabs in a single GPU submission.
+    pub fn stamp_batch(
+        &mut self,
+        ctx: &GpuContext,
+        target: &wgpu::Texture,
+        requests: &[StampRequest],
+    ) {
+        if requests.is_empty() {
+            return;
+        }
+        self.ensure_uniform_slots(ctx, requests.len());
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("stamp-bg"),
-            layout: &self.bind_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.uniform_buf.as_entire_binding(),
-            }],
-        });
-
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("stamp-enc"),
+                label: Some("stamp-batch-enc"),
             });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("stamp-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
+
+        for (i, req) in requests.iter().copied().enumerate() {
+            let u = self.uniforms_for(req);
+            let ubo = &self.uniform_bufs[i];
+            ctx.queue.write_buffer(ubo, 0, bytemuck::bytes_of(&u));
+            let bind = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("stamp-bg"),
+                layout: &self.bind_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ubo.as_entire_binding(),
+                }],
             });
-            pass.set_pipeline(if params.eraser {
-                &self.pipeline_erase
-            } else {
-                &self.pipeline_paint
-            });
-            pass.set_bind_group(0, &bind, &[]);
-            pass.draw(0..3, 0..1);
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("stamp-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(if req.params.eraser {
+                    &self.pipeline_erase
+                } else {
+                    &self.pipeline_paint
+                });
+                pass.set_bind_group(0, &bind, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
         ctx.queue.submit(Some(encoder.finish()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phototux_engine::Dab;
+
+    #[test]
+    fn stamp_request_from_dab_preserves_fields() {
+        let params = BrushParams {
+            size: 12.0,
+            hardness: 0.8,
+            color: [1.0, 0.0, 0.0, 1.0],
+            eraser: false,
+        };
+        let dab = Dab {
+            x: 10.0,
+            y: 20.0,
+            radius: 8.0,
+            pressure: 0.5,
+        };
+        let req = StampRequest::from_dab(dab, params);
+        assert_eq!(req.x, 10.0);
+        assert_eq!(req.y, 20.0);
+        assert_eq!(req.radius_px, 8.0);
+        assert_eq!(req.pressure, 0.5);
+        assert!(!req.params.eraser);
+    }
+
+    #[test]
+    fn stamp_batch_empty_is_noop() {
+        let ctx = crate::GpuContext::new().expect("gpu");
+        let mut stamper = BrushStamper::new(&ctx, 64, 64);
+        let tex = ctx.create_cleared_texture(64, 64, [0.0, 0.0, 0.0, 0.0]);
+        stamper.stamp_batch(&ctx, &tex, &[]);
     }
 }

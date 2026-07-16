@@ -15,28 +15,56 @@ struct WorkerState {
 
 /// Handle to enqueue paint commands from the UI thread.
 pub struct PaintWorker {
-    tx: Sender<EngineCommand>,
+    tx: Option<Sender<EngineCommand>>,
     rx_ev: Receiver<EngineEvent>,
     join: Option<JoinHandle<()>>,
+    start_error: Option<String>,
 }
 
 impl PaintWorker {
+    /// Spawn the paint worker thread.
+    ///
+    /// # Errors
+    /// Returns an error when the OS rejects thread creation. The returned worker still
+    /// exists with `send` failing so UI construction can report the failure.
     pub fn start() -> Self {
         let (tx, rx) = mpsc::channel::<EngineCommand>();
         let (tx_ev, rx_ev) = mpsc::channel::<EngineEvent>();
-        let join = thread::Builder::new()
+        match thread::Builder::new()
             .name("phototux-paint".into())
             .spawn(move || worker_loop(rx, tx_ev))
-            .expect("spawn paint worker");
-        Self {
-            tx,
-            rx_ev,
-            join: Some(join),
+        {
+            Ok(join) => Self {
+                tx: Some(tx),
+                rx_ev,
+                join: Some(join),
+                start_error: None,
+            },
+            Err(error) => Self {
+                tx: None,
+                rx_ev,
+                join: None,
+                start_error: Some(format!("failed to spawn paint worker: {error}")),
+            },
         }
     }
 
-    pub fn send(&self, cmd: EngineCommand) {
-        let _ = self.tx.send(cmd);
+    pub fn start_error(&self) -> Option<&str> {
+        self.start_error.as_deref()
+    }
+
+    /// Enqueue a paint command.
+    ///
+    /// # Errors
+    /// Returns an error when the worker failed to start or has shut down.
+    pub fn send(&self, cmd: EngineCommand) -> Result<(), String> {
+        let Some(tx) = self.tx.as_ref() else {
+            return Err(self
+                .start_error
+                .clone()
+                .unwrap_or_else(|| "paint worker unavailable".to_owned()));
+        };
+        tx.send(cmd).map_err(|_| "paint worker stopped".to_owned())
     }
 
     pub fn poll_events(&self) -> Vec<EngineEvent> {
@@ -54,7 +82,9 @@ impl PaintWorker {
 
 impl Drop for PaintWorker {
     fn drop(&mut self) {
-        let _ = self.tx.send(EngineCommand::Shutdown);
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(EngineCommand::Shutdown);
+        }
         if let Some(j) = self.join.take() {
             let _ = j.join();
         }
@@ -120,9 +150,12 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                     builder.end();
                 }
                 st.stroke = None;
-                // Final composite
                 if let Some(layer) = st.layer {
-                    let _ = super::document_gpu::stamp_dabs(layer, &[], st.brush, None, true);
+                    if let Err(e) =
+                        super::document_gpu::stamp_dabs(layer, &[], st.brush, None, true)
+                    {
+                        let _ = tx_ev.send(EngineEvent::Error(e));
+                    }
                 }
                 if let Err(e) = super::document_gpu::end_stroke() {
                     let _ = tx_ev.send(EngineEvent::Error(e));
@@ -175,5 +208,21 @@ fn apply_dabs(
         Err(e) => {
             let _ = tx_ev.send(EngineEvent::Error(e));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phototux_engine::EngineCommand;
+
+    #[test]
+    fn start_and_send_round_trip() {
+        let worker = PaintWorker::start();
+        assert!(worker.start_error().is_none());
+        worker
+            .send(EngineCommand::SetBrush(BrushParams::default()))
+            .expect("send");
+        worker.send(EngineCommand::Shutdown).expect("shutdown");
     }
 }

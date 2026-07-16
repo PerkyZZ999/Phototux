@@ -1,11 +1,36 @@
 # Project config for rust-doctor pre-commit / agent scans.
 # See: rust-doctor skill + `rust-doctor --help`
+#
+# Primary quality gate remains scripts/check-rust.sh `--fail-on error`.
+# Scope (owner 2026-07-15): fix first-party correctness/perf/config;
+# retain reviewed exclusions for publication/workspace noise, intentional
+# FFI audit noise, and build/spike paths.
+#
+# Residual noise (accepted, not chaseable via ignore allowlist):
+# - pedantic Clippy from doctor's pass (`must_use_candidate`, …)
+# - `clippy::multiple_crate_versions` (ignore key does not match diagnostic id)
+# - third-party `unsafe-dependency` when cargo-geiger completes
+# - coverage `skipped-pass` / geiger timeouts
+
+fail_on = "error"
+verbose = true
 
 [score]
-# Fail hook when overall score drops below this (when supported by CLI config).
-# Primary gate in scripts/check-rust.sh is --fail-on error.
 fail_below = 70
 
-[scan]
-# Prefer offline in hooks; agents may re-run without offline for full advisory data.
-default_offline = true
+[ignore]
+# Unreleased GPL app: crates.io metadata noise.
+# `unused-dependency`: false positive on workspace `cc`/`pollster`.
+# `unsafe-block-audit`: intentional FFI (ADR-003/005), SAFETY-commented.
+rules = [
+    "cargo_common_metadata",
+    "multiple_crate_versions",
+    "unused-dependency",
+    "unsafe-block-audit",
+]
+# Build scripts may panic when Qt/CMake tooling is missing (expected).
+# Spike crate is throwaway validation (ADR-010), not production surface.
+files = [
+    "**/build.rs",
+    "crates/phototux-spike-interop/**",
+]

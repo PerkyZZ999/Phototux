@@ -24,10 +24,13 @@ fn main() {
     // SAFETY: single-threaded main before Qt starts; intentional env mutation.
     unsafe {
         std::env::set_var("QSG_RHI_BACKEND", "vulkan");
-        if let Some(path) = std::env::args_os()
-            .nth(1)
-            .filter(|argument| !argument.to_string_lossy().starts_with('-'))
-        {
+    }
+    if let Some(path) = std::env::args_os()
+        .nth(1)
+        .filter(|argument| !argument.to_string_lossy().starts_with('-'))
+    {
+        // SAFETY: single-threaded main before Qt starts; intentional env mutation.
+        unsafe {
             std::env::set_var("PHOTOTUX_DESKTOP_OPEN", path);
         }
     }

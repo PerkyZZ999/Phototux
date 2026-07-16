@@ -3,8 +3,10 @@
 mod brush;
 mod composite;
 
-pub use brush::BrushStamper;
-pub use composite::{LayerCompositeEngine, benchmark_10x4k_ms};
+pub use brush::{BrushStamper, StampRequest};
+pub use composite::LayerCompositeEngine;
+pub use composite::benchmark_10x4k_ms;
+pub use phototux_engine::MAX_LAYERS;
 
 use std::sync::Arc;
 
@@ -75,8 +77,7 @@ impl GpuContext {
         }))
         .map_err(|_| GpuError::RequestAdapter)?;
         if adapter.get_info().backend != wgpu::Backend::Vulkan {
-            // Still allow if only other backends appear, but spike targets Vulkan.
-            // Prefer fail soft only when no adapter at all.
+            return Err(GpuError::NoAdapter);
         }
 
         let info_raw = adapter.get_info();
@@ -163,7 +164,7 @@ impl GpuContext {
         }
 
         self.queue.submit(Some(encoder.finish()));
-        self.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         texture
     }
 
