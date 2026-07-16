@@ -48,7 +48,7 @@ impl ColorState {
     }
 
     fn push_recent(&mut self, rgba: [f32; 4]) {
-        self.recent.retain(|c| c != &rgba);
+        self.recent.retain(|c| !rgba_nearly_equal(*c, rgba));
         self.recent.insert(0, rgba);
         self.recent.truncate(16);
     }
@@ -56,9 +56,9 @@ impl ColorState {
     pub fn to_hex(rgba: [f32; 4]) -> String {
         format!(
             "#{:02X}{:02X}{:02X}",
-            (rgba[0] * 255.0).round() as u8,
-            (rgba[1] * 255.0).round() as u8,
-            (rgba[2] * 255.0).round() as u8
+            channel_to_u8(rgba[0]),
+            channel_to_u8(rgba[1]),
+            channel_to_u8(rgba[2])
         )
     }
 
@@ -86,6 +86,26 @@ fn clamp_rgba(rgba: [f32; 4]) -> [f32; 4] {
         rgba[2].clamp(0.0, 1.0),
         rgba[3].clamp(0.0, 1.0),
     ]
+}
+
+fn channel_to_u8(channel: f32) -> u8 {
+    let scaled = (channel.clamp(0.0, 1.0) * 255.0).round();
+    // Channel is clamped to [0, 1]; scaled fits in 0..=255.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "channel clamped to unit interval before u8 conversion"
+    )]
+    {
+        scaled as u8
+    }
+}
+
+fn rgba_nearly_equal(a: [f32; 4], b: [f32; 4]) -> bool {
+    const EPS: f32 = 1e-5;
+    a.iter()
+        .zip(b.iter())
+        .all(|(lhs, rhs)| (lhs - rhs).abs() <= EPS)
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::DocumentSize;
+use crate::error::DocumentError;
 use crate::layer::{
     AdjustmentParams, BlendMode, Layer, LayerId, LayerKind, LayerMask, TextContent,
 };
@@ -150,12 +151,10 @@ impl DocumentGraph {
     /// Add a raster layer on top of the stack.
     ///
     /// # Errors
-    /// Returns an error when the document already has [`MAX_LAYERS`] layers.
-    pub fn add_layer_top(&mut self, name: Option<String>) -> Result<LayerId, String> {
+    /// Returns [`DocumentError::LayerLimitReached`] when the document already has [`MAX_LAYERS`] layers.
+    pub fn add_layer_top(&mut self, name: Option<String>) -> Result<LayerId, DocumentError> {
         if !self.can_add_layer() {
-            return Err(format!(
-                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
-            ));
+            return Err(DocumentError::layer_limit(MAX_LAYERS));
         }
         let n = self
             .layers
@@ -175,12 +174,10 @@ impl DocumentGraph {
     /// Add a group on top.
     ///
     /// # Errors
-    /// Returns an error when the layer cap is reached.
-    pub fn add_group_top(&mut self, name: Option<String>) -> Result<LayerId, String> {
+    /// Returns [`DocumentError::LayerLimitReached`] when the layer cap is reached.
+    pub fn add_group_top(&mut self, name: Option<String>) -> Result<LayerId, DocumentError> {
         if !self.can_add_layer() {
-            return Err(format!(
-                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
-            ));
+            return Err(DocumentError::layer_limit(MAX_LAYERS));
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
@@ -194,16 +191,14 @@ impl DocumentGraph {
     /// Add a text layer on top.
     ///
     /// # Errors
-    /// Returns an error when the layer cap is reached.
+    /// Returns [`DocumentError::LayerLimitReached`] when the layer cap is reached.
     pub fn add_text_top(
         &mut self,
         name: Option<String>,
         content: TextContent,
-    ) -> Result<LayerId, String> {
+    ) -> Result<LayerId, DocumentError> {
         if !self.can_add_layer() {
-            return Err(format!(
-                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
-            ));
+            return Err(DocumentError::layer_limit(MAX_LAYERS));
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
@@ -217,16 +212,14 @@ impl DocumentGraph {
     /// Add an adjustment layer on top.
     ///
     /// # Errors
-    /// Returns an error when the layer cap is reached.
+    /// Returns [`DocumentError::LayerLimitReached`] when the layer cap is reached.
     pub fn add_adjustment_top(
         &mut self,
         name: Option<String>,
         params: AdjustmentParams,
-    ) -> Result<LayerId, String> {
+    ) -> Result<LayerId, DocumentError> {
         if !self.can_add_layer() {
-            return Err(format!(
-                "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
-            ));
+            return Err(DocumentError::layer_limit(MAX_LAYERS));
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
@@ -360,7 +353,7 @@ impl DocumentGraph {
             .map(|l| {
                 l.parent
                     .map(|id| id.0.to_string())
-                    .unwrap_or_else(|| "-".into())
+                    .unwrap_or_else(|| String::from("-"))
             })
             .collect::<Vec<_>>()
             .join("|")

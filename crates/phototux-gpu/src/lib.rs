@@ -177,6 +177,7 @@ impl GpuContext {
     pub fn texture_vk_image_handle(texture: &wgpu::Texture) -> Option<u64> {
         use ash::vk::Handle;
         // SAFETY: texture must outlive this call; we only read the raw VkImage handle.
+        // SAFETY: texture HAL borrow is valid while `texture` is alive; handle is not owned.
         unsafe {
             texture
                 .as_hal::<wgpu::hal::api::Vulkan>()
@@ -191,18 +192,17 @@ impl GpuContext {
     pub fn vulkan_device_handles(&self) -> Option<VulkanDeviceHandles> {
         use ash::vk::Handle;
 
-        // SAFETY: guards remain alive for each handle read; no ownership is transferred.
-        unsafe {
-            let instance = self.instance.as_hal::<wgpu::hal::api::Vulkan>()?;
-            let device = self.device.as_hal::<wgpu::hal::api::Vulkan>()?;
-            Some(VulkanDeviceHandles {
-                instance: instance.shared_instance().raw_instance().handle().as_raw(),
-                physical_device: device.raw_physical_device().as_raw(),
-                device: device.raw_device().handle().as_raw(),
-                queue_family_index: device.queue_family_index(),
-                queue_index: device.queue_index(),
-            })
-        }
+        // SAFETY: wgpu HAL borrow is valid for the lifetime of `self.instance`.
+        let instance = unsafe { self.instance.as_hal::<wgpu::hal::api::Vulkan>()? };
+        // SAFETY: wgpu HAL borrow is valid for the lifetime of `self.device`.
+        let device = unsafe { self.device.as_hal::<wgpu::hal::api::Vulkan>()? };
+        Some(VulkanDeviceHandles {
+            instance: instance.shared_instance().raw_instance().handle().as_raw(),
+            physical_device: device.raw_physical_device().as_raw(),
+            device: device.raw_device().handle().as_raw(),
+            queue_family_index: device.queue_family_index(),
+            queue_index: device.queue_index(),
+        })
     }
 }
 

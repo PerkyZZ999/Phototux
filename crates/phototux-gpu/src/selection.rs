@@ -60,16 +60,28 @@ impl SelectionMask {
     }
 
     pub fn apply_rect(&mut self, ctx: &GpuContext, rect: SelectionRect, combine: SelectionCombine) {
-        let x0 = rect.x.max(0) as u32;
-        let y0 = rect.y.max(0) as u32;
-        let x1 = (rect.x + rect.width as i32).clamp(0, self.width as i32) as u32;
-        let y1 = (rect.y + rect.height as i32).clamp(0, self.height as i32) as u32;
+        let x0 = u32::try_from(rect.x.max(0)).unwrap_or(0);
+        let y0 = u32::try_from(rect.y.max(0)).unwrap_or(0);
+        let width_i = i32::try_from(self.width).unwrap_or(i32::MAX);
+        let height_i = i32::try_from(self.height).unwrap_or(i32::MAX);
+        let rect_w = i32::try_from(rect.width).unwrap_or(i32::MAX);
+        let rect_h = i32::try_from(rect.height).unwrap_or(i32::MAX);
+        let x1 = u32::try_from((rect.x.saturating_add(rect_w)).clamp(0, width_i)).unwrap_or(0);
+        let y1 = u32::try_from((rect.y.saturating_add(rect_h)).clamp(0, height_i)).unwrap_or(0);
         for y in 0..self.height {
             for x in 0..self.width {
                 let inside = x >= x0 && x < x1 && y >= y0 && y < y1;
-                let idx = (y * self.width + x) as usize;
-                let prev = self.cpu[idx];
-                self.cpu[idx] = match combine {
+                let Some(idx) = (y as usize)
+                    .checked_mul(self.width as usize)
+                    .and_then(|row| row.checked_add(x as usize))
+                else {
+                    continue;
+                };
+                let Some(slot) = self.cpu.get_mut(idx) else {
+                    continue;
+                };
+                let prev = *slot;
+                *slot = match combine {
                     SelectionCombine::Replace => {
                         if inside {
                             255

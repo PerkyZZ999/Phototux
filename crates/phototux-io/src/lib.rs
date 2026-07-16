@@ -213,29 +213,29 @@ where
                 ExtendedColorType::Rgb8,
             )?;
         }
-        RasterFormat::Webp | RasterFormat::Tiff | RasterFormat::Bmp | RasterFormat::Gif => {
-            let image = image::RgbaImage::from_raw(
-                raster.width(),
-                raster.height(),
-                raster.pixels().to_vec(),
-            )
+        RasterFormat::Webp => write_dynamic_format(&mut writer, raster, ImageFormat::WebP)?,
+        RasterFormat::Tiff => write_dynamic_format(&mut writer, raster, ImageFormat::Tiff)?,
+        RasterFormat::Bmp => write_dynamic_format(&mut writer, raster, ImageFormat::Bmp)?,
+        RasterFormat::Gif => write_dynamic_format(&mut writer, raster, ImageFormat::Gif)?,
+    }
+    Ok(())
+}
+
+fn write_dynamic_format<W: Write>(
+    writer: &mut W,
+    raster: &Raster,
+    format: ImageFormat,
+) -> Result<(), RasterIoError> {
+    let image =
+        image::RgbaImage::from_raw(raster.width(), raster.height(), raster.pixels().to_vec())
             .ok_or(RasterIoError::InvalidPixelLength {
                 expected: raster.pixels().len(),
                 actual: raster.pixels().len(),
             })?;
-            let dynamic = DynamicImage::ImageRgba8(image);
-            let fmt = match format {
-                RasterFormat::Webp => ImageFormat::WebP,
-                RasterFormat::Tiff => ImageFormat::Tiff,
-                RasterFormat::Bmp => ImageFormat::Bmp,
-                RasterFormat::Gif => ImageFormat::Gif,
-                RasterFormat::Png | RasterFormat::Jpeg => unreachable!(),
-            };
-            let mut cursor = std::io::Cursor::new(Vec::new());
-            dynamic.write_to(&mut cursor, fmt)?;
-            writer.write_all(cursor.get_ref())?;
-        }
-    }
+    let dynamic = DynamicImage::ImageRgba8(image);
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    dynamic.write_to(&mut cursor, format)?;
+    writer.write_all(cursor.get_ref())?;
     Ok(())
 }
 

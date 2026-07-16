@@ -152,15 +152,21 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
             },
             FileCommand::OpenPsd(path) => match import_psd_path(&path) {
                 Ok(imported) => {
-                    let raster = imported.flattened.unwrap_or_else(|| {
-                        Raster::new(1, 1, vec![0, 0, 0, 255].into_boxed_slice())
-                            .expect("1x1 placeholder")
-                    });
-                    FileEvent::PsdOpened {
-                        path,
-                        graph: imported.graph,
-                        raster,
-                        report: imported.report,
+                    let raster = match imported.flattened {
+                        Some(raster) => Ok(raster),
+                        None => placeholder_raster(),
+                    };
+                    match raster {
+                        Ok(raster) => FileEvent::PsdOpened {
+                            path,
+                            graph: imported.graph,
+                            raster,
+                            report: imported.report,
+                        },
+                        Err(message) => FileEvent::Failed {
+                            operation: "Open",
+                            message,
+                        },
                     }
                 }
                 Err(error) => FileEvent::Failed {
@@ -239,6 +245,10 @@ fn autosave_document(
             message,
         },
     }
+}
+
+fn placeholder_raster() -> Result<Raster, String> {
+    Raster::new(1, 1, vec![0, 0, 0, 255].into_boxed_slice()).map_err(|error| error.to_string())
 }
 
 fn export_document(path: PathBuf, format: RasterFormat, cancel: &CancelToken) -> FileEvent {

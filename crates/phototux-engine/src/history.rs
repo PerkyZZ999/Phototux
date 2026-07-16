@@ -4,7 +4,7 @@ use crate::document::DocumentGraph;
 use crate::undo::{GraphCommand, UndoStack};
 
 /// Chronological entry kind for the session history panel / undo dispatch.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryKind {
     /// Graph metadata mutation already recorded in [`UndoStack`].
     Graph,
@@ -122,7 +122,7 @@ impl HistoryService {
             }
             HistoryKind::Stroke | HistoryKind::Selection | HistoryKind::Transform => {}
         }
-        let kind = entry.kind.clone();
+        let kind = entry.kind;
         self.redo.push(entry);
         Some(kind)
     }
@@ -136,7 +136,7 @@ impl HistoryService {
             }
             HistoryKind::Stroke | HistoryKind::Selection | HistoryKind::Transform => {}
         }
-        let kind = entry.kind.clone();
+        let kind = entry.kind;
         self.undo.push(entry);
         Some(kind)
     }

@@ -6,6 +6,7 @@ mod cancel;
 mod color;
 mod command;
 mod document;
+mod error;
 mod guides;
 mod history;
 mod layer;
@@ -20,6 +21,7 @@ pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
 pub use command::{EngineCommand, EngineEvent};
 pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
+pub use error::DocumentError;
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{

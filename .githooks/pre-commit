@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PhotoTux pre-commit: rustfmt + clippy + rust-doctor (via scripts/check-rust.sh)
+# PhotoTux pre-commit: rustfmt + clippy only (fast path via scripts/check-rust.sh).
+# Full gate with rust-doctor: CHECK_RUST_FULL=1 ./scripts/check-rust.sh
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"

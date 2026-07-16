@@ -62,18 +62,19 @@ pub fn import_psd_bytes(bytes: &[u8], name_hint: Option<&str>) -> Result<PsdImpo
     if bytes.len() < 26 {
         return Err(PsdError::BadSignature);
     }
-    if &bytes[0..4] != b"8BPS" {
+    let sig = bytes.get(0..4).ok_or(PsdError::BadSignature)?;
+    if sig != b"8BPS" {
         return Err(PsdError::BadSignature);
     }
-    let version = u16::from_be_bytes([bytes[4], bytes[5]]);
+    let version = read_u16_be(bytes, 4)?;
     if version != 1 {
         return Err(PsdError::UnsupportedVersion);
     }
-    let channels = u16::from_be_bytes([bytes[12], bytes[13]]);
-    let height = u32::from_be_bytes(bytes[14..18].try_into().expect("4"));
-    let width = u32::from_be_bytes(bytes[18..22].try_into().expect("4"));
-    let depth = u16::from_be_bytes([bytes[22], bytes[23]]);
-    let color_mode = u16::from_be_bytes([bytes[24], bytes[25]]);
+    let channels = read_u16_be(bytes, 12)?;
+    let height = read_u32_be(bytes, 14)?;
+    let width = read_u32_be(bytes, 18)?;
+    let depth = read_u16_be(bytes, 22)?;
+    let color_mode = read_u16_be(bytes, 24)?;
 
     let mut report = vec![
         CompatibilityIssue {
@@ -117,25 +118,31 @@ pub fn import_psd_bytes(bytes: &[u8], name_hint: Option<&str>) -> Result<PsdImpo
     let height = height.clamp(1, crate::MAX_DIMENSION);
     let name = name_hint.unwrap_or("Imported PSD").to_owned();
     let mut graph = DocumentGraph::new_flattened(DocumentSize::new(width, height), name);
+    let layer_id = graph
+        .layers()
+        .first()
+        .map(|layer| layer.id)
+        .ok_or_else(|| PsdError::Parse("flattened PSD graph has no layer".into()))?;
     // Ensure blend metadata exists for future layered mapping.
-    if let Some(layer) = graph.get_mut(graph.layers()[0].id) {
+    if let Some(layer) = graph.get_mut(layer_id) {
         layer.blend = BlendMode::Normal;
     }
 
     // Attempt to synthesize an opaque placeholder when raw composite is not decoded.
     // Full channel decompression is deferred; callers still get a valid graph + report.
+    // `width`/`height` are already clamped to `MAX_DIMENSION`; product fits `usize` on supported targets.
     let pixel_len = (width as usize)
         .saturating_mul(height as usize)
         .saturating_mul(4);
     let mut pixels = vec![0_u8; pixel_len];
     for px in pixels.chunks_exact_mut(4) {
-        px[0] = 32;
-        px[1] = 32;
-        px[2] = 36;
-        px[3] = 255;
+        let [r, g, b, a] = px else { continue };
+        *r = 32;
+        *g = 32;
+        *b = 36;
+        *a = 255;
     }
     let flattened = Raster::new(width, height, pixels.into_boxed_slice())?;
-    let layer_id = graph.layers()[0].id;
     report.push(CompatibilityIssue {
         code: "psd.pixels".into(),
         message: "Composite pixels were not fully decoded from channel data; a placeholder layer was created. Prefer native .ptx or flattened export for fidelity.".into(),
@@ -154,10 +161,26 @@ fn skip_length_prefixed_block(cursor: &mut Cursor<&[u8]>) -> Result<(), PsdError
     cursor
         .read_exact(&mut len_buf)
         .map_err(|e| PsdError::Parse(e.to_string()))?;
-    let len = u32::from_be_bytes(len_buf) as u64;
+    let len = u64::from(u32::from_be_bytes(len_buf));
     let pos = cursor.position();
     cursor.set_position(pos.saturating_add(len));
     Ok(())
+}
+
+fn read_u16_be(bytes: &[u8], offset: usize) -> Result<u16, PsdError> {
+    let slice = bytes
+        .get(offset..offset + 2)
+        .ok_or(PsdError::BadSignature)?;
+    let array: [u8; 2] = slice.try_into().map_err(|_| PsdError::BadSignature)?;
+    Ok(u16::from_be_bytes(array))
+}
+
+fn read_u32_be(bytes: &[u8], offset: usize) -> Result<u32, PsdError> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or(PsdError::BadSignature)?;
+    let array: [u8; 4] = slice.try_into().map_err(|_| PsdError::BadSignature)?;
+    Ok(u32::from_be_bytes(array))
 }
 
 /// Format a compatibility report for UI display.

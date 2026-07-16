@@ -9,9 +9,9 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    AdjustmentParams, BlendMode, DocumentGraph, DocumentSize, EngineCommand, EngineEvent,
-    HistoryKind, LayerId, MAX_LAYERS, SelectionCombine, SelectionRect, SessionState, SizePreset,
-    TextContent, tool_id, undo_actions,
+    AdjustmentParams, BlendMode, DocumentError, DocumentGraph, DocumentSize, EngineCommand,
+    EngineEvent, HistoryKind, LayerId, MAX_LAYERS, SelectionCombine, SelectionRect, SessionState,
+    SizePreset, TextContent, tool_id, undo_actions,
 };
 use phototux_io::{RasterFormat, format_report};
 use qtbridge::qobject;
@@ -1033,9 +1033,7 @@ impl AppSession {
                 return;
             };
             if graph.layer_count() >= MAX_LAYERS {
-                Err(format!(
-                    "layer limit reached ({MAX_LAYERS}); remove a layer before adding another"
-                ))
+                Err(DocumentError::layer_limit(MAX_LAYERS))
             } else {
                 undo_actions::add_layer(graph, history, None).map(|_| ())
             }
@@ -1047,7 +1045,7 @@ impl AppSession {
                 self.sync_from_engine();
                 self.emit_layer_fields();
             }
-            Err(error) => self.report_gpu("add layer", &error),
+            Err(error) => self.report_gpu("add layer", &error.to_string()),
         }
     }
 
@@ -1326,7 +1324,7 @@ impl AppSession {
                 self.sync_from_engine();
                 self.emit_layer_fields();
             }
-            Err(error) => self.report_gpu("paste", &error),
+            Err(error) => self.report_gpu("paste", &error.to_string()),
         }
     }
 
@@ -1334,18 +1332,18 @@ impl AppSession {
     fn add_group_layer(&mut self) {
         let result = (|| {
             let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or_else(|| "no document".to_owned())?;
+            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
             let id = graph.add_group_top(None)?;
             let index = graph.index_of(id).unwrap_or(0);
             let layer = graph
                 .get(id)
                 .cloned()
-                .ok_or_else(|| "missing group".to_owned())?;
+                .ok_or(DocumentError::LayerMissingAfterAdd)?;
             history.push_graph_applied(
                 phototux_engine::GraphCommand::AddLayer { id, index, layer },
                 "Add group",
             );
-            Ok::<_, String>(())
+            Ok::<_, DocumentError>(())
         })();
         match result {
             Ok(()) => {
@@ -1354,7 +1352,7 @@ impl AppSession {
                 self.sync_from_engine();
                 self.emit_layer_fields();
             }
-            Err(error) => self.report_gpu("add group", &error),
+            Err(error) => self.report_gpu("add group", &error.to_string()),
         }
     }
 
@@ -1366,18 +1364,18 @@ impl AppSession {
         };
         let result = (|| {
             let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or_else(|| "no document".to_owned())?;
+            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
             let id = graph.add_text_top(None, content)?;
             let index = graph.index_of(id).unwrap_or(0);
             let layer = graph
                 .get(id)
                 .cloned()
-                .ok_or_else(|| "missing text".to_owned())?;
+                .ok_or(DocumentError::LayerMissingAfterAdd)?;
             history.push_graph_applied(
                 phototux_engine::GraphCommand::AddLayer { id, index, layer },
                 "Add text layer",
             );
-            Ok::<_, String>(())
+            Ok::<_, DocumentError>(())
         })();
         match result {
             Ok(()) => {
@@ -1386,7 +1384,7 @@ impl AppSession {
                 self.sync_from_engine();
                 self.emit_layer_fields();
             }
-            Err(error) => self.report_gpu("add text", &error),
+            Err(error) => self.report_gpu("add text", &error.to_string()),
         }
     }
 
@@ -1408,18 +1406,18 @@ impl AppSession {
         };
         let result = (|| {
             let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or_else(|| "no document".to_owned())?;
+            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
             let id = graph.add_adjustment_top(None, params)?;
             let index = graph.index_of(id).unwrap_or(0);
             let layer = graph
                 .get(id)
                 .cloned()
-                .ok_or_else(|| "missing adjustment".to_owned())?;
+                .ok_or(DocumentError::LayerMissingAfterAdd)?;
             history.push_graph_applied(
                 phototux_engine::GraphCommand::AddLayer { id, index, layer },
                 "Add adjustment",
             );
-            Ok::<_, String>(())
+            Ok::<_, DocumentError>(())
         })();
         match result {
             Ok(()) => {
@@ -1428,7 +1426,7 @@ impl AppSession {
                 self.sync_from_engine();
                 self.emit_layer_fields();
             }
-            Err(error) => self.report_gpu("add adjustment", &error),
+            Err(error) => self.report_gpu("add adjustment", &error.to_string()),
         }
     }
 

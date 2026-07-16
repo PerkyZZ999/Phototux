@@ -218,18 +218,18 @@ pub mod actions {
     /// Add a layer and record the undo entry.
     ///
     /// # Errors
-    /// Returns an error when the document is already at the compositor layer cap.
+    /// Returns [`crate::DocumentError`] when the layer cap is reached or the graph is inconsistent.
     pub fn add_layer(
         graph: &mut DocumentGraph,
         history: &mut HistoryService,
         name: Option<String>,
-    ) -> Result<LayerId, String> {
+    ) -> Result<LayerId, crate::DocumentError> {
         let id = graph.add_layer_top(name)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
             .get(id)
             .cloned()
-            .ok_or_else(|| "added layer missing from graph".to_owned())?;
+            .ok_or(crate::DocumentError::LayerMissingAfterAdd)?;
         history.push_graph_applied(GraphCommand::AddLayer { id, index, layer }, "Add layer");
         Ok(id)
     }

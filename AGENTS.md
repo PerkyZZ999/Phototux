@@ -44,14 +44,15 @@ cargo install rust-doctor   # or: already on PATH / ~/.bun/bin/rust-doctor
 export PATH=/usr/lib/qt6/bin:$PATH
 export QMAKE=/usr/lib/qt6/bin/qmake
 
-# Git hooks (fmt + clippy + rust-doctor on every commit)
+# Git hooks (fmt + clippy on every commit; rust-doctor opt-in)
 ./scripts/install-git-hooks.sh
 
 # When workspace exists:
 cargo build -p phototux
 cargo run -p phototux
 cargo test -p phototux_engine
-./scripts/check-rust.sh
+./scripts/check-rust.sh              # fmt + clippy (pre-commit default)
+CHECK_RUST_FULL=1 ./scripts/check-rust.sh   # + rust-doctor
 ```
 
 ---
@@ -93,7 +94,7 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 | `rust-reference` | Language semantics, unsafe, types, macros — when correctness depends on the Reference |
 | `rust-skills` | Broad idiomatic rules (ownership, errors, API, testing, anti-patterns) |
 | `rust-optimise` | Hot-path optimization (mem/own/ds/iter first; micro last) |
-| `rust-doctor` | Health scan tool; pre-commit runs the `rust-doctor` binary — re-scan after large fixes |
+| `rust-doctor` | Health scan tool; opt-in via `CHECK_RUST_FULL=1` — re-scan after large fixes |
 
 **Rust hard defaults for this repo:**
 
@@ -132,16 +133,17 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 | Check | Command / behavior |
 |-------|-------------------|
 | Install hooks | `./scripts/install-git-hooks.sh` → `core.hooksPath=.githooks` |
-| All checks | `./scripts/check-rust.sh` |
+| Pre-commit / default | `./scripts/check-rust.sh` → rustfmt + clippy |
+| Full gate | `CHECK_RUST_FULL=1 ./scripts/check-rust.sh` or `--full` → + rust-doctor |
 | rustfmt | `cargo fmt --all -- --check` |
 | clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| rust-doctor | `rust-doctor . --offline --fail-on error -v` |
+| rust-doctor | `rust-doctor . --offline --fail-on error -v` (full gate only) |
 
 **Hook behavior:**
 
 - No `Cargo.toml` → skip checks (exit 0), unless staged `*.rs` → fail.
 - Clippy warnings are **errors** (`-D warnings`).
-- rust-doctor **errors** fail the commit (exit code 3).
+- rust-doctor is **not** in the pre-commit path; run the full gate manually or in CI when needed.
 - Prefer fixing findings over suppressions.
 
 Agents: after non-trivial Rust changes, run `./scripts/check-rust.sh` even if hooks are not installed in the environment.

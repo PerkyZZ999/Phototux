@@ -91,27 +91,29 @@ pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
         enc.finish()?;
     }
 
-    let mut assets: Vec<(u64, Vec<u8>)> = Vec::new();
+    let mut assets: Vec<(u64, Vec<u8>)> = Vec::with_capacity(doc.rasters.len());
+    let mut png = Vec::new();
+    let mut z = Vec::new();
     for (id, raster) in &doc.rasters {
-        let mut png = Vec::new();
+        png.clear();
+        z.clear();
         encode(&mut png, raster, RasterFormat::Png)?;
-        let mut z = Vec::new();
         {
             let mut enc = DeflateEncoder::new(&mut z, Compression::default());
             enc.write_all(&png)?;
             enc.finish()?;
         }
-        assets.push((*id, z));
+        assets.push((*id, std::mem::take(&mut z)));
     }
     assets.sort_by_key(|(id, _)| *id);
 
     let mut body = Vec::new();
-    body.extend_from_slice(&(manifest_z.len() as u32).to_le_bytes());
+    body.extend_from_slice(&usize_as_u32(manifest_z.len())?.to_le_bytes());
     body.extend_from_slice(&manifest_z);
-    body.extend_from_slice(&(assets.len() as u32).to_le_bytes());
+    body.extend_from_slice(&usize_as_u32(assets.len())?.to_le_bytes());
     for (id, blob) in assets {
         body.extend_from_slice(&id.to_le_bytes());
-        body.extend_from_slice(&(blob.len() as u32).to_le_bytes());
+        body.extend_from_slice(&usize_as_u32(blob.len())?.to_le_bytes());
         body.extend_from_slice(&blob);
     }
 
@@ -132,19 +134,24 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
     if bytes.len() < 16 {
         return Err(PtxError::Corrupt("truncated header".into()));
     }
-    if &bytes[0..8] != MAGIC {
+    let magic = bytes
+        .get(0..8)
+        .ok_or_else(|| PtxError::Corrupt("truncated magic".into()))?;
+    if magic != MAGIC {
         return Err(PtxError::BadMagic);
     }
-    let version = u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes"));
+    let version = read_u32_at(bytes, 8)?;
     if version != PTX_FORMAT_VERSION {
         return Err(PtxError::UnsupportedVersion(version));
     }
-    let crc_stored = u32::from_le_bytes(
-        bytes[bytes.len() - 4..]
-            .try_into()
-            .map_err(|_| PtxError::Corrupt("missing checksum".into()))?,
-    );
-    let body = &bytes[12..bytes.len() - 4];
+    let crc_offset = bytes
+        .len()
+        .checked_sub(4)
+        .ok_or_else(|| PtxError::Corrupt("missing checksum".into()))?;
+    let crc_stored = read_u32_at(bytes, crc_offset)?;
+    let body = bytes
+        .get(12..crc_offset)
+        .ok_or_else(|| PtxError::Corrupt("truncated body".into()))?;
     if crc32fast::hash(body) != crc_stored {
         return Err(PtxError::ChecksumMismatch);
     }
@@ -156,13 +163,9 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
     let mut manifest: PtxManifest = serde_json::from_slice(&manifest_json)?;
 
     let asset_count = read_u32(body, &mut cursor)? as usize;
-    let mut rasters = HashMap::new();
+    let mut rasters = HashMap::with_capacity(asset_count);
     for _ in 0..asset_count {
-        if cursor + 12 > body.len() {
-            return Err(PtxError::Corrupt("asset header truncated".into()));
-        }
-        let id = u64::from_le_bytes(body[cursor..cursor + 8].try_into().expect("8"));
-        cursor += 8;
+        let id = read_u64(body, &mut cursor)?;
         let len = read_u32(body, &mut cursor)? as usize;
         let z = read_slice(body, &mut cursor, len)?;
         let png = inflate(z)?;
@@ -218,21 +221,45 @@ fn inflate(data: &[u8]) -> Result<Vec<u8>, PtxError> {
     Ok(out)
 }
 
+fn usize_as_u32(value: usize) -> Result<u32, PtxError> {
+    u32::try_from(value).map_err(|_| PtxError::Corrupt("length exceeds u32".into()))
+}
+
+fn read_u32_at(buf: &[u8], offset: usize) -> Result<u32, PtxError> {
+    let bytes = buf
+        .get(offset..offset + 4)
+        .ok_or_else(|| PtxError::Corrupt("truncated u32".into()))?;
+    let array: [u8; 4] = bytes
+        .try_into()
+        .map_err(|_| PtxError::Corrupt("truncated u32".into()))?;
+    Ok(u32::from_le_bytes(array))
+}
+
 fn read_u32(buf: &[u8], cursor: &mut usize) -> Result<u32, PtxError> {
-    if *cursor + 4 > buf.len() {
-        return Err(PtxError::Corrupt("truncated u32".into()));
-    }
-    let v = u32::from_le_bytes(buf[*cursor..*cursor + 4].try_into().expect("4"));
+    let v = read_u32_at(buf, *cursor)?;
     *cursor += 4;
     Ok(v)
 }
 
+fn read_u64(buf: &[u8], cursor: &mut usize) -> Result<u64, PtxError> {
+    let bytes = buf
+        .get(*cursor..*cursor + 8)
+        .ok_or_else(|| PtxError::Corrupt("truncated u64".into()))?;
+    let array: [u8; 8] = bytes
+        .try_into()
+        .map_err(|_| PtxError::Corrupt("truncated u64".into()))?;
+    *cursor += 8;
+    Ok(u64::from_le_bytes(array))
+}
+
 fn read_slice<'a>(buf: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [u8], PtxError> {
-    if *cursor + len > buf.len() {
-        return Err(PtxError::Corrupt("truncated slice".into()));
-    }
-    let slice = &buf[*cursor..*cursor + len];
-    *cursor += len;
+    let end = cursor
+        .checked_add(len)
+        .ok_or_else(|| PtxError::Corrupt("slice length overflow".into()))?;
+    let slice = buf
+        .get(*cursor..end)
+        .ok_or_else(|| PtxError::Corrupt("truncated slice".into()))?;
+    *cursor = end;
     Ok(slice)
 }
 

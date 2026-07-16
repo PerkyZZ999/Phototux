@@ -49,11 +49,18 @@ pub fn adjustment_pass(params: &AdjustmentParams) -> FilterPass {
             shader_key: "adjust.threshold",
             params: [level, 0.0, 0.0, 0.0],
         },
-        AdjustmentParams::Posterize { levels } => FilterPass {
-            label: "Posterize",
-            shader_key: "adjust.posterize",
-            params: [levels as f32, 0.0, 0.0, 0.0],
-        },
+        AdjustmentParams::Posterize { levels } => {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "posterize level counts fit f32 mantissa for UI params"
+            )]
+            let levels_f = levels as f32;
+            FilterPass {
+                label: "Posterize",
+                shader_key: "adjust.posterize",
+                params: [levels_f, 0.0, 0.0, 0.0],
+            }
+        }
     }
 }
 
@@ -91,18 +98,25 @@ pub fn filter_pass(params: &FilterParams) -> FilterPass {
 /// CPU reference invert for golden tests / preview without a full pipeline.
 pub fn cpu_invert_rgba(pixels: &mut [u8]) {
     for px in pixels.chunks_exact_mut(4) {
-        px[0] = 255 - px[0];
-        px[1] = 255 - px[1];
-        px[2] = 255 - px[2];
+        let [r, g, b, _] = px else { continue };
+        *r = 255 - *r;
+        *g = 255 - *g;
+        *b = 255 - *b;
     }
 }
 
 /// CPU reference brightness (additive in 0..1 space).
 pub fn cpu_brightness_rgba(pixels: &mut [u8], brightness: f32) {
-    let delta = (brightness.clamp(-1.0, 1.0) * 255.0).round() as i32;
+    let delta = (brightness.clamp(-1.0, 1.0) * 255.0).round();
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "brightness clamped to [-1, 1]; delta fits i32"
+    )]
+    let delta = delta as i32;
     for px in pixels.chunks_exact_mut(4) {
         for c in &mut px[..3] {
-            *c = (*c as i32 + delta).clamp(0, 255) as u8;
+            let next = i32::from(*c) + delta;
+            *c = u8::try_from(next.clamp(0, 255)).unwrap_or(0);
         }
     }
 }

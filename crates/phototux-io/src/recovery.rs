@@ -136,7 +136,7 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("phototux-recovery-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        // SAFETY: test-only env override scoped by mutex.
+        // SAFETY: test-only env override; exclusive via `LOCK`, restored before unlock.
         unsafe {
             std::env::set_var("XDG_STATE_HOME", &dir);
         }
@@ -147,6 +147,7 @@ mod tests {
         assert_eq!(loaded.graph().size.width, 4);
         discard_recovery(&entry).expect("discard");
         let _ = fs::remove_dir_all(&dir);
+        // SAFETY: restores the test-only env override set above under the same mutex.
         unsafe {
             std::env::remove_var("XDG_STATE_HOME");
         }

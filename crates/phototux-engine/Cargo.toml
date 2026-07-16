@@ -10,3 +10,4 @@ description = "Pure Rust document/session state for PhotoTux (no Qt)"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
