@@ -4,14 +4,15 @@ mod document_gpu;
 mod paint_worker;
 
 pub use document_gpu::{
-    LayerMaskR8, bake_layer_transform, begin_stroke, can_redo_stroke, can_undo_stroke,
-    close_document, crop_document, end_stroke, ensure_mask, flip_layer, last_composite_ms,
-    last_stroke_latency_ms, open_document, open_raster_document, read_all_layer_rgba,
-    read_all_mask_r8, read_composite_rgba, read_layer_rgba, redo_stroke, remove_mask,
-    restore_document_layers, rotate_canvas_90_cw, selection_apply_ellipse, selection_apply_polygon,
-    selection_apply_rect, selection_clear, selection_invert, selection_restore,
-    selection_select_all, selection_snapshot, snapshot_document_layers, stamp_dabs,
-    sync_and_composite, undo_stroke, write_layer_rgba, write_mask_r8,
+    LayerMaskR8, apply_linear_gradient, bake_layer_transform, begin_stroke, can_redo_stroke,
+    can_undo_stroke, close_document, crop_document, end_stroke, ensure_mask, fill_layer,
+    flip_layer, last_composite_ms, last_stroke_latency_ms, open_document, open_raster_document,
+    read_all_layer_rgba, read_all_mask_r8, read_composite_rgba, read_layer_rgba, redo_stroke,
+    remove_mask, restore_document_layers, rotate_canvas_90_cw, sample_composite_at,
+    sample_layer_at, selection_apply_ellipse, selection_apply_polygon, selection_apply_rect,
+    selection_clear, selection_invert, selection_restore, selection_select_all, selection_snapshot,
+    snapshot_document_layers, stamp_dabs, sync_and_composite, undo_stroke, write_layer_rgba,
+    write_mask_r8,
 };
 pub use paint_worker::PaintWorker;
 

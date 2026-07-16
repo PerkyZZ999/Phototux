@@ -10,7 +10,8 @@ use phototux_engine::{
 };
 use phototux_gpu::{
     BrushStamper, GpuContext, LayerCompositeEngine, MaskStamper, SelectionMask, StampRequest,
-    bake_affine_rgba, crop_rgba, flip_rgba, rotate_rgba_90_cw,
+    bake_affine_rgba, crop_rgba, fill_rgba, flip_rgba, linear_gradient_rgba, mask_has_selection,
+    rotate_rgba_90_cw, sample_rgba_at,
 };
 
 struct StrokeBackup {
@@ -514,6 +515,124 @@ pub fn bake_layer_transform(
     let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
     publish_result(&doc.engine)?;
     Ok(ms)
+}
+
+/// Fill a layer with solid RGBA (0..1), optionally limited by the active selection.
+///
+/// # Errors
+/// Returns an error when readback, writeback, or composite fails.
+pub fn fill_layer(
+    id: LayerId,
+    color: [f32; 4],
+    layers: &[Layer],
+    use_selection: bool,
+) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let mut pixels = doc
+        .engine
+        .read_layer_rgba(&doc.ctx, id)
+        .map_err(|e| e.to_string())?;
+    let mask = if use_selection {
+        let snap = doc.selection.snapshot_cpu();
+        if mask_has_selection(&snap) {
+            Some(snap)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    fill_rgba(&mut pixels, color, mask.as_deref());
+    doc.engine
+        .write_layer_rgba(&doc.ctx, id, &pixels)
+        .map_err(|e| e.to_string())?;
+    doc.layers_meta = layers.to_vec();
+    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
+    Ok(ms)
+}
+
+/// Apply a linear gradient to a layer (document-space endpoints).
+///
+/// # Errors
+/// Returns an error when readback, writeback, or composite fails.
+pub fn apply_linear_gradient(
+    id: LayerId,
+    p0: [f32; 2],
+    p1: [f32; 2],
+    c0: [f32; 4],
+    c1: [f32; 4],
+    layers: &[Layer],
+    use_selection: bool,
+) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let mut pixels = doc
+        .engine
+        .read_layer_rgba(&doc.ctx, id)
+        .map_err(|e| e.to_string())?;
+    let mask = if use_selection {
+        let snap = doc.selection.snapshot_cpu();
+        if mask_has_selection(&snap) {
+            Some(snap)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    linear_gradient_rgba(&mut pixels, width, height, p0, p1, c0, c1, mask.as_deref());
+    doc.engine
+        .write_layer_rgba(&doc.ctx, id, &pixels)
+        .map_err(|e| e.to_string())?;
+    doc.layers_meta = layers.to_vec();
+    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
+    Ok(ms)
+}
+
+/// Sample RGB from a layer at document coordinates.
+///
+/// # Errors
+/// Returns an error when the document or layer is missing.
+pub fn sample_layer_at(id: LayerId, x: i32, y: i32) -> Result<[f32; 3], String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_ref()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let pixels = doc
+        .engine
+        .read_layer_rgba(&doc.ctx, id)
+        .map_err(|e| e.to_string())?;
+    sample_rgba_at(&pixels, width, height, x, y).ok_or_else(|| "sample out of bounds".to_owned())
+}
+
+/// Sample RGB from the composite result at document coordinates.
+///
+/// # Errors
+/// Returns an error when the document is missing or the point is out of bounds.
+pub fn sample_composite_at(x: i32, y: i32) -> Result<[f32; 3], String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_ref()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let pixels = doc
+        .engine
+        .read_result_rgba(&doc.ctx)
+        .map_err(|e| e.to_string())?;
+    sample_rgba_at(&pixels, width, height, x, y).ok_or_else(|| "sample out of bounds".to_owned())
 }
 
 /// Flip one layer horizontally or vertically.

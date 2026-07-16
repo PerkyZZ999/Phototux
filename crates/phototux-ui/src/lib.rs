@@ -3033,4 +3033,104 @@ impl AppSession {
         self.sync_from_engine();
         self.emit_doc_fields();
     }
+
+    fn active_raster_paintable(&self) -> Option<LayerId> {
+        let id = self.active_id()?;
+        let layer = self.engine.graph.as_ref()?.get(id)?;
+        if layer.kind != phototux_engine::LayerKind::Raster || layer.paint_blocked() {
+            return None;
+        }
+        Some(id)
+    }
+
+    #[qslot]
+    fn fill_active_layer(&mut self) {
+        let Some(id) = self.active_raster_paintable() else {
+            self.status_text = "Fill requires an unlocked raster layer".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        let fg = self.engine.colors.foreground;
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        let use_selection = self.engine.selection.active;
+        match phototux_canvas::fill_layer(id, fg, &layers, use_selection) {
+            Ok(ms) => {
+                self.engine.set_composite_ms(ms);
+                self.engine.history.push_transform("Fill");
+                self.mark_dirty();
+            }
+            Err(error) => self.report_gpu("fill", &error),
+        }
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn commit_linear_gradient(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
+        let Some(id) = self.active_raster_paintable() else {
+            self.status_text = "Gradient requires an unlocked raster layer".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        let c0 = self.engine.colors.foreground;
+        let c1 = self.engine.colors.background;
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        let use_selection = self.engine.selection.active;
+        match phototux_canvas::apply_linear_gradient(
+            id,
+            [x0, y0],
+            [x1, y1],
+            c0,
+            c1,
+            &layers,
+            use_selection,
+        ) {
+            Ok(ms) => {
+                self.engine.set_composite_ms(ms);
+                self.engine.history.push_transform("Gradient");
+                self.mark_dirty();
+            }
+            Err(error) => self.report_gpu("gradient", &error),
+        }
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn sample_color_at(&mut self, doc_x: f32, doc_y: f32) {
+        let x = doc_x.round() as i32;
+        let y = doc_y.round() as i32;
+        let rgb = match self.engine.colors.sample_source {
+            phototux_engine::SampleSource::CurrentLayer => {
+                let Some(id) = self.active_id() else {
+                    return;
+                };
+                phototux_canvas::sample_layer_at(id, x, y)
+            }
+            phototux_engine::SampleSource::AllLayers => phototux_canvas::sample_composite_at(x, y),
+        };
+        match rgb {
+            Ok([r, g, b]) => {
+                self.set_brush_color(r, g, b);
+                self.status_text = format!(
+                    "Sampled {}",
+                    phototux_engine::ColorState::to_hex([r, g, b, 1.0])
+                );
+                self.status_text_changed();
+            }
+            Err(error) => self.report_gpu("eyedropper", &error),
+        }
+    }
 }

@@ -239,9 +239,9 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 ### Color & Fill
 
 - [x] Foreground / Background color + swap
-- [~] Color picker / eyedropper (partial)
-- [ ] Gradient tool (Linear / Radial / Angle / Reflected / Diamond)
-- [ ] Paint Bucket
+- [x] Color picker / eyedropper (click sample → FG)
+- [~] Gradient tool (Linear shipped; Radial / Angle / Reflected / Diamond deferred)
+- [x] Paint Bucket (layer/selection fill; no flood tolerance yet)
 - [x] Swatches panel (defaults + recent; FG/BG swap)
 
 ---
@@ -409,8 +409,10 @@ Order is guidance, not locked ADR:
 5. ~~**PSD depth**~~ — **shipped 2026-07-16** (Raw/RLE composite + layers; subset export)
 6. ~~**Adjustment/filter GPU**~~ — **shipped 2026-07-16** (Brightness/Levels + Gaussian effect)
 7. ~~**Panels**~~ — **shipped 2026-07-16** (Swatches, Navigator, blend/FG Properties)
-8. **Vector / shapes / rich text** — after raster core feels solid
+8. ~~**Vector / shapes / rich text**~~ — **Color & Fill shipped 2026-07-16** (bucket + linear gradient + eyedropper; vector/text deferred)
 9. **Multi-doc** — only after ADR-013 amendment
+10. **Text bake + Properties** — rasterize Text layers; size/color chrome
+11. **Shape layers** — after ADR-017 kind amendment
 
 ---
 

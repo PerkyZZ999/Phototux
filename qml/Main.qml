@@ -825,6 +825,26 @@ ApplicationWindow {
                 }
             }
 
+            // Linear gradient drag preview
+            Shape {
+                id: gradientPreview
+                anchors.fill: parent
+                z: 4
+                visible: canvasInput.gradienting && AppSession.hasDocument
+                preferredRendererType: Shape.CurveRenderer
+                ShapePath {
+                    strokeWidth: 2
+                    strokeColor: root.primary
+                    fillColor: "transparent"
+                    startX: root.docToScreenX(canvasInput.gradStartX)
+                    startY: root.docToScreenY(canvasInput.gradStartY)
+                    PathLine {
+                        x: root.docToScreenX(canvasInput.gradEndX)
+                        y: root.docToScreenY(canvasInput.gradEndY)
+                    }
+                }
+            }
+
             // Marching ants for committed rect/ellipse (mask shape uses GPU ants)
             Item {
                 id: selectionAnts
@@ -1052,8 +1072,13 @@ ApplicationWindow {
                 property bool polygoning: false
                 property bool cropping: false
                 property bool transforming: false
+                property bool gradienting: false
                 property real selStartX: 0
                 property real selStartY: 0
+                property real gradStartX: 0
+                property real gradStartY: 0
+                property real gradEndX: 0
+                property real gradEndY: 0
                 property string pathDraft: ""
                 property real pathCursorX: 0
                 property real pathCursorY: 0
@@ -1189,6 +1214,26 @@ ApplicationWindow {
                         AppSession.addTextLayer(qsTr("Text"))
                         return
                     }
+                    if (AppSession.activeTool === "tool.fill") {
+                        AppSession.fillActiveLayer()
+                        return
+                    }
+                    if (AppSession.activeTool === "tool.eyedropper") {
+                        AppSession.sampleColorAt(
+                                    root.screenToDocX(mouse.x),
+                                    root.screenToDocY(mouse.y))
+                        return
+                    }
+                    if (AppSession.activeTool === "tool.gradient") {
+                        gradienting = true
+                        painting = false
+                        selecting = false
+                        gradStartX = root.screenToDocX(mouse.x)
+                        gradStartY = root.screenToDocY(mouse.y)
+                        gradEndX = gradStartX
+                        gradEndY = gradStartY
+                        return
+                    }
                     if (AppSession.activeTool === "tool.brush"
                             || AppSession.activeTool === "tool.eraser") {
                         painting = true
@@ -1239,6 +1284,13 @@ ApplicationWindow {
                         cropping = false
                     }
                     transforming = false
+                    if (gradienting) {
+                        gradEndX = root.screenToDocX(mouse.x)
+                        gradEndY = root.screenToDocY(mouse.y)
+                        AppSession.commitLinearGradient(
+                                    gradStartX, gradStartY, gradEndX, gradEndY)
+                        gradienting = false
+                    }
                     if (painting) {
                         AppSession.strokeEnd()
                         painting = false
@@ -1260,6 +1312,11 @@ ApplicationWindow {
                     }
                     if (!dragging)
                         return
+                    if (gradienting) {
+                        gradEndX = root.screenToDocX(mouse.x)
+                        gradEndY = root.screenToDocY(mouse.y)
+                        return
+                    }
                     if (lassoing) {
                         var ldx = root.screenToDocX(mouse.x)
                         var ldy = root.screenToDocY(mouse.y)
@@ -1807,6 +1864,34 @@ ApplicationWindow {
                             Button {
                                 text: qsTr("Delete Mask")
                                 onClicked: AppSession.deleteMaskOnActive()
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.activeTool === "tool.fill"
+                                     || AppSession.activeTool === "tool.gradient"
+                                     || AppSession.activeTool === "tool.eyedropper"
+                            Label {
+                                text: AppSession.activeTool === "tool.gradient"
+                                      ? qsTr("Gradient (Linear)")
+                                      : (AppSession.activeTool === "tool.eyedropper"
+                                         ? qsTr("Eyedropper")
+                                         : qsTr("Paint Bucket"))
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            Label {
+                                text: AppSession.activeTool === "tool.gradient"
+                                      ? qsTr("Drag FG→BG. Respects selection.")
+                                      : (AppSession.activeTool === "tool.eyedropper"
+                                         ? qsTr("Click canvas to sample foreground.")
+                                         : qsTr("Click to fill with FG. Respects selection."))
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
                             }
                         }
 
