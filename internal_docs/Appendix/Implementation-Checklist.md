@@ -40,11 +40,11 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 
 ## Phase 3 — Shell contracts (Qt)
 
-- [ ] Panel / tool descriptors
-- [ ] Preferences service + dialog
-- [ ] Action menus / shortcuts / context menus v1
-- [ ] Theme tokens migrated (archive DESIGN → handbook Themes + QML)
-- [ ] Workspace preset / Reset (minimal)
+- [x] Panel / tool descriptors (`shell.rs` + JSON props)
+- [x] Preferences service + dialog (XDG `preferences.json`)
+- [x] Window menu panel toggles + layer context menu v1
+- [x] Theme tokens documented in `Theme.qml` (archived DESIGN.md source)
+- [x] Workspace Reset → Essentials panel visibility
 
 ---
 

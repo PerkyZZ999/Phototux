@@ -13,3 +13,5 @@ phototux_engine = { workspace = true }
 phototux_canvas = { path = "../phototux-canvas" }
 phototux_io.workspace = true
 percent-encoding.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }

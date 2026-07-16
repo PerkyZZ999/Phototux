@@ -1,6 +1,7 @@
 //! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
 
 mod file_worker;
+mod prefs;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -14,6 +15,7 @@ use phototux_engine::{
     HostHistoryAction, LayerId, LayerTransform, SelectionCombine, SelectionRect, SelectionShape,
     SelectionState, SessionState, TextContent, TransformSession, command_id, tool_id, undo_actions,
 };
+use prefs::Preferences;
 
 #[derive(Clone)]
 struct SelectionSnapshot {
@@ -161,6 +163,17 @@ pub struct AppSession {
     transform_redo: Vec<TransformSnapshot>,
     /// Generation pinned when a Save was submitted (Phase 2 receipt).
     pending_save_generation: Option<u64>,
+    prefs: Preferences,
+    panel_descriptors_json: String,
+    tool_descriptors_json: String,
+    preferences_open: bool,
+    pref_show_guides: bool,
+    pref_restore_last_tool: bool,
+    panel_navigator_visible: bool,
+    panel_swatches_visible: bool,
+    panel_layers_visible: bool,
+    panel_history_visible: bool,
+    panel_properties_visible: bool,
 }
 
 impl Default for AppSession {
@@ -272,7 +285,19 @@ impl AppSession {
             transform_undo: Vec::new(),
             transform_redo: Vec::new(),
             pending_save_generation: None,
+            prefs: Preferences::default(),
+            panel_descriptors_json: phototux_engine::panels_json(),
+            tool_descriptors_json: phototux_engine::tools_json(),
+            preferences_open: false,
+            pref_show_guides: true,
+            pref_restore_last_tool: false,
+            panel_navigator_visible: true,
+            panel_swatches_visible: true,
+            panel_layers_visible: true,
+            panel_history_visible: true,
+            panel_properties_visible: true,
         };
+        out.apply_loaded_preferences();
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
             out.io_error = error.to_owned();
@@ -629,6 +654,47 @@ impl AppSession {
         if !self.dirty {
             self.dirty = true;
             self.dirty_changed();
+        }
+    }
+
+    fn apply_loaded_preferences(&mut self) {
+        self.prefs = Preferences::load();
+        self.sync_pref_fields_from_store();
+        self.engine.guides.show_guides = self.prefs.show_guides;
+        if self.prefs.restore_last_tool && !self.prefs.last_tool.is_empty() {
+            let _ = self.engine.invoke(
+                command_id::VIEW_SET_TOOL,
+                CommandArgs::Tool {
+                    tool: self.prefs.last_tool.clone(),
+                },
+            );
+        }
+    }
+
+    fn sync_pref_fields_from_store(&mut self) {
+        self.pref_show_guides = self.prefs.show_guides;
+        self.pref_restore_last_tool = self.prefs.restore_last_tool;
+        self.panel_navigator_visible = self.prefs.panel_navigator;
+        self.panel_swatches_visible = self.prefs.panel_swatches;
+        self.panel_layers_visible = self.prefs.panel_layers;
+        self.panel_history_visible = self.prefs.panel_history;
+        self.panel_properties_visible = self.prefs.panel_properties;
+    }
+
+    fn emit_pref_fields(&mut self) {
+        self.pref_show_guides_changed();
+        self.pref_restore_last_tool_changed();
+        self.panel_navigator_visible_changed();
+        self.panel_swatches_visible_changed();
+        self.panel_layers_visible_changed();
+        self.panel_history_visible_changed();
+        self.panel_properties_visible_changed();
+    }
+
+    fn persist_prefs(&mut self) {
+        if let Err(error) = self.prefs.save() {
+            self.status_text = format!("Preferences save failed: {error}");
+            self.status_text_changed();
         }
     }
 
@@ -1132,6 +1198,56 @@ impl AppSession {
         Member = startup_ms,
         Notify = startup_ms_changed
     );
+    qproperty!(
+        "panelDescriptorsJson",
+        Member = panel_descriptors_json,
+        Notify = panel_descriptors_json_changed
+    );
+    qproperty!(
+        "toolDescriptorsJson",
+        Member = tool_descriptors_json,
+        Notify = tool_descriptors_json_changed
+    );
+    qproperty!(
+        "preferencesOpen",
+        Member = preferences_open,
+        Notify = preferences_open_changed
+    );
+    qproperty!(
+        "prefShowGuides",
+        Member = pref_show_guides,
+        Notify = pref_show_guides_changed
+    );
+    qproperty!(
+        "prefRestoreLastTool",
+        Member = pref_restore_last_tool,
+        Notify = pref_restore_last_tool_changed
+    );
+    qproperty!(
+        "panelNavigatorVisible",
+        Member = panel_navigator_visible,
+        Notify = panel_navigator_visible_changed
+    );
+    qproperty!(
+        "panelSwatchesVisible",
+        Member = panel_swatches_visible,
+        Notify = panel_swatches_visible_changed
+    );
+    qproperty!(
+        "panelLayersVisible",
+        Member = panel_layers_visible,
+        Notify = panel_layers_visible_changed
+    );
+    qproperty!(
+        "panelHistoryVisible",
+        Member = panel_history_visible,
+        Notify = panel_history_visible_changed
+    );
+    qproperty!(
+        "panelPropertiesVisible",
+        Member = panel_properties_visible,
+        Notify = panel_properties_visible_changed
+    );
 
     #[qsignal]
     fn doc_width_changed(&mut self);
@@ -1279,6 +1395,105 @@ impl AppSession {
     fn io_error_changed(&mut self);
     #[qsignal]
     fn startup_ms_changed(&mut self);
+    #[qsignal]
+    fn panel_descriptors_json_changed(&mut self);
+    #[qsignal]
+    fn tool_descriptors_json_changed(&mut self);
+    #[qsignal]
+    fn preferences_open_changed(&mut self);
+    #[qsignal]
+    fn pref_show_guides_changed(&mut self);
+    #[qsignal]
+    fn pref_restore_last_tool_changed(&mut self);
+    #[qsignal]
+    fn panel_navigator_visible_changed(&mut self);
+    #[qsignal]
+    fn panel_swatches_visible_changed(&mut self);
+    #[qsignal]
+    fn panel_layers_visible_changed(&mut self);
+    #[qsignal]
+    fn panel_history_visible_changed(&mut self);
+    #[qsignal]
+    fn panel_properties_visible_changed(&mut self);
+
+    #[qslot]
+    fn open_preferences(&mut self) {
+        self.preferences_open = true;
+        self.preferences_open_changed();
+    }
+
+    #[qslot]
+    fn close_preferences(&mut self) {
+        self.preferences_open = false;
+        self.preferences_open_changed();
+    }
+
+    #[qslot]
+    fn set_pref_show_guides(&mut self, value: bool) {
+        self.prefs.show_guides = value;
+        self.pref_show_guides = value;
+        self.engine.guides.show_guides = value;
+        self.persist_prefs();
+        self.pref_show_guides_changed();
+    }
+
+    #[qslot]
+    fn set_pref_restore_last_tool(&mut self, value: bool) {
+        self.prefs.restore_last_tool = value;
+        self.pref_restore_last_tool = value;
+        self.persist_prefs();
+        self.pref_restore_last_tool_changed();
+    }
+
+    #[qslot]
+    fn set_panel_navigator_visible(&mut self, value: bool) {
+        self.prefs.panel_navigator = value;
+        self.panel_navigator_visible = value;
+        self.persist_prefs();
+        self.panel_navigator_visible_changed();
+    }
+
+    #[qslot]
+    fn set_panel_swatches_visible(&mut self, value: bool) {
+        self.prefs.panel_swatches = value;
+        self.panel_swatches_visible = value;
+        self.persist_prefs();
+        self.panel_swatches_visible_changed();
+    }
+
+    #[qslot]
+    fn set_panel_layers_visible(&mut self, value: bool) {
+        self.prefs.panel_layers = value;
+        self.panel_layers_visible = value;
+        self.persist_prefs();
+        self.panel_layers_visible_changed();
+    }
+
+    #[qslot]
+    fn set_panel_history_visible(&mut self, value: bool) {
+        self.prefs.panel_history = value;
+        self.panel_history_visible = value;
+        self.persist_prefs();
+        self.panel_history_visible_changed();
+    }
+
+    #[qslot]
+    fn set_panel_properties_visible(&mut self, value: bool) {
+        self.prefs.panel_properties = value;
+        self.panel_properties_visible = value;
+        self.persist_prefs();
+        self.panel_properties_visible_changed();
+    }
+
+    #[qslot]
+    fn reset_workspace(&mut self) {
+        self.prefs.reset_workspace_essentials();
+        self.sync_pref_fields_from_store();
+        self.persist_prefs();
+        self.emit_pref_fields();
+        self.status_text = "Workspace reset to Essentials".to_owned();
+        self.status_text_changed();
+    }
 
     #[qslot]
     fn set_zoom(&mut self, value: f32) {
@@ -1403,9 +1618,16 @@ impl AppSession {
         } else {
             tool_id::BRUSH.to_owned()
         };
-        let _ = self.invoke_command(command_id::VIEW_SET_TOOL, CommandArgs::Tool { tool: id });
+        let _ = self.invoke_command(
+            command_id::VIEW_SET_TOOL,
+            CommandArgs::Tool { tool: id.clone() },
+        );
         self.engine.sync_brush_from_tool();
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
+        self.prefs.last_tool = id;
+        if self.prefs.restore_last_tool {
+            self.persist_prefs();
+        }
         self.active_tool_changed();
         self.status_text_changed();
     }
@@ -2762,6 +2984,10 @@ impl AppSession {
     #[qslot]
     fn set_guides_visible(&mut self, visible: bool) {
         self.engine.guides.show_guides = visible;
+        self.prefs.show_guides = visible;
+        self.pref_show_guides = visible;
+        self.persist_prefs();
+        self.pref_show_guides_changed();
         self.status_text = self.engine.status_summary();
         self.status_text_changed();
     }

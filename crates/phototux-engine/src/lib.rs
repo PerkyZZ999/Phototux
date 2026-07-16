@@ -12,6 +12,7 @@ mod guides;
 mod history;
 mod layer;
 mod selection;
+mod shell;
 mod stroke;
 mod transform;
 mod undo;
@@ -32,6 +33,10 @@ pub use layer::{
 };
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
+};
+pub use shell::{
+    PanelDescriptor, ToolDescriptor, default_panels, default_tools, essentials_panel_visibility,
+    panels_json, tools_json,
 };
 pub use stroke::{BrushParams, Dab, StrokeBuilder};
 pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};

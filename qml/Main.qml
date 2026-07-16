@@ -312,6 +312,12 @@ ApplicationWindow {
                 enabled: AppSession.hasDocument
                 onTriggered: AppSession.pasteAsNewLayer()
             }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("&Preferences…")
+                shortcut: "Ctrl+,"
+                onTriggered: AppSession.openPreferences()
+            }
         }
         Menu {
             title: qsTr("&Image")
@@ -389,8 +395,46 @@ ApplicationWindow {
             MenuItem {
                 text: qsTr("Show &Guides")
                 checkable: true
-                checked: true
+                checked: AppSession.prefShowGuides
                 onTriggered: AppSession.setGuidesVisible(checked)
+            }
+        }
+        Menu {
+            title: qsTr("&Window")
+            MenuItem {
+                text: qsTr("Navigator")
+                checkable: true
+                checked: AppSession.panelNavigatorVisible
+                onTriggered: AppSession.setPanelNavigatorVisible(checked)
+            }
+            MenuItem {
+                text: qsTr("Swatches")
+                checkable: true
+                checked: AppSession.panelSwatchesVisible
+                onTriggered: AppSession.setPanelSwatchesVisible(checked)
+            }
+            MenuItem {
+                text: qsTr("Layers")
+                checkable: true
+                checked: AppSession.panelLayersVisible
+                onTriggered: AppSession.setPanelLayersVisible(checked)
+            }
+            MenuItem {
+                text: qsTr("History")
+                checkable: true
+                checked: AppSession.panelHistoryVisible
+                onTriggered: AppSession.setPanelHistoryVisible(checked)
+            }
+            MenuItem {
+                text: qsTr("Properties")
+                checkable: true
+                checked: AppSession.panelPropertiesVisible
+                onTriggered: AppSession.setPanelPropertiesVisible(checked)
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("Reset Workspace")
+                onTriggered: AppSession.resetWorkspace()
             }
         }
         Menu {
@@ -1418,8 +1462,9 @@ ApplicationWindow {
 
                 // Properties panel header
                 Rectangle {
+                    visible: AppSession.panelPropertiesVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
                     Rectangle {
                         anchors.bottom: parent.bottom
@@ -1439,9 +1484,9 @@ ApplicationWindow {
                 }
 
                 Flickable {
+                    visible: AppSession.panelPropertiesVisible
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredHeight: parent.height * 0.52
+                    Layout.preferredHeight: visible ? parent.height * 0.52 : 0
                     contentHeight: propsCol.implicitHeight
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -2041,8 +2086,9 @@ ApplicationWindow {
 
                 // Navigator
                 Rectangle {
+                    visible: AppSession.panelNavigatorVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
                     Rectangle {
                         anchors.top: parent.top
@@ -2069,8 +2115,9 @@ ApplicationWindow {
 
                 Rectangle {
                     id: navigatorPane
+                    visible: AppSession.panelNavigatorVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 132
+                    Layout.preferredHeight: visible ? 132 : 0
                     color: Theme.surfaceSunken
                     clip: true
 
@@ -2157,8 +2204,9 @@ ApplicationWindow {
 
                 // Swatches
                 Rectangle {
+                    visible: AppSession.panelSwatchesVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
                     Rectangle {
                         anchors.top: parent.top
@@ -2197,8 +2245,9 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    visible: AppSession.panelSwatchesVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: swatchesCol.implicitHeight + Theme.spaceMd * 2
+                    Layout.preferredHeight: visible ? (swatchesCol.implicitHeight + Theme.spaceMd * 2) : 0
                     color: Theme.surfaceSunken
 
                     ColumnLayout {
@@ -2322,8 +2371,9 @@ ApplicationWindow {
 
                 // Layers panel
                 Rectangle {
+                    visible: AppSession.panelLayersVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
                     Rectangle {
                         anchors.top: parent.top
@@ -2386,8 +2436,10 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    visible: AppSession.panelLayersVisible
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    Layout.fillHeight: visible
+                    Layout.preferredHeight: visible ? 180 : 0
                     color: Theme.surfaceSunken
 
                     ListView {
@@ -2530,7 +2582,50 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 anchors.leftMargin: 28
-                                onClicked: AppSession.setActiveLayer(stackIndex)
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: function (mouse) {
+                                    AppSession.setActiveLayer(stackIndex)
+                                    if (mouse.button === Qt.RightButton)
+                                        layerContextMenu.popup()
+                                }
+                                onPressAndHold: layerContextMenu.popup()
+                            }
+
+                            Menu {
+                                id: layerContextMenu
+                                MenuItem {
+                                    text: qsTr("Duplicate Layer")
+                                    enabled: AppSession.hasDocument
+                                    onTriggered: {
+                                        AppSession.setActiveLayer(stackIndex)
+                                        AppSession.addLayer()
+                                    }
+                                }
+                                MenuItem {
+                                    text: qsTr("Delete Layer")
+                                    enabled: AppSession.hasDocument && AppSession.layerCount > 1
+                                    onTriggered: {
+                                        AppSession.setActiveLayer(stackIndex)
+                                        AppSession.deleteActiveLayer()
+                                    }
+                                }
+                                MenuSeparator {}
+                                MenuItem {
+                                    text: qsTr("Add Mask")
+                                    enabled: AppSession.hasDocument && !hasMask
+                                    onTriggered: {
+                                        AppSession.setActiveLayer(stackIndex)
+                                        AppSession.addMaskToActive()
+                                    }
+                                }
+                                MenuItem {
+                                    text: qsTr("Delete Mask")
+                                    enabled: hasMask
+                                    onTriggered: {
+                                        AppSession.setActiveLayer(stackIndex)
+                                        AppSession.deleteMaskOnActive()
+                                    }
+                                }
                             }
                         }
                     }
@@ -2538,8 +2633,9 @@ ApplicationWindow {
 
                 // History panel
                 Rectangle {
+                    visible: AppSession.panelHistoryVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.panelHeaderHeight
+                    Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
@@ -2552,8 +2648,9 @@ ApplicationWindow {
                     }
                 }
                 Rectangle {
+                    visible: AppSession.panelHistoryVisible
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 120
+                    Layout.preferredHeight: visible ? 120 : 0
                     color: Theme.surfaceSunken
                     ListView {
                         anchors.fill: parent
@@ -2705,6 +2802,93 @@ ApplicationWindow {
             wrapMode: Text.WordWrap
             color: Theme.colorOnSurface
             font.pixelSize: Theme.fontBody
+        }
+    }
+
+    Dialog {
+        id: preferencesDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Preferences")
+        standardButtons: Dialog.Close
+        width: 420
+        visible: AppSession.preferencesOpen
+        onRejected: AppSession.closePreferences()
+        onAccepted: AppSession.closePreferences()
+        onClosed: AppSession.closePreferences()
+
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spaceMd
+            width: 380
+
+            Label {
+                text: qsTr("General")
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontLabel
+                font.weight: Font.DemiBold
+            }
+            CheckBox {
+                text: qsTr("Show guides")
+                checked: AppSession.prefShowGuides
+                onToggled: AppSession.setPrefShowGuides(checked)
+            }
+            CheckBox {
+                text: qsTr("Restore last tool on launch")
+                checked: AppSession.prefRestoreLastTool
+                onToggled: AppSession.setPrefRestoreLastTool(checked)
+            }
+
+            Label {
+                Layout.topMargin: Theme.spaceSm
+                text: qsTr("Workspace panels")
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontLabel
+                font.weight: Font.DemiBold
+            }
+            CheckBox {
+                text: qsTr("Navigator")
+                checked: AppSession.panelNavigatorVisible
+                onToggled: AppSession.setPanelNavigatorVisible(checked)
+            }
+            CheckBox {
+                text: qsTr("Swatches")
+                checked: AppSession.panelSwatchesVisible
+                onToggled: AppSession.setPanelSwatchesVisible(checked)
+            }
+            CheckBox {
+                text: qsTr("Layers")
+                checked: AppSession.panelLayersVisible
+                onToggled: AppSession.setPanelLayersVisible(checked)
+            }
+            CheckBox {
+                text: qsTr("History")
+                checked: AppSession.panelHistoryVisible
+                onToggled: AppSession.setPanelHistoryVisible(checked)
+            }
+            CheckBox {
+                text: qsTr("Properties")
+                checked: AppSession.panelPropertiesVisible
+                onToggled: AppSession.setPanelPropertiesVisible(checked)
+            }
+
+            Button {
+                text: qsTr("Reset Workspace to Essentials")
+                onClicked: AppSession.resetWorkspace()
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Stored in XDG config: phototux/preferences.json")
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontBodySm
+                wrapMode: Text.WordWrap
+            }
         }
     }
 

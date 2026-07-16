@@ -971,6 +971,8 @@ dependencies = [
  "phototux_engine",
  "phototux_io",
  "qtbridge",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
