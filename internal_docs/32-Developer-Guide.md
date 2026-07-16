@@ -1,0 +1,815 @@
+# 32 — Developer Guide
+
+## Overview
+
+This guide translates PhotoTux architecture into contributor boundaries, implementation workflows, review gates, and release discipline. It proposes a Rust workspace and module dependency model without committing to unvalidated UI, async, serialization, test, logging, sandbox, packaging, or codec libraries. Semantic contracts are stable concerns; crate names and package topology remain proposals until spikes and architecture decisions confirm compile time, ownership, portability, and deployment constraints.
+
+PhotoTux is a local-first raster editor with a cross-platform semantic core, Linux-native host, Rust implementation direction, and wgpu rendering direction. The document owns authoritative editable state. Commands are the sole mutation spine. Transactions register history and publish immutable snapshots. Rendering, persistence, analysis, and extensions consume immutable views. GPU resources are derived. Native APIs stop at host adapters. Every queue, operation, capability, and cancellation boundary is explicit.
+
+Contributors **MUST NOT** introduce cloud storage, accounts, remote services, AI or generative features, proprietary workflows, ambient extension authority, writable model references in UI, or GPU-authoritative document state. Normative words follow [Requirement Keywords](Appendix/Requirement-Keywords.md); terms follow the [Glossary](Appendix/Glossary.md).
+
+## Responsibilities
+
+The development process **MUST**:
+
+- preserve foundation invariants and narrower subsystem contracts;
+- keep portable semantic crates independent from native windows, toolkit objects, and platform file dialogs;
+- route semantic mutation through command and transaction authority;
+- expose immutable versioned snapshots to concurrent readers;
+- define ownership, thread affinity, queue bounds, cancellation, and failure behavior in APIs;
+- keep serialized schemas independent from Rust memory layout and native ABI;
+- keep wgpu resources reconstructible and generation-tagged;
+- validate all untrusted bytes, dimensions, counts, offsets, graphs, profiles, fonts, presets, and extension messages;
+- support headless core tests and CPU/reference behavior for core rendering semantics;
+- document high-reversal-cost decisions through ADRs before lock-in;
+- add conformance tests, diagnostics, accessibility, performance, and migration implications with each feature;
+- retain local/offline build, test, edit, save, recovery, and extension workflows;
+- avoid claiming unvalidated libraries, toolkit, runtime, plugin ABI, or file container as final.
+
+It **SHOULD** keep modules cohesive around semantic ownership, use explicit value contracts, minimize feature-flag combinations, and make invalid states difficult to represent after trust-boundary validation. It **MAY** reorganize proposed crates when measured evidence supports a better boundary, provided dependency and authority rules remain.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    Host[Linux native host adapters] --> Presentation[Presentation shell]
+    Presentation --> Interaction[Actions tools and intent]
+    Interaction --> Commands[Command router]
+    Commands --> Domain[Document transaction authority]
+    Domain --> History[History]
+    Domain --> Snapshots[Snapshots and deltas]
+    Snapshots --> Renderer[Render and compute]
+    Snapshots --> Persistence[Persistence and formats]
+    Snapshots --> Extensions[Extension snapshot broker]
+    Renderer --> Host
+    Persistence --> Host
+    Extensions --> Commands
+```
+
+Arrows show control/data direction, not unconditional crate dependencies. Policy points inward: host, presentation, wgpu, codecs, and extension transports implement narrow interfaces owned by semantic layers. A domain crate never imports toolkit/window/surface types. Renderer never commits document state. Persistence never clears modified state directly. Extension code never appends history or receives mutable model objects.
+
+### Internal hierarchy
+
+```text
+PhotoTux repository
+├── foundation and policy
+│   ├── stable identities and bounded values
+│   ├── error/cancellation/operation contracts
+│   ├── capability and diagnostics contracts
+│   └── schema/version primitives
+├── domain core
+│   ├── document aggregate and resources
+│   ├── command registry/router/authority
+│   ├── history/checkpoints
+│   ├── selection/masks/layers
+│   ├── text/shapes/filters/brush semantics
+│   └── snapshots/deltas
+├── compute and presentation data
+│   ├── render graph and CPU reference
+│   ├── wgpu execution/device resources
+│   ├── color transforms
+│   └── semantic UI/accessibility models
+├── services
+│   ├── native persistence and recovery
+│   ├── import/export adapters
+│   ├── resources/preferences/workspaces
+│   └── extension supervision/brokers
+├── hosts
+│   ├── Linux native integration
+│   ├── desktop presentation implementation
+│   └── optional headless host
+├── applications and tools
+│   ├── desktop executable
+│   ├── fixture/corpus generators
+│   ├── conformance harnesses
+│   └── local diagnostics utilities
+└── docs, ADRs, fixtures, and release evidence
+```
+
+## Rust Workspace Boundary Proposal
+
+The following names communicate intended responsibilities. They are not frozen packages:
+
+```text
+crates/
+├── phototux-types
+├── phototux-diagnostics
+├── phototux-domain
+├── phototux-commands
+├── phototux-history
+├── phototux-snapshot
+├── phototux-color
+├── phototux-brush
+├── phototux-filter
+├── phototux-render-graph
+├── phototux-render-cpu
+├── phototux-render-wgpu
+├── phototux-persistence
+├── phototux-formats
+├── phototux-extension-contract
+├── phototux-extension-host
+├── phototux-presentation-model
+├── phototux-linux-host
+└── phototux-app
+```
+
+### Foundation types
+
+`phototux-types` would contain opaque IDs, versions, finite numeric wrappers, checked extents, coordinate-space markers, bounded contracts, schema identifiers, operation IDs, capability identifiers, and small domain-neutral errors. It **MUST NOT** become a miscellaneous utilities crate or depend on domain, renderer, host, toolkit, filesystem, wgpu, or extension implementations.
+
+`phototux-diagnostics` would define redacted event/span contracts, correlation IDs, sinks, local artifact schemas, and no-op behavior. Domain code may emit semantic diagnostics through this interface, but logging backend, file rotation, and native collection remain application concerns. Diagnostics failure never changes correctness.
+
+### Domain aggregate
+
+`phototux-domain` would own document state, object/resource stores, canvas/color references, stable identities, invariant validation, transaction candidates, and authoritative installation. Layer, selection, mask, text, and shape semantics may begin as modules and split only when independent contracts and compile-cost evidence justify it.
+
+`phototux-commands` would own descriptors, invocation schemas, target/authority resolution, validation stages, scheduling interfaces, preparation contracts, and outcome types. Executors may live with feature modules while implementing command-owned traits. Router does not own document pixels.
+
+`phototux-history` would own reversible record schemas, coalescing, timeline cursor, checkpoints, retention budgets, and traversal candidates. It coordinates atomically with domain authority through a narrow internal interface; neither can publish a half commit.
+
+`phototux-snapshot` would own coherent immutable snapshot/delta contracts, leases, event sequencing, and resynchronization. Whether implementation is a distinct crate or domain module depends on cyclic-dependency and compile-time evidence. Public contracts **MUST NOT** expose internal arena guards or mutation locks.
+
+### Semantic engines
+
+Color, brush, and filter crates own portable algorithms, declarative descriptors, behavior versions, deterministic inputs, bounds/ROI/halo, and CPU/reference implementations. They do not own wgpu device, native input, UI controls, or document commit. GPU implementations consume validated plans through render/compute adapters.
+
+`phototux-render-graph` would resolve immutable snapshots into pure graph plans, tile dependencies, formats, color/alpha, precision, and cache keys. `phototux-render-cpu` would execute reference/fallback nodes. `phototux-render-wgpu` would own adapters, devices, queues, pipelines, surfaces only through host-provided targets, resource caches, submissions, and generation recovery.
+
+### Services and hosts
+
+Persistence owns semantic serialization, staged writes, recovery, migration, and format-neutral packages. Format adapters parse untrusted external bytes behind limits. Native file format remains independent from in-memory Rust layout.
+
+Extension contract owns manifests, versioned protocol values, capability scopes, semantic contribution descriptors, and bounded messages. Extension host owns process/sandbox supervision, transport, brokers, quotas, and crash containment. No stable native ABI is implied.
+
+Presentation model owns action descriptions, immutable projections, focus/navigation semantics, panel/tool/dialog descriptors, accessibility nodes, and toolkit-neutral state. Linux host owns Wayland-compatible native windows/surfaces/input, portals/files, clipboard, AT-SPI, display/color signals, lifecycle, and power/session integration. Application crate is the composition root and may depend on all concrete implementations.
+
+## Dependency Rules
+
+```mermaid
+flowchart LR
+    Types[Foundation types] --> Domain[Domain]
+    Types --> Contracts[Service contracts]
+    Domain --> Snapshot[Snapshot contracts]
+    Commands[Command contracts] --> Domain
+    History[History] --> Domain
+    Snapshot --> Graph[Render graph]
+    Graph --> CPU[CPU renderer]
+    Graph --> Wgpu[wgpu renderer]
+    Snapshot --> Persistence[Persistence]
+    Contracts --> Linux[Linux host]
+    Contracts --> ExtensionHost[Extension host]
+    Domain --> PresentationModel[Presentation model projections]
+    Linux --> App[Application composition]
+    Wgpu --> App
+    Persistence --> App
+    ExtensionHost --> App
+    PresentationModel --> App
+```
+
+This diagram is conceptual; implementation may invert selected arrows through traits. Required rules:
+
+1. Core/domain **MUST NOT** depend on Linux, toolkit, wgpu, extension process, or concrete filesystem modules.
+2. Presentation **MUST NOT** receive mutable document references or create history entries.
+3. Renderer **MUST NOT** depend on command executors for authority or modify snapshots.
+4. Persistence **MUST NOT** update document modified state except through returned receipt and authoritative transition.
+5. Extension contracts **MUST NOT** expose Rust trait objects or native layouts across isolation boundary.
+6. Host adapters **MUST NOT** decide document dirty, close, recovery winner, or command validity.
+7. Feature crates **SHOULD** depend on foundation and domain contracts, not application composition.
+8. Cyclic crate dependencies are forbidden. Semantic cycles require interface extraction or composition redesign.
+9. Optional dependencies **MUST** have absence behavior tested. Optional cannot silently become required for core workflows.
+10. Public internal APIs **SHOULD** use stable values and explicit ownership rather than leaking third-party library types.
+
+## Object Relationships and API Contracts
+
+APIs identify owner, mutability, lifetime, thread safety, cancellation, bounds, error, and version. A name such as `process(image)` is insufficient. A semantic operation should communicate source snapshot, target extent, color/alpha, budget, behavior version, and applicability.
+
+```rust
+interface DocumentAuthority {
+    snapshot(document: DocumentId) -> Result<DocumentSnapshot, AuthorityError>;
+    commit(candidate: TransactionCandidate, expected: VersionVector) -> Result<CommitReceipt, AuthorityError>;
+}
+
+interface RenderService {
+    request(request: RenderRequest) -> Result<RenderOperation, RenderRequestError>;
+    cancel(cancellation: CancellationId) -> CancellationOutcome;
+}
+
+interface LocalFileCapability {
+    identity() -> FileCapabilityIdentity;
+    open_read(limits: ReadLimits) -> Result<BoundedReader, FileError>;
+    create_staged_replace(policy: ReplacePolicy) -> Result<StagedWriter, FileError>;
+}
+```
+
+These examples are semantic pseudocode. Final Rust traits may be synchronous, asynchronous, message-based, or split by affinity after runtime validation. They do not authorize arbitrary async traits, boxed futures, or global executors.
+
+### Value and schema rules
+
+- IDs are opaque newtypes, never row indices, pointers, names, or paths.
+- Coordinates and rectangles identify coordinate space in type or contract.
+- Floats crossing trust or authority boundaries validate finiteness and range.
+- Counts and byte sizes use checked arithmetic before allocation.
+- Collections at trust boundaries are bounded.
+- Enums crossing persistence/protocol boundaries define unknown-value behavior.
+- Serialized schemas have independent versions and migration.
+- Stable error codes are data; display strings are localized presentation.
+- Public structs avoid fields whose invariants can be bypassed; constructors validate.
+- Cache keys include every semantic input and behavior version.
+
+### Trait and generics policy
+
+Use traits at genuine substitution boundaries: host services, storage capability, renderer executors, clocks, schedulers, extension transport, and diagnostic sinks. Do not abstract every function preemptively. Generics are useful for zero-cost pure algorithms and test adapters; trait objects or message boundaries can control compile-time explosion and plugin isolation. Selection is evidence-driven.
+
+Third-party types stop at adapter modules. Wrapping every primitive is unnecessary, but types carrying authority, identity, coordinate, color, alpha, version, or persistence meaning deserve explicit wrappers. Unsafe code, if required, **MUST** be isolated behind a safe contract, justify invariant and performance need, document platform assumptions, and receive targeted tests.
+
+## Ownership and Threading
+
+Thread roles are contracts, not a runtime choice:
+
+```text
+Host/UI role
+├── native event loop and surfaces
+├── presentation projection and focus
+└── bounded action submission
+
+Document authority role
+├── validation at commit
+├── authoritative installation
+├── history registration
+└── snapshot publication
+
+Render coordination role
+├── graph planning
+├── wgpu device/queue ownership
+├── frame identity
+└── device generation recovery
+
+Worker roles
+├── CPU tiles and filters
+├── decode/encode/compress
+├── profile/font/resource parsing
+└── checkpoint/materialization
+
+I/O role
+├── staged persistence
+├── recovery
+└── bounded local resource access
+```
+
+Per-document mutations serialize through one conflict-safe authority. Independent documents may progress concurrently. Workers read immutable snapshots and return version-tagged prepared results. A result never applies through “current pointer”; it carries document, source version, object/resource revisions, and applicability.
+
+Native window, surface, and accessibility objects remain thread-affine to host. wgpu device/queue affinity follows selected implementation and backend contract. GPU resources belong to device generation. Document and history resources remain CPU-addressable or recoverable. Dropping a view or device cannot destroy authoritative content.
+
+Locks **MUST NOT** span filesystem I/O, GPU waits, shader compilation, extension calls, host callbacks, user prompts, or unbounded computation. Lock ordering is documented. Channels declare item and byte bounds plus overload policy. Background work cannot consume all workers/memory reserved for input, commit, save, and recovery.
+
+```mermaid
+sequenceDiagram
+    participant UI as HostUI
+    participant CR as CommandRouter
+    participant WK as Worker
+    participant DA as DocumentAuthority
+    participant SP as SnapshotPublisher
+    participant RR as Renderer
+
+    UI->>CR: Semantic invocation
+    CR->>WK: Prepare from snapshot N
+    WK-->>CR: Candidate tagged N
+    CR->>DA: Revalidate and commit
+    DA->>SP: Publish version N plus 1
+    SP-->>RR: Immutable delta
+    DA-->>CR: Commit receipt
+    CR-->>UI: Structured outcome
+```
+
+## Error Model
+
+Errors identify category, stable code, operation/scope, preserved state, retry safety, field details, and correlation ID. Categories include invalid input, unavailable target, stale/version conflict, capability/permission, lifecycle, unsupported feature, resource pressure, external service, codec/format, extension, device, and invariant.
+
+Library code returns typed errors rather than logging and continuing. Application boundary maps errors to user-facing actions. Error conversion preserves source category and context without exposing private content. String matching is prohibited for control flow.
+
+Recoverable external failures do not panic. Programmer/invariant failures may use debug assertions internally, but production authority catches isolation boundaries, freezes affected mutation when needed, and preserves last coherent state. Panics must not unwind across FFI, process protocol, native callback, or other boundary whose safety is unproven.
+
+Partial success is explicit data. Multi-target destructive commands default atomic. Batch import/export may report per-item results only when contract declares independence. A successful commit followed by notification failure remains committed; consumers resynchronize. A successful atomic replace followed by UI notification loss remains saved.
+
+## Cancellation Pattern
+
+Cancellation is ordinary control flow. Each operation declares checkpoints and noninterruptible boundary. Tokens form hierarchy: session, document/workspace, command, operation, subjob. Parent cancellation propagates; sibling failure follows group policy.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Accepted
+    Accepted --> Preparing
+    Preparing --> Cancelled: Cancellation observed
+    Preparing --> Prepared
+    Prepared --> CommitWaiting
+    CommitWaiting --> Cancelled: Cancellation wins
+    CommitWaiting --> Committing
+    Committing --> Committed
+    Committing --> Rejected: Commit validation fails
+    Committed --> Completed
+```
+
+Before commit, cancellation releases provisional resources and creates no transaction. Once authoritative installation begins, cancellation cannot split it; the result is committed and reversal is a later command. GPU submissions may finish after cancellation, but generation/request checks discard output. Save after replacement reports success. Cleanup is idempotent and has bounded deadlines. UI reports “finishing” only for a real bounded critical section.
+
+## Command Implementation Workflow
+
+Every new semantic mutation follows this sequence:
+
+1. Define domain outcome, exact scope, target IDs, parameters, units, limits, mutation class, undo policy, conflict policy, cancellation, accessibility name, and diagnostics.
+2. Confirm existing command cannot express same semantics through parameterization.
+3. Add or update normative subsystem documentation and ADR when direction changes.
+4. Define versioned descriptor and bounded schema independent from UI controls.
+5. Implement pure validation and cheap enablement dependencies.
+6. Acquire immutable snapshot and prepare expensive work outside authority.
+7. Build forward and inverse representation before commit.
+8. Revalidate expected versions, target generations/revisions, locks, capability, resources, and destructive confirmation.
+9. Commit through transaction authority; do not append history or publish snapshots manually.
+10. Return structured effects and errors.
+11. Add headless tests for valid, invalid, stale, cancellation, pressure, and injected failure.
+12. Add presentation/action mapping, accessibility, performance trace points, and migration/compatibility evidence.
+
+Command IDs use stable domain outcomes such as `layer.set-opacity`, not menu paths, widget names, crate names, or implementation verbs. Executors do not own queues globally. Long commands return operation IDs and prepared candidates. Commands with external side effects distinguish document effects from files already written; undo does not secretly delete exports.
+
+## Adding a Tool
+
+A tool is an interaction state machine, not mutation authority. Contributor defines:
+
+- stable tool/action ID and target compatibility;
+- parameter schema, defaults, units, validation, and persistence domain;
+- normalized input events and required device capabilities;
+- gesture states, capture, modifiers, preview, commit, cancel, and discontinuity;
+- coordinate-space conversion and immutable view transform;
+- command output and history merge policy;
+- queue/sample/backpressure bounds;
+- accessible name, current state, keyboard/numeric alternatives where feasible;
+- diagnostics and performance budgets.
+
+Implementation keeps transient gesture state outside document. Preview is generation/version-tagged and disposable. Predicted input never becomes authoritative without confirmed reconciliation. Focus loss, device removal, Escape, tool switch, target deletion, device loss, and extension crash have explicit outcomes. Tests use canonical input traces and compare command meaning independent from native device adapter.
+
+## Adding a Panel
+
+Panels consume immutable semantic projections and emit action invocations. A panel declares application/document/view/selection/pinned following policy. It **MUST NOT** infer target from one global “active” pointer when scope differs.
+
+Panel workflow:
+
+1. Define user task and scope.
+2. Reuse action descriptors and domain queries.
+3. Define semantic component tree, focus order, virtualization, empty/loading/error/unavailable states.
+4. Define projection dependencies and generation.
+5. Reject stale events by node/model generation.
+6. Keep expensive formatting, thumbnails, and queries off UI thread.
+7. Preserve focus/selection by stable IDs.
+8. Add keyboard and accessibility tree tests.
+9. Add 200% scale, high contrast, reduced motion, and narrow layout tests.
+10. Persist only declared workspace convenience state.
+
+Toolkit widgets remain implementation detail. Extension panels use host-rendered semantic vocabulary unless a later ADR validates another contained model. Panel unload or crash removes nodes and restores focus without changing documents.
+
+## Adding a File Format
+
+First classify format as native editable, import, export, or both. Third-party formats remain adapters and cannot become Save targets when they cannot preserve PhotoTux semantics.
+
+Format adapter **MUST** define:
+
+- stable format ID, signatures, MIME/extension hints, bounded probe;
+- decode/encode capabilities and option schemas;
+- dimensions, channels, precision, color/profile, alpha, metadata, and animation/multi-item policy;
+- allocation, depth, decompression, CPU, time, and output limits;
+- quarantined semantic package mapping;
+- unsupported/loss report;
+- streaming and cancellation boundaries;
+- hostile corpus and fuzz target;
+- staged output and durability behavior;
+- extension isolation/capabilities if third-party;
+- deterministic fixtures and migration/versioning.
+
+Decoder never mutates a visible document. It parses and validates into quarantine, then core normalizer registers one coherent document through command/lifecycle authority. Encoder consumes a stable snapshot/render stream and staged-write capability. It cannot clear modified state. Paths are host capabilities, not arbitrary strings inferred from metadata.
+
+## Adding a Filter
+
+A filter descriptor defines parameter schema, behavior version, input/output planes, color/alpha/precision/range, bounds mapping, ROI, halo, edge sampling, deterministic seed policy, tile independence, reductions, temporary memory, CPU/reference implementation, wgpu tiers, cancellation, fallback, and cache key.
+
+Contributor implements tiny exact CPU fixtures before optimization. Tiled output is compared to whole-region reference and across tile boundaries. GPU path is differential-tested on supported tiers. Nondestructive effects persist semantic descriptor; destructive apply prepares output and inverse retention before command commit. A document or preset cannot inject arbitrary shader source. Global filters declare full-input passes and spill/stream policy before admission.
+
+## Documentation and ADR Process
+
+Documentation is architecture input, not post-implementation narration. A change that adds ownership, persistence, command, rendering, security, accessibility, performance, compatibility, or host behavior updates the relevant numbered handbook document in the same change. Cross references use actual current filenames. Normative requirements name responsible subsystem and observable behavior.
+
+An ADR is required when a decision:
+
+- selects UI toolkit, async runtime, native container, plugin isolation, stable ABI, or major library;
+- changes crate/dependency direction;
+- changes authority, thread, process, or persistence boundary;
+- freezes tile geometry, cache policy, schema, protocol, or compatibility promise;
+- accepts a security/accessibility/performance tradeoff;
+- contradicts or refines a foundation invariant;
+- has high migration or reversal cost.
+
+ADR records status, context, constraints, considered alternatives, decision, consequences, validation evidence, revisit trigger/date, and amendments. Proposed decisions do not appear as accepted fact in code comments. Experiments can be disposable; findings and rejected assumptions are durable.
+
+```mermaid
+flowchart TD
+    Need[Decision need] --> Research[Research current primary documentation]
+    Research --> Alternatives[Record alternatives and constraints]
+    Alternatives --> Spike[Validate riskiest assumption]
+    Spike --> Evidence[Measure correctness performance integration]
+    Evidence --> Review[Adversarial architecture review]
+    Review --> Decision{Accept direction}
+    Decision -->|Yes| ADR[Record accepted ADR]
+    Decision -->|No| Revise[Revise or defer]
+    ADR --> Implement[Implement with checklist]
+```
+
+## Build, Check, and Test Commands
+
+Exact command names remain generic until workspace tooling and task runner are locked. Repository **SHOULD** expose discoverable wrappers or documented native Cargo commands for:
+
+- format source and documentation;
+- compile/check all default workspace members;
+- lint production, tests, examples, and feature combinations;
+- build optimized desktop and headless targets;
+- run fast unit/headless core suite;
+- run property/model and compatibility suites;
+- run selected fuzz targets/corpus regression;
+- run CPU reference/golden/color tests;
+- enumerate and run wgpu adapter tests;
+- run Linux host and AT-SPI integration;
+- run performance workloads and compare baselines;
+- generate documentation and validate links/Mermaid policy;
+- assemble release evidence.
+
+Conceptual usage:
+
+```text
+workspace-tool format --check
+workspace-tool check --all-targets
+workspace-tool lint --strict
+workspace-tool test --suite core
+workspace-tool test --suite integration
+workspace-tool test --suite gpu --adapter explicit
+workspace-tool test --suite accessibility
+workspace-tool benchmark --workload brush-standard
+workspace-tool evidence --release-candidate
+```
+
+These are semantic placeholders for command categories, not promises of an executable named `workspace-tool`. Before tooling lock, contributors inspect repository task documentation and use equivalent Cargo/host commands. Required workflows **MUST** remain runnable locally without a CI vendor. Scripts avoid downloading unpinned executables during ordinary checks.
+
+## Linux Development Environment
+
+Linux is the primary native host and must be developed as a real platform, not a generic Unix afterthought. Contributors record distribution, kernel, compositor/session, desktop, display scaling, GPU adapter/driver, wgpu backend, input devices, accessibility service, color service, and portal availability when reporting host issues. CachyOS/Arch-style package names and current components may differ from other distributions; documentation describes required capabilities before distro-specific package commands.
+
+Environment capabilities include:
+
+- Rust toolchain satisfying repository policy;
+- native compiler/linker and package metadata tools;
+- windowing/surface development headers selected by validated host implementation;
+- Vulkan or other enabled wgpu backend runtime and diagnostics;
+- Wayland session with optional X11 compatibility only where supported;
+- desktop portal service for capability-based file/dialog tests where applicable;
+- AT-SPI service and representative assistive technology;
+- color/profile integration available to selected host adapter;
+- tablet/pen input for native input qualification;
+- fonts and locales from controlled fixture set for deterministic tests.
+
+The application **MUST** handle absent portal, accessibility, color, tablet, or GPU capability with typed status. Developers should test both present and absent states. Do not hard-code `/usr`, home directories, current working directory, display names, monitor indices, or desktop-specific service availability into core.
+
+### Environment diagnosis
+
+Collect diagnosis before changing code:
+
+1. identify build revision/profile and local modifications;
+2. capture process environment relevant to display and wgpu without exposing secrets;
+3. list available adapters and requested features/limits through application diagnostic path;
+4. record selected backend, adapter, driver, device generation, surface format, display scale, and color context;
+5. reproduce with optional extensions disabled and default workspace;
+6. distinguish surface loss from device loss and host input from core gesture behavior;
+7. run headless CPU/reference path to isolate GPU/presentation;
+8. preserve bounded local trace and exact operation correlation.
+
+Environment variables used to select backend, validation, or logging are diagnostic overrides, not permanent product configuration. Reports name them. A workaround that disables validation, color management, accessibility, or recovery cannot become default without ADR and evidence.
+
+## wgpu Diagnostics
+
+The renderer exposes an application-owned diagnostic summary rather than requiring contributors to infer state from driver logs. Summary **SHOULD** include:
+
+- adapter identity class and backend;
+- driver/API versions when safely available;
+- supported/selected features and limits;
+- surface format/present mode/color/HDR context;
+- device and surface generation;
+- pipeline family readiness and quarantined variants;
+- GPU cache logical/resident byte accounting;
+- queue submissions, uploads, readbacks, and timestamp capability;
+- validation, uncaptured error, out-of-memory, and loss reason;
+- CPU/multipass fallback selections;
+- recent recovery attempts and bounded outcomes.
+
+```mermaid
+flowchart TD
+    Symptom[Rendering symptom] --> Identity[Capture frame and device identity]
+    Identity --> Trace[Inspect graph tile and submission trace]
+    Trace --> CPUCompare{CPU reference differs}
+    CPUCompare -->|Yes| Semantic[Inspect graph color bounds and node]
+    CPUCompare -->|No| GPUPath[Inspect pipeline resource and backend]
+    GPUPath --> Validation[Enable bounded validation diagnostics]
+    Validation --> Reproduce[Reproduce cold and warm]
+    Reproduce --> Loss{Device or surface loss}
+    Loss -->|Device| Generation[Verify quarantine and rebuild]
+    Loss -->|Surface| Surface[Verify surface reconfiguration]
+```
+
+GPU debugging rules:
+
+- validate dimensions, offsets, row alignment, formats, usages, and dispatch counts before submission;
+- label passes/resources with semantic IDs and behavior versions, not user content;
+- never synchronously wait on GPU from UI/document authority;
+- capture pipeline compilation separately from execution;
+- compare node output with CPU reference under declared tolerance;
+- test cold pipeline/cache state;
+- include device generation in every completion;
+- initialize pooled/shared resources before read;
+- distinguish driver/backend defect from incomplete semantic contract;
+- quarantine only a specific failing variant when evidence supports fallback.
+
+Native backend tools may supplement diagnosis, but no proprietary profiler is required for conformance. A backend-specific workaround **MUST** preserve semantics and identify adapter/driver applicability narrowly.
+
+## Local Observability
+
+Every asynchronous workflow has operation and correlation IDs. Structured spans connect action, command validation, queue, preparation, commit, snapshot, render invalidation, graph, tile, wgpu submission, frame, save/export, extension, and presentation. Fields are stable semantic identifiers and bounded counts. Paths, layer names, text, metadata, pixels, thumbnails, colors, stroke samples, clipboard, and capability tokens are redacted by default.
+
+Instrumentation is optional for correctness. Disabled sinks have low bounded overhead. Ring buffers report overflow. Logs are not APIs; tests inspect semantic state or structured test sinks. Error messages include remedy for users while diagnostic records retain stable code and sanitized cause chain.
+
+## Architecture Conformance
+
+Architecture checks combine review, compile boundaries, static policy, and tests:
+
+- portable crates cannot import host/toolkit/wgpu concrete modules;
+- UI and extensions cannot obtain mutation authority;
+- every mutating action maps to command;
+- every renderer input is immutable/versioned;
+- every persisted/protocol schema is versioned and bounded;
+- every external callback occurs outside document lock;
+- every queue/cache has bounds and pressure policy;
+- every operation has cancellation and terminal outcome;
+- every GPU object has device generation;
+- every format/parser has hostile corpus;
+- every visible action has accessibility semantics;
+- every performance-sensitive path has trace stages and workload;
+- no network/account/AI/proprietary dependency enters core workflow.
+
+Some rules can be checked by dependency graph or lints; others require tests and reviewer judgment. A lint suppression names rule, rationale, scope, owner, and review condition. Architecture conformance is not satisfied by moving forbidden code behind a re-export.
+
+## Contributor Onboarding
+
+New contributors follow a bounded path:
+
+1. Read [00 — Introduction](00-Introduction.md), [01 — Information Architecture](01-Information-Architecture.md), this guide, glossary, and requirement keywords.
+2. Read subsystem document for intended change plus direct cross references.
+3. Build/check workspace using current repository instructions.
+4. Run headless core suite before edits.
+5. Create a tiny fixture or test reproducing target behavior.
+6. Identify authoritative owner, command path, snapshot consumer, host boundary, and persistence impact.
+7. Discuss ADR need before selecting new library or boundary.
+8. Implement smallest semantic vertical slice.
+9. Run focused tests, then required broader suites.
+10. Update docs, acceptance evidence, and changelog/release notes as policy requires.
+
+Starter changes should favor pure validators, fixture coverage, documentation corrections, or isolated semantic components. A newcomer should not be asked to choose toolkit/runtime/plugin ABI through incidental feature work.
+
+### Reading a subsystem
+
+For any subsystem, answer:
+
+- What state is authoritative?
+- What is derived/cache/view state?
+- Which IDs and versions identify it?
+- Which command mutates it?
+- What forward/inverse history exists?
+- What snapshots/deltas expose it?
+- Which thread/process owns mutation?
+- What input is untrusted?
+- What are cancellation and stale-result rules?
+- What persists and migrates?
+- What is CPU/reference versus wgpu?
+- What accessibility projection exists?
+- What performance budget and tests apply?
+
+If answers are absent, improve specification before production code. Guessing ownership produces the most expensive defects.
+
+## Code Style and Maintainability
+
+Rust code should make contracts visible. Prefer domain names, small validated types, exhaustive internal matching, explicit unknown handling at compatibility boundaries, and short authoritative critical sections. Avoid global mutable state, ambient current document, ambient runtime handles, implicit filesystem paths, and hidden thread-local authority.
+
+Modules expose a narrow public surface. `pub` does not mean stable external API, but unnecessary visibility increases coupling. Constructors establish invariants. Internal unsafe blocks document safety reasoning at the block and module boundary. Comments explain rationale and invariants, not syntax.
+
+Error contexts add semantic operation and target kind without private payload. Clone is not a substitute for ownership analysis; large resource clones should share immutable chunks or state cost explicitly. Reference counting alone does not identify semantic retention reason; use leases/reasons for document, snapshot, history, save, recovery, clipboard, and operation ownership.
+
+Performance optimizations retain readable reference path and tests. Cache introduction identifies owner, key, byte accounting, eviction, invalidation, generation, and correctness independence. Feature flags do not create architecture forks; combinations are bounded and tested.
+
+## Review Checklist
+
+### Architecture and ownership
+
+- [ ] Correct authoritative owner identified.
+- [ ] Mutation enters command/transaction authority.
+- [ ] UI, renderer, persistence, and extension remain non-authoritative.
+- [ ] Stable IDs and versions used instead of indices/pointers.
+- [ ] Crate dependency direction follows policy.
+- [ ] Third-party/native types stop at adapter.
+- [ ] Thread/process affinity and leases are explicit.
+
+### Correctness and lifecycle
+
+- [ ] Success, no-change, stale, failure, cancellation, and pressure outcomes defined.
+- [ ] Forward/inverse history exists before commit.
+- [ ] Snapshot/delta publication remains coherent.
+- [ ] Save/current/recovery versions remain distinct.
+- [ ] Device/surface/window loss preserves document.
+- [ ] Cleanup is idempotent and bounded.
+- [ ] No lock spans external/I/O/GPU/user code.
+
+### Data and compatibility
+
+- [ ] Counts, dimensions, offsets, numeric values, and allocations validated.
+- [ ] Color, alpha, precision, range, coordinate space, and bounds explicit.
+- [ ] Schema/behavior versions and unknown handling defined.
+- [ ] Migration and old fixture implications covered.
+- [ ] Unknown safe data preserved; unsafe semantics rejected.
+- [ ] No Rust memory layout or native ABI persistence.
+
+### Security, privacy, and extension
+
+- [ ] Untrusted inputs have limits and hostile tests.
+- [ ] Capabilities are scoped, checked, revocable, and non-ambient.
+- [ ] Diagnostics/accessibility redact private content.
+- [ ] Extension crash/timeout cannot corrupt core.
+- [ ] No executable payload enters document/history/preset.
+- [ ] Normal operation remains offline.
+
+### UX and accessibility
+
+- [ ] Stable action ID, name, scope, availability, disabled reason, and target.
+- [ ] Keyboard and action-search route exists.
+- [ ] Role, name, state, value, relationships, focus, and announcements defined.
+- [ ] Selection, focus, active target, view, and document remain distinct.
+- [ ] High contrast, 200% scale, reduced motion, and non-color cues tested.
+- [ ] Progress, cancellation, destructive consequence, and failure are actionable.
+
+### Testing and performance
+
+- [ ] Headless unit/contract coverage exists.
+- [ ] Property/fuzz/model coverage added where state space or trust boundary warrants.
+- [ ] Deterministic seeds/clocks/schedules and tolerances recorded.
+- [ ] CPU/reference and wgpu differential coverage exists.
+- [ ] Queue/cache/memory bounds and cancellation tested.
+- [ ] Relevant [performance budgets](30-Performance.md) measured.
+- [ ] Device loss, pressure, and stale-result cases covered.
+- [ ] Documentation and acceptance criteria updated.
+
+Checklist items not applicable include a short reason. “Handled elsewhere” links owner/test/ADR.
+
+## Workflows
+
+```mermaid
+flowchart LR
+    Scope[Define user and semantic scope] --> Docs[Read and update contracts]
+    Docs --> Test[Create failing headless test]
+    Test --> Implement[Implement smallest vertical slice]
+    Implement --> Focused[Run focused checks]
+    Focused --> Faults[Run stale cancel pressure faults]
+    Faults --> Integration[Run subsystem integration]
+    Integration --> Review[Architecture review checklist]
+    Review --> Evidence[Record conformance evidence]
+```
+
+Do not combine opportunistic architecture refactors with a narrow behavior fix unless separation is impossible and documented. Generated files are produced by canonical generator and reviewed through source plus relevant output. Dependency additions require purpose, license/security/maintenance assessment, feature footprint, alternatives, host portability, and removal strategy.
+
+## Design Rationale, Alternatives, and Tradeoffs
+**Many semantic crates versus one core crate.** Fine crates enforce dependencies but can create compile overhead and cyclic pressure. Start with cohesive modules where boundaries are uncertain; split only when contracts and evidence support it. Dependency rules matter more than crate count.
+
+**Traits versus concrete implementations.** Traits improve substitution and headless tests at real boundaries. Excess abstraction obscures ownership and increases compile complexity. Introduce them around validated host/service seams, not every function.
+
+**Per-document authority versus shared mutable graph.** Serialized commit authority makes stale handling and history clear. Shared mutation may appear faster but spreads locks and partial-state risk.
+
+**CPU reference plus wgpu versus GPU-only.** Dual implementations cost work but protect correctness, device recovery, headless testing, and compatibility. CPU may be deliberately slower while remaining bounded.
+
+**Toolkit-neutral presentation model versus widget-centric core.** Semantic presentation supports accessibility, testing, extensions, and alternate hosts. It requires adapter work but prevents toolkit lock-in before validation.
+
+**Out-of-process extensions versus native ABI.** Isolation and serialized contracts contain faults and avoid premature ABI commitment. Fine-grained operations need batching/streaming to control cost.
+
+**Generic build commands versus premature task-runner lock.** Command categories keep handbook truthful while repository evolves. Once tooling is validated, an ADR and repository instructions can name exact commands.
+
+## Anti-Patterns
+
+- Core importing toolkit, Linux window, portal, AT-SPI, or wgpu surface types.
+- UI mutating layers or history directly.
+- Renderer treating texture as document truth.
+- Persistence setting dirty Boolean after any write.
+- File path used as document identity or authority.
+- Global active document used by background work.
+- Async result applied to latest state without applicability.
+- Unbounded channel, task spawn, cache, trace, or retry.
+- Cancellation implemented only by hiding progress UI.
+- Blocking UI thread on GPU, codec, filesystem, or extension.
+- Error strings used as control flow.
+- Panics on untrusted input.
+- Serialization derived blindly from in-memory structs.
+- Exposing third-party types across multiple layers.
+- Stable plugin ABI promised before isolation/version policy.
+- Cache introduced without complete key and byte accounting.
+- Feature flag combinations multiplying unsupported architectures.
+- New dependency selected without ADR-level assessment when high impact.
+- Tests relying on sleeps, private fixtures, or one GPU.
+- Documentation updated after behavior ships.
+- Generic “utility” crate accumulating policy and cycles.
+- Unsafe code without explicit safety contract.
+
+## Best Practices
+
+- Start from owner and invariant.
+- Keep values immutable across async boundaries.
+- Revalidate immediately before commit.
+- Build inverse before authoritative installation.
+- Label every async result with source versions and generations.
+- Bound work in count, bytes, time, and cancellation interval.
+- Keep cache misses a latency issue only.
+- Use CPU/reference implementation as executable specification.
+- Keep native integration at host edge.
+- Make diagnostics structured, local, bounded, and redacted.
+- Test capability absence and failure.
+- Prefer semantic IDs over implementation names.
+- Add migration fixtures before changing behavior versions.
+- Measure complete workflows, not isolated kernels only.
+- Record rejected alternatives and revisit triggers.
+
+## Release and Versioning
+
+PhotoTux versions product, document schemas, command schemas, behavior algorithms, extension protocols, contribution contracts, diagnostic artifacts, and workspace/preferences independently. Product semantic version does not imply native plugin ABI. Compatibility promises are explicit per contract.
+
+Release workflow:
+
+1. freeze candidate revision and corpus revisions;
+2. validate changelog and migration notes;
+3. run [testing release evidence](31-Testing.md);
+4. run controlled [performance](30-Performance.md) tiers;
+5. verify native format old/new/unknown/corrupt corpus;
+6. verify Linux host, wgpu fallback/device loss, and AT-SPI;
+7. inspect dependency/license/security changes;
+8. review quarantines, provisional deviations, and unsupported combinations;
+9. build artifacts through reproducible documented process;
+10. smoke install/launch/open/edit/save/export/recovery offline;
+11. preserve evidence and exact source/build identity;
+12. tag/release only after mandatory gates pass.
+
+Schema changes use explicit migration and old fixtures. Behavior changes affecting pixels, brush placement, filters, color, graph, or history replay advance behavior identity. Deprecation states replacement, warning window, removal condition, and data migration. Unsupported old data fails with preserved state and actionable compatibility information.
+
+Release artifacts and packages remain host-specific edges around one semantic core. Linux packaging may vary by distribution mechanism, but application behavior, local data locations, permissions, desktop integration, and update assumptions are documented. Automatic remote update/account service is not part of baseline.
+
+## Future Extensibility
+
+Workspace may gain additional hosts, local batch applications, new render nodes, formats, extension transports, or packaging systems. Each addition conforms to command authority, immutable snapshots, host boundaries, capabilities, cancellation, CPU/reference behavior, accessibility, performance, and test evidence.
+
+Crate boundaries can evolve. A module may split for compile parallelism, isolation, reuse, or ownership clarity; crates may merge when cyclic interfaces and overhead outweigh enforcement. Changes **MUST** preserve public semantic contracts or provide migration.
+
+Future local automation may invoke stable command schemas under explicit capabilities. It does not gain mutable document access. Additional GPU APIs remain behind wgpu direction unless an ADR demonstrates required capability, portability, fallback, and migration. No future extension is presumed to require cloud, account, AI, generative, or proprietary services.
+
+## Acceptance Criteria
+
+- Repository architecture proposal separates foundation, domain, compute, services, hosts, applications, and evidence.
+- Rust workspace boundaries remain proposals and do not commit unvalidated libraries.
+- Dependency rules prevent host/toolkit/wgpu/extension mechanisms from entering portable authority.
+- Document, command, history, snapshot, renderer, persistence, extension, and presentation ownership is explicit.
+- Thread roles, leases, queue bounds, locks, stale results, and device generations are defined.
+- Error model identifies preserved state and retry; cancellation honors commit and replace boundaries.
+- Command workflow constructs inverse, revalidates, commits once, and adds headless evidence.
+- Tool, panel, format, and filter workflows preserve semantic boundaries and accessibility.
+- Documentation/ADR process governs high-reversal-cost decisions and validated spikes.
+- Build/check/test command categories remain generic until tooling is locked and locally runnable.
+- Linux environment guidance covers Wayland/native host, portals, AT-SPI, color, input, and absence states.
+- wgpu diagnostics cover adapter, limits, pipelines, resources, submissions, loss, and CPU fallback.
+- Review checklist covers architecture, lifecycle, data, security, accessibility, testing, and performance.
+- Contributor onboarding teaches authoritative owner and contract discovery before code.
+- Release/versioning distinguishes product, schema, behavior, protocol, and ABI promises.
+- Architecture conformance can be inspected through dependency checks, tests, and review.
+- Core edit/save/recovery workflows require no network, cloud, account, AI, generative, or proprietary service.
+
+## Cross References
+
+- [00 — Introduction and System Charter](00-Introduction.md) — canonical architecture and product boundaries.
+- [01 — Information Architecture](01-Information-Architecture.md) — semantic hierarchy and action presentation.
+- [02 — Application Lifecycle](02-Application-Lifecycle.md) — ownership, startup, shutdown, and recovery.
+- [08 — Command System](08-Command-System.md) — mutation, validation, scheduling, and outcomes.
+- [10 — Document Model](10-Document-Model.md) — authority, identity, snapshots, and resources.
+- [14 — Brush Engine](14-Brush-Engine.md) — tool-to-command and CPU/wgpu implementation.
+- [15 — Filter Engine](15-Filter-Engine.md) — filter contract and compute boundaries.
+- [16 — Color Management](16-Color-Management.md) — explicit color/alpha and transform behavior.
+- [17 — Rendering Engine](17-Rendering-Engine.md) — graph, tiles, wgpu, CPU fallback, and device loss.
+- [20 — History and Undo](20-History-Undo.md) — inverse, coalescing, checkpoints, and budgets.
+- [22 — Import and Export](22-Import-Export.md) — codec and staged-write workflow.
+- [23 — Plugin SDK](23-Plugin-SDK.md) — capabilities, isolation, and deferred ABI.
+- [27 — File Formats](27-File-Formats.md) — native format, schemas, migration, and hostile input.
+- [29 — Accessibility](29-Accessibility.md) — semantic UI, AT-SPI, keyboard, and focus.
+- [30 — Performance](30-Performance.md) — budgets, diagnostics, scheduling, and regression gates.
+- [31 — Testing](31-Testing.md) — test pyramid, matrices, fixtures, and release evidence.
+- [Glossary](Appendix/Glossary.md) — canonical terminology.
+- [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.

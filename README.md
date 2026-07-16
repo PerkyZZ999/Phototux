@@ -53,21 +53,16 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 
 | Document | Purpose |
 |----------|---------|
-| [SPEC.md](SPEC.md) | Product architecture, stack, phases, SLOs |
-| [CONSTRAINTS.md](CONSTRAINTS.md) | Hard/soft constraints |
-| [AGENTS.md](AGENTS.md) | Agent coding constitution (from locked ADRs) |
+| [**internal_docs/**](internal_docs/README.md) | **Engineering Handbook** (authoritative) |
+| [internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) | Codebase vs handbook diffs + alignment plan |
+| [internal_docs/Appendix/Decision-Register.md](internal_docs/Appendix/Decision-Register.md) | Architectural decision index |
+| [SPEC.md](SPEC.md) | Bridge: product architecture / SLOs (migrate into handbook) |
+| [CONSTRAINTS.md](CONSTRAINTS.md) | Bridge: hard/soft constraints |
+| [AGENTS.md](AGENTS.md) | Agent coding constitution |
 | [CHANGELOG.md](CHANGELOG.md) | Decision milestones |
-| [docs/DESIGN_BRIEF.md](docs/DESIGN_BRIEF.md) | Experience design brief |
-| [docs/INFORMATION_ARCHITECTURE.md](docs/INFORMATION_ARCHITECTURE.md) | Workspace structure, flows, naming (production target) |
-| [docs/PREFERED_IA.md](docs/PREFERED_IA.md) | Aspirational IA source (merged into official IA) |
-| [docs/DESIGN.md](docs/DESIGN.md) | Visual design system (tokens + rationale) |
-| [docs/FEATURES_TODO.md](docs/FEATURES_TODO.md) | Wish-list inventory (status in development checklist) |
-| [docs/00-research/DOSSIER.md](docs/00-research/DOSSIER.md) | Stack research |
-| [docs/01-decisions/](docs/01-decisions/) | ADRs |
-| [docs/03-checklists/development.md](docs/03-checklists/development.md) | Living production slices (IA parity) |
-| [docs/04-journal/](docs/04-journal/) | Spike findings, slice journals, conflict log |
+| [archive/docs/](archive/docs/README.md) | Archived former `/docs/` (ADRs, journals, old IA/checklists) |
 
-**Status:** Foundation Phases 0–12 closed. Desktop editor ships GPU canvas, layers/masks, selections, transforms, brush, `.ptx`/PSD subset, adjustments/filters core, fill/gradient. Production work = IA parity slices in the development checklist.
+**Status:** Foundation editor ships GPU canvas, layers/masks, selections, transforms, brush, `.ptx`/PSD subset, adjustments/filters core, fill/gradient. Normative engineering direction = handbook; implementation alignment = gap analysis (hybrid: keep Qt/wgpu/`.ptx` spine, evolve toward command/snapshot/workspace contracts).
 
 ## Run (developer)
 
@@ -88,5 +83,6 @@ Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p
 
 ## Next Steps
 
-1. IA-parity slices in [`docs/03-checklists/development.md`](docs/03-checklists/development.md) (Preferences → menus → tool options → editing depth).
-2. ADR amendments before multi-doc tabs (ADR-013) or Shape layers (ADR-017).
+1. Confirm Decision Register promotions in [gap analysis §8](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) (Qt, `.ptx`, single-doc, zero-copy).
+2. Phase α alignment: thin command router over existing ops (see gap analysis §6.3).
+3. Multi-doc / Shape layers only after explicit Decision Register amendments.

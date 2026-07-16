@@ -2,6 +2,21 @@
 
 All notable decision milestones and project state changes.
 
+## [engineering-handbook] — 2026-07-16
+
+### Docs
+
+- Adopted `internal_docs/` as the authoritative Engineering Handbook.
+- Archived former `/docs/` → `archive/docs/` (historical ADRs, journals, checklists).
+- Added `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` (code vs handbook diffs + hybrid alignment plan).
+- Pointed `README.md` / `AGENTS.md` at handbook; root `SPEC.md` / `CONSTRAINTS.md` remain bridge docs.
+
+### Alignment stance
+
+Keep shipping Qt + wgpu zero-copy + `.ptx` spine; evolve toward handbook command/snapshot/workspace contracts. Do not big-bang rewrite to the proposed fine-grained crate layout.
+
+---
+
 ## [ia-parity-roadmap] — 2026-07-16
 
 ### Docs

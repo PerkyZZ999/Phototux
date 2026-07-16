@@ -1,7 +1,12 @@
 # AGENTS.md
 
-Agent-facing constitution for **PhotoTux**. Complements human docs (`README.md`, `SPEC.md`, ADRs).  
-If anything conflicts: **more recent ADR wins** → log `docs/04-journal/conflicts.md` → surface in output (never silent).
+Agent-facing constitution for **PhotoTux**.
+
+**Authoritative engineering docs:** [`internal_docs/`](internal_docs/README.md) (Engineering Handbook).  
+**Historical docs:** [`archive/docs/`](archive/docs/README.md) (former `/docs/` — ADRs, journals, checklists).  
+**Alignment plan:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).
+
+If handbook Decision Register conflicts with archived ADRs or code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` remain bridge docs until absorbed into the handbook.
 
 ---
 
@@ -9,26 +14,21 @@ If anything conflicts: **more recent ADR wins** → log `docs/04-journal/conflic
 
 PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor with **zero-copy GPU** canvas (`wgpu`/Vulkan) and a dense KDE Plasma–aligned shell.
 
-| Layer | Choice | ADR |
-|-------|--------|-----|
-| Platform | Linux / Wayland v1 only | 001 |
-| UI | Qt 6.10+ QML, Controls 2 first; Kirigami deferred | 002 |
-| FFI | `qtbridge` 0.2 app logic; thin C++ canvas plus QML AOT registration only | 003 |
-| GPU | `wgpu` 30, Vulkan-first | 004 |
-| Present | Zero-copy only (ship); debug readback only | 005 |
-| Spike | Interop spike after Phase 1, **before** Phase 2 production canvas | 010 |
-| Crates | Multi-crate `phototux_*` | 006 |
-| Threads | Command queue; worker before heavy brush | 007 |
-| Doc model | Full layer graph Phase 3 only | 011 |
-| License | GPL-3.0-or-later; public OSS late | 012 |
-| Prefs | New-doc dialog + presets; single doc; **Phosphor** icons; stroke undo; local CI; zoom-to-fit | 013 |
-| Surface | **Desktop GUI only** — no CLI product, no TUI, no web | 014 |
+| Layer | Choice | Notes |
+|-------|--------|-------|
+| Platform | Linux / Wayland v1 | Handbook local-first + Linux host |
+| UI | Qt 6.10+ QML, Controls 2; Kirigami deferred | Shipped; promote in Decision Register (handbook DR-008 was Deferred) |
+| FFI | `qtbridge` 0.2; thin C++ canvas + QML AOT only | Shipped |
+| GPU | `wgpu` Vulkan-first | Handbook DR-006 |
+| Present | Zero-copy interactive; debug readback only | Keep; CPU = tests/degraded only |
+| Crates | Multi-crate `phototux_*` | Fine-grained split in handbook 32 is **target**, not immediate |
+| Threads | Paint command queue + workers | Evolve toward handbook command spine |
+| Doc model | Graph v2 layers in engine | Single doc v1 until DR amend |
+| License | GPL-3.0-or-later | |
+| Surface | **Desktop GUI only** | No CLI/TUI/web product |
 
-**Design system:** `docs/DESIGN.md`, `docs/DESIGN_BRIEF.md`, `docs/INFORMATION_ARCHITECTURE.md`.
-
-**Product form:** End-user deliverable is a **windowed desktop editor**. `cargo run` / tests / `rust-doctor` are **developer tools**, not product surfaces.
-
-**Repo state:** Docs-first until Phase 1 scaffold. Pre-commit skips Rust tools until `Cargo.toml` exists (fails if `.rs` staged without workspace).
+**Design tokens (historical):** `archive/docs/DESIGN.md` until migrated into handbook Themes/UX.  
+**Product form:** windowed desktop editor. `cargo` / tests = developer tooling.
 
 ---
 
@@ -59,11 +59,10 @@ CHECK_RUST_FULL=1 ./scripts/check-rust.sh   # + rust-doctor
 
 ## Development workflow
 
-1. Read relevant ADRs + design docs before coding.
-2. Prefer vertical slices; update `docs/03-checklists/development.md` and `blockers.md`.
-3. Phase order: **1 shell** → **1.5 interop spike** → **2 GPU viewport** → 3 graph → 4 tools → 5 desktop.
-4. Do not implement Phase 2 production canvas without spike findings (ADR-010).
-5. Commit only after `./scripts/check-rust.sh` passes (or pre-commit does).
+1. Read relevant handbook chapters + Decision Register before coding; check gap analysis for known deltas.
+2. Prefer vertical slices that move code toward handbook contracts without big-bang rewrites.
+3. Do not invent a second doc tree under `/docs/` — handbook only; archive is read-only history.
+4. Commit only after `./scripts/check-rust.sh` passes (or pre-commit does).
 
 ### Workspace layout (when scaffolded)
 
@@ -73,7 +72,7 @@ crates/phototux-ui/      # package: phototux_ui  — qtbridge only, no wgpu
 crates/phototux-engine/  # package: phototux_engine — pure Rust, no Qt
 crates/phototux-gpu/     # package: phototux_gpu — Phase 2+
 crates/phototux-canvas/  # package: phototux_canvas — interop ± thin C++
-qml/                     # QML; tokens from docs/DESIGN.md
+qml/                     # QML; tokens from archive/docs/DESIGN.md until handbook Themes migrate
 assets/icons/phosphor/   # Phosphor Icons MIT (core 2.1.1); default weight regular
 ```
 
@@ -110,10 +109,10 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 
 | Skill | Desktop adaptation |
 |-------|--------------------|
-| `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `docs/DESIGN.md`; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
+| `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `archive/docs/DESIGN.md` / handbook Themes; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
 | `iconography-frontend-ui` | Icons from `assets/icons/phosphor/`; **map:** `assets/icons/ICON_MAP.md`; function over decoration; labels+tooltips; contrast; states; size on grid (tool strip ~36px hit) |
 
-**Never** invent a second palette or spacing scale—extend `docs/DESIGN.md`.
+**Never** invent a second palette or spacing scale—extend archived `DESIGN.md` or handbook Themes.
 
 ---
 
@@ -187,10 +186,10 @@ cargo test -p phototux_gpu --features gpu-tests
 
 ### QML / UI
 
-- Controls 2; Breeze-dark / `DESIGN.md` tokens.
-- Layout per `INFORMATION_ARCHITECTURE.md` (tool strip, canvas, properties, layers, status).
-- New document: **ask + presets** 720p / 1080p / 2K / 4K (ADR-013).
-- Single document v1; **zoom-to-fit** on open/new.
+- Controls 2; Breeze-dark / archived `DESIGN.md` tokens (migrate to handbook Themes).
+- Layout per handbook IA (`internal_docs/01-Information-Architecture.md`) + workspace chapters.
+- New document: **ask + presets** 720p / 1080p / 2K / 4K.
+- Single document v1 until Decision Register amend; **zoom-to-fit** on open/new.
 - Strings user-facing: `qsTr(...)`.
 
 ### Git / commits
@@ -244,14 +243,11 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 
 | Path | Use |
 |------|-----|
-| `SPEC.md` | Product architecture & phases |
-| `CONSTRAINTS.md` | Hard/soft constraints |
-| `docs/01-decisions/` | ADRs (001+) |
-| `docs/DESIGN.md` | Visual tokens (normative) |
-| `docs/INFORMATION_ARCHITECTURE.md` | Workspace / menus / panels / flows (production target) |
-| `docs/PREFERED_IA.md` | Aspirational IA source (merged into official IA) |
-| `docs/03-checklists/development.md` | Living production slices (IA parity) |
-| `docs/FEATURES_TODO.md` | Wish-list inventory (status in checklist) |
+| `internal_docs/` | **Engineering Handbook** (authoritative) |
+| `internal_docs/Appendix/Decision-Register.md` | Architectural decisions index |
+| `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs + alignment |
+| `archive/docs/` | Archived former `/docs/` (ADRs, journals, old IA) |
+| `SPEC.md` / `CONSTRAINTS.md` | Bridge product constraints (migrate into handbook over time) |
 | `scripts/check-rust.sh` | Quality gate |
 | `.githooks/pre-commit` | Commit gate |
 
@@ -261,7 +257,7 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 
 - [ ] `./scripts/check-rust.sh` green (when Rust workspace exists)
 - [ ] Tests for engine logic touched
-- [ ] UI matches `DESIGN.md` + IA (no freestyle chrome)
-- [ ] No forbidden CPU canvas path
-- [ ] Checklist/blockers updated if phase work
+- [ ] UI matches handbook UX / Themes (historical tokens in `archive/docs/DESIGN.md` until migrated)
+- [ ] No forbidden steady-state CPU canvas upload
+- [ ] Gap analysis / Decision Register updated if architecture changes
 - [ ] No paragraph-long workaround comments
