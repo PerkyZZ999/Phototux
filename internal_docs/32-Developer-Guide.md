@@ -2,9 +2,9 @@
 
 ## Overview
 
-This guide translates PhotoTux architecture into contributor boundaries, implementation workflows, review gates, and release discipline. It proposes a Rust workspace and module dependency model without committing to unvalidated UI, async, serialization, test, logging, sandbox, packaging, or codec libraries. Semantic contracts are stable concerns; crate names and package topology remain proposals until spikes and architecture decisions confirm compile time, ownership, portability, and deployment constraints.
+This guide translates PhotoTux architecture into contributor boundaries, implementation workflows, review gates, and release discipline. The **shipping tech stack and Cargo members are frozen** ([DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase), [DR-025](Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace)): Rust, Qt 6 QML + qtbridge, wgpu Vulkan-first, zero-copy present, `.ptx`. Semantic contracts (commands, snapshots, workspace models) evolve **on that stack**. Optional libraries (codecs, logging backends, sandbox tech) may still be chosen with evidence; UI toolkit and GPU API must not.
 
-PhotoTux is a local-first raster editor with a cross-platform semantic core, Linux-native host, Rust implementation direction, and wgpu rendering direction. The document owns authoritative editable state. Commands are the sole mutation spine. Transactions register history and publish immutable snapshots. Rendering, persistence, analysis, and extensions consume immutable views. GPU resources are derived. Native APIs stop at host adapters. Every queue, operation, capability, and cancellation boundary is explicit.
+PhotoTux is a local-first raster editor with a portable semantic core, Linux-native Qt host, and wgpu rendering. The document owns authoritative editable state. Commands are the sole mutation spine. Transactions register history and publish immutable snapshots. Rendering, persistence, analysis, and extensions consume immutable views. GPU resources are derived. Toolkit and native APIs stop at host adapters (`phototux_ui` / `phototux_canvas`). Every queue, operation, capability, and cancellation boundary is explicit. See [Alignment Roadmap](Appendix/Alignment-Roadmap.md).
 
 Contributors **MUST NOT** introduce cloud storage, accounts, remote services, AI or generative features, proprietary workflows, ambient extension authority, writable model references in UI, or GPU-authoritative document state. Normative words follow [Requirement Keywords](Appendix/Requirement-Keywords.md); terms follow the [Glossary](Appendix/Glossary.md).
 
@@ -86,31 +86,37 @@ PhotoTux repository
 └── docs, ADRs, fixtures, and release evidence
 ```
 
-## Rust Workspace Boundary Proposal
+## Rust Workspace Boundaries
 
-The following names communicate intended responsibilities. They are not frozen packages:
+### Shipping packages (binding — [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase), [DR-025](Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace))
 
 ```text
 crates/
-├── phototux-types
-├── phototux-diagnostics
-├── phototux-domain
-├── phototux-commands
-├── phototux-history
-├── phototux-snapshot
-├── phototux-color
-├── phototux-brush
-├── phototux-filter
-├── phototux-render-graph
-├── phototux-render-cpu
-├── phototux-render-wgpu
-├── phototux-persistence
-├── phototux-formats
-├── phototux-extension-contract
-├── phototux-extension-host
-├── phototux-presentation-model
-├── phototux-linux-host
-└── phototux-app
+├── phototux              # desktop binary + QML AOT anchor
+├── phototux-ui           # qtbridge QObjects; no wgpu
+├── phototux-engine       # portable document/commands/history semantics; no Qt
+├── phototux-gpu          # wgpu pipelines
+├── phototux-canvas       # Qt↔wgpu canvas interop (± thin C++)
+├── phototux-io           # .ptx + raster/PSD adapters
+└── phototux-spike-interop # historical evidence only
+```
+
+Presentation stack is **Qt 6 QML + qtbridge**. GPU stack is **wgpu 30 Vulkan-first** with zero-copy interactive present. Do not invent parallel GUI or GPU stacks.
+
+### Logical ownership map (modules — not a rename mandate)
+
+The following names communicate **responsibilities**. Implement them as modules (or later optional crate splits) **inside** the shipping packages above — not as an immediate 18-crate rewrite ([Alignment Roadmap](Appendix/Alignment-Roadmap.md)):
+
+```text
+logical/
+├── types / diagnostics          → phototux-engine (foundation modules)
+├── domain / commands / history / snapshot → phototux-engine
+├── color / brush / filter semantics → phototux-engine (+ GPU exec in phototux-gpu)
+├── render-graph / CPU reference / wgpu exec → phototux-gpu (+ engine plans)
+├── persistence / formats        → phototux-io
+├── presentation model           → phototux-ui (+ QML)
+├── linux host / app composition → phototux + phototux-canvas + phototux-ui
+└── extension contract/host      → deferred until DR-009 seams
 ```
 
 ### Foundation types

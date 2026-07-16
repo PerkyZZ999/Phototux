@@ -231,7 +231,9 @@ All status values are **Present**.
 | Performance Budget Ledger | [Performance-Budget-Ledger.md](Performance-Budget-Ledger.md) | Budget index and owners |
 | Accessibility Checklist | [Accessibility-Checklist.md](Accessibility-Checklist.md) | Conformance checklist |
 | Decision Register | [Decision-Register.md](Decision-Register.md) | Architectural decisions |
-| Codebase–Handbook Gap Analysis | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) | Live crates vs handbook; alignment plan |
+| Codebase–Handbook Gap Analysis | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) | Live crates vs handbook |
+| Alignment Roadmap | [Alignment-Roadmap.md](Alignment-Roadmap.md) | Locked decisions + phases |
+| Implementation Checklist | [Implementation-Checklist.md](Implementation-Checklist.md) | Living slice tracker |
 
 ## Dependency Overview
 
@@ -354,5 +356,7 @@ docs/
     ├── Performance-Budget-Ledger.md
     ├── Accessibility-Checklist.md
     ├── Decision-Register.md
-    └── Codebase-Handbook-Gap-Analysis.md
+    ├── Codebase-Handbook-Gap-Analysis.md
+    ├── Alignment-Roadmap.md
+    └── Implementation-Checklist.md
 ```

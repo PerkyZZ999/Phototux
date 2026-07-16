@@ -85,17 +85,17 @@ Status values:
 | Alternatives | Cross-platform application shell as source of truth |
 | Decision | Semantic core is portable; Linux host adapters own surfaces, portals, clipboard, AT-SPI, session, tablet, themes. Toolkit objects terminate at host/presentation boundary. |
 | Consequences | Dual maintenance of adapters later; higher Linux quality bar now. |
-| Deferred | Specific UI toolkit choice. |
+| Host presentation | Qt 6 QML + qtbridge on Linux ([DR-023](#dr-023--tech-stack-frozen-to-shipping-codebase)); portable core still must not import toolkit types. |
 
 ## DR-008 — UI toolkit and application runtime deferred
 
 | Field | Content |
 | --- | --- |
-| Status | Deferred |
+| Status | **Superseded** by [DR-023](#dr-023--tech-stack-frozen-to-shipping-codebase) |
 | Docs | 00, [32](../32-Developer-Guide.md) |
-| Decision | No binding commitment to a UI toolkit or async runtime until prototypes measure input latency, a11y bridge cost, and packaging. |
-| Seams | Presentation contract, host contract, command/actions already specified. |
-| Revisit | After measured spikes recorded in journal/evidence. |
+| Former decision | Toolkit/runtime left open until spikes. |
+| Supersession | Shipping stack chose Qt 6 + qtbridge; no alternate toolkit. Async runtime remains non-mandated (workers/channels OK). |
+| Revisit | Only if Qt/qtbridge blocks zero-copy or a11y with no viable fix (catastrophic). |
 
 ## DR-009 — Plugin ABI deferred; capability seams now
 
@@ -139,11 +139,11 @@ Status values:
 
 | Field | Content |
 | --- | --- |
-| Status | Accepted |
+| Status | Accepted (policy); encoding detail in [DR-026](#dr-026--native-ptx-container-v1) |
 | Docs | [27](../27-File-Formats.md), [22](../22-Import-Export.md) |
-| Decision | Native chunked versioned container is editable persistence authority. Third-party formats are adapters with loss disclosure. |
-| Deferred | Exact bytes, magic, compression, container library. |
-| Evidence needed | Huge sparse, incremental save, recovery, unknown preserve. |
+| Decision | Native versioned container is editable persistence authority. Third-party formats are adapters with loss disclosure. |
+| Encoding | `.ptx` v1 is the shipping native container; evolve toward chunked/integrity goals without renaming the product format. |
+| Evidence needed | Huge sparse, incremental save, recovery, unknown preserve (guides evolution, not a greenfield format). |
 
 ## DR-014 — Staged save and atomic replace
 
@@ -245,20 +245,65 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 4. earlier foundation documents;
 5. recommendations and optional behavior.
 
+## DR-023 — Tech stack frozen to shipping codebase
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Date | 2026-07-16 |
+| Docs | [Alignment Roadmap](Alignment-Roadmap.md), [32](../32-Developer-Guide.md), archived ADR-002/003/004/005 |
+| Context | Handbook left toolkit/runtime open (former DR-008); codebase already ships a working stack. Owner directed: keep tech stack exactly as code. |
+| Decision | Freeze: Linux/Wayland desktop GUI; Rust edition 2024; Qt 6.10+ QML Controls 2; qtbridge 0.2 for app logic; thin C++ canvas + QML AOT only; wgpu 30 Vulkan-first; zero-copy interactive present; workspace crates `phototux` / `phototux_ui` / `phototux_engine` / `phototux_gpu` / `phototux_canvas` / `phototux_io`; GPL-3.0-or-later; Phosphor icons. |
+| Consequences | Handbook MUST describe this stack as binding. No toolkit/GPU/shell rewrite for “neutrality.” Semantic contracts (commands, snapshots, workspace models) still apply **on top of** this stack. |
+| Revisit | Catastrophic blocker only (zero-copy impossible, qtbridge abandoned upstream with no path, etc.). |
+
+## DR-024 — Single-document session v1
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** (v1) |
+| Date | 2026-07-16 |
+| Docs | [Alignment Roadmap](Alignment-Roadmap.md), archived ADR-013 |
+| Decision | Application session hosts **one** editable document at a time. Multi-window / tabs / multi-doc registry are out of v1. |
+| Consequences | Lifecycle/workspace handbook multi-doc sections are **target architecture**; implementation waits for an explicit amend of this DR. |
+| Revisit | When Phase 5 multi-doc project is scheduled with UX + session design. |
+
+## DR-025 — Crate topology: coarse workspace
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Docs | [32](../32-Developer-Guide.md), [Alignment Roadmap](Alignment-Roadmap.md) |
+| Decision | Keep the current Cargo members. Handbook’s fine-grained crate list is a **logical ownership map** implemented as modules (and later optional splits) inside existing crates. |
+| Consequences | No big-bang package rename. Dependency rules of §32 still apply inside the coarse layout. |
+| Revisit | Compile-time or ownership pain with measured split proposal. |
+
+## DR-026 — Native `.ptx` container v1
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** (v1); evolution Provisional |
+| Docs | [27](../27-File-Formats.md), `phototux_io`, archived ADR-016 |
+| Decision | Product native editable format is **`.ptx`**. Open/save paths continue to use it. Future work evolves chunking, integrity, and sparse resources **compatibly** (versioned schema), not a second native extension. |
+| Consequences | Handbook “bytes deferred” means future encoding improvements, not “format unset.” |
+| Revisit | Only if `.ptx` cannot meet large-doc/recovery requirements after evolution attempts. |
+
 ## Open Deferred Cluster
 
 | Topic | Related DR | Blocking evidence |
 | --- | --- | --- |
-| UI toolkit | DR-008 | latency, a11y, packaging spikes |
-| Async runtime | DR-008 | cancellation + scheduling spikes |
+| Async runtime library mandate | DR-023 | Not required; revisit if workers insufficient |
 | Plugin ABI | DR-009 | isolation vs performance spikes |
-| Native container bytes | DR-013 | sparse/incremental/recovery spikes |
+| `.ptx` chunk/sparse evolution | DR-026 | sparse/incremental/recovery spikes |
 | Tile geometry | DR-006 | large-doc + brush benchmarks |
 | History spill format | DR-004 | memory pressure scenarios |
+| Multi-document session | DR-024 | product scheduling + UX |
 
 ## Cross References
 
 - [00 — Introduction](../00-Introduction.md)
+- [Alignment Roadmap](Alignment-Roadmap.md)
+- [Codebase-Handbook Gap Analysis](Codebase-Handbook-Gap-Analysis.md)
 - [Subsystem Dependency Matrix](Subsystem-Dependency-Matrix.md)
 - [Document Format Versioning](Document-Format-Versioning.md)
 - [Performance Budget Ledger](Performance-Budget-Ledger.md)

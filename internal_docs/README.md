@@ -14,7 +14,9 @@ Start with [00 — Introduction and System Charter](00-Introduction.md).
 
 **Included:** local document editing; layers, masks, selections; brushes, filters, color management; text and shapes with explicit rasterize boundaries; commands and undo transactions; GPU-first rendering via wgpu with CPU fallback; import/export adapters; Linux desktop integration; accessibility; crash recovery; extension seams.
 
-**Excluded:** cloud sync/collaboration; accounts and entitlements; AI or generative tools; proprietary vendor workflows as product identity; network requirements for normal editing; frozen UI toolkit or plugin ABI before validation.
+**Excluded:** cloud sync/collaboration; accounts and entitlements; AI or generative tools; proprietary vendor workflows as product identity; network requirements for normal editing; stable third-party plugin ABI / marketplace before validation.
+
+**Tech stack (frozen to codebase):** Rust + Qt 6 QML/`qtbridge` + wgpu Vulkan + zero-copy present + current Cargo crates + `.ptx` — [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase). Alignment plan: [Appendix/Alignment-Roadmap.md](Appendix/Alignment-Roadmap.md).
 
 ## System Principles (Summary)
 
@@ -106,7 +108,9 @@ Exact filenames are listed in [Appendix/Cross-Reference-Index.md](Appendix/Cross
 | [Performance Budget Ledger](Appendix/Performance-Budget-Ledger.md) | Latency/memory gates |
 | [Accessibility Checklist](Appendix/Accessibility-Checklist.md) | A11y review and release evidence |
 | [Decision Register](Appendix/Decision-Register.md) | Architectural decision index |
-| [Codebase–Handbook Gap Analysis](Appendix/Codebase-Handbook-Gap-Analysis.md) | Diff vs live crates; alignment plan |
+| [Codebase–Handbook Gap Analysis](Appendix/Codebase-Handbook-Gap-Analysis.md) | Diff vs live crates |
+| [Alignment Roadmap](Appendix/Alignment-Roadmap.md) | Locked decisions + phased alignment plan |
+| [Implementation Checklist](Appendix/Implementation-Checklist.md) | Living slice tracker |
 
 ## Related Starting Points by Role
 

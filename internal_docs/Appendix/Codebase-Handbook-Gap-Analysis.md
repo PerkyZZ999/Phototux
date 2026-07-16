@@ -10,6 +10,8 @@
 
 **Verdict first:** Keep the **shipping codebase spine** (Qt 6 + qtbridge + wgpu zero-copy canvas, `phototux_engine` graph, `.ptx` / PSD adapters). Treat the handbook as the **target architecture and contracts**. Close gaps with **incremental refactors and Decision Register promotions** — do **not** big-bang rewrite to the proposed 18-crate layout or defer Qt.
 
+**Locked 2026-07-16:** Tech stack frozen to codebase ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)). All other alignment calls + phases: **[Alignment-Roadmap.md](Alignment-Roadmap.md)**. Living tracker: [Implementation-Checklist.md](Implementation-Checklist.md).
+
 ---
 
 ## 1. Scope and method
@@ -210,13 +212,13 @@ Phase δ — **Multi-doc / plugins**
 
 ---
 
-## 8. Suggested owner decisions (need confirmation)
+## 8. Owner decisions (resolved 2026-07-16)
 
-1. Confirm **Qt 6 + qtbridge** → Decision Register **Accepted** (close DR-008 for toolkit).
-2. Confirm **`.ptx` v1** → Provisional Accepted native container; handbook 27 evolves encoding, not a greenfield format.
-3. Confirm **single-document** remains v1 until a dated multi-doc project.
-4. Confirm **zero-copy interactive present** stays hard; CPU fallback = tests/degraded only.
-5. Confirm gap checklist lives in handbook tree and becomes the only production tracker.
+1. **Qt 6 + qtbridge** → **Accepted** ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)); DR-008 superseded.
+2. **`.ptx` v1** → **Accepted** ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)); evolve encoding in place.
+3. **Single-document** v1 → **Accepted** ([DR-024](Decision-Register.md#dr-024--single-document-session-v1)).
+4. **Zero-copy interactive present** stays hard; CPU = tests/degraded only (roadmap Phase 4.1).
+5. Production tracker → [Implementation-Checklist.md](Implementation-Checklist.md); plan → [Alignment-Roadmap.md](Alignment-Roadmap.md).
 
 ---
 

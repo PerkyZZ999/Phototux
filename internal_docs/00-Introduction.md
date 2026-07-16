@@ -6,7 +6,9 @@ PhotoTux is a Linux-native professional raster editor for photographers, illustr
 
 This charter establishes system intent, vocabulary, ownership boundaries, architectural constraints, provisional quality targets, and the reading order for the engineering handbook. Normative words such as **MUST**, **SHOULD**, and **MAY** have the meanings defined in [Requirement Keywords](Appendix/Requirement-Keywords.md).
 
-PhotoTux is not “an image editor written around a widget toolkit.” It is a document engine, command system, GPU renderer, and native desktop host composed through explicit interfaces. The cross-platform core owns portable editing semantics. Linux host adapters own native integration. User-interface technology, async runtime, extension packaging, and binary plugin ABI remain open decisions until measured prototypes establish constraints.
+PhotoTux is not “an image editor written around a widget toolkit.” It is a document engine, command system, GPU renderer, and native desktop host composed through explicit interfaces. The cross-platform core owns portable editing semantics. Linux host adapters own native integration.
+
+**Shipping tech stack (binding):** Rust; Qt 6 QML + `qtbridge` presentation; wgpu (Vulkan-first) GPU path with zero-copy interactive present; multi-crate workspace as in the repository `Cargo.toml`; native `.ptx` documents — see [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) and the [Alignment Roadmap](Appendix/Alignment-Roadmap.md). Portable crates **MUST NOT** import Qt/toolkit types. Binary plugin ABI and marketplace packaging remain deferred ([DR-009](Appendix/Decision-Register.md)). Alignment of contracts (commands, snapshots, workspace models) proceeds on this stack without replacing it.
 
 ## Product Responsibilities
 

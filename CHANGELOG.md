@@ -2,6 +2,20 @@
 
 All notable decision milestones and project state changes.
 
+## [alignment-roadmap] — 2026-07-16
+
+### Docs
+
+- [Alignment Roadmap](internal_docs/Appendix/Alignment-Roadmap.md): tech stack frozen to codebase; agent decisions for all other gaps; Phases 0–5.
+- Decision Register: **DR-023** tech stack, **DR-024** single-doc v1, **DR-025** coarse crates, **DR-026** `.ptx` v1; **DR-008** superseded.
+- [Implementation Checklist](internal_docs/Appendix/Implementation-Checklist.md) seeded; handbook charter/lifecycle/dev-guide updated for Qt/wgpu stack.
+
+### Alignment stance
+
+Stack = codebase. Contracts (commands, snapshots, workspace models, engine depth) = handbook, incremental.
+
+---
+
 ## [engineering-handbook] — 2026-07-16
 
 ### Docs

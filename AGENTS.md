@@ -4,7 +4,9 @@ Agent-facing constitution for **PhotoTux**.
 
 **Authoritative engineering docs:** [`internal_docs/`](internal_docs/README.md) (Engineering Handbook).  
 **Historical docs:** [`archive/docs/`](archive/docs/README.md) (former `/docs/` — ADRs, journals, checklists).  
-**Alignment plan:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).
+**Alignment plan:** [`internal_docs/Appendix/Alignment-Roadmap.md`](internal_docs/Appendix/Alignment-Roadmap.md) (tech stack frozen to codebase — [DR-023](internal_docs/Appendix/Decision-Register.md)).  
+**Gap inventory:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).  
+**Slice tracker:** [`internal_docs/Appendix/Implementation-Checklist.md`](internal_docs/Appendix/Implementation-Checklist.md).
 
 If handbook Decision Register conflicts with archived ADRs or code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` remain bridge docs until absorbed into the handbook.
 
@@ -245,7 +247,9 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 |------|-----|
 | `internal_docs/` | **Engineering Handbook** (authoritative) |
 | `internal_docs/Appendix/Decision-Register.md` | Architectural decisions index |
-| `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs + alignment |
+| `internal_docs/Appendix/Alignment-Roadmap.md` | Locked decisions + phased alignment |
+| `internal_docs/Appendix/Implementation-Checklist.md` | Living slice tracker |
+| `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
 | `archive/docs/` | Archived former `/docs/` (ADRs, journals, old IA) |
 | `SPEC.md` / `CONSTRAINTS.md` | Bridge product constraints (migrate into handbook over time) |
 | `scripts/check-rust.sh` | Quality gate |

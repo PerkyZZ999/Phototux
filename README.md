@@ -54,15 +54,17 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 | Document | Purpose |
 |----------|---------|
 | [**internal_docs/**](internal_docs/README.md) | **Engineering Handbook** (authoritative) |
-| [internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) | Codebase vs handbook diffs + alignment plan |
-| [internal_docs/Appendix/Decision-Register.md](internal_docs/Appendix/Decision-Register.md) | Architectural decision index |
+| [internal_docs/Appendix/Alignment-Roadmap.md](internal_docs/Appendix/Alignment-Roadmap.md) | Locked stack + phased alignment roadmap |
+| [internal_docs/Appendix/Implementation-Checklist.md](internal_docs/Appendix/Implementation-Checklist.md) | Living implementation slices |
+| [internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) | Codebase vs handbook diffs |
+| [internal_docs/Appendix/Decision-Register.md](internal_docs/Appendix/Decision-Register.md) | Architectural decision index (DR-023 tech stack) |
 | [SPEC.md](SPEC.md) | Bridge: product architecture / SLOs (migrate into handbook) |
 | [CONSTRAINTS.md](CONSTRAINTS.md) | Bridge: hard/soft constraints |
 | [AGENTS.md](AGENTS.md) | Agent coding constitution |
 | [CHANGELOG.md](CHANGELOG.md) | Decision milestones |
 | [archive/docs/](archive/docs/README.md) | Archived former `/docs/` (ADRs, journals, old IA/checklists) |
 
-**Status:** Foundation editor ships GPU canvas, layers/masks, selections, transforms, brush, `.ptx`/PSD subset, adjustments/filters core, fill/gradient. Normative engineering direction = handbook; implementation alignment = gap analysis (hybrid: keep Qt/wgpu/`.ptx` spine, evolve toward command/snapshot/workspace contracts).
+**Status:** Foundation editor ships GPU canvas, layers/masks, selections, transforms, brush, `.ptx`/PSD subset, adjustments/filters core, fill/gradient. **Tech stack frozen to codebase** (Qt/qtbridge/wgpu/crates/`.ptx`). Handbook owns contracts; alignment phases in [Alignment-Roadmap.md](internal_docs/Appendix/Alignment-Roadmap.md).
 
 ## Run (developer)
 
@@ -83,6 +85,6 @@ Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p
 
 ## Next Steps
 
-1. Confirm Decision Register promotions in [gap analysis §8](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) (Qt, `.ptx`, single-doc, zero-copy).
-2. Phase α alignment: thin command router over existing ops (see gap analysis §6.3).
-3. Multi-doc / Shape layers only after explicit Decision Register amendments.
+1. Follow [Alignment Roadmap](internal_docs/Appendix/Alignment-Roadmap.md) Phase 1 — command spine.
+2. Track slices in [Implementation Checklist](internal_docs/Appendix/Implementation-Checklist.md).
+3. Multi-doc only after amending [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--single-document-session-v1).
