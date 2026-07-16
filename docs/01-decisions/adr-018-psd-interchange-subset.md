@@ -16,7 +16,7 @@ Professional raster workflows often exchange Photoshop documents. Full PSD fidel
 - Export PSD later, only for the supported subset, validated against fixtures.
 - Prefer Save to `.ptx` after import.
 
-Current implementation validates the PSD signature/header and opens a placeholder raster layer with a full compatibility report when channel decompression is incomplete—so users never experience silent data loss.
+Current implementation (2026-07-16): PSD v1 RGB 8-bit import with Raw/PackBits composite and simple raster layer channels; subset PSD export (Raw, no groups/masks/effects). Compatibility report always discloses subset limits; ZIP/16-bit/non-RGB fail or warn without silent garbage. No lossless round-trip claim.
 
 ## Consequences
 

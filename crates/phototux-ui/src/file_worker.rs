@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
-use phototux_engine::{CancelToken, DocumentGraph};
+use phototux_engine::{CancelToken, DocumentGraph, LayerId};
 use phototux_io::{
-    CompatibilityIssue, PtxDocument, Raster, RasterFormat, import_psd_path, load_ptx,
-    save_ptx_atomic, write_autosave,
+    CompatibilityIssue, PtxDocument, Raster, RasterFormat, export_psd_path, import_psd_path,
+    load_ptx, save_ptx_atomic, write_autosave,
 };
 
 pub(crate) enum FileCommand {
@@ -22,6 +22,10 @@ pub(crate) enum FileCommand {
     Export {
         path: PathBuf,
         format: RasterFormat,
+    },
+    ExportPsd {
+        path: PathBuf,
+        graph: DocumentGraph,
     },
     Autosave {
         graph: DocumentGraph,
@@ -42,7 +46,8 @@ pub(crate) enum FileEvent {
     PsdOpened {
         path: PathBuf,
         graph: DocumentGraph,
-        raster: Raster,
+        layer_rasters: Vec<(LayerId, Raster)>,
+        flattened: Option<Raster>,
         report: Vec<CompatibilityIssue>,
     },
     Saved {
@@ -151,24 +156,13 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
                 },
             },
             FileCommand::OpenPsd(path) => match import_psd_path(&path) {
-                Ok(imported) => {
-                    let raster = match imported.flattened {
-                        Some(raster) => Ok(raster),
-                        None => placeholder_raster(),
-                    };
-                    match raster {
-                        Ok(raster) => FileEvent::PsdOpened {
-                            path,
-                            graph: imported.graph,
-                            raster,
-                            report: imported.report,
-                        },
-                        Err(message) => FileEvent::Failed {
-                            operation: "Open",
-                            message,
-                        },
-                    }
-                }
+                Ok(imported) => FileEvent::PsdOpened {
+                    path,
+                    graph: imported.graph,
+                    layer_rasters: imported.layer_rasters,
+                    flattened: imported.flattened,
+                    report: imported.report,
+                },
                 Err(error) => FileEvent::Failed {
                     operation: "Open",
                     message: error.to_string(),
@@ -179,6 +173,7 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
                 autosave_document(graph, original, &cancel)
             }
             FileCommand::Export { path, format } => export_document(path, format, &cancel),
+            FileCommand::ExportPsd { path, graph } => export_psd_document(path, graph, &cancel),
             FileCommand::Shutdown => break,
         };
         if events.send(event).is_err() {
@@ -251,10 +246,6 @@ fn autosave_document(
     }
 }
 
-fn placeholder_raster() -> Result<Raster, String> {
-    Raster::new(1, 1, vec![0, 0, 0, 255].into_boxed_slice()).map_err(|error| error.to_string())
-}
-
 /// Convert GPU R8 masks into grayscale RGBA rasters for `.ptx` persistence.
 fn collect_mask_rasters(width: u32, height: u32) -> Result<HashMap<u64, Raster>, String> {
     let masks = phototux_canvas::read_all_mask_r8().map_err(|e| e.to_string())?;
@@ -297,6 +288,37 @@ fn export_document(path: PathBuf, format: RasterFormat, cancel: &CancelToken) ->
 
     match result {
         Ok(()) => FileEvent::Exported { path },
+        Err(message) => FileEvent::Failed {
+            operation: "Export",
+            message,
+        },
+    }
+}
+
+fn export_psd_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken) -> FileEvent {
+    if cancel.is_cancelled() {
+        return FileEvent::Cancelled {
+            operation: "Export",
+        };
+    }
+    let result = (|| {
+        let layers = phototux_canvas::read_all_layer_rgba().map_err(|e| e.to_string())?;
+        if cancel.is_cancelled() {
+            return Err("cancelled".to_owned());
+        }
+        let mut rasters = Vec::with_capacity(layers.len());
+        for (id, width, height, pixels) in layers {
+            let raster =
+                Raster::new(width, height, pixels.into_boxed_slice()).map_err(|e| e.to_string())?;
+            rasters.push((id, raster));
+        }
+        export_psd_path(&path, &graph, &rasters).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(()) => FileEvent::Exported { path },
+        Err(message) if message == "cancelled" || cancel.is_cancelled() => FileEvent::Cancelled {
+            operation: "Export",
+        },
         Err(message) => FileEvent::Failed {
             operation: "Export",
             message,

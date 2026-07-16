@@ -50,7 +50,7 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 - [x] BMP
 - [x] GIF
 - [x] Native `.ptx` (ADR-016)
-- [~] PSD (subset import + compatibility report; ADR-018 — expand channels/layers/export)
+- [x] PSD (RGB8 Raw/RLE composite + layered import; subset export; ADR-018)
 - [ ] PSB
 - [ ] XD
 - [ ] Sketch
@@ -72,7 +72,7 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 - [x] Save / Save As (`.ptx`)
 - [x] Export PNG / JPEG
 - [x] Export WebP / TIFF / BMP / GIF
-- [~] PSD export (subset TBD)
+- [x] PSD export (RGB8 Raw subset; File → Export)
 - [ ] SVG export
 - [ ] PDF export
 - [ ] ICO export
@@ -391,7 +391,7 @@ Post-MVP per FEATURES_TODO — do not block core production path.
 - [x] Clipboard copy / paste (selection → layer)
 - [~] Drag & drop images
 - [!] Multiple image editing (ADR-013)
-- [~] PSD compatibility (subset + report)
+- [x] PSD compatibility (subset import/export + report)
 - [ ] Unlimited canvas (memory-dependent tiling)
 - [~] Non-destructive workflow (graph v2 foundation; styles/SO/filters incomplete)
 - [~] Photoshop-like shortcuts (partial)
@@ -406,7 +406,7 @@ Order is guidance, not locked ADR:
 2. ~~**Transform chrome**~~ — **shipped 2026-07-16** (crop, free transform, flip, rotate 90°)
 3. ~~**Mask paint + clipping**~~ — **shipped 2026-07-16** (R8 paint, composite, clip, `.ptx`)
 4. ~~**Lasso + GPU edge ants**~~ — **shipped 2026-07-16** (freehand/polygonal; mask-edge ants)
-5. **PSD depth** — channel decompress, layered import fidelity, subset export
+5. ~~**PSD depth**~~ — **shipped 2026-07-16** (Raw/RLE composite + layers; subset export)
 6. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first
 7. **Panels** — Swatches, Navigator, Properties completeness
 8. **Vector / shapes / rich text** — after raster core feels solid

@@ -1133,22 +1133,35 @@ impl AppSession {
                 FileEvent::PsdOpened {
                     path,
                     graph,
-                    raster,
+                    layer_rasters,
+                    flattened,
                     report,
                 } => {
-                    let size = graph.size;
-                    let Some(target_layer) = graph.active_id() else {
-                        self.fail_io("Open", "PSD import has no layer");
-                        continue;
-                    };
                     self.clear_selection_stacks();
                     self.clear_transform_stacks();
-                    match phototux_canvas::open_raster_document(
-                        size,
-                        graph.layers(),
-                        target_layer,
-                        raster.pixels(),
-                    ) {
+                    let open_result = if !layer_rasters.is_empty() {
+                        phototux_canvas::open_document(graph.size, graph.layers()).and_then(|ms| {
+                            for (id, raster) in &layer_rasters {
+                                phototux_canvas::write_layer_rgba(*id, raster.pixels())?;
+                            }
+                            Ok(ms)
+                        })
+                    } else if let Some(raster) = flattened.as_ref() {
+                        let Some(target_layer) = graph.active_id() else {
+                            self.fail_io("Open", "PSD import has no layer");
+                            continue;
+                        };
+                        phototux_canvas::open_raster_document(
+                            graph.size,
+                            graph.layers(),
+                            target_layer,
+                            raster.pixels(),
+                        )
+                    } else {
+                        self.fail_io("Open", "PSD import produced no pixel data");
+                        continue;
+                    };
+                    match open_result {
                         Ok(ms) => {
                             self.engine.replace_graph(graph);
                             self.engine.set_composite_ms(ms);
@@ -1414,19 +1427,33 @@ impl AppSession {
                 return;
             }
         };
-        let format = match RasterFormat::from_path(&path) {
-            Ok(format) => format,
-            Err(error) => {
-                self.fail_io("Export", &error.to_string());
-                return;
-            }
-        };
+        let is_psd = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("psd"));
         self.io_busy = true;
         self.io_error.clear();
         self.status_text = format!("Exporting {}…", path.display());
         self.io_busy_changed();
         self.status_text_changed();
-        if let Err(error) = self.file_worker.send(FileCommand::Export { path, format }) {
+        let send_result = if is_psd {
+            let Some(graph) = self.engine.graph.clone() else {
+                self.fail_io("Export", "no document graph");
+                return;
+            };
+            self.file_worker
+                .send(FileCommand::ExportPsd { path, graph })
+        } else {
+            let format = match RasterFormat::from_path(&path) {
+                Ok(format) => format,
+                Err(error) => {
+                    self.fail_io("Export", &error.to_string());
+                    return;
+                }
+            };
+            self.file_worker.send(FileCommand::Export { path, format })
+        };
+        if let Err(error) = send_result {
             self.fail_io("Export", &error);
         }
     }

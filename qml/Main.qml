@@ -443,7 +443,7 @@ ApplicationWindow {
                 icon.width: 16
                 icon.height: 16
                 ToolTip.visible: hovered
-                ToolTip.text: qsTr("Export flattened PNG or JPEG")
+                ToolTip.text: qsTr("Export PNG, JPEG, or PSD subset")
             }
 
             ToolSeparator {
@@ -2040,7 +2040,8 @@ ApplicationWindow {
             qsTr("PNG images (*.png)"),
             qsTr("JPEG images (*.jpg *.jpeg)"),
             qsTr("WebP images (*.webp)"),
-            qsTr("TIFF images (*.tif *.tiff)")
+            qsTr("TIFF images (*.tif *.tiff)"),
+            qsTr("Photoshop subset (*.psd)")
         ]
         defaultSuffix: selectedNameFilter.extensions.length > 0
                        ? selectedNameFilter.extensions[0] : "png"

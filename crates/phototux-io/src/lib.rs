@@ -5,7 +5,8 @@ mod ptx;
 mod recovery;
 
 pub use psd::{
-    CompatibilityIssue, PsdError, PsdImport, format_report, import_psd_bytes, import_psd_path,
+    CompatibilityIssue, PsdError, PsdImport, export_psd, export_psd_path, format_report,
+    import_psd_bytes, import_psd_path,
 };
 pub use ptx::{
     PTX_FORMAT_VERSION, PtxDocument, PtxError, PtxManifest, decode_ptx, encode_ptx, load_ptx,
