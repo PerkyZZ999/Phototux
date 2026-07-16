@@ -58,14 +58,16 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 | [AGENTS.md](AGENTS.md) | Agent coding constitution (from locked ADRs) |
 | [CHANGELOG.md](CHANGELOG.md) | Decision milestones |
 | [docs/DESIGN_BRIEF.md](docs/DESIGN_BRIEF.md) | Experience design brief |
-| [docs/INFORMATION_ARCHITECTURE.md](docs/INFORMATION_ARCHITECTURE.md) | Workspace structure, flows, naming |
+| [docs/INFORMATION_ARCHITECTURE.md](docs/INFORMATION_ARCHITECTURE.md) | Workspace structure, flows, naming (production target) |
+| [docs/PREFERED_IA.md](docs/PREFERED_IA.md) | Aspirational IA source (merged into official IA) |
 | [docs/DESIGN.md](docs/DESIGN.md) | Visual design system (tokens + rationale) |
+| [docs/FEATURES_TODO.md](docs/FEATURES_TODO.md) | Wish-list inventory (status in development checklist) |
 | [docs/00-research/DOSSIER.md](docs/00-research/DOSSIER.md) | Stack research |
-| [docs/01-decisions/](docs/01-decisions/) | ADRs (grill R1–R3 + ADR-014 desktop surface) |
-| [docs/03-checklists/](docs/03-checklists/) | Living phase checklist / risks / blockers |
-| [docs/04-journal/2026-07-15-doc-review.md](docs/04-journal/2026-07-15-doc-review.md) | Doc alignment review |
+| [docs/01-decisions/](docs/01-decisions/) | ADRs |
+| [docs/03-checklists/development.md](docs/03-checklists/development.md) | Living production slices (IA parity) |
+| [docs/04-journal/](docs/04-journal/) | Spike findings, slice journals, conflict log |
 
-**Status:** Phase 1 desktop shell bootstrap landed. GPU viewport is Phase 2 (after interop spike).
+**Status:** Foundation Phases 0–12 closed. Desktop editor ships GPU canvas, layers/masks, selections, transforms, brush, `.ptx`/PSD subset, adjustments/filters core, fill/gradient. Production work = IA parity slices in the development checklist.
 
 ## Run (developer)
 
@@ -74,7 +76,7 @@ export PATH=/usr/lib/qt6/bin:$PATH
 export QMAKE=/usr/lib/qt6/bin/qmake
 cargo run -p phototux          # GUI editor window
 cargo test -p phototux_engine
-./scripts/check-rust.sh        # rustfmt + clippy + rust-doctor
+./scripts/check-rust.sh        # rustfmt + clippy (+ rust-doctor when CHECK_RUST_FULL=1)
 ```
 
 Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p / 1080p / 2K / 4K).
@@ -86,5 +88,5 @@ Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p
 
 ## Next Steps
 
-1. Phase 1.5 interop spike (ADR-010)
-2. Phase 2 GPU viewport (≥60 FPS zoom/pan)
+1. IA-parity slices in [`docs/03-checklists/development.md`](docs/03-checklists/development.md) (Preferences → menus → tool options → editing depth).
+2. ADR amendments before multi-doc tabs (ADR-013) or Shape layers (ADR-017).

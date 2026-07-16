@@ -20,3 +20,21 @@
 - **ADR-003 required:** No C++ outside canvas interop without amendment.
 - **Qt requires:** Supported static QML AOT integration generates C++ and needs a `Q_IMPORT_QML_PLUGIN` link anchor.
 - **Resolution:** Amend ADR-003 for Qt-generated cache/plugin code plus one argument-free registration anchor under `crates/phototux/qml-aot/`. No application logic moved to C++.
+
+## 2026-07-16 — Preferred IA multi-doc vs ADR-013
+
+- **IA / PREFERED_IA require:** Document tabs, multi-document workspace, multi-image editing.
+- **ADR-013 G14:** Single document only for v1.
+- **Resolution:** Keep multi-doc as `[!]` / **Blocked** in IA + checklist until ADR-013 is amended. Do not implement tabs silently.
+
+## 2026-07-16 — Preferred IA Shape layers vs ADR-017
+
+- **IA requires:** First-class Shape layers + shape tools.
+- **ADR-017:** Graph kind set does not include Shape (paths may land as vector data without a Shape kind).
+- **Resolution:** Ship Paths engine against raster stroke/fill first if needed; Shape layers stay `[!]` until ADR-017 kind amendment.
+
+## 2026-07-16 — Preferred IA plugins / automation product surface
+
+- **IA lists:** Plugin Manager, Scripts, Actions as application modules.
+- **ADRs:** New major subsystem requires an ADR; ADR-014 forbids non-desktop product surfaces.
+- **Resolution:** Track as `[P]` / Deferred in checklist; no plugin store UI until a dedicated ADR.

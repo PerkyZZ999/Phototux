@@ -2,6 +2,11 @@
 
 ## Information Architecture (Vendor Neutral)
 
+> **Aspirational source (kept for reference).**  
+> Official normative IA (with Current / Planned / Blocked tags vs the codebase):  
+> [`INFORMATION_ARCHITECTURE.md`](./INFORMATION_ARCHITECTURE.md) — merged 2026-07-16.  
+> Production slices: [`03-checklists/development.md`](./03-checklists/development.md).
+
 ---
 
 # Application

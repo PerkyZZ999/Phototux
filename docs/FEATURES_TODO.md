@@ -1,5 +1,10 @@
 # PhotoTux - Features List todo for Production-ready
 
+> **Wish-list inventory** (vendor-parity feature names).  
+> **Status lives in** [`docs/03-checklists/development.md`](./03-checklists/development.md) (codebase truth).  
+> **Structure / chrome / flows live in** [`docs/INFORMATION_ARCHITECTURE.md`](./INFORMATION_ARCHITECTURE.md) (merged from [`PREFERED_IA.md`](./PREFERED_IA.md)).  
+> Do not treat unchecked items here as “not started” without checking the checklist — many core items are already shipped.
+
 ---
 
 # Table of Contents

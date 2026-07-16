@@ -246,9 +246,12 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 |------|-----|
 | `SPEC.md` | Product architecture & phases |
 | `CONSTRAINTS.md` | Hard/soft constraints |
-| `docs/01-decisions/` | ADRs 001–013 |
+| `docs/01-decisions/` | ADRs (001+) |
 | `docs/DESIGN.md` | Visual tokens (normative) |
-| `docs/03-checklists/` | Living build/risk/blockers |
+| `docs/INFORMATION_ARCHITECTURE.md` | Workspace / menus / panels / flows (production target) |
+| `docs/PREFERED_IA.md` | Aspirational IA source (merged into official IA) |
+| `docs/03-checklists/development.md` | Living production slices (IA parity) |
+| `docs/FEATURES_TODO.md` | Wish-list inventory (status in checklist) |
 | `scripts/check-rust.sh` | Quality gate |
 | `.githooks/pre-commit` | Commit gate |
 

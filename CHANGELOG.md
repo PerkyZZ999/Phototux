@@ -2,6 +2,24 @@
 
 All notable decision milestones and project state changes.
 
+## [ia-parity-roadmap] — 2026-07-16
+
+### Docs
+
+- Merged owner `PREFERED_IA.md` into normative `INFORMATION_ARCHITECTURE.md` with Current / Planned / Blocked / Deferred tags (codebase = shipped truth).
+- Retargeted `docs/03-checklists/development.md` production slices for full IA parity.
+- Synced `DESIGN_BRIEF.md`, `FEATURES_TODO.md`, `AGENTS.md`, `README.md`; logged ADR tensions (multi-doc, Shape kind, plugins) in `conflicts.md`.
+
+### Still gated
+
+| Item | Gate |
+|------|------|
+| Document tabs / multi-doc | ADR-013 amendment |
+| Shape layers | ADR-017 kind amendment |
+| Plugin / script product surface | New ADR |
+
+---
+
 ## [decisions-locked-v1] — 2026-07-15
 
 ### Decisions Locked

@@ -50,7 +50,7 @@ PhotoTux is a **single, focused workspace**: a zero-latency GPU canvas at the ce
 | Bridge | ADR-003 | `qtbridge` for logic; hybrid canvas item allowed |
 | Visual tokens | `DESIGN.md` | Normative colors, type, spacing, components |
 | Structure | `INFORMATION_ARCHITECTURE.md` | Workspace regions, flows, naming |
-| Roadmap | Professional raster plan (Phases 6–12) | Native `.ptx`, selections, masks, filters, PSD subset |
+| Roadmap | IA parity slices (`development.md`) | Code = Current; IA = production target; ADRs gate Blocked items |
 
 - **Typography**: System / Plasma fonts (Noto Sans or Breeze default) — no web font stack
 - **Colors**: Dark charcoal surfaces + single Plasma-like accent (see `DESIGN.md`)
@@ -61,37 +61,48 @@ PhotoTux is a **single, focused workspace**: a zero-latency GPU canvas at the ce
 
 | Status | Meaning |
 |--------|---------|
-| **Current** | Shipped in the desktop app today |
-| **Planned** | Committed professional-raster roadmap |
-| **Deferred** | Requires ADR amendment or explicit later track |
+| **Current** | Shipped in the desktop app today (codebase truth) |
+| **Planned** | Required for IA parity / production-ready ([INFORMATION_ARCHITECTURE.md](./INFORMATION_ARCHITECTURE.md)) |
+| **Blocked** | Desired by IA; needs ADR amendment before ship |
+| **Deferred** / `[P]` | Explicit later track |
+
+Roadmap slices: [03-checklists/development.md](./03-checklists/development.md).
 
 ## Component Inventory
 
 | Component | Status | Notes |
 | --------- | --------------------- | -------- |
-| Application shell (window, menu bar) | Current | In-window menu; KDE global menu deferred |
-| Welcome / New Document | Current | Presets + branding; recent-files stub |
-| Top tool bar | Current → Planned | Document actions; tool-mode actions expand with roadmap |
-| Left tool strip | Current → Planned | Brush/eraser/pan/zoom current; select/transform/fill/gradient/text/eyedropper planned |
-| Tool Options / Properties | Current → Planned | Brush params current; full contextual schemas planned |
+| Application shell (window, menu bar) | Current → Planned | Core menus Current; full IA menus Planned |
+| Welcome / New Document | Current → Planned | Presets Current; Recent/Templates/Prefs entry Planned |
+| Top tool bar | Current | Document actions |
+| Left tool strip | Current → Planned | Brush/eraser/select/transform/fill/gradient/text/eyedropper/hand/zoom Current set; retouch/paths/shapes Planned |
+| Tool Options Bar | Planned | Dedicated strip; Properties dock is Current fallback |
+| Tool Options / Properties | Current → Planned | Brush + blend + FG Current; full per-tool schemas Planned |
 | Center canvas viewport | Current | Zero-copy GPU composite |
-| Selection overlay | Planned | Marching ants; add/subtract/intersect feedback |
-| Transform / crop overlay | Planned | Handles, pivot, Apply/Cancel chrome |
-| Rulers / guides / grid | Planned | Snap affordances; optional show |
-| Right Properties dock | Current → Planned | Tool + layer + selection + text + filter contexts |
-| Layers panel (hierarchical) | Current → Planned | Flat list current; groups, masks, effects, thumbnails, locks planned |
-| History panel | Planned | Named transactions / snapshots |
-| Brush Presets drawer | Planned | Searchable presets; import/export |
-| Color / Swatches | Planned | FG/BG, eyedropper, HEX/RGB/HSV, recent |
-| Text Properties | Planned | Font, size, tracking, alignment |
-| Adjustment / Filter dialogs | Planned | Live preview; nondestructive stack entries |
+| Selection overlay | Current | Marching ants + combine modes |
+| Transform / crop overlay | Current | Handles, Apply/Cancel |
+| Rulers / guides / grid | Planned | Guides toggle partial; rulers/grid/snap Planned |
+| Right Properties dock | Current → Planned | Tool + layer contexts Current; text/styles Planned |
+| Layers panel (hierarchical) | Current → Planned | Groups, masks, clip, effects Current; thumbs/lock polish Planned |
+| History panel | Current | Named transactions via HistoryService |
+| Brush Presets panel | Planned | Engine JSON presets exist; dedicated dock Planned |
+| Color / Swatches | Current | FG/BG, HEX, recent, eyedropper |
+| Navigator | Current | Geometric viewport (no GPU thumb) |
+| Character / Paragraph | Planned | After text bake |
+| Channels / Paths | Planned | Paths need vector engine |
+| Workspace Manager | Planned | Presets + Reset; Window menu |
+| Document tabs | Blocked | ADR-013 single-doc |
+| Adjustment / Filter surfaces | Current → Planned | Brightness/Levels + Gaussian Current; dialog suites Planned |
 | Status / HUD bar | Current | Zoom, tool, FPS/composite; dirty/GPU hints |
-| Save / Save As / Recovery | Planned | Native `.ptx`; autosave recovery UI |
-| Export dialogs | Current | Flattened PNG/JPEG; more formats planned |
-| Compatibility report | Planned | PSD/import unsupported-feature disclosure |
-| Progress / cancel surfaces | Planned | Long filters, I/O, import |
+| Save / Save As | Current | Native `.ptx` atomic |
+| Recovery UX | Planned | Autosave APIs exist; launch Recover polish Planned |
+| Export dialogs | Current → Planned | Flattened rasters + PSD subset Current; quality UI Planned |
+| Compatibility report | Current | PSD/import unsupported-feature disclosure |
+| Progress / cancel surfaces | Planned | Long filters, I/O polish |
 | Keyboard shortcut overlay | Planned | Help → Shortcuts |
-| Preferences | Planned | Tablet curves, performance, appearance |
+| Preferences | Planned | Tablet, performance, appearance, file handling |
+| Context menus | Planned | Layer / Canvas / Selection first |
+| Print | Planned | File → Print |
 | Modal alerts | Current | Unsaved, I/O errors, About |
 
 ## Key Interactions
@@ -152,13 +163,14 @@ Native desktop accessibility (Qt / AT-SPI), not WCAG web checklists alone — bu
 
 - Marketing website, account system, cloud sync
 - **CLI product, TUI, headless batch tool** (desktop GUI only — ADR-014)
-- Plugin marketplace UI, asset store, actions/scripts UI
+- Plugin marketplace / script store UI until a dedicated ADR (`[P]` in checklist)
 - Full vector illustration studio, 3D viewport, video timeline / animation
 - Photography workflows: RAW develop, camera/lens correction, catalogs/DAM, tethering, panorama/HDR merge
-- Generative AI features
+- Generative AI features (`[P]`)
 - Mobile / tablet-OS apps
 - Light theme v1 (dark-only first; tokens may reserve light later)
 - Multi-document tabs until ADR-013 single-doc decision is amended
+- Shape layers until ADR-017 kind amendment (Paths may ship earlier)
 - Full lossless PSD parity (documented subset + compatibility report only)
 - Onboarding tour / empty-state mascot theater
 - Internationalization of all locales (architecture allows Qt `qsTr`; full locales later)
