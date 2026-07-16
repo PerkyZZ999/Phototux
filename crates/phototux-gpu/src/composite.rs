@@ -9,6 +9,7 @@ use std::time::Instant;
 use bytemuck::{Pod, Zeroable};
 use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId, MAX_LAYERS};
 
+use crate::transform_bake::inverse_affine_coeffs;
 use crate::{GpuContext, TextureTransferError};
 
 const BLEND_WGSL: &str = r#"
@@ -16,7 +17,15 @@ struct LayerParams {
     opacity: f32,
     mode: u32,
     visible: u32,
-    _pad: u32,
+    _pad0: u32,
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    tx: f32,
+    ty: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 struct Uniforms {
@@ -83,12 +92,19 @@ fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     let n = u.layer_count;
+    let dims = vec2<f32>(f32(textureDimensions(layers_tex).x), f32(textureDimensions(layers_tex).y));
     for (var i: u32 = 0u; i < n; i = i + 1u) {
         let p = u.layers[i];
         if (p.visible == 0u) {
             continue;
         }
-        let over = textureSample(layers_tex, samp, in.uv, i32(i));
+        let dest = in.uv * dims;
+        let src = vec2<f32>(p.a * dest.x + p.b * dest.y + p.tx, p.c * dest.x + p.d * dest.y + p.ty);
+        let src_uv = src / dims;
+        var over = vec4<f32>(0.0);
+        if (src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0) {
+            over = textureSample(layers_tex, samp, src_uv, i32(i));
+        }
         let oa = over.a * p.opacity;
         if (oa < 0.0001) {
             continue;
@@ -108,7 +124,15 @@ struct LayerParamsGpu {
     opacity: f32,
     mode: u32,
     visible: u32,
-    _pad: u32,
+    _pad0: u32,
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    tx: f32,
+    ty: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 #[repr(C)]
@@ -471,17 +495,35 @@ impl LayerCompositeEngine {
                 opacity: 0.0,
                 mode: 0,
                 visible: 0,
-                _pad: 0,
+                _pad0: 0,
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                tx: 0.0,
+                ty: 0.0,
+                _pad1: 0.0,
+                _pad2: 0.0,
             }; MAX_LAYERS],
         };
 
         for (i, layer) in layers_bottom_to_top.iter().take(count).enumerate() {
             let _ = self.layer_index.get(&layer.id);
+            let (a, b, c, d, tx, ty) =
+                inverse_affine_coeffs(layer.transform, self.width, self.height);
             uniforms.layers[i] = LayerParamsGpu {
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 mode: layer.blend.as_u32(),
                 visible: u32::from(layer.visible),
-                _pad: 0,
+                _pad0: 0,
+                a,
+                b,
+                c,
+                d,
+                tx,
+                ty,
+                _pad1: 0.0,
+                _pad2: 0.0,
             };
         }
 

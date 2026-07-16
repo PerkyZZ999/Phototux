@@ -81,6 +81,10 @@ impl DocumentGraph {
         &self.layers
     }
 
+    pub fn layers_mut(&mut self) -> &mut [Layer] {
+        &mut self.layers
+    }
+
     pub fn layer_count(&self) -> usize {
         self.layers.len()
     }

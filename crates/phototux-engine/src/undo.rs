@@ -1,7 +1,7 @@
 //! Gesture-level undo stack (ADR-013 G16).
 
 use crate::document::DocumentGraph;
-use crate::layer::{BlendMode, Layer, LayerId};
+use crate::layer::{BlendMode, Layer, LayerId, LayerMask};
 
 /// One undoable gesture applied to the document graph (structure only in Phase 3).
 #[derive(Debug, Clone)]
@@ -46,6 +46,11 @@ pub enum GraphCommand {
         prev: Option<LayerId>,
         next: Option<LayerId>,
     },
+    SetMask {
+        id: LayerId,
+        prev: Option<LayerMask>,
+        next: Option<LayerMask>,
+    },
 }
 
 impl GraphCommand {
@@ -78,6 +83,9 @@ impl GraphCommand {
                 }
                 None => graph.clear_active(),
             },
+            Self::SetMask { id, next, .. } => {
+                let _ = graph.set_mask(*id, next.clone());
+            }
         }
     }
 
@@ -130,6 +138,11 @@ impl GraphCommand {
             Self::SetActive { prev, next } => Self::SetActive {
                 prev: *next,
                 next: *prev,
+            },
+            Self::SetMask { id, prev, next } => Self::SetMask {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
             },
         }
     }

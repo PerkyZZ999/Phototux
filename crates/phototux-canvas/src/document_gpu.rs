@@ -4,9 +4,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use phototux_engine::{
-    BrushParams, Dab, DocumentSize, Layer, LayerId, SelectionCombine, SelectionRect,
+    BrushParams, CropRect, Dab, DocumentSize, Layer, LayerId, LayerTransform, SelectionCombine,
+    SelectionRect,
 };
-use phototux_gpu::{BrushStamper, GpuContext, LayerCompositeEngine, SelectionMask, StampRequest};
+use phototux_gpu::{
+    BrushStamper, GpuContext, LayerCompositeEngine, SelectionMask, StampRequest, bake_affine_rgba,
+    crop_rgba, flip_rgba, rotate_rgba_90_cw,
+};
 
 struct StrokeBackup {
     layer: LayerId,
@@ -300,6 +304,204 @@ pub fn selection_snapshot() -> Result<Vec<u8>, String> {
 /// Returns an error when no document is open or the snapshot size mismatches.
 pub fn selection_restore(bytes: &[u8]) -> Result<(), String> {
     with_selection_mut(|ctx, mask| mask.restore_cpu(ctx, bytes)).and_then(|r| r)
+}
+
+/// Layer id with tightly packed RGBA8 pixels for transform undo / rebuild.
+pub type TransformLayerPixels = (LayerId, Vec<u8>);
+
+/// Snapshot all resident layer textures for transform undo.
+///
+/// # Errors
+/// Returns an error when no document is open or readback fails.
+pub fn snapshot_document_layers() -> Result<(DocumentSize, Vec<TransformLayerPixels>), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_ref()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let size = DocumentSize::new(width, height);
+    let mut out = Vec::new();
+    for layer in &doc.layers_meta {
+        let pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, layer.id)
+            .map_err(|e| e.to_string())?;
+        out.push((layer.id, pixels));
+    }
+    Ok((size, out))
+}
+
+fn install_document(
+    ctx: Arc<GpuContext>,
+    size: DocumentSize,
+    layers: &[Layer],
+    pixels: &[(LayerId, Vec<u8>)],
+) -> Result<f32, String> {
+    let mut engine = LayerCompositeEngine::new(&ctx, size);
+    engine.sync_layers_from_graph(&ctx, layers)?;
+    for (id, rgba) in pixels {
+        engine
+            .write_layer_rgba(&ctx, *id, rgba)
+            .map_err(|e| e.to_string())?;
+    }
+    let ms = engine.composite(&ctx, layers)?;
+    publish_result(&engine)?;
+    let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let selection = SelectionMask::new(&ctx, size);
+    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    *guard = Some(DocGpu {
+        ctx,
+        engine,
+        stamper,
+        selection,
+        stroke_backup: None,
+        stroke_undo: Vec::new(),
+        stroke_redo: Vec::new(),
+        layers_meta: layers.to_vec(),
+        last_latency_ms: 0.0,
+    });
+    Ok(ms)
+}
+
+/// Bake a layer transform into pixels and reset the layer to identity in GPU content.
+///
+/// # Errors
+/// Returns an error when readback, bake, or writeback fails.
+pub fn bake_layer_transform(
+    id: LayerId,
+    transform: LayerTransform,
+    layers: &[Layer],
+) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let pixels = doc
+        .engine
+        .read_layer_rgba(&doc.ctx, id)
+        .map_err(|e| e.to_string())?;
+    let baked = bake_affine_rgba(&pixels, width, height, transform)?;
+    doc.engine
+        .write_layer_rgba(&doc.ctx, id, &baked)
+        .map_err(|e| e.to_string())?;
+    doc.layers_meta = layers.to_vec();
+    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
+    Ok(ms)
+}
+
+/// Flip one layer horizontally or vertically.
+///
+/// # Errors
+/// Returns an error when readback or writeback fails.
+pub fn flip_layer(id: LayerId, horizontal: bool, layers: &[Layer]) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let mut pixels = doc
+        .engine
+        .read_layer_rgba(&doc.ctx, id)
+        .map_err(|e| e.to_string())?;
+    flip_rgba(&mut pixels, width, height, horizontal);
+    doc.engine
+        .write_layer_rgba(&doc.ctx, id, &pixels)
+        .map_err(|e| e.to_string())?;
+    doc.layers_meta = layers.to_vec();
+    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
+    Ok(ms)
+}
+
+/// Crop every layer to `rect` and rebuild the GPU document at the new size.
+///
+/// # Errors
+/// Returns an error when the crop is invalid or GPU rebuild fails.
+pub fn crop_document(rect: CropRect, layers: &[Layer]) -> Result<(DocumentSize, f32), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let (ctx, width, height, cropped) = {
+        let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+        let doc = guard
+            .as_ref()
+            .ok_or_else(|| "no document GPU state".to_owned())?;
+        let (width, height) = doc.engine.size();
+        let Some(rect) = rect.clamp_to(width, height) else {
+            return Err("invalid crop rect".to_owned());
+        };
+        let mut cropped = Vec::new();
+        for layer in &doc.layers_meta {
+            let pixels = doc
+                .engine
+                .read_layer_rgba(&doc.ctx, layer.id)
+                .map_err(|e| e.to_string())?;
+            let out = crop_rgba(&pixels, width, height, rect)?;
+            cropped.push((layer.id, out));
+        }
+        (Arc::clone(&doc.ctx), rect.width, rect.height, cropped)
+    };
+    let size = DocumentSize::new(width, height);
+    let ms = install_document(ctx, size, layers, &cropped)?;
+    Ok((size, ms))
+}
+
+/// Rotate the entire document 90° clockwise and rebuild GPU state.
+///
+/// # Errors
+/// Returns an error when readback or rebuild fails.
+pub fn rotate_canvas_90_cw(layers: &[Layer]) -> Result<(DocumentSize, f32), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let (ctx, new_size, rotated) = {
+        let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+        let doc = guard
+            .as_ref()
+            .ok_or_else(|| "no document GPU state".to_owned())?;
+        let (width, height) = doc.engine.size();
+        let mut rotated = Vec::new();
+        let mut new_w = height;
+        let mut new_h = width;
+        for layer in &doc.layers_meta {
+            let pixels = doc
+                .engine
+                .read_layer_rgba(&doc.ctx, layer.id)
+                .map_err(|e| e.to_string())?;
+            let (w, h, out) = rotate_rgba_90_cw(&pixels, width, height)?;
+            new_w = w;
+            new_h = h;
+            rotated.push((layer.id, out));
+        }
+        (
+            Arc::clone(&doc.ctx),
+            DocumentSize::new(new_w, new_h),
+            rotated,
+        )
+    };
+    let ms = install_document(ctx, new_size, layers, &rotated)?;
+    Ok((new_size, ms))
+}
+
+/// Restore a prior full-document layer snapshot (transform undo).
+///
+/// # Errors
+/// Returns an error when GPU rebuild fails.
+pub fn restore_document_layers(
+    size: DocumentSize,
+    pixels: &[(LayerId, Vec<u8>)],
+    layers: &[Layer],
+) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let ctx = {
+        let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+        let doc = guard
+            .as_ref()
+            .ok_or_else(|| "no document GPU state".to_owned())?;
+        Arc::clone(&doc.ctx)
+    };
+    install_document(ctx, size, layers, pixels)
 }
 
 pub fn close_document() {

@@ -4,6 +4,7 @@ mod brush;
 mod composite;
 mod filters;
 mod selection;
+mod transform_bake;
 
 pub use brush::{BrushStamper, StampRequest};
 pub use composite::LayerCompositeEngine;
@@ -11,6 +12,9 @@ pub use composite::benchmark_10x4k_ms;
 pub use filters::{FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_invert_rgba, filter_pass};
 pub use phototux_engine::MAX_LAYERS;
 pub use selection::SelectionMask;
+pub use transform_bake::{
+    bake_affine_rgba, crop_rgba, flip_rgba, inverse_affine_coeffs, rotate_rgba_90_cw,
+};
 
 use std::sync::Arc;
 

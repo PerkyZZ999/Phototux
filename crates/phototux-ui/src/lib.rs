@@ -9,9 +9,10 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    AdjustmentParams, BlendMode, DocumentError, DocumentGraph, DocumentSize, EngineCommand,
-    EngineEvent, HistoryKind, LayerId, MAX_LAYERS, SelectionCombine, SelectionRect, SelectionShape,
-    SelectionState, SessionState, SizePreset, TextContent, tool_id, undo_actions,
+    AdjustmentParams, BlendMode, CropRect, DocumentError, DocumentGraph, DocumentSize,
+    EngineCommand, EngineEvent, HistoryKind, LayerId, LayerTransform, MAX_LAYERS, SelectionCombine,
+    SelectionRect, SelectionShape, SelectionState, SessionState, SizePreset, TextContent,
+    TransformSession, tool_id, undo_actions,
 };
 
 #[derive(Clone)]
@@ -20,7 +21,15 @@ struct SelectionSnapshot {
     mask: Vec<u8>,
 }
 
+#[derive(Clone)]
+struct TransformSnapshot {
+    size: DocumentSize,
+    layers: Vec<(LayerId, Vec<u8>)>,
+    graph: DocumentGraph,
+}
+
 const SELECTION_UNDO_LIMIT: usize = 64;
+const TRANSFORM_UNDO_LIMIT: usize = 32;
 use phototux_io::{RasterFormat, format_report};
 use qtbridge::qobject;
 
@@ -102,6 +111,18 @@ pub struct AppSession {
     selection_preview_y: i32,
     selection_preview_w: i32,
     selection_preview_h: i32,
+    transform_active: bool,
+    transform_constrain: bool,
+    transform_tx: f32,
+    transform_ty: f32,
+    transform_sx: f32,
+    transform_sy: f32,
+    transform_rot: f32,
+    crop_preview_active: bool,
+    crop_preview_x: i32,
+    crop_preview_y: i32,
+    crop_preview_w: i32,
+    crop_preview_h: i32,
     compatibility_report: String,
     document_path: String,
     graph_revision: i32,
@@ -118,6 +139,8 @@ pub struct AppSession {
     clipboard_rgba: Option<(u32, u32, Vec<u8>)>,
     selection_undo: Vec<SelectionSnapshot>,
     selection_redo: Vec<SelectionSnapshot>,
+    transform_undo: Vec<TransformSnapshot>,
+    transform_redo: Vec<TransformSnapshot>,
 }
 
 impl Default for AppSession {
@@ -181,6 +204,18 @@ impl AppSession {
             selection_preview_y: 0,
             selection_preview_w: 0,
             selection_preview_h: 0,
+            transform_active: false,
+            transform_constrain: false,
+            transform_tx: 0.0,
+            transform_ty: 0.0,
+            transform_sx: 1.0,
+            transform_sy: 1.0,
+            transform_rot: 0.0,
+            crop_preview_active: false,
+            crop_preview_x: 0,
+            crop_preview_y: 0,
+            crop_preview_w: 0,
+            crop_preview_h: 0,
             compatibility_report: String::new(),
             document_path: String::new(),
             graph_revision: 0,
@@ -197,6 +232,8 @@ impl AppSession {
             clipboard_rgba: None,
             selection_undo: Vec::new(),
             selection_redo: Vec::new(),
+            transform_undo: Vec::new(),
+            transform_redo: Vec::new(),
         };
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
@@ -253,6 +290,7 @@ impl AppSession {
         self.layer_kinds = self.engine.layer_kinds_joined();
         self.history_labels = self.engine.history_labels_joined();
         self.sync_selection_fields();
+        self.sync_transform_fields();
         self.document_path = self.engine.document_path.clone().unwrap_or_default();
         self.graph_revision = self.engine.graph_revision() as i32;
         self.active_opacity = self
@@ -282,6 +320,7 @@ impl AppSession {
         self.layer_kinds_changed();
         self.history_labels_changed();
         self.emit_selection_fields();
+        self.emit_transform_fields();
         self.document_path_changed();
         self.graph_revision_changed();
         self.active_opacity_changed();
@@ -324,6 +363,78 @@ impl AppSession {
     fn clear_selection_stacks(&mut self) {
         self.selection_undo.clear();
         self.selection_redo.clear();
+    }
+
+    fn clear_transform_stacks(&mut self) {
+        self.transform_undo.clear();
+        self.transform_redo.clear();
+    }
+
+    fn sync_transform_fields(&mut self) {
+        if let Some(session) = &self.engine.transform_session {
+            self.transform_active = true;
+            self.transform_constrain = session.constrain_aspect;
+            self.transform_tx = session.draft.translate_x;
+            self.transform_ty = session.draft.translate_y;
+            self.transform_sx = session.draft.scale_x;
+            self.transform_sy = session.draft.scale_y;
+            self.transform_rot = session.draft.rotation_deg;
+        } else {
+            self.transform_active = false;
+            self.transform_constrain = false;
+            self.transform_tx = 0.0;
+            self.transform_ty = 0.0;
+            self.transform_sx = 1.0;
+            self.transform_sy = 1.0;
+            self.transform_rot = 0.0;
+        }
+    }
+
+    fn emit_transform_fields(&mut self) {
+        self.transform_active_changed();
+        self.transform_constrain_changed();
+        self.transform_tx_changed();
+        self.transform_ty_changed();
+        self.transform_sx_changed();
+        self.transform_sy_changed();
+        self.transform_rot_changed();
+        self.crop_preview_active_changed();
+        self.crop_preview_x_changed();
+        self.crop_preview_y_changed();
+        self.crop_preview_w_changed();
+        self.crop_preview_h_changed();
+    }
+
+    fn push_transform_snapshot(&mut self) {
+        let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+            return;
+        };
+        let Some(graph) = self.engine.graph.clone() else {
+            return;
+        };
+        self.transform_undo.push(TransformSnapshot {
+            size,
+            layers,
+            graph,
+        });
+        if self.transform_undo.len() > TRANSFORM_UNDO_LIMIT {
+            self.transform_undo.remove(0);
+        }
+        self.transform_redo.clear();
+    }
+
+    fn restore_transform_snapshot(&mut self, snap: TransformSnapshot) {
+        let layers = snap.graph.layers().to_vec();
+        match phototux_canvas::restore_document_layers(snap.size, &snap.layers, &layers) {
+            Ok(ms) => {
+                self.engine.size = snap.size;
+                self.engine.graph = Some(snap.graph);
+                self.engine.set_composite_ms(ms);
+                self.engine.transform_session = None;
+                self.crop_preview_active = false;
+            }
+            Err(error) => self.report_gpu("transform restore", &error),
+        }
     }
 
     fn push_selection_snapshot(&mut self) {
@@ -396,8 +507,11 @@ impl AppSession {
             return;
         };
         self.clear_selection_stacks();
+        self.clear_transform_stacks();
         self.engine.selection.clear();
+        self.engine.transform_session = None;
         self.selection_preview_active = false;
+        self.crop_preview_active = false;
         match phototux_canvas::open_document(size, &layers) {
             Ok(ms) => self.engine.set_composite_ms(ms),
             Err(e) => self.report_gpu("open_document GPU", &e),
@@ -571,6 +685,66 @@ impl AppSession {
         Notify = selection_preview_h_changed
     );
     qproperty!(
+        "transformActive",
+        Member = transform_active,
+        Notify = transform_active_changed
+    );
+    qproperty!(
+        "transformConstrain",
+        Member = transform_constrain,
+        Notify = transform_constrain_changed
+    );
+    qproperty!(
+        "transformTx",
+        Member = transform_tx,
+        Notify = transform_tx_changed
+    );
+    qproperty!(
+        "transformTy",
+        Member = transform_ty,
+        Notify = transform_ty_changed
+    );
+    qproperty!(
+        "transformSx",
+        Member = transform_sx,
+        Notify = transform_sx_changed
+    );
+    qproperty!(
+        "transformSy",
+        Member = transform_sy,
+        Notify = transform_sy_changed
+    );
+    qproperty!(
+        "transformRot",
+        Member = transform_rot,
+        Notify = transform_rot_changed
+    );
+    qproperty!(
+        "cropPreviewActive",
+        Member = crop_preview_active,
+        Notify = crop_preview_active_changed
+    );
+    qproperty!(
+        "cropPreviewX",
+        Member = crop_preview_x,
+        Notify = crop_preview_x_changed
+    );
+    qproperty!(
+        "cropPreviewY",
+        Member = crop_preview_y,
+        Notify = crop_preview_y_changed
+    );
+    qproperty!(
+        "cropPreviewW",
+        Member = crop_preview_w,
+        Notify = crop_preview_w_changed
+    );
+    qproperty!(
+        "cropPreviewH",
+        Member = crop_preview_h,
+        Notify = crop_preview_h_changed
+    );
+    qproperty!(
         "compatibilityReport",
         Member = compatibility_report,
         Notify = compatibility_report_changed
@@ -673,6 +847,30 @@ impl AppSession {
     fn selection_preview_w_changed(&mut self);
     #[qsignal]
     fn selection_preview_h_changed(&mut self);
+    #[qsignal]
+    fn transform_active_changed(&mut self);
+    #[qsignal]
+    fn transform_constrain_changed(&mut self);
+    #[qsignal]
+    fn transform_tx_changed(&mut self);
+    #[qsignal]
+    fn transform_ty_changed(&mut self);
+    #[qsignal]
+    fn transform_sx_changed(&mut self);
+    #[qsignal]
+    fn transform_sy_changed(&mut self);
+    #[qsignal]
+    fn transform_rot_changed(&mut self);
+    #[qsignal]
+    fn crop_preview_active_changed(&mut self);
+    #[qsignal]
+    fn crop_preview_x_changed(&mut self);
+    #[qsignal]
+    fn crop_preview_y_changed(&mut self);
+    #[qsignal]
+    fn crop_preview_w_changed(&mut self);
+    #[qsignal]
+    fn crop_preview_h_changed(&mut self);
     #[qsignal]
     fn compatibility_report_changed(&mut self);
     #[qsignal]
@@ -802,6 +1000,7 @@ impl AppSession {
                         continue;
                     };
                     self.clear_selection_stacks();
+                    self.clear_transform_stacks();
                     match phototux_canvas::open_raster_document(
                         size,
                         graph.layers(),
@@ -823,6 +1022,7 @@ impl AppSession {
                 FileEvent::PtxOpened { path, document } => {
                     let (graph, rasters) = document.into_graph();
                     self.clear_selection_stacks();
+                    self.clear_transform_stacks();
                     match phototux_canvas::open_document(graph.size, graph.layers()) {
                         Ok(ms) => {
                             for (id, raster) in rasters {
@@ -862,6 +1062,7 @@ impl AppSession {
                         continue;
                     };
                     self.clear_selection_stacks();
+                    self.clear_transform_stacks();
                     match phototux_canvas::open_raster_document(
                         size,
                         graph.layers(),
@@ -1157,11 +1358,13 @@ impl AppSession {
         let viewport_height = self.engine.viewport_h;
         phototux_canvas::close_document();
         self.clear_selection_stacks();
+        self.clear_transform_stacks();
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
         self.document_name = "Untitled".to_owned();
         self.dirty = false;
         self.selection_preview_active = false;
+        self.crop_preview_active = false;
         self.sync_from_engine();
         self.emit_doc_fields();
     }
@@ -1391,11 +1594,28 @@ impl AppSession {
                     let _ = phototux_canvas::selection_clear();
                 }
             }
-            HistoryKind::Transform => {}
+            HistoryKind::Transform => {
+                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                    return;
+                };
+                let Some(graph) = self.engine.graph.clone() else {
+                    return;
+                };
+                let current = TransformSnapshot {
+                    size,
+                    layers,
+                    graph,
+                };
+                if let Some(prev) = self.transform_undo.pop() {
+                    self.transform_redo.push(current);
+                    self.restore_transform_snapshot(prev);
+                }
+            }
         }
         self.mark_dirty();
         self.sync_from_engine();
         self.emit_layer_fields();
+        self.emit_doc_fields();
     }
 
     #[qslot]
@@ -1428,11 +1648,28 @@ impl AppSession {
                     self.restore_selection_snapshot(next);
                 }
             }
-            HistoryKind::Transform => {}
+            HistoryKind::Transform => {
+                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                    return;
+                };
+                let Some(graph) = self.engine.graph.clone() else {
+                    return;
+                };
+                let current = TransformSnapshot {
+                    size,
+                    layers,
+                    graph,
+                };
+                if let Some(next) = self.transform_redo.pop() {
+                    self.transform_undo.push(current);
+                    self.restore_transform_snapshot(next);
+                }
+            }
         }
         self.mark_dirty();
         self.sync_from_engine();
         self.emit_layer_fields();
+        self.emit_doc_fields();
     }
 
     fn commit_selection_shape(
@@ -1738,16 +1975,24 @@ impl AppSession {
         let Some(id) = self.active_id() else {
             return;
         };
-        let ok = self.engine.graph.as_mut().is_some_and(|g| {
-            g.set_mask(id, Some(phototux_engine::LayerMask::default()))
-                .is_some()
-        });
-        if ok {
-            self.engine.history.push_transform("Add layer mask");
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
+        {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            let prev = graph.get(id).and_then(|l| l.mask.clone());
+            let next = Some(phototux_engine::LayerMask::default());
+            if graph.set_mask(id, next.clone()).is_none() {
+                return;
+            }
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::SetMask { id, prev, next },
+                "Add layer mask",
+            );
         }
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
     }
 
     #[qslot]
@@ -1768,21 +2013,239 @@ impl AppSession {
     }
 
     #[qslot]
+    fn begin_transform(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let baseline = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .map(|l| l.transform)
+            .unwrap_or_default();
+        self.engine.transform_session = Some(TransformSession::new(id, baseline));
+        self.sync_transform_fields();
+        self.emit_transform_fields();
+    }
+
+    #[qslot]
+    fn update_transform_draft(
+        &mut self,
+        translate_x: f32,
+        translate_y: f32,
+        scale_x: f32,
+        scale_y: f32,
+        rotation_deg: f32,
+        constrain: bool,
+    ) {
+        let Some(session) = self.engine.transform_session.as_mut() else {
+            return;
+        };
+        let mut sx = scale_x.max(0.01);
+        let mut sy = scale_y.max(0.01);
+        if constrain {
+            let uniform = sx.abs().max(sy.abs());
+            sx = uniform.copysign(sx);
+            sy = uniform.copysign(sy);
+        }
+        session.constrain_aspect = constrain;
+        session.draft = LayerTransform {
+            translate_x,
+            translate_y,
+            scale_x: sx,
+            scale_y: sy,
+            rotation_deg,
+        };
+        if let Some(graph) = self.engine.graph.as_mut() {
+            if let Some(layer) = graph.get_mut(session.layer_id) {
+                layer.transform = session.draft;
+            }
+            graph.revision = graph.revision.wrapping_add(1);
+        }
+        self.recomposite();
+        self.sync_transform_fields();
+        self.emit_transform_fields();
+        self.graph_revision_changed();
+        self.composite_ms_changed();
+    }
+
+    #[qslot]
+    fn commit_transform(&mut self) {
+        let Some(session) = self.engine.transform_session.take() else {
+            return;
+        };
+        if session.draft.is_identity() {
+            self.sync_transform_fields();
+            self.emit_transform_fields();
+            return;
+        }
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        match phototux_canvas::bake_layer_transform(session.layer_id, session.draft, &layers) {
+            Ok(ms) => {
+                if let Some(graph) = self.engine.graph.as_mut() {
+                    if let Some(layer) = graph.get_mut(session.layer_id) {
+                        layer.transform = LayerTransform::identity();
+                    }
+                    graph.revision = graph.revision.wrapping_add(1);
+                }
+                self.engine.set_composite_ms(ms);
+                self.engine.history.push_transform("Free Transform");
+                self.mark_dirty();
+            }
+            Err(error) => {
+                self.engine.transform_session = Some(session);
+                self.report_gpu("transform bake", &error);
+            }
+        }
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.emit_transform_fields();
+    }
+
+    #[qslot]
+    fn cancel_transform(&mut self) {
+        let Some(session) = self.engine.transform_session.take() else {
+            return;
+        };
+        if let Some(graph) = self.engine.graph.as_mut() {
+            if let Some(layer) = graph.get_mut(session.layer_id) {
+                layer.transform = session.baseline;
+            }
+            graph.revision = graph.revision.wrapping_add(1);
+        }
+        self.recomposite();
+        self.sync_from_engine();
+        self.emit_transform_fields();
+        self.graph_revision_changed();
+    }
+
+    #[qslot]
+    fn set_crop_preview(&mut self, active: bool, x: i32, y: i32, width: i32, height: i32) {
+        self.crop_preview_active = active;
+        self.crop_preview_x = x;
+        self.crop_preview_y = y;
+        self.crop_preview_w = width.max(0);
+        self.crop_preview_h = height.max(0);
+        self.emit_transform_fields();
+    }
+
+    #[qslot]
     fn commit_crop(&mut self, x: i32, y: i32, width: i32, height: i32) {
         if width <= 0 || height <= 0 || !self.engine.has_document {
             return;
         }
-        let _ = (x, y);
-        // Canvas resize metadata; pixel crop GPU path follows transform pipeline.
-        let new_size = DocumentSize::new(width as u32, height as u32);
-        if let Some(graph) = self.engine.graph.as_mut() {
-            graph.size = new_size;
-            graph.revision = graph.revision.wrapping_add(1);
+        let rect = CropRect {
+            x,
+            y,
+            width: width as u32,
+            height: height as u32,
+        };
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| {
+                let mut layers = g.layers().to_vec();
+                for layer in &mut layers {
+                    layer.transform = LayerTransform::identity();
+                }
+                layers
+            })
+            .unwrap_or_default();
+        match phototux_canvas::crop_document(rect, &layers) {
+            Ok((new_size, ms)) => {
+                if let Some(graph) = self.engine.graph.as_mut() {
+                    graph.size = new_size;
+                    for layer in graph.layers_mut() {
+                        layer.transform = LayerTransform::identity();
+                    }
+                    graph.revision = graph.revision.wrapping_add(1);
+                }
+                self.engine.size = new_size;
+                self.engine.set_composite_ms(ms);
+                self.engine.history.push_transform("Crop");
+                self.engine.selection.clear();
+                self.crop_preview_active = false;
+                self.clear_selection_stacks();
+                self.mark_dirty();
+                self.engine.zoom_to_fit();
+            }
+            Err(error) => self.report_gpu("crop", &error),
         }
-        self.engine.size = new_size;
-        self.engine.history.push_transform("Crop");
-        self.open_gpu_document();
-        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_doc_fields();
+    }
+
+    #[qslot]
+    fn cancel_crop(&mut self) {
+        self.crop_preview_active = false;
+        self.emit_transform_fields();
+    }
+
+    #[qslot]
+    fn flip_active_layer(&mut self, horizontal: bool) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        match phototux_canvas::flip_layer(id, horizontal, &layers) {
+            Ok(ms) => {
+                self.engine.set_composite_ms(ms);
+                self.engine.history.push_transform(if horizontal {
+                    "Flip Horizontal"
+                } else {
+                    "Flip Vertical"
+                });
+                self.mark_dirty();
+            }
+            Err(error) => self.report_gpu("flip", &error),
+        }
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn rotate_canvas_90_cw(&mut self) {
+        if !self.engine.has_document {
+            return;
+        }
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        match phototux_canvas::rotate_canvas_90_cw(&layers) {
+            Ok((new_size, ms)) => {
+                if let Some(graph) = self.engine.graph.as_mut() {
+                    graph.size = new_size;
+                    graph.revision = graph.revision.wrapping_add(1);
+                }
+                self.engine.size = new_size;
+                self.engine.set_composite_ms(ms);
+                self.engine.history.push_transform("Rotate 90° CW");
+                self.engine.selection.clear();
+                self.clear_selection_stacks();
+                self.mark_dirty();
+                self.engine.zoom_to_fit();
+            }
+            Err(error) => self.report_gpu("rotate canvas", &error),
+        }
         self.sync_from_engine();
         self.emit_doc_fields();
     }

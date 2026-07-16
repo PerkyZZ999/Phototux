@@ -32,7 +32,7 @@ pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
 };
 pub use stroke::{BrushParams, Dab, StrokeBuilder};
-pub use transform::{CropRect, ResizeRequest, TransformPreview};
+pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 
 use serde::{Deserialize, Serialize};
@@ -145,6 +145,7 @@ pub struct SessionState {
     pub history: HistoryService,
     pub brush: BrushParams,
     pub selection: SelectionState,
+    pub transform_session: Option<TransformSession>,
     pub colors: ColorState,
     pub guides: ViewGuides,
     pub brush_presets: BrushPresetLibrary,
@@ -171,6 +172,7 @@ impl Default for SessionState {
             history: HistoryService::new(128),
             brush,
             selection: SelectionState::default(),
+            transform_session: None,
             colors: ColorState::default(),
             guides: ViewGuides::default(),
             brush_presets: BrushPresetLibrary::with_defaults(),
@@ -244,6 +246,7 @@ impl SessionState {
         self.graph = Some(DocumentGraph::new(self.size));
         self.history.clear();
         self.selection.clear();
+        self.transform_session = None;
         self.document_path = None;
         self.zoom_to_fit();
     }
@@ -261,6 +264,7 @@ impl SessionState {
         self.graph = Some(graph);
         self.history.clear();
         self.selection.clear();
+        self.transform_session = None;
         self.zoom_to_fit();
     }
 

@@ -178,11 +178,11 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 
 ### Transformations
 
-- [~] Crop (commit command)
-- [~] Free Transform (engine types / preview; handle chrome TBD)
-- [ ] Scale / Rotate / Skew / Distort / Perspective / Warp
-- [ ] Flip Horizontal / Vertical
-- [ ] Rotate Canvas
+- [x] Crop (pixel crop + Apply/Cancel overlay; undo restores size/pixels)
+- [x] Free Transform (handles, live GPU affine preview, bake on commit)
+- [~] Scale / Rotate (via free transform; Skew / Distort / Perspective / Warp TBD)
+- [x] Flip Horizontal / Vertical (Image menu)
+- [x] Rotate Canvas 90° CW (Image menu)
 - [ ] Perspective Crop
 
 ---
@@ -403,7 +403,7 @@ Post-MVP per FEATURES_TODO — do not block core production path.
 Order is guidance, not locked ADR:
 
 1. ~~**Selection polish**~~ — **shipped 2026-07-16** (rect/ellipse, GPU mask, ants, combine, undo)
-2. **Transform chrome** — free-transform handles + quality resample; flip/rotate canvas
+2. ~~**Transform chrome**~~ — **shipped 2026-07-16** (crop, free transform, flip, rotate 90°)
 3. **Mask paint + clipping** — usable layer masks end-to-end
 4. **Lasso + GPU edge ants** — freehand/polygonal; irregular outline overlay
 5. **PSD depth** — channel decompress, layered import fidelity, subset export

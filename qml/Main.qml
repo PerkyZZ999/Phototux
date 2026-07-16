@@ -61,6 +61,12 @@ ApplicationWindow {
         return AppSession.activeTool === "tool.select.rect"
                 || AppSession.activeTool === "tool.select.ellipse"
     }
+    function isCropTool() {
+        return AppSession.activeTool === "tool.crop"
+    }
+    function isTransformTool() {
+        return AppSession.activeTool === "tool.transform"
+    }
     readonly property color colorOnSurface: Theme.colorOnSurface
     readonly property color colorOnSurfaceMuted: Theme.colorOnSurfaceMuted
     readonly property color warning: Theme.warning
@@ -242,6 +248,24 @@ ApplicationWindow {
                 shortcut: "Ctrl+V"
                 enabled: AppSession.hasDocument
                 onTriggered: AppSession.pasteAsNewLayer()
+            }
+        }
+        Menu {
+            title: qsTr("&Image")
+            MenuItem {
+                text: qsTr("Flip &Horizontal")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.flipActiveLayer(true)
+            }
+            MenuItem {
+                text: qsTr("Flip &Vertical")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.flipActiveLayer(false)
+            }
+            MenuItem {
+                text: qsTr("Rotate 90° &Clockwise")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.rotateCanvas90Cw()
             }
         }
         Menu {
@@ -563,7 +587,17 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: AppSession.setActiveTool(modelData.id)
+                                onClicked: {
+                                    if (AppSession.transformActive
+                                            && modelData.id !== "tool.transform")
+                                        AppSession.cancelTransform()
+                                    if (AppSession.cropPreviewActive
+                                            && modelData.id !== "tool.crop")
+                                        AppSession.cancelCrop()
+                                    AppSession.setActiveTool(modelData.id)
+                                    if (modelData.id === "tool.transform")
+                                        AppSession.beginTransform()
+                                }
                                 ToolTip.visible: containsMouse
                                 ToolTip.text: modelData.tip
                                 ToolTip.delay: 400
@@ -728,6 +762,116 @@ ApplicationWindow {
                 }
             }
 
+            // Crop drag preview
+            Rectangle {
+                id: cropPreview
+                visible: AppSession.cropPreviewActive && AppSession.hasDocument
+                z: 6
+                x: root.docToScreenX(AppSession.cropPreviewX)
+                y: root.docToScreenY(AppSession.cropPreviewY)
+                width: Math.max(1, AppSession.cropPreviewW * AppSession.zoom)
+                height: Math.max(1, AppSession.cropPreviewH * AppSession.zoom)
+                color: "#3DAEE920"
+                border.color: root.primary
+                border.width: 1
+            }
+
+            // Free-transform handles over document bounds
+            Item {
+                id: transformChrome
+                visible: AppSession.transformActive && AppSession.hasDocument
+                z: 7
+                x: root.docToScreenX(0)
+                y: root.docToScreenY(0)
+                width: Math.max(1, AppSession.docWidth * AppSession.zoom)
+                height: Math.max(1, AppSession.docHeight * AppSession.zoom)
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    border.color: root.primary
+                    border.width: 1
+                    transform: [
+                        Translate {
+                            x: AppSession.transformTx * AppSession.zoom
+                            y: AppSession.transformTy * AppSession.zoom
+                        },
+                        Scale {
+                            origin.x: transformChrome.width / 2
+                            origin.y: transformChrome.height / 2
+                            xScale: AppSession.transformSx
+                            yScale: AppSession.transformSy
+                        },
+                        Rotation {
+                            origin.x: transformChrome.width / 2
+                            origin.y: transformChrome.height / 2
+                            angle: AppSession.transformRot
+                        }
+                    ]
+                }
+
+                Repeater {
+                    model: [
+                        { nx: 0, ny: 0 }, { nx: 0.5, ny: 0 }, { nx: 1, ny: 0 },
+                        { nx: 0, ny: 0.5 }, { nx: 1, ny: 0.5 },
+                        { nx: 0, ny: 1 }, { nx: 0.5, ny: 1 }, { nx: 1, ny: 1 }
+                    ]
+                    delegate: Rectangle {
+                        width: 8
+                        height: 8
+                        radius: 1
+                        color: Theme.surface
+                        border.color: root.primary
+                        border.width: 1
+                        z: 8
+                        property real hx: modelData.nx * transformChrome.width
+                        property real hy: modelData.ny * transformChrome.height
+                        x: hx * AppSession.transformSx
+                           + (1 - AppSession.transformSx) * transformChrome.width / 2
+                           + AppSession.transformTx * AppSession.zoom - width / 2
+                        y: hy * AppSession.transformSy
+                           + (1 - AppSession.transformSy) * transformChrome.height / 2
+                           + AppSession.transformTy * AppSession.zoom - height / 2
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            cursorShape: Qt.SizeFDiagCursor
+                            property real startDist: 1
+                            onPressed: function (mouse) {
+                                var cx = transformChrome.width / 2
+                                var cy = transformChrome.height / 2
+                                var dx = parent.x + width / 2 - cx
+                                var dy = parent.y + height / 2 - cy
+                                startDist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                            }
+                            onPositionChanged: function (mouse) {
+                                if (!pressed)
+                                    return
+                                var cx = transformChrome.width / 2
+                                var cy = transformChrome.height / 2
+                                var gx = mapToItem(transformChrome, mouse.x, mouse.y).x
+                                var gy = mapToItem(transformChrome, mouse.x, mouse.y).y
+                                var dx = gx - cx
+                                var dy = gy - cy
+                                var dist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                                var factor = dist / startDist
+                                var sx = Math.max(0.05, Math.abs(AppSession.transformSx) * factor)
+                                var sy = Math.max(0.05, Math.abs(AppSession.transformSy) * factor)
+                                var constrain = (mouse.modifiers & Qt.ShiftModifier) !== 0
+                                        || AppSession.transformConstrain
+                                AppSession.updateTransformDraft(
+                                            AppSession.transformTx,
+                                            AppSession.transformTy,
+                                            sx, sy,
+                                            AppSession.transformRot,
+                                            constrain)
+                                startDist = dist
+                            }
+                        }
+                    }
+                }
+            }
+
             Label {
                 visible: !AppSession.hasDocument
                 anchors.centerIn: parent
@@ -768,8 +912,11 @@ ApplicationWindow {
                 cursorShape: {
                     if (AppSession.activeTool === "tool.pan")
                         return Qt.OpenHandCursor
-                    if (AppSession.activeTool === "tool.zoom" || root.isSelectTool())
+                    if (AppSession.activeTool === "tool.zoom"
+                            || root.isSelectTool() || root.isCropTool())
                         return Qt.CrossCursor
+                    if (root.isTransformTool())
+                        return Qt.SizeAllCursor
                     if (AppSession.activeTool === "tool.brush"
                             || AppSession.activeTool === "tool.eraser")
                         return Qt.BlankCursor
@@ -780,10 +927,38 @@ ApplicationWindow {
                 property bool dragging: false
                 property bool painting: false
                 property bool selecting: false
+                property bool cropping: false
+                property bool transforming: false
                 property real selStartX: 0
                 property real selStartY: 0
 
+                Keys.onPressed: function (event) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        if (AppSession.transformActive) {
+                            AppSession.commitTransform()
+                            event.accepted = true
+                        } else if (AppSession.cropPreviewActive) {
+                            AppSession.commitCrop(
+                                        AppSession.cropPreviewX,
+                                        AppSession.cropPreviewY,
+                                        AppSession.cropPreviewW,
+                                        AppSession.cropPreviewH)
+                            event.accepted = true
+                        }
+                    } else if (event.key === Qt.Key_Escape) {
+                        if (AppSession.transformActive) {
+                            AppSession.cancelTransform()
+                            event.accepted = true
+                        } else if (AppSession.cropPreviewActive) {
+                            AppSession.cancelCrop()
+                            event.accepted = true
+                        }
+                    }
+                }
+                focus: true
+
                 onPressed: function (mouse) {
+                    forceActiveFocus()
                     lastX = mouse.x
                     lastY = mouse.y
                     dragging = true
@@ -792,13 +967,35 @@ ApplicationWindow {
                         cursorShape = Qt.ClosedHandCursor
                         painting = false
                         selecting = false
+                        cropping = false
+                        transforming = false
                         return
                     }
                     if (root.isSelectTool()) {
                         selecting = true
                         painting = false
+                        cropping = false
+                        transforming = false
                         selStartX = mouse.x
                         selStartY = mouse.y
+                        return
+                    }
+                    if (root.isCropTool()) {
+                        cropping = true
+                        selecting = false
+                        painting = false
+                        transforming = false
+                        selStartX = mouse.x
+                        selStartY = mouse.y
+                        return
+                    }
+                    if (root.isTransformTool()) {
+                        if (!AppSession.transformActive)
+                            AppSession.beginTransform()
+                        transforming = true
+                        selecting = false
+                        cropping = false
+                        painting = false
                         return
                     }
                     if (AppSession.activeTool === "tool.text") {
@@ -837,6 +1034,10 @@ ApplicationWindow {
                         AppSession.setSelectionPreview(false, 0, 0, 0, 0)
                         selecting = false
                     }
+                    if (cropping) {
+                        cropping = false
+                    }
+                    transforming = false
                     if (painting) {
                         AppSession.strokeEnd()
                         painting = false
@@ -859,6 +1060,34 @@ ApplicationWindow {
                                     Math.round(root.screenToDocY(y0)),
                                     Math.round(w / Math.max(0.001, AppSession.zoom)),
                                     Math.round(h / Math.max(0.001, AppSession.zoom)))
+                        return
+                    }
+                    if (cropping) {
+                        var cx0 = Math.min(selStartX, mouse.x)
+                        var cy0 = Math.min(selStartY, mouse.y)
+                        var cw = Math.abs(mouse.x - selStartX)
+                        var ch = Math.abs(mouse.y - selStartY)
+                        AppSession.setCropPreview(
+                                    true,
+                                    Math.round(root.screenToDocX(cx0)),
+                                    Math.round(root.screenToDocY(cy0)),
+                                    Math.round(cw / Math.max(0.001, AppSession.zoom)),
+                                    Math.round(ch / Math.max(0.001, AppSession.zoom)))
+                        return
+                    }
+                    if (transforming && AppSession.transformActive) {
+                        var tdx = (mouse.x - lastX) / Math.max(0.001, AppSession.zoom)
+                        var tdy = (mouse.y - lastY) / Math.max(0.001, AppSession.zoom)
+                        lastX = mouse.x
+                        lastY = mouse.y
+                        AppSession.updateTransformDraft(
+                                    AppSession.transformTx + tdx,
+                                    AppSession.transformTy + tdy,
+                                    AppSession.transformSx,
+                                    AppSession.transformSy,
+                                    AppSession.transformRot,
+                                    AppSession.transformConstrain
+                                    || ((mouse.modifiers & Qt.ShiftModifier) !== 0))
                         return
                     }
                     var dx = mouse.x - lastX
@@ -1001,6 +1230,94 @@ ApplicationWindow {
                                 font.pixelSize: Theme.fontLabelSm
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
+                            }
+                        }
+
+                        // Crop / Transform commit chrome
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: root.isCropTool() || root.isTransformTool()
+                                     || AppSession.transformActive
+                                     || AppSession.cropPreviewActive
+                            Label {
+                                text: root.isCropTool() || AppSession.cropPreviewActive
+                                      ? qsTr("Crop") : qsTr("Free Transform")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Button {
+                                    text: qsTr("Apply")
+                                    enabled: AppSession.hasDocument
+                                             && (AppSession.transformActive
+                                                 || AppSession.cropPreviewActive)
+                                    onClicked: {
+                                        if (AppSession.transformActive)
+                                            AppSession.commitTransform()
+                                        else if (AppSession.cropPreviewActive)
+                                            AppSession.commitCrop(
+                                                        AppSession.cropPreviewX,
+                                                        AppSession.cropPreviewY,
+                                                        AppSession.cropPreviewW,
+                                                        AppSession.cropPreviewH)
+                                    }
+                                }
+                                Button {
+                                    text: qsTr("Cancel")
+                                    enabled: AppSession.transformActive
+                                             || AppSession.cropPreviewActive
+                                    onClicked: {
+                                        if (AppSession.transformActive)
+                                            AppSession.cancelTransform()
+                                        else
+                                            AppSession.cancelCrop()
+                                    }
+                                }
+                            }
+                            CheckBox {
+                                visible: AppSession.transformActive || root.isTransformTool()
+                                text: qsTr("Constrain proportions")
+                                checked: AppSession.transformConstrain
+                                onToggled: AppSession.updateTransformDraft(
+                                               AppSession.transformTx,
+                                               AppSession.transformTy,
+                                               AppSession.transformSx,
+                                               AppSession.transformSy,
+                                               AppSession.transformRot,
+                                               checked)
+                            }
+                            Label {
+                                visible: AppSession.transformActive
+                                text: qsTr("Drag to move · handles scale · Enter apply · Esc cancel")
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                            RowLayout {
+                                visible: AppSession.transformActive
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Rotate")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    from: -180
+                                    to: 180
+                                    value: AppSession.transformRot
+                                    onMoved: AppSession.updateTransformDraft(
+                                                 AppSession.transformTx,
+                                                 AppSession.transformTy,
+                                                 AppSession.transformSx,
+                                                 AppSession.transformSy,
+                                                 value,
+                                                 AppSession.transformConstrain)
+                                }
                             }
                         }
 
