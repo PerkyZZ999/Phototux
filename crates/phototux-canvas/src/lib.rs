@@ -8,10 +8,10 @@ pub use document_gpu::{
     close_document, crop_document, end_stroke, ensure_mask, flip_layer, last_composite_ms,
     last_stroke_latency_ms, open_document, open_raster_document, read_all_layer_rgba,
     read_all_mask_r8, read_composite_rgba, read_layer_rgba, redo_stroke, remove_mask,
-    restore_document_layers, rotate_canvas_90_cw, selection_apply_ellipse, selection_apply_rect,
-    selection_clear, selection_invert, selection_restore, selection_select_all, selection_snapshot,
-    snapshot_document_layers, stamp_dabs, sync_and_composite, undo_stroke, write_layer_rgba,
-    write_mask_r8,
+    restore_document_layers, rotate_canvas_90_cw, selection_apply_ellipse, selection_apply_polygon,
+    selection_apply_rect, selection_clear, selection_invert, selection_restore,
+    selection_select_all, selection_snapshot, snapshot_document_layers, stamp_dabs,
+    sync_and_composite, undo_stroke, write_layer_rgba, write_mask_r8,
 };
 pub use paint_worker::PaintWorker;
 
@@ -42,6 +42,7 @@ unsafe extern "C" {
         queue_index: u32,
     );
     fn phototux_canvas_set_wgpu_export(handle: u64, width: i32, height: i32, layout: i32);
+    fn phototux_canvas_set_selection_export(handle: u64, width: i32, height: i32, layout: i32);
     fn phototux_canvas_lock_shared_queue();
     fn phototux_canvas_unlock_shared_queue();
 }
@@ -81,6 +82,13 @@ pub(crate) unsafe fn set_wgpu_export(handle: u64, width: i32, height: i32, layou
             height: height_u,
             layout,
         });
+    }
+}
+
+pub(crate) unsafe fn set_selection_export(handle: u64, width: i32, height: i32, layout: i32) {
+    // SAFETY: C ABI publishes selection mask for GPU edge ants.
+    unsafe {
+        phototux_canvas_set_selection_export(handle, width, height, layout);
     }
 }
 

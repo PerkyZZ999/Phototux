@@ -148,7 +148,7 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 - [x] Move (viewport / layer interaction baseline)
 - [x] Marquee — Rectangular (GPU mask + ants + combine)
 - [~] Marquee — Elliptical (ellipse marquee done; Single Row / Column TBD)
-- [ ] Lasso — Freehand / Polygonal / Magnetic
+- [x] Lasso — Freehand / Polygonal (GPU edge ants); Magnetic TBD
 - [ ] Magic Wand
 - [ ] Quick Selection
 - [ ] Object Selection
@@ -405,7 +405,7 @@ Order is guidance, not locked ADR:
 1. ~~**Selection polish**~~ — **shipped 2026-07-16** (rect/ellipse, GPU mask, ants, combine, undo)
 2. ~~**Transform chrome**~~ — **shipped 2026-07-16** (crop, free transform, flip, rotate 90°)
 3. ~~**Mask paint + clipping**~~ — **shipped 2026-07-16** (R8 paint, composite, clip, `.ptx`)
-4. **Lasso + GPU edge ants** — freehand/polygonal; irregular outline overlay
+4. ~~**Lasso + GPU edge ants**~~ — **shipped 2026-07-16** (freehand/polygonal; mask-edge ants)
 5. **PSD depth** — channel decompress, layered import fidelity, subset export
 6. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first
 7. **Panels** — Swatches, Navigator, Properties completeness

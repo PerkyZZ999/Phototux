@@ -17,6 +17,7 @@ struct WgpuExportSlot {
 };
 
 WgpuExportSlot g_export;
+WgpuExportSlot g_selection_export;
 
 struct WgpuDeviceSlot {
     std::atomic<uint64_t> instance{0};
@@ -45,6 +46,16 @@ extern "C" void phototux_canvas_set_wgpu_export(unsigned long long handle, int w
     g_export.height.store(height, std::memory_order_relaxed);
     g_export.layout.store(layout, std::memory_order_relaxed);
     g_export.pending.store(true, std::memory_order_release);
+}
+
+extern "C" void phototux_canvas_set_selection_export(unsigned long long handle, int width,
+                                                     int height, int layout)
+{
+    g_selection_export.handle.store(handle, std::memory_order_relaxed);
+    g_selection_export.width.store(width, std::memory_order_relaxed);
+    g_selection_export.height.store(height, std::memory_order_relaxed);
+    g_selection_export.layout.store(layout, std::memory_order_relaxed);
+    g_selection_export.pending.store(true, std::memory_order_release);
 }
 
 extern "C" void phototux_canvas_set_wgpu_device(unsigned long long instance,
@@ -88,10 +99,19 @@ extern "C" void phototux_canvas_unlock_shared_queue()
 // Pull pending export into a canvas item (constructor + each synchronize).
 void phototux_canvas_apply_pending_export(PhototuxCanvasItem *item)
 {
-    if (!item || !g_export.pending.exchange(false, std::memory_order_acq_rel))
+    if (!item)
         return;
-    item->setWgpuImageHandle(g_export.handle.load(std::memory_order_relaxed),
-                             g_export.width.load(std::memory_order_relaxed),
-                             g_export.height.load(std::memory_order_relaxed),
-                             g_export.layout.load(std::memory_order_relaxed));
+    if (g_export.pending.exchange(false, std::memory_order_acq_rel)) {
+        item->setWgpuImageHandle(g_export.handle.load(std::memory_order_relaxed),
+                                 g_export.width.load(std::memory_order_relaxed),
+                                 g_export.height.load(std::memory_order_relaxed),
+                                 g_export.layout.load(std::memory_order_relaxed));
+    }
+    if (g_selection_export.pending.exchange(false, std::memory_order_acq_rel)) {
+        item->setSelectionImageHandle(
+            g_selection_export.handle.load(std::memory_order_relaxed),
+            g_selection_export.width.load(std::memory_order_relaxed),
+            g_selection_export.height.load(std::memory_order_relaxed),
+            g_selection_export.layout.load(std::memory_order_relaxed));
+    }
 }

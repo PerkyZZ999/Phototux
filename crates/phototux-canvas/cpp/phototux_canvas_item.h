@@ -31,6 +31,7 @@ class PhototuxCanvasItem : public QQuickRhiItem
     Q_PROPERTY(int docHeight READ docHeight WRITE setDocHeight NOTIFY docHeightChanged)
     Q_PROPERTY(bool hasDocument READ hasDocument WRITE setHasDocument NOTIFY hasDocumentChanged)
     Q_PROPERTY(float phase READ phase WRITE setPhase NOTIFY phaseChanged)
+    Q_PROPERTY(bool selectionAnts READ selectionAnts WRITE setSelectionAnts NOTIFY selectionAntsChanged)
     Q_PROPERTY(QString gpuStatus READ gpuStatus WRITE setGpuStatus NOTIFY gpuStatusChanged)
     Q_PROPERTY(float fps READ fps WRITE setFps NOTIFY fpsChanged)
 
@@ -59,6 +60,9 @@ public:
     float phase() const { return m_phase; }
     void setPhase(float p);
 
+    bool selectionAnts() const { return m_selectionAnts; }
+    void setSelectionAnts(bool v);
+
     QString gpuStatus() const { return m_gpuStatus; }
     void setGpuStatus(const QString &s);
 
@@ -67,6 +71,7 @@ public:
 
     // Optional wgpu VkImage import attempt (quint64 raw handle).
     void setWgpuImageHandle(quint64 handle, int width, int height, int layout);
+    void setSelectionImageHandle(quint64 handle, int width, int height, int layout);
 
 signals:
     void zoomChanged();
@@ -76,6 +81,7 @@ signals:
     void docHeightChanged();
     void hasDocumentChanged();
     void phaseChanged();
+    void selectionAntsChanged();
     void gpuStatusChanged();
     void fpsChanged();
 
@@ -93,6 +99,7 @@ private:
     int m_docH = 1080;
     bool m_hasDoc = false;
     float m_phase = 0.f;
+    bool m_selectionAnts = false;
     float m_fps = 0.f;
     QString m_gpuStatus = QStringLiteral("GPU viewport idle");
     quint64 m_wgpuHandle = 0;
@@ -100,6 +107,11 @@ private:
     int m_wgpuH = 0;
     int m_wgpuLayout = 0;
     bool m_wgpuDirty = false;
+    quint64 m_selHandle = 0;
+    int m_selW = 0;
+    int m_selH = 0;
+    int m_selLayout = 0;
+    bool m_selDirty = false;
     bool m_deviceConfigured = false;
     std::unique_ptr<QVulkanInstance> m_vulkanInstance;
 
@@ -130,6 +142,8 @@ private:
     void releaseResources();
     void updateGeometry(QRhiResourceUpdateBatch *u);
     bool tryImportWgpuTexture();
+    bool tryImportSelectionTexture();
+    bool ensureDummySelectionTexture();
 
     QRhi *m_rhi = nullptr;
     QRhiBuffer *m_vbuf = nullptr;
@@ -137,7 +151,10 @@ private:
     QRhiShaderResourceBindings *m_srb = nullptr;
     QRhiGraphicsPipeline *m_pipeline = nullptr;
     QRhiSampler *m_sampler = nullptr;
+    QRhiSampler *m_selSampler = nullptr;
     QRhiTexture *m_importedTexture = nullptr;
+    QRhiTexture *m_selectionTexture = nullptr;
+    bool m_selectionIsDummy = true;
 
     float m_zoom = 1.f;
     float m_panX = 0.f;
@@ -146,6 +163,7 @@ private:
     int m_docH = 1080;
     bool m_hasDoc = false;
     float m_phase = 0.f;
+    bool m_selectionAnts = false;
     float m_itemW = 1.f;
     float m_itemH = 1.f;
 
@@ -156,6 +174,12 @@ private:
     bool m_tryImport = false;
     bool m_importAttempted = false;
     bool m_importOk = false;
+    quint64 m_selHandle = 0;
+    int m_selW = 0;
+    int m_selH = 0;
+    int m_selLayout = 0;
+    bool m_trySelImport = false;
+    bool m_selImportAttempted = false;
     bool m_firstRenderReported = false;
     QString m_importNote;
 

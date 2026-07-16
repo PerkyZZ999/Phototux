@@ -117,6 +117,7 @@ pub mod tool_id {
     pub const SELECT_RECT: &str = "tool.select.rect";
     pub const SELECT_ELLIPSE: &str = "tool.select.ellipse";
     pub const SELECT_LASSO: &str = "tool.select.lasso";
+    pub const SELECT_POLYGON: &str = "tool.select.polygon";
     pub const MOVE: &str = "tool.move";
     pub const TRANSFORM: &str = "tool.transform";
     pub const CROP: &str = "tool.crop";

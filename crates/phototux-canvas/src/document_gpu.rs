@@ -78,6 +78,7 @@ pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
     let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
+    publish_selection(&selection)?;
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
@@ -116,6 +117,7 @@ pub fn open_raster_document(
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
     let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
+    publish_selection(&selection)?;
     let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
     *guard = Some(DocGpu {
         ctx,
@@ -323,6 +325,23 @@ pub fn last_stroke_latency_ms() -> f32 {
         .unwrap_or(0.0)
 }
 
+fn publish_selection(mask: &SelectionMask) -> Result<(), String> {
+    // VkImageLayout::SHADER_READ_ONLY_OPTIMAL after upload/resource use.
+    const SHADER_READ_ONLY_OPTIMAL: i32 = 5;
+    if let Some(h) = mask.texture_vk_handle() {
+        // SAFETY: C ABI publishes selection for canvas edge ants.
+        unsafe {
+            super::set_selection_export(
+                h,
+                dim_to_i32(mask.width())?,
+                dim_to_i32(mask.height())?,
+                SHADER_READ_ONLY_OPTIMAL,
+            );
+        }
+    }
+    Ok(())
+}
+
 fn with_selection_mut<R>(
     f: impl FnOnce(&GpuContext, &mut SelectionMask) -> R,
 ) -> Result<R, String> {
@@ -332,7 +351,9 @@ fn with_selection_mut<R>(
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
     let ctx = Arc::clone(&doc.ctx);
-    Ok(f(&ctx, &mut doc.selection))
+    let out = f(&ctx, &mut doc.selection);
+    publish_selection(&doc.selection)?;
+    Ok(out)
 }
 
 /// Clear the document selection mask.
@@ -376,6 +397,17 @@ pub fn selection_apply_ellipse(
     combine: SelectionCombine,
 ) -> Result<(), String> {
     with_selection_mut(|ctx, mask| mask.apply_ellipse(ctx, rect, combine))
+}
+
+/// Apply a polygonal / freehand selection (even-odd fill) with the given combine mode.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn selection_apply_polygon(
+    points: &[(f32, f32)],
+    combine: SelectionCombine,
+) -> Result<(), String> {
+    with_selection_mut(|ctx, mask| mask.apply_polygon(ctx, points, combine))
 }
 
 /// Snapshot the current selection mask CPU mirror for undo.
@@ -438,6 +470,7 @@ fn install_document(
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
     let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
+    publish_selection(&selection)?;
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
@@ -596,9 +629,10 @@ pub fn restore_document_layers(
 
 pub fn close_document() {
     let _queue_guard = super::SharedQueueGuard::lock();
-    // SAFETY: clear the borrowed image before its wgpu owner is dropped.
+    // SAFETY: clear borrowed images before their wgpu owners are dropped.
     unsafe {
         super::set_wgpu_export(0, 0, 0, 0);
+        super::set_selection_export(0, 0, 0, 0);
     }
     if let Ok(mut g) = DOC_GPU.lock() {
         *g = None;

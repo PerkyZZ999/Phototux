@@ -73,6 +73,45 @@ ApplicationWindow {
         return AppSession.activeTool === "tool.select.rect"
                 || AppSession.activeTool === "tool.select.ellipse"
     }
+    function isLassoTool() {
+        return AppSession.activeTool === "tool.select.lasso"
+    }
+    function isPolygonTool() {
+        return AppSession.activeTool === "tool.select.polygon"
+    }
+    function selectionPathToSvg(pointsJoined) {
+        if (!pointsJoined || pointsJoined.length === 0)
+            return ""
+        var parts = pointsJoined.split("|")
+        if (parts.length < 1)
+            return ""
+        var d = ""
+        for (var i = 0; i < parts.length; ++i) {
+            var xy = parts[i].split(",")
+            if (xy.length < 2)
+                continue
+            var sx = root.docToScreenX(Number(xy[0]))
+            var sy = root.docToScreenY(Number(xy[1]))
+            d += (d.length === 0 ? "M " : " L ") + sx + " " + sy
+        }
+        return d
+    }
+    function appendPathPoint(joined, x, y, minDist) {
+        var dx = Math.round(x)
+        var dy = Math.round(y)
+        if (!joined || joined.length === 0)
+            return dx + "," + dy
+        var parts = joined.split("|")
+        var last = parts[parts.length - 1].split(",")
+        if (last.length >= 2) {
+            var lx = Number(last[0])
+            var ly = Number(last[1])
+            var dist = Math.hypot(dx - lx, dy - ly)
+            if (dist < minDist)
+                return joined
+        }
+        return joined + "|" + dx + "," + dy
+    }
     function isCropTool() {
         return AppSession.activeTool === "tool.crop"
     }
@@ -573,6 +612,8 @@ ApplicationWindow {
                         { id: "tool.eraser", stem: "eraser", tip: qsTr("Eraser") },
                         { id: "tool.select.rect", stem: "selection", tip: qsTr("Rectangular Marquee") },
                         { id: "tool.select.ellipse", stem: "circle-dashed", tip: qsTr("Elliptical Marquee") },
+                        { id: "tool.select.lasso", stem: "lasso", tip: qsTr("Lasso") },
+                        { id: "tool.select.polygon", stem: "polygon", tip: qsTr("Polygonal Lasso") },
                         { id: "tool.move", stem: "arrows-out-cardinal", tip: qsTr("Move") },
                         { id: "tool.transform", stem: "arrows-out", tip: qsTr("Free Transform") },
                         { id: "tool.crop", stem: "crop", tip: qsTr("Crop") },
@@ -678,6 +719,8 @@ ApplicationWindow {
                 docHeight: AppSession.docHeight
                 hasDocument: AppSession.hasDocument
                 phase: frameClock.phase + AppSession.graphRevision * 0.01
+                selectionAnts: AppSession.selectionActive
+                                && AppSession.selectionShape === "mask"
             }
 
             // Brush size cursor (visual guide)
@@ -734,11 +777,31 @@ ApplicationWindow {
                 }
             }
 
-            // Marching ants for committed selection
+            // Live lasso / polygonal path preview
+            Shape {
+                id: selectionPathPreview
+                anchors.fill: parent
+                z: 4
+                visible: AppSession.selectionPathActive && AppSession.hasDocument
+                preferredRendererType: Shape.CurveRenderer
+                ShapePath {
+                    strokeWidth: 1
+                    strokeColor: root.primary
+                    fillColor: "transparent"
+                    strokeStyle: ShapePath.DashLine
+                    dashPattern: [4, 4]
+                    PathSvg {
+                        path: root.selectionPathToSvg(AppSession.selectionPath)
+                    }
+                }
+            }
+
+            // Marching ants for committed rect/ellipse (mask shape uses GPU ants)
             Item {
                 id: selectionAnts
                 visible: AppSession.selectionActive && AppSession.hasDocument
                          && AppSession.selectionW > 0 && AppSession.selectionH > 0
+                         && AppSession.selectionShape !== "mask"
                 z: 5
                 x: root.docToScreenX(AppSession.selectionX)
                 y: root.docToScreenY(AppSession.selectionY)
@@ -956,10 +1019,16 @@ ApplicationWindow {
                 property bool dragging: false
                 property bool painting: false
                 property bool selecting: false
+                property bool lassoing: false
+                property bool polygoning: false
                 property bool cropping: false
                 property bool transforming: false
                 property real selStartX: 0
                 property real selStartY: 0
+                property string pathDraft: ""
+                property real pathCursorX: 0
+                property real pathCursorY: 0
+                property real lastClickMs: 0
 
                 Keys.onPressed: function (event) {
                     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -973,6 +1042,13 @@ ApplicationWindow {
                                         AppSession.cropPreviewW,
                                         AppSession.cropPreviewH)
                             event.accepted = true
+                        } else if (polygoning && pathDraft.split("|").length >= 3) {
+                            AppSession.selectPolygon(
+                                        pathDraft,
+                                        root.selectionCombineFromModifiers(event.modifiers))
+                            polygoning = false
+                            pathDraft = ""
+                            event.accepted = true
                         }
                     } else if (event.key === Qt.Key_Escape) {
                         if (AppSession.transformActive) {
@@ -980,6 +1056,12 @@ ApplicationWindow {
                             event.accepted = true
                         } else if (AppSession.cropPreviewActive) {
                             AppSession.cancelCrop()
+                            event.accepted = true
+                        } else if (polygoning || lassoing || AppSession.selectionPathActive) {
+                            AppSession.cancelSelectionPath()
+                            polygoning = false
+                            lassoing = false
+                            pathDraft = ""
                             event.accepted = true
                         }
                     }
@@ -996,12 +1078,59 @@ ApplicationWindow {
                         cursorShape = Qt.ClosedHandCursor
                         painting = false
                         selecting = false
+                        lassoing = false
+                        polygoning = false
                         cropping = false
                         transforming = false
                         return
                     }
+                    if (root.isLassoTool()) {
+                        lassoing = true
+                        selecting = false
+                        polygoning = false
+                        painting = false
+                        cropping = false
+                        transforming = false
+                        pathDraft = ""
+                        var ldx = root.screenToDocX(mouse.x)
+                        var ldy = root.screenToDocY(mouse.y)
+                        pathDraft = root.appendPathPoint(pathDraft, ldx, ldy, 0)
+                        AppSession.setSelectionPath(pathDraft)
+                        return
+                    }
+                    if (root.isPolygonTool()) {
+                        selecting = false
+                        lassoing = false
+                        painting = false
+                        cropping = false
+                        transforming = false
+                        var now = Date.now()
+                        var pdx = root.screenToDocX(mouse.x)
+                        var pdy = root.screenToDocY(mouse.y)
+                        if (polygoning && (now - lastClickMs) < 350
+                                && pathDraft.split("|").length >= 3) {
+                            AppSession.selectPolygon(
+                                        pathDraft,
+                                        root.selectionCombineFromModifiers(mouse.modifiers))
+                            polygoning = false
+                            pathDraft = ""
+                            lastClickMs = 0
+                            return
+                        }
+                        polygoning = true
+                        pathDraft = root.appendPathPoint(pathDraft, pdx, pdy, 0)
+                        pathCursorX = pdx
+                        pathCursorY = pdy
+                        AppSession.setSelectionPath(
+                                    pathDraft + "|" + Math.round(pathCursorX) + ","
+                                    + Math.round(pathCursorY))
+                        lastClickMs = now
+                        return
+                    }
                     if (root.isSelectTool()) {
                         selecting = true
+                        lassoing = false
+                        polygoning = false
                         painting = false
                         cropping = false
                         transforming = false
@@ -1041,6 +1170,20 @@ ApplicationWindow {
                     }
                 }
                 onReleased: function (mouse) {
+                    if (lassoing) {
+                        var ldx = root.screenToDocX(mouse.x)
+                        var ldy = root.screenToDocY(mouse.y)
+                        pathDraft = root.appendPathPoint(pathDraft, ldx, ldy, 0)
+                        if (pathDraft.split("|").length >= 3) {
+                            AppSession.selectPolygon(
+                                        pathDraft,
+                                        root.selectionCombineFromModifiers(mouse.modifiers))
+                        } else {
+                            AppSession.cancelSelectionPath()
+                        }
+                        lassoing = false
+                        pathDraft = ""
+                    }
                     if (selecting) {
                         var x0 = Math.min(selStartX, mouse.x)
                         var y0 = Math.min(selStartY, mouse.y)
@@ -1076,8 +1219,27 @@ ApplicationWindow {
                         cursorShape = Qt.OpenHandCursor
                 }
                 onPositionChanged: function (mouse) {
-                    if (!dragging || !AppSession.hasDocument)
+                    if (!AppSession.hasDocument)
                         return
+                    if (polygoning) {
+                        pathCursorX = root.screenToDocX(mouse.x)
+                        pathCursorY = root.screenToDocY(mouse.y)
+                        AppSession.setSelectionPath(
+                                    pathDraft + "|" + Math.round(pathCursorX) + ","
+                                    + Math.round(pathCursorY))
+                        return
+                    }
+                    if (!dragging)
+                        return
+                    if (lassoing) {
+                        var ldx = root.screenToDocX(mouse.x)
+                        var ldy = root.screenToDocY(mouse.y)
+                        pathDraft = root.appendPathPoint(
+                                    pathDraft, ldx, ldy,
+                                    Math.max(2, 3 / Math.max(0.001, AppSession.zoom)))
+                        AppSession.setSelectionPath(pathDraft)
+                        return
+                    }
                     if (selecting) {
                         var x0 = Math.min(selStartX, mouse.x)
                         var y0 = Math.min(selStartY, mouse.y)

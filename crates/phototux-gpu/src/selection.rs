@@ -107,6 +107,33 @@ impl SelectionMask {
         });
     }
 
+    /// Even-odd fill of a closed polygon in document pixel space.
+    pub fn apply_polygon(
+        &mut self,
+        ctx: &GpuContext,
+        points: &[(f32, f32)],
+        combine: SelectionCombine,
+    ) {
+        if points.len() < 3 {
+            if matches!(combine, SelectionCombine::Replace) {
+                self.clear(ctx);
+            }
+            return;
+        }
+        let poly: Vec<(f64, f64)> = points
+            .iter()
+            .map(|&(x, y)| (f64::from(x), f64::from(y)))
+            .collect();
+        self.apply_predicate(ctx, combine, |x, y| {
+            point_in_polygon_even_odd(f64::from(x) + 0.5, f64::from(y) + 0.5, &poly)
+        });
+    }
+
+    /// Raw Vulkan VkImage handle for zero-copy canvas ants (best-effort).
+    pub fn texture_vk_handle(&self) -> Option<u64> {
+        GpuContext::texture_vk_image_handle(&self.texture)
+    }
+
     fn apply_predicate(
         &mut self,
         ctx: &GpuContext,
@@ -214,6 +241,27 @@ impl SelectionMask {
     }
 }
 
+/// Even-odd point-in-polygon (pixel centers).
+fn point_in_polygon_even_odd(x: f64, y: f64, poly: &[(f64, f64)]) -> bool {
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        let intersect =
+            ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + f64::EPSILON) + xi);
+        if intersect {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +360,45 @@ mod tests {
         assert_eq!(mask.cpu()[0], 255);
         assert_eq!(mask.cpu()[15], 255);
         assert_eq!(mask.cpu()[2], 0);
+    }
+
+    #[test]
+    fn polygon_triangle_and_add() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        let mut mask = SelectionMask::new(&ctx, DocumentSize::new(8, 8));
+        // Right triangle covering lower-left region.
+        mask.apply_polygon(
+            &ctx,
+            &[(0.0, 0.0), (6.0, 0.0), (0.0, 6.0)],
+            SelectionCombine::Replace,
+        );
+        assert_eq!(mask.cpu()[8 + 1], 255);
+        assert_eq!(mask.cpu()[7 * 8 + 7], 0);
+        mask.apply_polygon(
+            &ctx,
+            &[(5.0, 5.0), (8.0, 5.0), (8.0, 8.0), (5.0, 8.0)],
+            SelectionCombine::Add,
+        );
+        assert_eq!(mask.cpu()[6 * 8 + 6], 255);
+        assert_eq!(mask.cpu()[8 + 1], 255);
+    }
+
+    #[test]
+    fn point_in_concave_even_odd() {
+        // U-shaped concave polygon: dent at top-center should be outside.
+        let poly = [
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (7.0, 10.0),
+            (7.0, 3.0),
+            (3.0, 3.0),
+            (3.0, 10.0),
+            (0.0, 10.0),
+        ];
+        assert!(point_in_polygon_even_odd(1.5, 5.0, &poly));
+        assert!(!point_in_polygon_even_odd(5.0, 5.0, &poly));
     }
 }

@@ -33,13 +33,17 @@ impl SelectionCombine {
     }
 }
 
-/// Geometry used for the last committed selection outline (QML ants).
+/// Geometry used for the last committed selection outline.
+///
+/// `Rect` / `Ellipse` use QML Shape ants; `Mask` uses GPU edge ants on the R8 channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectionShape {
     #[default]
     Rect,
     Ellipse,
+    /// Irregular / polygonal / freehand — outline from GPU selection mask.
+    Mask,
 }
 
 impl SelectionShape {
@@ -47,12 +51,14 @@ impl SelectionShape {
         match self {
             Self::Rect => "rect",
             Self::Ellipse => "ellipse",
+            Self::Mask => "mask",
         }
     }
 
     pub fn parse(label: &str) -> Self {
         match label {
             "ellipse" => Self::Ellipse,
+            "mask" => Self::Mask,
             _ => Self::Rect,
         }
     }
@@ -180,6 +186,50 @@ impl SelectionState {
         self.apply_shape(rect, SelectionShape::Ellipse, combine);
     }
 
+    /// Commit a polygonal / freehand selection whose outline is the GPU mask.
+    pub fn set_mask_polygon(&mut self, bounds: SelectionRect, combine: SelectionCombine) {
+        self.apply_shape(bounds, SelectionShape::Mask, combine);
+        // Mixed geometry with Add still prefers GPU ants when the new piece is irregular.
+        if matches!(combine, SelectionCombine::Add) && self.active {
+            self.shape = SelectionShape::Mask;
+        }
+    }
+
+    /// Axis-aligned bounds of a document-space polygon (empty if fewer than two points).
+    pub fn polygon_bounds(points: &[(f32, f32)]) -> Option<SelectionRect> {
+        if points.len() < 2 {
+            return None;
+        }
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for &(x, y) in points {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        if !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
+            return None;
+        }
+        let x0 = min_x.floor() as i32;
+        let y0 = min_y.floor() as i32;
+        let x1 = max_x.ceil() as i32;
+        let y1 = max_y.ceil() as i32;
+        let width = u32::try_from((x1 - x0).max(0)).unwrap_or(0);
+        let height = u32::try_from((y1 - y0).max(0)).unwrap_or(0);
+        if width == 0 || height == 0 {
+            return None;
+        }
+        Some(SelectionRect {
+            x: x0,
+            y: y0,
+            width,
+            height,
+        })
+    }
+
     fn apply_shape(
         &mut self,
         rect: SelectionRect,
@@ -303,5 +353,25 @@ mod tests {
     fn combine_parse() {
         assert_eq!(SelectionCombine::parse("add"), SelectionCombine::Add);
         assert_eq!(SelectionCombine::parse("nope"), SelectionCombine::Replace);
+    }
+
+    #[test]
+    fn shape_parse_mask() {
+        assert_eq!(SelectionShape::parse("mask"), SelectionShape::Mask);
+        assert_eq!(SelectionShape::Mask.as_str(), "mask");
+    }
+
+    #[test]
+    fn polygon_bounds_and_mask_commit() {
+        let bounds = SelectionState::polygon_bounds(&[(1.2, 2.8), (10.0, 2.0), (5.0, 12.5)])
+            .expect("bounds");
+        assert_eq!(bounds.x, 1);
+        assert_eq!(bounds.y, 2);
+        assert_eq!(bounds.width, 9);
+        assert_eq!(bounds.height, 11);
+        let mut s = SelectionState::default();
+        s.set_mask_polygon(bounds, SelectionCombine::Replace);
+        assert!(s.active);
+        assert_eq!(s.shape, SelectionShape::Mask);
     }
 }

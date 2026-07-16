@@ -114,6 +114,9 @@ pub struct AppSession {
     selection_preview_y: i32,
     selection_preview_w: i32,
     selection_preview_h: i32,
+    /// Live lasso/polygon path: `x,y|x,y|...` in document pixels.
+    selection_path: String,
+    selection_path_active: bool,
     transform_active: bool,
     transform_constrain: bool,
     transform_tx: f32,
@@ -210,6 +213,8 @@ impl AppSession {
             selection_preview_y: 0,
             selection_preview_w: 0,
             selection_preview_h: 0,
+            selection_path: String::new(),
+            selection_path_active: false,
             transform_active: false,
             transform_constrain: false,
             transform_tx: 0.0,
@@ -382,6 +387,8 @@ impl AppSession {
         self.selection_preview_y_changed();
         self.selection_preview_w_changed();
         self.selection_preview_h_changed();
+        self.selection_path_changed();
+        self.selection_path_active_changed();
     }
 
     fn clear_selection_stacks(&mut self) {
@@ -724,6 +731,16 @@ impl AppSession {
         Notify = selection_preview_h_changed
     );
     qproperty!(
+        "selectionPath",
+        Member = selection_path,
+        Notify = selection_path_changed
+    );
+    qproperty!(
+        "selectionPathActive",
+        Member = selection_path_active,
+        Notify = selection_path_active_changed
+    );
+    qproperty!(
         "transformActive",
         Member = transform_active,
         Notify = transform_active_changed
@@ -893,6 +910,10 @@ impl AppSession {
     #[qsignal]
     fn selection_preview_h_changed(&mut self);
     #[qsignal]
+    fn selection_path_changed(&mut self);
+    #[qsignal]
+    fn selection_path_active_changed(&mut self);
+    #[qsignal]
     fn transform_active_changed(&mut self);
     #[qsignal]
     fn transform_constrain_changed(&mut self);
@@ -983,6 +1004,7 @@ impl AppSession {
                 | tool_id::SELECT_RECT
                 | tool_id::SELECT_ELLIPSE
                 | tool_id::SELECT_LASSO
+                | tool_id::SELECT_POLYGON
                 | tool_id::MOVE
                 | tool_id::TRANSFORM
                 | tool_id::CROP
@@ -1748,6 +1770,9 @@ impl AppSession {
         if !self.engine.has_document || width <= 0 || height <= 0 {
             return;
         }
+        if matches!(shape, SelectionShape::Mask) {
+            return;
+        }
         let mode = SelectionCombine::parse(combine);
         let rect = SelectionRect {
             x,
@@ -1759,6 +1784,7 @@ impl AppSession {
         let gpu_result = match shape {
             SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
             SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
+            SelectionShape::Mask => Ok(()),
         };
         if let Err(error) = gpu_result {
             self.report_gpu("selection apply", &error);
@@ -1766,8 +1792,10 @@ impl AppSession {
         match shape {
             SelectionShape::Rect => self.engine.selection.set_rect(rect, mode),
             SelectionShape::Ellipse => self.engine.selection.set_ellipse(rect, mode),
+            SelectionShape::Mask => {}
         }
         self.selection_preview_active = false;
+        self.clear_selection_path();
         self.engine.history.push_selection(label);
         self.mark_dirty();
         self.sync_from_engine();
@@ -1775,6 +1803,34 @@ impl AppSession {
         self.can_undo_changed();
         self.history_labels_changed();
         self.status_text_changed();
+    }
+
+    fn clear_selection_path(&mut self) {
+        if !self.selection_path_active && self.selection_path.is_empty() {
+            return;
+        }
+        self.selection_path.clear();
+        self.selection_path_active = false;
+        self.selection_path_changed();
+        self.selection_path_active_changed();
+    }
+
+    fn parse_selection_path(points: &str) -> Vec<(f32, f32)> {
+        let mut out = Vec::new();
+        for part in points.split('|') {
+            let mut xy = part.split(',');
+            let (Some(xs), Some(ys)) = (xy.next(), xy.next()) else {
+                continue;
+            };
+            let Ok(x) = xs.trim().parse::<f32>() else {
+                continue;
+            };
+            let Ok(y) = ys.trim().parse::<f32>() else {
+                continue;
+            };
+            out.push((x, y));
+        }
+        out
     }
 
     #[qslot]
@@ -1804,6 +1860,55 @@ impl AppSession {
     }
 
     #[qslot]
+    fn set_selection_path(&mut self, points: String) {
+        self.selection_path = points;
+        self.selection_path_active = !self.selection_path.is_empty();
+        self.selection_path_changed();
+        self.selection_path_active_changed();
+    }
+
+    #[qslot]
+    fn select_polygon(&mut self, points: String, combine: String) {
+        if !self.engine.has_document {
+            return;
+        }
+        let parsed = Self::parse_selection_path(&points);
+        if parsed.len() < 3 {
+            self.clear_selection_path();
+            return;
+        }
+        let mode = SelectionCombine::parse(&combine);
+        let Some(bounds) = SelectionState::polygon_bounds(&parsed) else {
+            self.clear_selection_path();
+            return;
+        };
+        self.push_selection_snapshot();
+        if let Err(error) = phototux_canvas::selection_apply_polygon(&parsed, mode) {
+            self.report_gpu("polygon selection", &error);
+        }
+        self.engine.selection.set_mask_polygon(bounds, mode);
+        self.selection_preview_active = false;
+        self.clear_selection_path();
+        let label = if self.engine.active_tool.contains("lasso") {
+            "Lasso selection"
+        } else {
+            "Polygonal selection"
+        };
+        self.engine.history.push_selection(label);
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_selection_fields();
+        self.can_undo_changed();
+        self.history_labels_changed();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn cancel_selection_path(&mut self) {
+        self.clear_selection_path();
+    }
+
+    #[qslot]
     fn select_none(&mut self) {
         if !self.engine.has_document {
             return;
@@ -1821,6 +1926,7 @@ impl AppSession {
         }
         self.engine.selection.clear();
         self.selection_preview_active = false;
+        self.clear_selection_path();
         self.engine.history.push_selection("Deselect");
         self.sync_from_engine();
         self.emit_selection_fields();

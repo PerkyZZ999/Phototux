@@ -198,6 +198,15 @@ void PhototuxCanvasItem::setPhase(float p)
     update();
 }
 
+void PhototuxCanvasItem::setSelectionAnts(bool v)
+{
+    if (m_selectionAnts == v)
+        return;
+    m_selectionAnts = v;
+    emit selectionAntsChanged();
+    update();
+}
+
 void PhototuxCanvasItem::setGpuStatus(const QString &s)
 {
     if (m_gpuStatus == s)
@@ -227,6 +236,18 @@ void PhototuxCanvasItem::setWgpuImageHandle(quint64 handle, int width, int heigh
     update();
 }
 
+void PhototuxCanvasItem::setSelectionImageHandle(quint64 handle, int width, int height, int layout)
+{
+    if (m_selHandle == handle && m_selW == width && m_selH == height && m_selLayout == layout)
+        return;
+    m_selHandle = handle;
+    m_selW = width;
+    m_selH = height;
+    m_selLayout = layout;
+    m_selDirty = true;
+    update();
+}
+
 QQuickRhiItemRenderer *PhototuxCanvasItem::createRenderer()
 {
     return new PhototuxCanvasRenderer;
@@ -249,8 +270,13 @@ void PhototuxCanvasRenderer::releaseResources()
     m_vbuf = nullptr;
     delete m_sampler;
     m_sampler = nullptr;
+    delete m_selSampler;
+    m_selSampler = nullptr;
     delete m_importedTexture;
     m_importedTexture = nullptr;
+    delete m_selectionTexture;
+    m_selectionTexture = nullptr;
+    m_selectionIsDummy = true;
 }
 
 void PhototuxCanvasRenderer::initialize(QRhiCommandBuffer *cb)
@@ -279,6 +305,7 @@ void PhototuxCanvasRenderer::synchronize(QQuickRhiItem *item)
     m_docH = canvas->docHeight();
     m_hasDoc = canvas->hasDocument();
     m_phase = canvas->phase();
+    m_selectionAnts = canvas->selectionAnts();
     m_itemW = float(item->width());
     m_itemH = float(item->height());
 
@@ -299,6 +326,25 @@ void PhototuxCanvasRenderer::synchronize(QQuickRhiItem *item)
             m_importedTexture = nullptr;
             m_importOk = false;
             m_importNote = QStringLiteral("GPU viewport idle");
+        }
+    }
+
+    if (canvas->m_selDirty) {
+        m_selHandle = canvas->m_selHandle;
+        m_selW = canvas->m_selW;
+        m_selH = canvas->m_selH;
+        m_selLayout = canvas->m_selLayout;
+        m_trySelImport = m_selHandle != 0;
+        canvas->m_selDirty = false;
+        m_selImportAttempted = false;
+        if (m_selHandle == 0) {
+            delete m_pipeline;
+            m_pipeline = nullptr;
+            delete m_srb;
+            m_srb = nullptr;
+            delete m_selectionTexture;
+            m_selectionTexture = nullptr;
+            m_selectionIsDummy = true;
         }
     }
 
@@ -350,6 +396,53 @@ bool PhototuxCanvasRenderer::tryImportWgpuTexture()
     return m_importOk;
 }
 
+bool PhototuxCanvasRenderer::ensureDummySelectionTexture()
+{
+    if (!m_rhi)
+        return false;
+    if (m_selectionTexture && m_selectionIsDummy)
+        return true;
+    delete m_selectionTexture;
+    m_selectionTexture = m_rhi->newTexture(QRhiTexture::R8, QSize(1, 1), 1, QRhiTexture::Flags());
+    if (!m_selectionTexture || !m_selectionTexture->create()) {
+        delete m_selectionTexture;
+        m_selectionTexture = nullptr;
+        return false;
+    }
+    m_selectionIsDummy = true;
+    return true;
+}
+
+bool PhototuxCanvasRenderer::tryImportSelectionTexture()
+{
+    if (!m_rhi || m_selHandle == 0 || m_selImportAttempted)
+        return m_selectionTexture && !m_selectionIsDummy;
+    m_selImportAttempted = true;
+
+    QRhiTexture *tex = m_rhi->newTexture(QRhiTexture::R8,
+                                         QSize(m_selW > 0 ? m_selW : 1, m_selH > 0 ? m_selH : 1),
+                                         1, QRhiTexture::Flags());
+    if (!tex)
+        return ensureDummySelectionTexture();
+    QRhiTexture::NativeTexture native;
+    native.object = m_selHandle;
+    native.layout = m_selLayout;
+    if (!tex->createFrom(native)) {
+        delete tex;
+        std::fprintf(stderr, "[phototux-canvas] selection import failed for VkImage 0x%llx\n",
+                     static_cast<unsigned long long>(m_selHandle));
+        return ensureDummySelectionTexture();
+    }
+    delete m_pipeline;
+    m_pipeline = nullptr;
+    delete m_srb;
+    m_srb = nullptr;
+    delete m_selectionTexture;
+    m_selectionTexture = tex;
+    m_selectionIsDummy = false;
+    return true;
+}
+
 bool PhototuxCanvasRenderer::ensurePipeline()
 {
     if (!m_rhi)
@@ -358,20 +451,33 @@ bool PhototuxCanvasRenderer::ensurePipeline()
         return true;
     if (m_vertShader.isEmpty() || m_fragShader.isEmpty() || !m_importedTexture)
         return false;
-
-    m_vbuf = m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, sizeof(Vertex) * 4);
-    if (!m_vbuf->create())
+    if (!m_selectionTexture && !ensureDummySelectionTexture())
         return false;
 
-    m_ubuf = m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UBuf));
-    if (!m_ubuf->create())
-        return false;
+    if (!m_vbuf) {
+        m_vbuf = m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, sizeof(Vertex) * 4);
+        if (!m_vbuf->create())
+            return false;
+    }
+
+    if (!m_ubuf) {
+        m_ubuf = m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UBuf));
+        if (!m_ubuf->create())
+            return false;
+    }
 
     if (!m_sampler) {
         m_sampler = m_rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
                                       QRhiSampler::None, QRhiSampler::ClampToEdge,
                                       QRhiSampler::ClampToEdge);
         if (!m_sampler->create())
+            return false;
+    }
+    if (!m_selSampler) {
+        m_selSampler = m_rhi->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest,
+                                         QRhiSampler::None, QRhiSampler::ClampToEdge,
+                                         QRhiSampler::ClampToEdge);
+        if (!m_selSampler->create())
             return false;
     }
 
@@ -382,6 +488,8 @@ bool PhototuxCanvasRenderer::ensurePipeline()
                                                  m_ubuf),
         QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
                                                   m_importedTexture, m_sampler),
+        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
+                                                  m_selectionTexture, m_selSampler),
     });
     if (!m_srb->create())
         return false;
@@ -427,7 +535,7 @@ void PhototuxCanvasRenderer::updateGeometry(QRhiResourceUpdateBatch *u)
     ub.params[0] = m_hasDoc ? 1.f : 0.f;
     ub.params[1] = m_phase;
     ub.params[2] = m_importOk ? 1.f : 0.f;
-    ub.params[3] = 0.f;
+    ub.params[3] = (m_selectionAnts && !m_selectionIsDummy) ? 1.f : 0.f;
     u->updateDynamicBuffer(m_ubuf, 0, sizeof(ub), &ub);
 }
 
@@ -442,6 +550,10 @@ void PhototuxCanvasRenderer::render(QRhiCommandBuffer *cb)
 
     if (m_tryImport && !m_importAttempted)
         tryImportWgpuTexture();
+    if (m_trySelImport && !m_selImportAttempted)
+        tryImportSelectionTexture();
+    if (!m_selectionTexture)
+        ensureDummySelectionTexture();
 
     // Letterbox clear (canvasLetterbox #0C0C0E).
     const QColor letterbox = QColor::fromRgbF(0.047f, 0.047f, 0.055f, 1.0);
