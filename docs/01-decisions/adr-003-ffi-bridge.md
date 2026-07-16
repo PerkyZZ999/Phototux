@@ -54,6 +54,7 @@ Rust backend must drive QML without traditional hand-written C++ for application
 2. **Before Phase 2 production canvas:** time-boxed interop spike (ADR-010) may prove whether pure qtbridge custom item works; if not, hybrid C++ is **expected**, not a surprise.
 3. **Phase 2 canvas:** Prefer minimal C++ `QQuickRhiItem` (or CXX-Qt module) under `crates/phototux-canvas/` when qtbridge cannot own the item — **do not** spread C++ into app logic.
 4. **Forbidden:** Full rewrite of shell to qmetaobject without ADR amendment; C++ outside canvas interop without amendment.
+5. **Phase 5 build exception:** Qt-generated QML cache/plugin C++ and one argument-free static-link anchor are allowed under `crates/phototux/qml-aot/`. This is build/resource registration only; application logic remains Rust + QML.
 
 ## Consequences
 
@@ -75,3 +76,4 @@ End of Phase 1 bootstrap; immediately if qtbridge blocks build; end of Phase 2 i
 | Date | Amendment | Reason |
 |------|-----------|--------|
 | 2026-07-15 | Confirmed hybrid (G3=C); canvas C++ planned capability | Interactive grill + ADR-010 spike |
+| 2026-07-15 | Allowed Qt-generated QML AOT code plus minimal static plugin anchor outside canvas | Supported `qmlcachegen` integration requires a CMake QML module and `Q_IMPORT_QML_PLUGIN`; no application logic crosses this boundary |

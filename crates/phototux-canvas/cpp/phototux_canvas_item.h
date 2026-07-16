@@ -156,6 +156,7 @@ private:
     bool m_tryImport = false;
     bool m_importAttempted = false;
     bool m_importOk = false;
+    bool m_firstRenderReported = false;
     QString m_importNote;
 
     QByteArray m_vertShader;

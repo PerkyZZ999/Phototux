@@ -21,11 +21,8 @@ pub fn mark_process_started() {
     let _ = PROCESS_START.set(Instant::now());
 }
 
-/// Absolute path to Phosphor `regular/` SVGs (dev tree layout).
 fn resolve_icon_root() -> String {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../assets/icons/phosphor/regular");
-    p.canonicalize().unwrap_or(p).to_string_lossy().into_owned()
+    "qrc:/qt/qml/PhotoTux/App/icons".to_owned()
 }
 
 fn local_path(value: &str) -> Result<PathBuf, String> {
@@ -97,6 +94,7 @@ pub struct AppSession {
 
 impl Default for AppSession {
     fn default() -> Self {
+        let started = Instant::now();
         let mut session = Self::new(resolve_icon_root());
         if let Some(path) = std::env::var_os("PHOTOTUX_DESKTOP_OPEN") {
             let path = PathBuf::from(path);
@@ -107,6 +105,10 @@ impl Default for AppSession {
                 session.io_error = format!("Open failed: {error}");
             }
         }
+        eprintln!(
+            "[phototux] AppSession ready {:.2} ms",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
         session
     }
 }

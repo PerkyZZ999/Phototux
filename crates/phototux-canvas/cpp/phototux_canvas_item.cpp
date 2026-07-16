@@ -6,6 +6,7 @@
 #include <QVulkanInstance>
 #include <QFile>
 #include <QColor>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -94,6 +95,7 @@ void PhototuxCanvasItem::configureSharedVulkanDevice(QQuickWindow *window)
 {
     if (m_deviceConfigured || !window)
         return;
+    const auto started = std::chrono::steady_clock::now();
 
     quint64 instance = 0;
     quint64 physicalDevice = 0;
@@ -128,6 +130,9 @@ void PhototuxCanvasItem::configureSharedVulkanDevice(QQuickWindow *window)
     }, Qt::DirectConnection);
     m_deviceConfigured = true;
     setGpuStatus(QStringLiteral("Qt Quick and wgpu share one Vulkan device"));
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started);
+    std::fprintf(stderr, "[phototux] shared RHI device configured %.2f ms\n", elapsed.count());
 }
 
 void PhototuxCanvasItem::setZoom(float z)
@@ -253,9 +258,13 @@ void PhototuxCanvasRenderer::initialize(QRhiCommandBuffer *cb)
     Q_UNUSED(cb);
     if (m_rhi)
         return;
+    const auto started = std::chrono::steady_clock::now();
     m_rhi = rhi();
     m_vertShader = loadShader("canvas.vert.qsb");
     m_fragShader = loadShader("canvas.frag.qsb");
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started);
+    std::fprintf(stderr, "[phototux] canvas renderer initialized %.2f ms\n", elapsed.count());
 }
 
 void PhototuxCanvasRenderer::synchronize(QQuickRhiItem *item)
@@ -426,6 +435,10 @@ void PhototuxCanvasRenderer::render(QRhiCommandBuffer *cb)
 {
     if (!m_rhi || !cb)
         return;
+    if (!m_firstRenderReported) {
+        m_firstRenderReported = true;
+        std::fprintf(stderr, "[phototux] first canvas render entered\n");
+    }
 
     if (m_tryImport && !m_importAttempted)
         tryImportWgpuTexture();

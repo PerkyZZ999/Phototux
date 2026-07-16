@@ -13,7 +13,7 @@ PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor w
 |-------|--------|-----|
 | Platform | Linux / Wayland v1 only | 001 |
 | UI | Qt 6.10+ QML, Controls 2 first; Kirigami deferred | 002 |
-| FFI | `qtbridge` 0.2 app logic; hybrid thin C++/`cxx-qt` only for canvas | 003 |
+| FFI | `qtbridge` 0.2 app logic; thin C++ canvas plus QML AOT registration only | 003 |
 | GPU | `wgpu` 30, Vulkan-first | 004 |
 | Present | Zero-copy only (ship); debug readback only | 005 |
 | Spike | Interop spike after Phase 1, **before** Phase 2 production canvas | 010 |
@@ -168,7 +168,7 @@ cargo test -p phototux_gpu --features gpu-tests
 | Zoom/pan FPS | ≥ 60 | Phase 2 exit |
 | Brush stroke FPS | ≥ 60 | Phase 4 exit |
 | Tablet input→render | < 8 ms | Phase 4 exit |
-| Cold boot interactive | < 250 ms | Phase 5 (measure earlier) |
+| Cold boot interactive | < 1,000 ms gate; < 250 ms stretch | Phase 5 (measure earlier) |
 | 10×4K composite | < 2 ms GPU | Phase 3 exit |
 | Hot path copies | No full-frame CPU upload | Phase 2+ |
 
@@ -207,7 +207,7 @@ cargo test -p phototux_gpu --features gpu-tests
 
 ### Requires ADR amendment
 
-UI toolkit change, primary FFI switch, abandoning zero-copy, multi-doc, non-Linux v1, spreading C++ beyond canvas, new major subsystems (cloud, plugins store).
+UI toolkit change, primary FFI switch, abandoning zero-copy, multi-doc, non-Linux v1, spreading handwritten C++ beyond canvas or ADR-003's QML AOT anchor, new major subsystems (cloud, plugins store).
 
 ### Forbidden
 

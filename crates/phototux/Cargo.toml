@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PhotoTux desktop image editor (GUI)"
+build = "build.rs"
 
 [[bin]]
 name = "phototux"

@@ -118,7 +118,7 @@ The project is structured into five chronological milestones designed to systema
 
 * **Steady-State Frame Rate:** $\geq 60\text{ FPS}$ (supporting 120/144Hz high-refresh displays) during active zooming, panning, or heavy brush strokes.
 * **Input-to-Render Latency:** $< 8\text{ ms}$ on standard graphics tablets.
-* **Cold Boot Execution Time:** $< 250\text{ ms}$ to a fully interactive editor workspace.
+* **Cold Boot Execution Time:** $< 1000\text{ ms}$ Phase 5 gate to a fully interactive editor workspace; $< 250\text{ ms}$ remains the stretch target.
 * **Compositing Budget:** All calculations for blending a 10-layer 4K image ($3840 \times 2160$ pixels) must complete on the GPU in under **$2\text{ ms}$**.
 
 ---

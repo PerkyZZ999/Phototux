@@ -1,14 +1,24 @@
 //! PhotoTux desktop GUI entry (ADR-014 — not a CLI product).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use phototux_ui::AppSession;
 use qtbridge::QApp;
 
+unsafe extern "C" {
+    fn phototux_qml_force_link();
+}
+
 fn main() {
     phototux_ui::mark_process_started();
     let startup = Instant::now();
+
+    // SAFETY: the generated Qt plugin exports this argument-free anchor. Calling it once on the
+    // main thread retains and registers the statically linked QML resources before QApp exists.
+    unsafe {
+        phototux_qml_force_link();
+    }
 
     // Force Qt Scene Graph onto Vulkan (Arc / Xe host).
     // SAFETY: single-threaded main before Qt starts; intentional env mutation.
@@ -37,30 +47,48 @@ fn main() {
         startup.elapsed().as_secs_f64() * 1000.0
     );
 
-    // Optional override for diagnostics: PHOTOTUX_QML=/path/to/file.qml
-    // crates/phototux → repo root is ../..
-    let qml_main = if let Ok(p) = std::env::var("PHOTOTUX_QML") {
-        PathBuf::from(p)
+    // Optional filesystem override for diagnostics: PHOTOTUX_QML=/path/to/file.qml
+    let qml_override = std::env::var_os("PHOTOTUX_QML").map(PathBuf::from);
+    let qml_main = if let Some(path) = qml_override.as_ref() {
+        path.to_string_lossy().into_owned()
     } else {
-        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../qml/Main.qml");
-        p.canonicalize().unwrap_or(p)
+        "qrc:/qt/qml/PhotoTux/App/Main.qml".to_owned()
     };
-
-    let mut qml_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    qml_dir.push("../../qml");
-    let qml_dir = qml_dir.canonicalize().unwrap_or(qml_dir);
+    let qml_dir = qml_override
+        .as_ref()
+        .map(|path| path.parent().unwrap_or_else(|| Path::new(".")));
 
     eprintln!(
-        "[phototux] loading QML {} (import {})",
-        qml_main.display(),
-        qml_dir.display()
+        "[phototux] loading QML {} (filesystem override: {})",
+        qml_main,
+        qml_override.is_some()
     );
+    if let Some(qml_dir) = qml_dir {
+        eprintln!(
+            "[phototux] QML diagnostic import path {}",
+            qml_dir.display()
+        );
+    }
 
-    QApp::new()
-        .application_name("PhotoTux")
-        .register::<AppSession>()
-        .add_import_path(qml_dir.to_string_lossy().as_ref())
-        .load_qml_from_file(qml_main.to_string_lossy().as_ref())
-        .run();
+    let mut app = QApp::new();
+    eprintln!(
+        "[phototux] Qt application ready {:.2} ms",
+        startup.elapsed().as_secs_f64() * 1000.0
+    );
+    app.application_name("PhotoTux").register::<AppSession>();
+    if let Some(qml_dir) = qml_dir {
+        app.add_import_path(qml_dir.to_string_lossy().as_ref());
+    }
+    eprintln!(
+        "[phototux] QML types registered {:.2} ms",
+        startup.elapsed().as_secs_f64() * 1000.0
+    );
+    let qml_load = Instant::now();
+    app.load_qml_from_file(&qml_main);
+    eprintln!(
+        "[phototux] QML root loaded {:.2} ms | total {:.2} ms",
+        qml_load.elapsed().as_secs_f64() * 1000.0,
+        startup.elapsed().as_secs_f64() * 1000.0
+    );
+    app.run();
 }

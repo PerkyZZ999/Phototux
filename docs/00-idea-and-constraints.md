@@ -10,7 +10,7 @@ PhotoTux = professional raster/vector image editor for Linux Wayland. Rust engin
 
 ## Value
 
-Pixels stay on GPU. Bridge carries light commands. UI stays dense and desktop-native. Target: ≥60 FPS (path to 120/144Hz), <8 ms tablet latency, <250 ms cold boot, <2 ms for 10-layer 4K composite.
+Pixels stay on GPU. Bridge carries light commands. UI stays dense and desktop-native. Target: ≥60 FPS (path to 120/144Hz), <8 ms tablet latency, <1,000 ms cold-boot gate (<250 ms stretch), <2 ms for 10-layer 4K composite.
 
 ## MVP
 

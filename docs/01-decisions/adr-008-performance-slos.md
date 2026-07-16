@@ -39,7 +39,7 @@ SPEC defines numeric budgets. Without gates, “feels fine” ships regressions.
 | Steady-state FPS active brush (when tools land) | ≥ 60 | Phase 4 exit (same floor) |
 | High-refresh path | design for 120/144 | Phase 2+ capability, not Phase 2 gate |
 | Input-to-render (tablet) | < 8 ms | Phase 4 exit |
-| Cold boot interactive | < 250 ms | Phase 5 target; measure from Phase 1 |
+| Cold boot interactive | < 1,000 ms Phase 5 gate; < 250 ms stretch | Phase 5 exit; measure from Phase 1 |
 | 10-layer 4K composite | < 2 ms GPU | Phase 3 exit |
 | Zero-copy hot path | no full-frame CPU upload | Phase 2+ continuous |
 
@@ -65,3 +65,4 @@ Each phase exit review.
 | Date | Amendment | Reason |
 |------|-----------|--------|
 | 2026-07-15 | G9=A; brush ≥60 FPS called out for Phase 4 | Interactive grill R2 |
+| 2026-07-15 | Phase 5 cold-boot gate changed to < 1,000 ms; < 250 ms retained as stretch target | Owner accepted the measured native Qt/Vulkan startup envelope after AOT packaging and profiling |

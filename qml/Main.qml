@@ -40,6 +40,8 @@ ApplicationWindow {
         var root = AppSession.iconRoot
         if (!root || root.length === 0)
             return ""
+        if (root.indexOf("qrc:") === 0)
+            return root + "/" + stem + ".svg"
         if (root.charAt(0) === "/")
             return "file://" + root + "/" + stem + ".svg"
         return "file:///" + root + "/" + stem + ".svg"

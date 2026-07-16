@@ -30,7 +30,7 @@
 |------------|--------|-------------|
 | Steady-state FPS | ≥ 60 (aim 120/144 capable) | Viewport benchmark |
 | Input latency | < 8 ms tablet path | Latency instrumentation |
-| Cold boot | < 250 ms interactive | Startup timing |
+| Cold boot | < 1,000 ms Phase 5 gate; < 250 ms stretch | Startup timing |
 | Compositing | 10×4K layers < 2 ms GPU | GPU timestamps |
 | Memory discipline | No steady-state full-canvas CPU copies | Profile + code review |
 | Safety | Prefer safe Rust; unsafe confined to GPU/FFI boundary | `unsafe` audit notes |
