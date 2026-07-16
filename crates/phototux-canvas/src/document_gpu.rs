@@ -1,6 +1,6 @@
 //! Document-scoped GPU composite + brush paint (Phase 3–4).
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use phototux_engine::{BrushParams, Dab, DocumentSize, Layer, LayerId};
@@ -12,7 +12,7 @@ struct StrokeBackup {
 }
 
 struct DocGpu {
-    ctx: GpuContext,
+    ctx: Arc<GpuContext>,
     engine: LayerCompositeEngine,
     stamper: BrushStamper,
     stroke_backup: Option<StrokeBackup>,
@@ -26,18 +26,21 @@ struct DocGpu {
 static DOC_GPU: Mutex<Option<DocGpu>> = Mutex::new(None);
 
 fn publish_result(engine: &LayerCompositeEngine) {
+    // VkImageLayout::SHADER_READ_ONLY_OPTIMAL after the explicit wgpu RESOURCE transition.
+    const SHADER_READ_ONLY_OPTIMAL: i32 = 5;
     if let Some(h) = engine.result_vk_handle() {
         let (w, hgt) = engine.size();
         // SAFETY: C ABI publishes composite for canvas present/import.
         unsafe {
-            super::set_wgpu_export(h, w as i32, hgt as i32, 0);
+            super::set_wgpu_export(h, w as i32, hgt as i32, SHADER_READ_ONLY_OPTIMAL);
         }
     }
 }
 
 /// Open / replace document GPU state for the given size and layers.
 pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String> {
-    let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let ctx = super::gpu_context()?;
     let mut engine = LayerCompositeEngine::new(&ctx, size);
     engine.sync_layers_from_graph(&ctx, layers);
     let ms = engine.composite(&ctx, layers);
@@ -57,8 +60,55 @@ pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String
     Ok(ms)
 }
 
+/// Open a graph and replace its active layer with decoded RGBA8 pixels.
+pub fn open_raster_document(
+    size: DocumentSize,
+    layers: &[Layer],
+    target_layer: LayerId,
+    pixels: &[u8],
+) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let ctx = super::gpu_context()?;
+    let mut engine = LayerCompositeEngine::new(&ctx, size);
+    engine.sync_layers_from_graph(&ctx, layers);
+    engine
+        .write_layer_rgba(&ctx, target_layer, pixels)
+        .map_err(|error| error.to_string())?;
+    let ms = engine.composite(&ctx, layers);
+    publish_result(&engine);
+    let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    *guard = Some(DocGpu {
+        ctx,
+        engine,
+        stamper,
+        stroke_backup: None,
+        stroke_undo: Vec::new(),
+        stroke_redo: Vec::new(),
+        layers_meta: layers.to_vec(),
+        last_latency_ms: 0.0,
+    });
+    Ok(ms)
+}
+
+/// Read the current flattened composite into tightly packed RGBA8 memory.
+pub fn read_composite_rgba() -> Result<(u32, u32, Vec<u8>), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_ref()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let (width, height) = doc.engine.size();
+    let pixels = doc
+        .engine
+        .read_result_rgba(&doc.ctx)
+        .map_err(|error| error.to_string())?;
+    Ok((width, height, pixels))
+}
+
 /// Sync layer textures and re-composite. Returns composite time in ms.
 pub fn sync_and_composite(layers: &[Layer]) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
         .as_mut()
@@ -87,6 +137,11 @@ pub fn last_stroke_latency_ms() -> f32 {
 }
 
 pub fn close_document() {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    // SAFETY: clear the borrowed image before its wgpu owner is dropped.
+    unsafe {
+        super::set_wgpu_export(0, 0, 0, 0);
+    }
     if let Ok(mut g) = DOC_GPU.lock() {
         *g = None;
     }
@@ -94,6 +149,7 @@ pub fn close_document() {
 
 /// Begin stroke: snapshot active layer for undo.
 pub fn begin_stroke(layer: LayerId) -> Result<(), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
         .as_mut()
@@ -118,6 +174,7 @@ pub fn stamp_dabs(
     t0_ms: Option<f64>,
     recomposite: bool,
 ) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
     let t_stamp = Instant::now();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
@@ -164,6 +221,7 @@ pub fn stamp_dabs(
 }
 
 pub fn end_stroke() -> Result<(), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
         .as_mut()
@@ -199,6 +257,7 @@ pub fn can_redo_stroke() -> bool {
 
 /// Undo last stroke paint (GPU texture restore + recompose).
 pub fn undo_stroke() -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
         .as_mut()
@@ -222,6 +281,7 @@ pub fn undo_stroke() -> Result<f32, String> {
 }
 
 pub fn redo_stroke() -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
         .as_mut()

@@ -4,6 +4,7 @@
 #include <QQuickRhiItemRenderer>
 #include <QByteArray>
 #include <QString>
+#include <memory>
 
 // Forward decls — full RHI types only in the .cpp (private headers).
 class QRhi;
@@ -12,6 +13,10 @@ class QRhiShaderResourceBindings;
 class QRhiGraphicsPipeline;
 class QRhiResourceUpdateBatch;
 class QRhiCommandBuffer;
+class QRhiSampler;
+class QRhiTexture;
+class QQuickWindow;
+class QVulkanInstance;
 
 // Production GPU viewport (ADR-003 / ADR-005 / ADR-010).
 // QQuickRhiItem present path is GPU-only (no QImage full-frame upload).
@@ -31,6 +36,7 @@ class PhototuxCanvasItem : public QQuickRhiItem
 
 public:
     explicit PhototuxCanvasItem(QQuickItem *parent = nullptr);
+    ~PhototuxCanvasItem() override;
 
     float zoom() const { return m_zoom; }
     void setZoom(float z);
@@ -75,8 +81,11 @@ signals:
 
 protected:
     QQuickRhiItemRenderer *createRenderer() override;
+    void itemChange(ItemChange change, const ItemChangeData &data) override;
 
 private:
+    void configureSharedVulkanDevice(QQuickWindow *window);
+
     float m_zoom = 1.f;
     float m_panX = 0.f;
     float m_panY = 0.f;
@@ -91,12 +100,19 @@ private:
     int m_wgpuH = 0;
     int m_wgpuLayout = 0;
     bool m_wgpuDirty = false;
+    bool m_deviceConfigured = false;
+    std::unique_ptr<QVulkanInstance> m_vulkanInstance;
 
     friend class PhototuxCanvasRenderer;
 };
 
 // Applied from pending wgpu export slot (see register_types.cpp).
 void phototux_canvas_apply_pending_export(PhototuxCanvasItem *item);
+bool phototux_canvas_get_wgpu_device(quint64 *instance, quint64 *physicalDevice,
+                                    quint64 *device, quint32 *queueFamilyIndex,
+                                    quint32 *queueIndex);
+extern "C" void phototux_canvas_lock_shared_queue();
+extern "C" void phototux_canvas_unlock_shared_queue();
 
 class PhototuxCanvasRenderer : public QQuickRhiItemRenderer
 {
@@ -120,6 +136,8 @@ private:
     QRhiBuffer *m_ubuf = nullptr;
     QRhiShaderResourceBindings *m_srb = nullptr;
     QRhiGraphicsPipeline *m_pipeline = nullptr;
+    QRhiSampler *m_sampler = nullptr;
+    QRhiTexture *m_importedTexture = nullptr;
 
     float m_zoom = 1.f;
     float m_panX = 0.f;

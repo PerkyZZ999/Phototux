@@ -1,0 +1,11 @@
+[package]
+name = "phototux_io"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+description = "Bounded PNG/JPEG codecs for PhotoTux raster file operations"
+
+[dependencies]
+image = { workspace = true, features = ["png", "jpeg"] }
+thiserror.workspace = true

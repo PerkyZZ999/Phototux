@@ -33,6 +33,23 @@ impl DocumentGraph {
         g
     }
 
+    /// Create a document containing one flattened raster layer.
+    pub fn new_flattened(size: DocumentSize, layer_name: impl Into<String>) -> Self {
+        let mut graph = Self {
+            size,
+            layers: Vec::new(),
+            next_id: 1,
+            active: None,
+            revision: 0,
+        };
+        let mut layer = graph.alloc_layer("Image");
+        layer.name = layer_name.into();
+        graph.active = Some(layer.id);
+        graph.layers.push(layer);
+        graph.bump();
+        graph
+    }
+
     fn alloc_layer(&mut self, name: &str) -> Layer {
         let id = LayerId(self.next_id);
         self.next_id += 1;
@@ -199,6 +216,14 @@ mod tests {
         assert_eq!(g.layer_count(), 2);
         assert_eq!(g.layers()[0].name, "Background");
         assert!(g.active_id().is_some());
+    }
+
+    #[test]
+    fn flattened_document_has_named_single_layer() {
+        let graph = DocumentGraph::new_flattened(DocumentSize::new(100, 50), "photo.jpg");
+        assert_eq!(graph.layer_count(), 1);
+        assert_eq!(graph.layers()[0].name, "photo.jpg");
+        assert_eq!(graph.active_id(), Some(graph.layers()[0].id));
     }
 
     #[test]

@@ -1,5 +1,7 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import phototux_ui
 import PhototuxCanvas 1.0
@@ -9,8 +11,13 @@ ApplicationWindow {
     visible: true
     width: 1440
     height: 900
-    title: qsTr("PhotoTux")
+    title: AppSession.hasDocument
+           ? (AppSession.dirty
+              ? qsTr("%1* — PhotoTux").arg(AppSession.documentName)
+              : qsTr("%1 — PhotoTux").arg(AppSession.documentName))
+           : qsTr("PhotoTux")
     color: "#1E1E22"
+    property string pendingDestructiveAction: ""
 
     // DESIGN.md tokens
     readonly property color primary: "#3DAEE9"
@@ -22,6 +29,7 @@ ApplicationWindow {
     // Avoid names starting with "on" — QML reserves on* for signal handlers.
     readonly property color colorOnSurface: "#EFF0F1"
     readonly property color colorOnSurfaceMuted: "#A0A0A8"
+    readonly property color warning: "#FF9F1A"
     readonly property color canvasLetterbox: "#0C0C0E"
     readonly property color toolActiveBg: "#3DAEE940"
     readonly property int toolStripWidth: 48
@@ -37,8 +45,153 @@ ApplicationWindow {
         return "file:///" + root + "/" + stem + ".svg"
     }
 
+    function executeDestructiveAction(action) {
+        pendingDestructiveAction = ""
+        if (action === "new") {
+            newDocDialog.open()
+        } else if (action === "open") {
+            openFileDialog.open()
+        } else if (action === "close") {
+            AppSession.closeDocument()
+        } else if (action === "quit") {
+            Qt.quit()
+        }
+    }
+
+    function requestDestructiveAction(action) {
+        if (AppSession.dirty) {
+            pendingDestructiveAction = action
+            unsavedDialog.open()
+            return
+        }
+        executeDestructiveAction(action)
+    }
+
+    function discardAndContinue() {
+        var action = pendingDestructiveAction
+        AppSession.acknowledgeDiscard()
+        executeDestructiveAction(action)
+    }
+
+    onClosing: function (close) {
+        if (AppSession.dirty) {
+            close.accepted = false
+            pendingDestructiveAction = "quit"
+            unsavedDialog.open()
+        }
+    }
+
+    Action {
+        id: newAction
+        text: qsTr("&New…")
+        icon.source: root.iconUrl("file-plus")
+        shortcut: "Ctrl+N"
+        enabled: !AppSession.ioBusy
+        onTriggered: root.requestDestructiveAction("new")
+    }
+
+    Action {
+        id: openAction
+        text: qsTr("&Open…")
+        icon.source: root.iconUrl("folder-open")
+        shortcut: "Ctrl+O"
+        enabled: !AppSession.ioBusy
+        onTriggered: root.requestDestructiveAction("open")
+    }
+
+    Action {
+        id: saveAction
+        text: qsTr("&Save")
+        icon.source: root.iconUrl("floppy-disk")
+        shortcut: "Ctrl+S"
+        enabled: false
+    }
+
+    Action {
+        id: exportAction
+        text: qsTr("&Export…")
+        icon.source: root.iconUrl("export")
+        shortcut: "Ctrl+Shift+E"
+        enabled: AppSession.hasDocument && !AppSession.ioBusy
+        onTriggered: exportFileDialog.open()
+    }
+
+    Action {
+        id: closeAction
+        text: qsTr("&Close")
+        icon.source: root.iconUrl("x")
+        shortcut: "Ctrl+W"
+        enabled: AppSession.hasDocument && !AppSession.ioBusy
+        onTriggered: root.requestDestructiveAction("close")
+    }
+
+    Action {
+        id: quitAction
+        text: qsTr("&Quit")
+        shortcut: "Ctrl+Q"
+        onTriggered: root.requestDestructiveAction("quit")
+    }
+
+    Action {
+        id: undoAction
+        text: qsTr("&Undo")
+        icon.source: root.iconUrl("arrow-counter-clockwise")
+        shortcut: "Ctrl+Z"
+        enabled: AppSession.canUndo && !AppSession.ioBusy
+        onTriggered: AppSession.undo()
+    }
+
+    Action {
+        id: redoAction
+        text: qsTr("&Redo")
+        icon.source: root.iconUrl("arrow-clockwise")
+        shortcut: "Ctrl+Shift+Z"
+        enabled: AppSession.canRedo && !AppSession.ioBusy
+        onTriggered: AppSession.redo()
+    }
+
+    Action {
+        id: zoomFitAction
+        text: qsTr("Zoom to &Fit")
+        icon.source: root.iconUrl("corners-in")
+        shortcut: "Ctrl+Shift+J"
+        enabled: AppSession.hasDocument
+        onTriggered: AppSession.zoomToFit()
+    }
+
+    menuBar: MenuBar {
+        Menu {
+            title: qsTr("&File")
+            MenuItem { action: newAction }
+            MenuItem { action: openAction }
+            MenuSeparator {}
+            MenuItem { action: saveAction }
+            MenuItem { action: exportAction }
+            MenuSeparator {}
+            MenuItem { action: closeAction }
+            MenuItem { action: quitAction }
+        }
+        Menu {
+            title: qsTr("&Edit")
+            MenuItem { action: undoAction }
+            MenuItem { action: redoAction }
+        }
+        Menu {
+            title: qsTr("&View")
+            MenuItem { action: zoomFitAction }
+        }
+        Menu {
+            title: qsTr("&Help")
+            MenuItem {
+                text: qsTr("&About PhotoTux")
+                icon.source: root.iconUrl("info")
+                onTriggered: aboutDialog.open()
+            }
+        }
+    }
+
     Component.onCompleted: {
-        if (!AppSession.hasDocument)
+        if (!AppSession.hasDocument && !AppSession.ioBusy)
             newDocDialog.open()
     }
 
@@ -73,22 +226,20 @@ ApplicationWindow {
             }
 
             ToolButton {
-                text: qsTr("New")
-                onClicked: newDocDialog.open()
+                action: newAction
+                display: AbstractButton.TextOnly
             }
 
             ToolButton {
-                text: qsTr("Open")
-                enabled: false
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Portals — Phase 5")
+                action: openAction
+                display: AbstractButton.TextOnly
             }
 
             ToolButton {
-                text: qsTr("Save")
-                enabled: false
+                action: exportAction
+                display: AbstractButton.TextOnly
                 ToolTip.visible: hovered
-                ToolTip.text: qsTr("Portals — Phase 5")
+                ToolTip.text: qsTr("Export flattened PNG or JPEG")
             }
 
             ToolSeparator {
@@ -96,21 +247,26 @@ ApplicationWindow {
             }
 
             ToolButton {
-                text: qsTr("Undo")
-                enabled: AppSession.canUndo
-                onClicked: AppSession.undo()
+                action: undoAction
+                display: AbstractButton.TextOnly
             }
             ToolButton {
-                text: qsTr("Redo")
-                enabled: AppSession.canRedo
-                onClicked: AppSession.redo()
+                action: redoAction
+                display: AbstractButton.TextOnly
             }
 
             Item { Layout.fillWidth: true }
 
+            BusyIndicator {
+                visible: AppSession.ioBusy
+                running: visible
+                Layout.preferredWidth: 20
+                Layout.preferredHeight: 20
+            }
+
             Label {
-                text: qsTr("Phase 4 · brush")
-                color: root.colorOnSurfaceMuted
+                text: AppSession.ioBusy ? qsTr("File operation…") : qsTr("Phase 5 · desktop")
+                color: AppSession.ioBusy ? root.primary : root.colorOnSurfaceMuted
                 font.pixelSize: 11
             }
         }
@@ -139,6 +295,22 @@ ApplicationWindow {
                 font.pixelSize: 11
                 elide: Text.ElideRight
                 Layout.fillWidth: true
+            }
+
+            RowLayout {
+                visible: AppSession.dirty
+                spacing: 4
+                Image {
+                    source: root.iconUrl("circle-notch")
+                    sourceSize: Qt.size(14, 14)
+                    Layout.preferredWidth: 14
+                    Layout.preferredHeight: 14
+                }
+                Label {
+                    text: qsTr("Unsaved")
+                    color: root.warning
+                    font.pixelSize: 11
+                }
             }
 
             Label {
@@ -182,6 +354,7 @@ ApplicationWindow {
     RowLayout {
         anchors.fill: parent
         spacing: 0
+        enabled: !AppSession.ioBusy
 
         // Left tool strip
         Rectangle {
@@ -295,7 +468,12 @@ ApplicationWindow {
                 running: root.visible
                 property real phase: 0
                 property real fpsEma: 0
+                property bool startupReported: false
                 onTriggered: {
+                    if (!startupReported) {
+                        startupReported = true
+                        AppSession.reportInteractive()
+                    }
                     phase = (phase + frameTime * 2.0) % 1000.0
                     AppSession.pollEngine()
                     if (frameTime > 0) {
@@ -732,6 +910,88 @@ ApplicationWindow {
         }
     }
 
+    FileDialog {
+        id: openFileDialog
+        title: qsTr("Open Image")
+        currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
+        fileMode: FileDialog.OpenFile
+        nameFilters: [
+            qsTr("Image files (*.png *.jpg *.jpeg)"),
+            qsTr("PNG images (*.png)"),
+            qsTr("JPEG images (*.jpg *.jpeg)")
+        ]
+        onAccepted: AppSession.openRasterFile(selectedFile.toString())
+    }
+
+    FileDialog {
+        id: exportFileDialog
+        title: qsTr("Export Flattened Image")
+        currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
+        fileMode: FileDialog.SaveFile
+        nameFilters: [
+            qsTr("PNG images (*.png)"),
+            qsTr("JPEG images (*.jpg *.jpeg)")
+        ]
+        defaultSuffix: selectedNameFilter.extensions.length > 0
+                       ? selectedNameFilter.extensions[0] : "png"
+        onAccepted: AppSession.exportRasterFile(selectedFile.toString())
+    }
+
+    Dialog {
+        id: unsavedDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Discard unsaved changes?")
+        closePolicy: Popup.CloseOnEscape
+        onRejected: root.pendingDestructiveAction = ""
+
+        contentItem: Label {
+            width: 400
+            text: qsTr("PhotoTux project saving is not available yet. Export preserves a flattened image only. Discard changes and continue?")
+            wrapMode: Text.WordWrap
+        }
+
+        footer: DialogButtonBox {
+            standardButtons: DialogButtonBox.Discard | DialogButtonBox.Cancel
+            onDiscarded: {
+                unsavedDialog.close()
+                root.discardAndContinue()
+            }
+            onRejected: {
+                root.pendingDestructiveAction = ""
+                unsavedDialog.close()
+            }
+        }
+    }
+
+    Dialog {
+        id: ioErrorDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("File operation failed")
+        standardButtons: Dialog.Ok
+
+        contentItem: Label {
+            width: 400
+            text: AppSession.ioError
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    Dialog {
+        id: aboutDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("About PhotoTux")
+        standardButtons: Dialog.Ok
+
+        contentItem: Label {
+            width: 360
+            text: qsTr("PhotoTux\nGPU-first image editor for Linux and Wayland.")
+            horizontalAlignment: Text.AlignHCenter
+        }
+    }
+
     NewDocumentDialog {
         id: newDocDialog
         anchors.centerIn: parent
@@ -752,6 +1012,10 @@ ApplicationWindow {
         function onActiveOpacityChanged() {
             if (Math.abs(layerOpacitySlider.value - AppSession.activeOpacity) > 0.001)
                 layerOpacitySlider.value = AppSession.activeOpacity
+        }
+        function onIoErrorChanged() {
+            if (AppSession.ioError.length > 0)
+                ioErrorDialog.open()
         }
     }
 

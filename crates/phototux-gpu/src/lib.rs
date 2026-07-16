@@ -20,6 +20,20 @@ pub enum GpuError {
     RequestAdapter,
 }
 
+#[derive(Debug, Error)]
+pub enum TextureTransferError {
+    #[error("RGBA buffer length mismatch: expected {expected} bytes, got {actual}")]
+    InvalidPixelLength { expected: usize, actual: usize },
+    #[error("target layer texture does not exist")]
+    LayerNotFound,
+    #[error("GPU dimensions overflow host address space")]
+    DimensionOverflow,
+    #[error("GPU readback mapping failed")]
+    MapFailed,
+    #[error("GPU readback callback disconnected")]
+    CallbackDisconnected,
+}
+
 /// Snapshot for logging / QML status (no GPU handles).
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
@@ -27,6 +41,16 @@ pub struct GpuInfo {
     pub backend: String,
     pub driver: String,
     pub device_type: String,
+}
+
+/// Raw Vulkan objects owned by wgpu and borrowed by Qt Quick for shared-device rendering.
+#[derive(Debug, Clone, Copy)]
+pub struct VulkanDeviceHandles {
+    pub instance: u64,
+    pub physical_device: u64,
+    pub device: u64,
+    pub queue_family_index: u32,
+    pub queue_index: u32,
 }
 
 pub struct GpuContext {
@@ -102,7 +126,8 @@ impl GpuContext {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
@@ -151,6 +176,27 @@ impl GpuContext {
             texture
                 .as_hal::<wgpu::hal::api::Vulkan>()
                 .map(|tex| tex.raw_handle().as_raw())
+        }
+    }
+
+    /// Borrow raw Vulkan handles so Qt Quick can use the same device and queue.
+    ///
+    /// The returned handles remain valid only while this context is alive. Callers must not
+    /// destroy them; wgpu retains ownership.
+    pub fn vulkan_device_handles(&self) -> Option<VulkanDeviceHandles> {
+        use ash::vk::Handle;
+
+        // SAFETY: guards remain alive for each handle read; no ownership is transferred.
+        unsafe {
+            let instance = self.instance.as_hal::<wgpu::hal::api::Vulkan>()?;
+            let device = self.device.as_hal::<wgpu::hal::api::Vulkan>()?;
+            Some(VulkanDeviceHandles {
+                instance: instance.shared_instance().raw_instance().handle().as_raw(),
+                physical_device: device.raw_physical_device().as_raw(),
+                device: device.raw_device().handle().as_raw(),
+                queue_family_index: device.queue_family_index(),
+                queue_index: device.queue_index(),
+            })
         }
     }
 }

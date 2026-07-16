@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.PerkyZZ999.PhotoTux</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>PhotoTux</name>
+  <summary>GPU-first image editor for Linux and Wayland</summary>
+  <description>
+    <p>
+      PhotoTux is a dense desktop image editor built with Rust, Qt Quick,
+      Vulkan, and wgpu. Its interactive canvas keeps document pixels on the GPU.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/PerkyZZ999/PhotoTux</url>
+  <launchable type="desktop-id">io.github.PerkyZZ999.PhotoTux.desktop</launchable>
+  <provides>
+    <binary>phototux</binary>
+  </provides>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <developer id="io.github.perkyzz999">
+    <name>PhotoTux contributors</name>
+  </developer>
+</component>

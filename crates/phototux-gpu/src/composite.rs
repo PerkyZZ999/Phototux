@@ -9,7 +9,7 @@ use std::time::Instant;
 use bytemuck::{Pod, Zeroable};
 use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId};
 
-use crate::GpuContext;
+use crate::{GpuContext, TextureTransferError};
 
 pub const MAX_LAYERS: usize = 16;
 
@@ -441,6 +441,14 @@ impl LayerCompositeEngine {
             pass.set_bind_group(0, bind, &[]);
             pass.draw(0..3, 0..1);
         }
+        encoder.transition_resources(
+            std::iter::empty(),
+            std::iter::once(wgpu::TextureTransition {
+                texture: &self.result,
+                selector: None,
+                state: wgpu::TextureUses::RESOURCE,
+            }),
+        );
 
         ctx.queue.submit(Some(encoder.finish()));
         ctx.device.poll(wgpu::PollType::wait_indefinitely()).ok();
@@ -463,6 +471,136 @@ impl LayerCompositeEngine {
 
     pub fn layer_texture_mut(&mut self, id: LayerId) -> Option<&mut wgpu::Texture> {
         self.layer_tex.get_mut(&id)
+    }
+
+    /// Replace one layer with tightly packed RGBA8 pixels.
+    pub fn write_layer_rgba(
+        &mut self,
+        ctx: &GpuContext,
+        id: LayerId,
+        pixels: &[u8],
+    ) -> Result<(), TextureTransferError> {
+        let expected = rgba_byte_len(self.width, self.height)?;
+        if pixels.len() != expected {
+            return Err(TextureTransferError::InvalidPixelLength {
+                expected,
+                actual: pixels.len(),
+            });
+        }
+        let texture = self
+            .layer_tex
+            .get(&id)
+            .ok_or(TextureTransferError::LayerNotFound)?;
+        let bytes_per_row = self
+            .width
+            .checked_mul(4)
+            .ok_or(TextureTransferError::DimensionOverflow)?;
+        ctx.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(self.height),
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.array_dirty = true;
+        Ok(())
+    }
+
+    /// Read the composite once into tightly packed RGBA8 host memory.
+    pub fn read_result_rgba(&self, ctx: &GpuContext) -> Result<Vec<u8>, TextureTransferError> {
+        let unpadded_row = self
+            .width
+            .checked_mul(4)
+            .ok_or(TextureTransferError::DimensionOverflow)?;
+        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_row = unpadded_row
+            .checked_add(alignment - 1)
+            .map(|value| value / alignment * alignment)
+            .ok_or(TextureTransferError::DimensionOverflow)?;
+        let buffer_size = u64::from(padded_row)
+            .checked_mul(u64::from(self.height))
+            .ok_or(TextureTransferError::DimensionOverflow)?;
+        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("composite-readback"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("composite-readback-encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.result,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_row),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        encoder.transition_resources(
+            std::iter::empty(),
+            std::iter::once(wgpu::TextureTransition {
+                texture: &self.result,
+                selector: None,
+                state: wgpu::TextureUses::RESOURCE,
+            }),
+        );
+        ctx.queue.submit(Some(encoder.finish()));
+
+        let slice = buffer.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        ctx.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|_| TextureTransferError::MapFailed)?;
+        receiver
+            .recv()
+            .map_err(|_| TextureTransferError::CallbackDisconnected)?
+            .map_err(|_| TextureTransferError::MapFailed)?;
+
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|_| TextureTransferError::MapFailed)?;
+        let output_len = rgba_byte_len(self.width, self.height)?;
+        let mut output = Vec::with_capacity(output_len);
+        for row in mapped
+            .chunks_exact(padded_row as usize)
+            .take(self.height as usize)
+        {
+            output.extend_from_slice(&row[..unpadded_row as usize]);
+        }
+        drop(mapped);
+        buffer.unmap();
+        Ok(output)
     }
 
     /// After painting into a layer texture, force array repack on next composite.
@@ -538,6 +676,14 @@ impl LayerCompositeEngine {
     }
 }
 
+fn rgba_byte_len(width: u32, height: u32) -> Result<usize, TextureTransferError> {
+    u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or(TextureTransferError::DimensionOverflow)
+}
+
 fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
     ctx.device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
@@ -552,7 +698,8 @@ fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
         format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_SRC,
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     })
 }
@@ -602,9 +749,34 @@ mod tests {
         let graph = DocumentGraph::new(size);
         let mut eng = LayerCompositeEngine::new(&ctx, size);
         eng.sync_layers_from_graph(&ctx, graph.layers());
+        let layer_id = graph.layers()[0].id;
+        let backup = eng
+            .clone_layer_texture(&ctx, layer_id)
+            .expect("clone layer texture");
+        eng.restore_layer_texture(&ctx, layer_id, &backup);
         let ms = eng.composite(&ctx, graph.layers());
         assert!(ms >= 0.0);
         assert_eq!(eng.result_texture().width(), 256);
+    }
+
+    #[test]
+    fn layer_upload_and_composite_readback_round_trip() {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(2, 1);
+        let graph = DocumentGraph::new(size);
+        let mut engine = LayerCompositeEngine::new(&ctx, size);
+        engine.sync_layers_from_graph(&ctx, graph.layers());
+        let pixels = [12, 34, 56, 255, 12, 34, 56, 255];
+
+        for layer in graph.layers() {
+            engine
+                .write_layer_rgba(&ctx, layer.id, &pixels)
+                .expect("upload layer");
+        }
+        engine.composite(&ctx, graph.layers());
+        let readback = engine.read_result_rgba(&ctx).expect("read composite");
+
+        assert_eq!(readback, pixels);
     }
 
     #[test]

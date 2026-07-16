@@ -202,6 +202,21 @@ impl SessionState {
         self.zoom_to_fit();
     }
 
+    pub fn apply_flattened(&mut self, size: DocumentSize, layer_name: impl Into<String>) {
+        let width = size.width.clamp(1, 32_768);
+        let height = size.height.clamp(1, 32_768);
+        let graph = DocumentGraph::new_flattened(DocumentSize::new(width, height), layer_name);
+        self.replace_graph(graph);
+    }
+
+    pub fn replace_graph(&mut self, graph: DocumentGraph) {
+        self.size = graph.size;
+        self.has_document = true;
+        self.graph = Some(graph);
+        self.undo.clear();
+        self.zoom_to_fit();
+    }
+
     pub fn apply_preset(&mut self, preset: SizePreset) {
         self.apply_size(preset.size());
     }
@@ -346,6 +361,14 @@ mod tests {
         assert_eq!(s.size, DocumentSize::new(3840, 2160));
         assert_eq!(s.layer_count(), 2);
         assert!(s.graph.is_some());
+    }
+
+    #[test]
+    fn apply_flattened_creates_single_layer() {
+        let mut session = SessionState::default();
+        session.apply_flattened(DocumentSize::new(640, 480), "photo.png");
+        assert_eq!(session.layer_count(), 1);
+        assert_eq!(session.layer_names_joined(), "photo.png");
     }
 
     #[test]

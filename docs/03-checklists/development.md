@@ -50,9 +50,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Canvas is real GPU surface; pan/zoom fluid.
 
-**Status:** `[x]` **closed 2026-07-15** (branch `feat/phase2-gpu-viewport`) — production `PhototuxCanvas` + `Camera2D` pan/zoom; **FPS ≥ 63** on Arc B580; GPU RHI present (no CPU full-frame upload); wgpu VkImage `createFrom` attempt logged OK (sampling deferred). See `docs/04-journal/2026-07-15-phase2-gpu-viewport.md`.
+**Status:** `[x]` **closed 2026-07-15; corrected during Phase 5 preflight** — production `PhototuxCanvas` + `Camera2D` pan/zoom; Qt Quick adopts wgpu's Vulkan device and samples the retained composite `VkImage` through `QRhiTexture`; frame and worker queue access is serialized. Isolated KWin visual run reached **60 FPS**.
 
-**Exit gate:** ≥ **60 FPS** zoom/pan (ADR-008); zero-copy hot path (ADR-005). **Met** for present path; import sampling still Phase 3 polish.
+**Exit gate:** ≥ **60 FPS** zoom/pan (ADR-008); zero-copy hot path showing real document pixels (ADR-005). **Met.**
 
 **Refs:** ADR-004, 005, 007, 008, 010 findings · `phototux_gpu` / `phototux_canvas`
 
@@ -74,9 +74,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Painting and essential tools; tablet path; layers UI real.
 
-**Status:** `[x]` **closed 2026-07-15** (branch `feat/phase4-tools-brush`) — brush/eraser GPU dabs, paint worker queue (ADR-007), stroke undo, hardness/color, latency HUD. See `docs/04-journal/2026-07-15-phase4-brush.md`.
+**Status:** `[x]` **closed 2026-07-15; visually accepted during Phase 5 preflight** — brush/eraser GPU dabs, paint worker queue (ADR-007), stroke undo, hardness/color, and latency HUD. Real sampled stroke and undo verified in isolated KWin.
 
-**Exit gate:** ≥60 FPS while brushing; input→render **&lt; 8 ms** path (ADR-008); worker for heavy work (ADR-007). **Met** architecture + instrumentation; host scribble validates FPS/latency.
+**Exit gate:** ≥60 FPS while brushing; input→render **&lt; 8 ms** path (ADR-008); worker for heavy work (ADR-007); visible stroke result. **Architecture and visible path met; release latency rerun remains in Phase 5 verification.**
 
 **Refs:** ADR-007, 008, 013 · IA tool/layer flows
 
@@ -86,7 +86,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **Goal:** Feel like a finished Plasma citizen (menus, portals, polish).
 
-**Exit gate:** Cold boot target **&lt; 250 ms** interactive (stretch; document if missed). Packaging notes OK deferred.
+**Status:** `[!]` release-slice implementation complete on `feat/phase5-desktop`; exit blocked by B3. PNG/JPEG Open/Export, async lifecycle, dirty/unsaved flows, native dialogs, menus, open-with identity, and packaging metadata are implemented and verified. See `docs/04-journal/2026-07-15-phase5-release-slice.md`.
+
+**Exit gate:** Cold boot target **&lt; 250 ms** interactive. Current release measurements: **653.71–780.17 ms** to first interactive frame; GPU ready at **94.44 ms** in the instrumented stage run. Not met; B3 tracks QML/Qt Quick startup work.
 
 **Refs:** ADR-001, 008, 012, 014 · IA open/export flows (GUI + portals, not CLI)
 

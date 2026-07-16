@@ -1,0 +1,335 @@
+//! Bounded PNG/JPEG decode and encode at explicit document I/O boundaries.
+
+use std::ffi::OsString;
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, BufWriter, Seek, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use image::codecs::jpeg::JpegEncoder;
+use image::codecs::png::PngEncoder;
+use image::{
+    DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageFormat, ImageReader, Limits,
+};
+use thiserror::Error;
+
+/// Largest accepted width or height. Pixel allocation limits reject oversized area separately.
+pub const MAX_DIMENSION: u32 = 32_768;
+/// Largest normalized RGBA8 buffer accepted by the file boundary.
+pub const MAX_RASTER_BYTES: u64 = 512 * 1024 * 1024;
+/// Default visually lossless JPEG quality for explicit export.
+pub const JPEG_QUALITY: u8 = 92;
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Raster formats supported by the Phase 5 release slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RasterFormat {
+    Png,
+    Jpeg,
+}
+
+impl RasterFormat {
+    /// Infer an export format from a destination extension.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RasterIoError::UnsupportedExtension`] for missing or unsupported extensions.
+    pub fn from_path(path: &Path) -> Result<Self, RasterIoError> {
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .ok_or(RasterIoError::UnsupportedExtension)?;
+        match extension.as_str() {
+            "png" => Ok(Self::Png),
+            "jpg" | "jpeg" => Ok(Self::Jpeg),
+            _ => Err(RasterIoError::UnsupportedExtension),
+        }
+    }
+
+    fn from_image_format(format: ImageFormat) -> Result<Self, RasterIoError> {
+        match format {
+            ImageFormat::Png => Ok(Self::Png),
+            ImageFormat::Jpeg => Ok(Self::Jpeg),
+            _ => Err(RasterIoError::UnsupportedFormat),
+        }
+    }
+}
+
+/// Normalized, tightly packed RGBA8 raster owned by Rust.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Raster {
+    width: u32,
+    height: u32,
+    pixels: Box<[u8]>,
+}
+
+impl Raster {
+    /// Construct a checked RGBA8 raster.
+    ///
+    /// # Errors
+    ///
+    /// Returns a dimension or buffer-length error when the input violates file-boundary limits.
+    pub fn new(width: u32, height: u32, pixels: Box<[u8]>) -> Result<Self, RasterIoError> {
+        let expected = checked_rgba_len(width, height)?;
+        if pixels.len() != expected {
+            return Err(RasterIoError::InvalidPixelLength {
+                expected,
+                actual: pixels.len(),
+            });
+        }
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
+
+    pub fn into_pixels(self) -> Box<[u8]> {
+        self.pixels
+    }
+}
+
+/// Recoverable raster file-boundary failures.
+#[derive(Debug, Error)]
+pub enum RasterIoError {
+    #[error("only PNG and JPEG images are supported")]
+    UnsupportedFormat,
+    #[error("destination must end in .png, .jpg, or .jpeg")]
+    UnsupportedExtension,
+    #[error("image dimensions exceed the 32,768 pixel limit")]
+    DimensionsTooLarge,
+    #[error("image requires more than 512 MiB of RGBA memory")]
+    RasterTooLarge,
+    #[error("invalid RGBA buffer length: expected {expected} bytes, got {actual}")]
+    InvalidPixelLength { expected: usize, actual: usize },
+    #[error("image codec failed: {0}")]
+    Codec(#[from] image::ImageError),
+    #[error("image I/O failed: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// Decode PNG/JPEG content, apply orientation, and normalize it to RGBA8.
+///
+/// # Errors
+///
+/// Returns [`RasterIoError`] for unsupported formats, decode failures, or exceeded limits.
+pub fn decode<R>(reader: R) -> Result<Raster, RasterIoError>
+where
+    R: BufRead + Seek,
+{
+    let mut reader = ImageReader::new(reader).with_guessed_format()?;
+    reader.limits(decode_limits());
+    let image_format = reader.format().ok_or(RasterIoError::UnsupportedFormat)?;
+    RasterFormat::from_image_format(image_format)?;
+
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let (source_width, source_height) = decoder.dimensions();
+    checked_rgba_len(source_width, source_height)?;
+
+    let mut image = DynamicImage::from_decoder(decoder)?;
+    image.apply_orientation(orientation);
+    let rgba = image.into_rgba8();
+    let (width, height) = rgba.dimensions();
+    Raster::new(width, height, rgba.into_raw().into_boxed_slice())
+}
+
+/// Decode a PNG/JPEG file from disk.
+pub fn decode_path(path: &Path) -> Result<Raster, RasterIoError> {
+    let file = File::open(path)?;
+    decode(BufReader::new(file))
+}
+
+/// Encode a normalized raster as PNG or JPEG.
+///
+/// PNG preserves RGBA. JPEG composites alpha over white before quality-92 encoding.
+///
+/// # Errors
+///
+/// Returns [`RasterIoError`] when encoding or writing fails.
+pub fn encode<W>(writer: W, raster: &Raster, format: RasterFormat) -> Result<(), RasterIoError>
+where
+    W: Write,
+{
+    match format {
+        RasterFormat::Png => PngEncoder::new(writer).write_image(
+            raster.pixels(),
+            raster.width(),
+            raster.height(),
+            ExtendedColorType::Rgba8,
+        )?,
+        RasterFormat::Jpeg => {
+            let rgb = flatten_rgba_over_white(raster);
+            JpegEncoder::new_with_quality(writer, JPEG_QUALITY).write_image(
+                &rgb,
+                raster.width(),
+                raster.height(),
+                ExtendedColorType::Rgb8,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Encode to a temporary sibling and atomically replace the destination.
+pub fn encode_path_atomic(
+    path: &Path,
+    raster: &Raster,
+    format: RasterFormat,
+) -> Result<(), RasterIoError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .ok_or(RasterIoError::UnsupportedExtension)?;
+    let (temporary_path, file) = create_temporary_sibling(parent, file_name)?;
+    let result = (|| {
+        let mut writer = BufWriter::new(&file);
+        encode(&mut writer, raster, format)?;
+        writer.flush()?;
+        drop(writer);
+        file.sync_all()?;
+        std::fs::rename(&temporary_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary_path);
+    }
+    result
+}
+
+fn create_temporary_sibling(
+    parent: &Path,
+    file_name: &std::ffi::OsStr,
+) -> Result<(PathBuf, File), RasterIoError> {
+    for _ in 0..16 {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let mut temporary_name = OsString::from(".");
+        temporary_name.push(file_name);
+        temporary_name.push(format!(".phototux-{}-{sequence}.tmp", std::process::id()));
+        let path = parent.join(temporary_name);
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a unique export temporary file",
+    )
+    .into())
+}
+
+fn decode_limits() -> Limits {
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_DIMENSION);
+    limits.max_image_height = Some(MAX_DIMENSION);
+    limits.max_alloc = Some(MAX_RASTER_BYTES);
+    limits
+}
+
+fn checked_rgba_len(width: u32, height: u32) -> Result<usize, RasterIoError> {
+    if width == 0 || height == 0 || width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(RasterIoError::DimensionsTooLarge);
+    }
+    let bytes = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(RasterIoError::RasterTooLarge)?;
+    if bytes > MAX_RASTER_BYTES {
+        return Err(RasterIoError::RasterTooLarge);
+    }
+    usize::try_from(bytes).map_err(|_| RasterIoError::RasterTooLarge)
+}
+
+fn flatten_rgba_over_white(raster: &Raster) -> Vec<u8> {
+    let pixel_count = raster.pixels().len() / 4;
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    for rgba in raster.pixels().chunks_exact(4) {
+        let alpha = u16::from(rgba[3]);
+        let inverse = 255 - alpha;
+        for channel in &rgba[..3] {
+            let blended = (u16::from(*channel) * alpha + 255 * inverse + 127) / 255;
+            rgb.push(blended as u8);
+        }
+    }
+    rgb
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn png_round_trip_preserves_rgba() {
+        let raster = Raster::new(
+            2,
+            1,
+            vec![10, 20, 30, 40, 200, 150, 100, 255].into_boxed_slice(),
+        )
+        .expect("valid raster");
+        let mut encoded = Vec::new();
+        encode(&mut encoded, &raster, RasterFormat::Png).expect("encode PNG");
+
+        let decoded = decode(Cursor::new(encoded)).expect("decode PNG");
+        assert_eq!(decoded, raster);
+    }
+
+    #[test]
+    fn jpeg_round_trip_is_opaque_and_keeps_dimensions() {
+        let raster = Raster::new(1, 1, vec![0, 0, 0, 0].into_boxed_slice()).expect("valid raster");
+        let mut encoded = Vec::new();
+        encode(&mut encoded, &raster, RasterFormat::Jpeg).expect("encode JPEG");
+
+        let decoded = decode(Cursor::new(encoded)).expect("decode JPEG");
+        assert_eq!((decoded.width(), decoded.height()), (1, 1));
+        assert_eq!(decoded.pixels()[3], 255);
+        assert!(decoded.pixels()[..3].iter().all(|channel| *channel >= 250));
+    }
+
+    #[test]
+    fn rejects_rgba_allocation_over_limit() {
+        let error = checked_rgba_len(MAX_DIMENSION, MAX_DIMENSION).expect_err("must exceed limit");
+        assert!(matches!(error, RasterIoError::RasterTooLarge));
+    }
+
+    #[test]
+    fn rejects_unknown_content() {
+        let error = decode(Cursor::new(b"not an image".to_vec())).expect_err("must reject");
+        assert!(matches!(error, RasterIoError::UnsupportedFormat));
+    }
+
+    #[test]
+    fn atomic_path_export_round_trips() {
+        let directory = std::env::temp_dir().join(format!(
+            "phototux-io-test-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&directory).expect("create test directory");
+        let path = directory.join("output.png");
+        std::fs::write(&path, b"previous content").expect("seed destination");
+        let raster = Raster::new(1, 1, vec![1, 2, 3, 4].into_boxed_slice()).expect("valid raster");
+
+        encode_path_atomic(&path, &raster, RasterFormat::Png).expect("atomic export");
+        let decoded = decode_path(&path).expect("decode exported image");
+        assert_eq!(decoded, raster);
+
+        std::fs::remove_dir_all(directory).expect("remove test directory");
+    }
+}

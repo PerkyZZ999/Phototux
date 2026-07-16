@@ -5,16 +5,17 @@ mod paint_worker;
 
 pub use document_gpu::{
     begin_stroke, can_redo_stroke, can_undo_stroke, close_document, end_stroke, last_composite_ms,
-    last_stroke_latency_ms, open_document, redo_stroke, stamp_dabs, sync_and_composite,
-    undo_stroke,
+    last_stroke_latency_ms, open_document, open_raster_document, read_composite_rgba, redo_stroke,
+    stamp_dabs, sync_and_composite, undo_stroke,
 };
 pub use paint_worker::PaintWorker;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use phototux_gpu::GpuContext;
 
 static GPU_STATUS: Mutex<String> = Mutex::new(String::new());
+static GPU_CONTEXT: OnceLock<Arc<GpuContext>> = OnceLock::new();
 static WGPU_HANDLE: Mutex<Option<WgpuExport>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy)]
@@ -28,7 +29,37 @@ pub struct WgpuExport {
 
 unsafe extern "C" {
     fn phototux_canvas_register_types();
+    fn phototux_canvas_set_wgpu_device(
+        instance: u64,
+        physical_device: u64,
+        device: u64,
+        queue_family_index: u32,
+        queue_index: u32,
+    );
     fn phototux_canvas_set_wgpu_export(handle: u64, width: i32, height: i32, layout: i32);
+    fn phototux_canvas_lock_shared_queue();
+    fn phototux_canvas_unlock_shared_queue();
+}
+
+pub(crate) struct SharedQueueGuard;
+
+impl SharedQueueGuard {
+    pub(crate) fn lock() -> Self {
+        // SAFETY: paired by Drop; the native mutex serializes Qt and wgpu queue access.
+        unsafe {
+            phototux_canvas_lock_shared_queue();
+        }
+        Self
+    }
+}
+
+impl Drop for SharedQueueGuard {
+    fn drop(&mut self) {
+        // SAFETY: this guard owns exactly one lock acquisition.
+        unsafe {
+            phototux_canvas_unlock_shared_queue();
+        }
+    }
 }
 
 pub(crate) unsafe fn set_wgpu_export(handle: u64, width: i32, height: i32, layout: i32) {
@@ -54,29 +85,57 @@ pub fn register_types() {
     }
 }
 
-/// Probe wgpu on the host (startup log). Prefer [`open_document`] for real content.
-pub fn probe_and_export_wgpu(width: u32, height: u32) -> String {
+/// Initialize the process-wide wgpu device and lend its Vulkan handles to Qt Quick.
+pub fn initialize_gpu() -> Result<String, String> {
+    if let Some(ctx) = GPU_CONTEXT.get() {
+        return Ok(format!(
+            "wgpu OK | {} | {} | {} | {}",
+            ctx.info.adapter_name, ctx.info.backend, ctx.info.driver, ctx.info.device_type
+        ));
+    }
+
     match GpuContext::new() {
         Ok(ctx) => {
             let status = format!(
                 "wgpu OK | {} | {} | {} | {}",
                 ctx.info.adapter_name, ctx.info.backend, ctx.info.driver, ctx.info.device_type
             );
+            let handles = ctx
+                .vulkan_device_handles()
+                .ok_or_else(|| "wgpu Vulkan handles unavailable".to_owned())?;
+            // SAFETY: Qt borrows these handles for the process lifetime; GPU_CONTEXT owns them.
+            unsafe {
+                phototux_canvas_set_wgpu_device(
+                    handles.instance,
+                    handles.physical_device,
+                    handles.device,
+                    handles.queue_family_index,
+                    handles.queue_index,
+                );
+            }
+            GPU_CONTEXT
+                .set(Arc::new(ctx))
+                .map_err(|_| "wgpu context already initialized".to_owned())?;
             if let Ok(mut g) = GPU_STATUS.lock() {
                 *g = status.clone();
             }
-            let _ = (width, height);
-            // Drop ctx — document path owns devices after open.
-            status
+            Ok(status)
         }
         Err(e) => {
             let status = format!("wgpu FAILED: {e}");
             if let Ok(mut g) = GPU_STATUS.lock() {
                 *g = status.clone();
             }
-            status
+            Err(status)
         }
     }
+}
+
+pub(crate) fn gpu_context() -> Result<Arc<GpuContext>, String> {
+    GPU_CONTEXT
+        .get()
+        .cloned()
+        .ok_or_else(|| "wgpu context is not initialized".to_owned())
 }
 
 pub fn gpu_status_text() -> String {

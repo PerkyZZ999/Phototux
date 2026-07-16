@@ -1,19 +1,61 @@
 //! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
 
-use std::path::PathBuf;
+mod file_worker;
 
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::Instant;
+
+use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    BlendMode, DocumentSize, EngineCommand, EngineEvent, LayerId, SessionState, SizePreset,
-    tool_id, undo_actions,
+    BlendMode, DocumentGraph, DocumentSize, EngineCommand, EngineEvent, LayerId, SessionState,
+    SizePreset, tool_id, undo_actions,
 };
+use phototux_io::RasterFormat;
 use qtbridge::qobject;
+
+static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+
+pub fn mark_process_started() {
+    let _ = PROCESS_START.set(Instant::now());
+}
 
 /// Absolute path to Phosphor `regular/` SVGs (dev tree layout).
 fn resolve_icon_root() -> String {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push("../../assets/icons/phosphor/regular");
     p.canonicalize().unwrap_or(p).to_string_lossy().into_owned()
+}
+
+fn local_path(value: &str) -> Result<PathBuf, String> {
+    let encoded_path = if let Some(rest) = value.strip_prefix("file://") {
+        if rest.starts_with('/') {
+            rest
+        } else {
+            let (host, path) = rest
+                .split_once('/')
+                .ok_or_else(|| "invalid local file URL".to_owned())?;
+            if host != "localhost" {
+                return Err("only local file URLs are supported".to_owned());
+            }
+            path.strip_prefix('/').map_or(path, |stripped| stripped)
+        }
+    } else {
+        value
+    };
+    let decoded = percent_encoding::percent_decode_str(encoded_path)
+        .decode_utf8()
+        .map_err(|_| "file path is not valid UTF-8".to_owned())?;
+    if decoded.contains('\0') {
+        return Err("file path contains a null byte".to_owned());
+    }
+    let path = if value.starts_with("file://localhost/") {
+        PathBuf::from("/").join(decoded.as_ref())
+    } else {
+        PathBuf::from(decoded.as_ref())
+    };
+    Ok(path)
 }
 
 /// Application session singleton for the desktop shell.
@@ -43,13 +85,29 @@ pub struct AppSession {
     graph_revision: i32,
     active_opacity: f32,
     icon_root: String,
+    document_name: String,
+    dirty: bool,
+    io_busy: bool,
+    io_error: String,
+    startup_ms: f32,
     engine: SessionState,
     worker: PaintWorker,
+    file_worker: FileWorker,
 }
 
 impl Default for AppSession {
     fn default() -> Self {
-        Self::new(resolve_icon_root())
+        let mut session = Self::new(resolve_icon_root());
+        if let Some(path) = std::env::var_os("PHOTOTUX_DESKTOP_OPEN") {
+            let path = PathBuf::from(path);
+            session.io_busy = true;
+            session.status_text = format!("Opening {}…", path.display());
+            if let Err(error) = session.file_worker.send(FileCommand::Open(path)) {
+                session.io_busy = false;
+                session.io_error = format!("Open failed: {error}");
+            }
+        }
+        session
     }
 }
 
@@ -82,8 +140,14 @@ impl AppSession {
             graph_revision: 0,
             active_opacity: 1.0,
             icon_root,
+            document_name: "Untitled".to_owned(),
+            dirty: false,
+            io_busy: false,
+            io_error: String::new(),
+            startup_ms: 0.0,
             engine,
             worker: PaintWorker::start(),
+            file_worker: FileWorker::start(),
         }
     }
 
@@ -147,7 +211,24 @@ impl AppSession {
         self.brush_size_changed();
         self.active_tool_changed();
         self.has_document_changed();
+        self.document_name_changed();
+        self.dirty_changed();
+        self.io_busy_changed();
         self.emit_layer_fields();
+    }
+
+    fn mark_dirty(&mut self) {
+        if !self.dirty {
+            self.dirty = true;
+            self.dirty_changed();
+        }
+    }
+
+    fn fail_io(&mut self, operation: &str, message: &str) {
+        self.io_busy = false;
+        self.io_error = format!("{operation} failed: {message}");
+        self.io_busy_changed();
+        self.io_error_changed();
     }
 
     fn recomposite(&mut self) {
@@ -176,6 +257,25 @@ impl AppSession {
 
     fn active_id(&self) -> Option<LayerId> {
         self.engine.graph.as_ref().and_then(|g| g.active_id())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_path;
+    use std::path::Path;
+
+    #[test]
+    fn local_file_url_decodes_percent_escapes() {
+        assert_eq!(
+            local_path("file:///tmp/Photo%20Tux.png").expect("local file URL"),
+            Path::new("/tmp/Photo Tux.png")
+        );
+    }
+
+    #[test]
+    fn local_file_url_rejects_remote_hosts() {
+        assert!(local_path("file://example.com/photo.png").is_err());
     }
 }
 
@@ -262,6 +362,19 @@ impl AppSession {
         Notify = active_opacity_changed
     );
     qproperty!("iconRoot", Member = icon_root, Notify = icon_root_changed);
+    qproperty!(
+        "documentName",
+        Member = document_name,
+        Notify = document_name_changed
+    );
+    qproperty!("dirty", Member = dirty, Notify = dirty_changed);
+    qproperty!("ioBusy", Member = io_busy, Notify = io_busy_changed);
+    qproperty!("ioError", Member = io_error, Notify = io_error_changed);
+    qproperty!(
+        "startupMs",
+        Member = startup_ms,
+        Notify = startup_ms_changed
+    );
 
     #[qsignal]
     fn doc_width_changed(&mut self);
@@ -309,6 +422,16 @@ impl AppSession {
     fn active_opacity_changed(&mut self);
     #[qsignal]
     fn icon_root_changed(&mut self);
+    #[qsignal]
+    fn document_name_changed(&mut self);
+    #[qsignal]
+    fn dirty_changed(&mut self);
+    #[qsignal]
+    fn io_busy_changed(&mut self);
+    #[qsignal]
+    fn io_error_changed(&mut self);
+    #[qsignal]
+    fn startup_ms_changed(&mut self);
 
     #[qslot]
     fn set_zoom(&mut self, value: f32) {
@@ -377,10 +500,53 @@ impl AppSession {
                 EngineEvent::StrokeEnded => {
                     self.graph_revision = self.graph_revision.wrapping_add(1);
                     self.graph_revision_changed();
+                    self.mark_dirty();
                     dirty = true;
                 }
                 EngineEvent::Error(e) => {
                     eprintln!("[phototux] paint worker: {e}");
+                }
+            }
+        }
+        for event in self.file_worker.poll_events() {
+            match event {
+                FileEvent::Opened { path, raster } => {
+                    let size = DocumentSize::new(raster.width(), raster.height());
+                    let layer_name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "Image".to_owned());
+                    let graph = DocumentGraph::new_flattened(size, layer_name.clone());
+                    let Some(target_layer) = graph.active_id() else {
+                        self.fail_io("Open", "decoded document has no layer");
+                        continue;
+                    };
+                    match phototux_canvas::open_raster_document(
+                        size,
+                        graph.layers(),
+                        target_layer,
+                        raster.pixels(),
+                    ) {
+                        Ok(ms) => {
+                            self.engine.replace_graph(graph);
+                            self.engine.set_composite_ms(ms);
+                            self.document_name = layer_name;
+                            self.dirty = false;
+                            self.io_busy = false;
+                            self.sync_from_engine();
+                            self.emit_doc_fields();
+                        }
+                        Err(error) => self.fail_io("Open", &error),
+                    }
+                }
+                FileEvent::Exported { path } => {
+                    self.io_busy = false;
+                    self.status_text = format!("Exported {}", path.display());
+                    self.io_busy_changed();
+                    self.status_text_changed();
+                }
+                FileEvent::Failed { operation, message } => {
+                    self.fail_io(operation, &message);
                 }
             }
         }
@@ -476,6 +642,8 @@ impl AppSession {
         if let Some(preset) = SizePreset::from_label(&label) {
             self.engine.apply_preset(preset);
             self.open_gpu_document();
+            self.document_name = "Untitled".to_owned();
+            self.dirty = false;
             self.sync_from_engine();
             self.emit_doc_fields();
         }
@@ -487,8 +655,85 @@ impl AppSession {
         let h = height.max(1) as u32;
         self.engine.apply_size(DocumentSize::new(w, h));
         self.open_gpu_document();
+        self.document_name = "Untitled".to_owned();
+        self.dirty = false;
         self.sync_from_engine();
         self.emit_doc_fields();
+    }
+
+    #[qslot]
+    fn open_raster_file(&mut self, file_url: String) {
+        if self.io_busy {
+            return;
+        }
+        let path = match local_path(&file_url) {
+            Ok(path) => path,
+            Err(error) => {
+                self.fail_io("Open", &error);
+                return;
+            }
+        };
+        self.io_busy = true;
+        self.io_error.clear();
+        self.status_text = format!("Opening {}…", path.display());
+        self.io_busy_changed();
+        self.status_text_changed();
+        if let Err(error) = self.file_worker.send(FileCommand::Open(path)) {
+            self.fail_io("Open", &error);
+        }
+    }
+
+    #[qslot]
+    fn export_raster_file(&mut self, file_url: String) {
+        if self.io_busy || !self.engine.has_document {
+            return;
+        }
+        let path = match local_path(&file_url) {
+            Ok(path) => path,
+            Err(error) => {
+                self.fail_io("Export", &error);
+                return;
+            }
+        };
+        let format = match RasterFormat::from_path(&path) {
+            Ok(format) => format,
+            Err(error) => {
+                self.fail_io("Export", &error.to_string());
+                return;
+            }
+        };
+        self.io_busy = true;
+        self.io_error.clear();
+        self.status_text = format!("Exporting {}…", path.display());
+        self.io_busy_changed();
+        self.status_text_changed();
+        if let Err(error) = self.file_worker.send(FileCommand::Export { path, format }) {
+            self.fail_io("Export", &error);
+        }
+    }
+
+    #[qslot]
+    fn close_document(&mut self) {
+        if self.io_busy {
+            return;
+        }
+        let viewport_width = self.engine.viewport_w;
+        let viewport_height = self.engine.viewport_h;
+        phototux_canvas::close_document();
+        self.engine = SessionState::default();
+        self.engine.set_viewport(viewport_width, viewport_height);
+        self.document_name = "Untitled".to_owned();
+        self.dirty = false;
+        self.sync_from_engine();
+        self.emit_doc_fields();
+    }
+
+    #[qslot]
+    fn acknowledge_discard(&mut self) {
+        if self.dirty {
+            self.dirty = false;
+            self.dirty_changed();
+        }
     }
 
     #[qslot]
@@ -496,6 +741,22 @@ impl AppSession {
         self.engine.set_fps(fps);
         self.fps = self.engine.fps;
         self.fps_changed();
+    }
+
+    #[qslot]
+    fn report_interactive(&mut self) {
+        if self.startup_ms > 0.0 {
+            return;
+        }
+        let Some(start) = PROCESS_START.get() else {
+            return;
+        };
+        self.startup_ms = start.elapsed().as_secs_f32() * 1000.0;
+        eprintln!(
+            "[phototux] first interactive frame {:.2} ms",
+            self.startup_ms
+        );
+        self.startup_ms_changed();
     }
 
     #[qslot]
@@ -516,6 +777,7 @@ impl AppSession {
             undo_actions::add_layer(graph, undo, None);
         }
         self.recomposite();
+        self.mark_dirty();
         self.sync_from_engine();
         self.emit_layer_fields();
     }
@@ -533,6 +795,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }
@@ -571,6 +834,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }
@@ -600,6 +864,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }
@@ -621,6 +886,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }
@@ -639,6 +905,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }
@@ -649,6 +916,7 @@ impl AppSession {
         if phototux_canvas::can_undo_stroke() {
             if let Ok(ms) = phototux_canvas::undo_stroke() {
                 self.engine.set_composite_ms(ms);
+                self.mark_dirty();
                 self.sync_from_engine();
                 self.emit_layer_fields();
                 self.graph_revision_changed();
@@ -661,6 +929,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }
@@ -671,6 +940,7 @@ impl AppSession {
         if phototux_canvas::can_redo_stroke() {
             if let Ok(ms) = phototux_canvas::redo_stroke() {
                 self.engine.set_composite_ms(ms);
+                self.mark_dirty();
                 self.sync_from_engine();
                 self.emit_layer_fields();
                 self.graph_revision_changed();
@@ -683,6 +953,7 @@ impl AppSession {
         };
         if ok {
             self.recomposite();
+            self.mark_dirty();
             self.sync_from_engine();
             self.emit_layer_fields();
         }

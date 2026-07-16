@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=PhotoTux
+GenericName=Image Editor
+Comment=GPU-first image editor for Linux and Wayland
+Exec=phototux %F
+Icon=io.github.PerkyZZ999.PhotoTux
+Terminal=false
+StartupNotify=true
+StartupWMClass=phototux
+Categories=Graphics;2DGraphics;RasterGraphics;Qt;
+MimeType=image/png;image/jpeg;
+Keywords=image;editor;paint;graphics;raster;photo;
+PrefersNonDefaultGPU=true
+SingleMainWindow=true

@@ -1,6 +1,9 @@
 #include "phototux_canvas_item.h"
 
 #include <rhi/qrhi.h>
+#include <QQuickGraphicsDevice>
+#include <QQuickWindow>
+#include <QVulkanInstance>
 #include <QFile>
 #include <QColor>
 #include <cmath>
@@ -60,10 +63,11 @@ static void fillDocQuad(Vertex out[4], float itemW, float itemH,
     toNdc(x0, y0, nx0, ny0);
     toNdc(x1, y1, nx1, ny1);
 
-    out[0] = {nx0, ny0, 0.f, 0.f};
-    out[1] = {nx1, ny0, 1.f, 0.f};
-    out[2] = {nx0, ny1, 0.f, 1.f};
-    out[3] = {nx1, ny1, 1.f, 1.f};
+    // Imported wgpu Vulkan images are vertically inverted in Qt RHI texture coordinates.
+    out[0] = {nx0, ny0, 0.f, 1.f};
+    out[1] = {nx1, ny0, 1.f, 1.f};
+    out[2] = {nx0, ny1, 0.f, 0.f};
+    out[3] = {nx1, ny1, 1.f, 0.f};
 }
 
 } // namespace
@@ -75,6 +79,55 @@ PhototuxCanvasItem::PhototuxCanvasItem(QQuickItem *parent)
     // Continuous frames while visible so FPS gate can be measured.
     setSampleCount(1);
     phototux_canvas_apply_pending_export(this);
+}
+
+PhototuxCanvasItem::~PhototuxCanvasItem() = default;
+
+void PhototuxCanvasItem::itemChange(ItemChange change, const ItemChangeData &data)
+{
+    QQuickRhiItem::itemChange(change, data);
+    if (change == ItemSceneChange && data.window)
+        configureSharedVulkanDevice(data.window);
+}
+
+void PhototuxCanvasItem::configureSharedVulkanDevice(QQuickWindow *window)
+{
+    if (m_deviceConfigured || !window)
+        return;
+
+    quint64 instance = 0;
+    quint64 physicalDevice = 0;
+    quint64 device = 0;
+    quint32 queueFamilyIndex = 0;
+    quint32 queueIndex = 0;
+    if (!phototux_canvas_get_wgpu_device(&instance, &physicalDevice, &device,
+                                         &queueFamilyIndex, &queueIndex)) {
+        setGpuStatus(QStringLiteral("Shared Vulkan device unavailable"));
+        return;
+    }
+
+    m_vulkanInstance = std::make_unique<QVulkanInstance>();
+    m_vulkanInstance->setVkInstance(reinterpret_cast<VkInstance>(quintptr(instance)));
+    if (!m_vulkanInstance->create()) {
+        setGpuStatus(QStringLiteral("Qt failed to adopt wgpu VkInstance"));
+        m_vulkanInstance.reset();
+        return;
+    }
+
+    window->setVulkanInstance(m_vulkanInstance.get());
+    window->setGraphicsDevice(QQuickGraphicsDevice::fromDeviceObjects(
+        reinterpret_cast<VkPhysicalDevice>(quintptr(physicalDevice)),
+        reinterpret_cast<VkDevice>(quintptr(device)),
+        int(queueFamilyIndex),
+        int(queueIndex)));
+    QObject::connect(window, &QQuickWindow::beforeFrameBegin, window, [] {
+        phototux_canvas_lock_shared_queue();
+    }, Qt::DirectConnection);
+    QObject::connect(window, &QQuickWindow::afterFrameEnd, window, [] {
+        phototux_canvas_unlock_shared_queue();
+    }, Qt::DirectConnection);
+    m_deviceConfigured = true;
+    setGpuStatus(QStringLiteral("Qt Quick and wgpu share one Vulkan device"));
 }
 
 void PhototuxCanvasItem::setZoom(float z)
@@ -158,6 +211,9 @@ void PhototuxCanvasItem::setFps(float f)
 
 void PhototuxCanvasItem::setWgpuImageHandle(quint64 handle, int width, int height, int layout)
 {
+    if (m_wgpuHandle == handle && m_wgpuW == width && m_wgpuH == height
+        && m_wgpuLayout == layout)
+        return;
     m_wgpuHandle = handle;
     m_wgpuW = width;
     m_wgpuH = height;
@@ -186,6 +242,10 @@ void PhototuxCanvasRenderer::releaseResources()
     m_ubuf = nullptr;
     delete m_vbuf;
     m_vbuf = nullptr;
+    delete m_sampler;
+    m_sampler = nullptr;
+    delete m_importedTexture;
+    m_importedTexture = nullptr;
 }
 
 void PhototuxCanvasRenderer::initialize(QRhiCommandBuffer *cb)
@@ -221,6 +281,16 @@ void PhototuxCanvasRenderer::synchronize(QQuickRhiItem *item)
         m_tryImport = m_wgpuHandle != 0;
         canvas->m_wgpuDirty = false;
         m_importAttempted = false;
+        if (m_wgpuHandle == 0) {
+            delete m_pipeline;
+            m_pipeline = nullptr;
+            delete m_srb;
+            m_srb = nullptr;
+            delete m_importedTexture;
+            m_importedTexture = nullptr;
+            m_importOk = false;
+            m_importNote = QStringLiteral("GPU viewport idle");
+        }
     }
 
     // Always publish import / present notes so the shell HUD stays truthful.
@@ -249,9 +319,15 @@ bool PhototuxCanvasRenderer::tryImportWgpuTexture()
     native.layout = m_wgpuLayout;
     const bool ok = tex->createFrom(native);
     if (ok) {
+        delete m_pipeline;
+        m_pipeline = nullptr;
+        delete m_srb;
+        m_srb = nullptr;
+        delete m_importedTexture;
+        m_importedTexture = tex;
         m_importOk = true;
         m_importNote = QStringLiteral(
-            "wgpu import: createFrom(VkImage) OK — zero-copy path available");
+            "wgpu composite sampled through shared Vulkan device");
     } else {
         m_importOk = false;
         m_importNote = QStringLiteral(
@@ -260,8 +336,8 @@ bool PhototuxCanvasRenderer::tryImportWgpuTexture()
                            .arg(m_wgpuHandle, 0, 16);
     }
     std::fprintf(stderr, "[phototux-canvas] %s\n", qPrintable(m_importNote));
-    // Keep success textures only once sampling is wired; always free after the attempt.
-    delete tex;
+    if (!ok)
+        delete tex;
     return m_importOk;
 }
 
@@ -271,7 +347,7 @@ bool PhototuxCanvasRenderer::ensurePipeline()
         return false;
     if (m_pipeline)
         return true;
-    if (m_vertShader.isEmpty() || m_fragShader.isEmpty())
+    if (m_vertShader.isEmpty() || m_fragShader.isEmpty() || !m_importedTexture)
         return false;
 
     m_vbuf = m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, sizeof(Vertex) * 4);
@@ -282,11 +358,21 @@ bool PhototuxCanvasRenderer::ensurePipeline()
     if (!m_ubuf->create())
         return false;
 
+    if (!m_sampler) {
+        m_sampler = m_rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
+                                      QRhiSampler::None, QRhiSampler::ClampToEdge,
+                                      QRhiSampler::ClampToEdge);
+        if (!m_sampler->create())
+            return false;
+    }
+
     m_srb = m_rhi->newShaderResourceBindings();
     m_srb->setBindings({
         QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage
                                                         | QRhiShaderResourceBinding::FragmentStage,
                                                  m_ubuf),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                  m_importedTexture, m_sampler),
     });
     if (!m_srb->create())
         return false;
@@ -325,19 +411,10 @@ void PhototuxCanvasRenderer::updateGeometry(QRhiResourceUpdateBatch *u)
     u->updateDynamicBuffer(m_vbuf, 0, sizeof(verts), verts);
 
     UBuf ub{};
-    // Document surface tint; phase/revision shifts hue slightly so paint cycles are visible
-    // even when composite import sampling is not wired.
-    const float pulse = 0.5f + 0.5f * std::sin(m_phase * 0.15f);
-    ub.color[0] = 0.16f + 0.08f * pulse;
-    ub.color[1] = 0.18f + 0.04f * pulse;
-    ub.color[2] = 0.26f + 0.10f * (1.f - pulse);
+    ub.color[0] = 0.f;
+    ub.color[1] = 0.f;
+    ub.color[2] = 0.f;
     ub.color[3] = 1.f;
-    if (m_importOk) {
-        // Hint successful composite path with cooler primary-leaning fill.
-        ub.color[0] = 0.14f;
-        ub.color[1] = 0.22f;
-        ub.color[2] = 0.38f;
-    }
     ub.params[0] = m_hasDoc ? 1.f : 0.f;
     ub.params[1] = m_phase;
     ub.params[2] = m_importOk ? 1.f : 0.f;

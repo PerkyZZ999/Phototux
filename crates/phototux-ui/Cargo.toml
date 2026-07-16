@@ -10,3 +10,5 @@ description = "qtbridge QObjects for PhotoTux UI"
 qtbridge = { workspace = true }
 phototux_engine = { workspace = true }
 phototux_canvas = { path = "../phototux-canvas" }
+phototux_io.workspace = true
+percent-encoding.workspace = true
