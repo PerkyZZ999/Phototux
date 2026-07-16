@@ -26,7 +26,7 @@ pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
-    LayerTransform, LockFlags, TextContent,
+    LayerTransform, LockFlags, PaintTarget, TextContent,
 };
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
@@ -146,6 +146,8 @@ pub struct SessionState {
     pub brush: BrushParams,
     pub selection: SelectionState,
     pub transform_session: Option<TransformSession>,
+    /// When set, brush/eraser edits this layer's mask instead of pixels.
+    pub mask_edit_layer: Option<LayerId>,
     pub colors: ColorState,
     pub guides: ViewGuides,
     pub brush_presets: BrushPresetLibrary,
@@ -173,6 +175,7 @@ impl Default for SessionState {
             brush,
             selection: SelectionState::default(),
             transform_session: None,
+            mask_edit_layer: None,
             colors: ColorState::default(),
             guides: ViewGuides::default(),
             brush_presets: BrushPresetLibrary::with_defaults(),
@@ -247,6 +250,7 @@ impl SessionState {
         self.history.clear();
         self.selection.clear();
         self.transform_session = None;
+        self.mask_edit_layer = None;
         self.document_path = None;
         self.zoom_to_fit();
     }
@@ -265,6 +269,7 @@ impl SessionState {
         self.history.clear();
         self.selection.clear();
         self.transform_session = None;
+        self.mask_edit_layer = None;
         self.zoom_to_fit();
     }
 
@@ -362,6 +367,28 @@ impl SessionState {
             .unwrap_or_default()
     }
 
+    pub fn layer_mask_flags_joined(&self) -> String {
+        self.graph
+            .as_ref()
+            .map(|g| g.layer_mask_flags_joined())
+            .unwrap_or_default()
+    }
+
+    pub fn layer_clips_joined(&self) -> String {
+        self.graph
+            .as_ref()
+            .map(|g| g.layer_clips_joined())
+            .unwrap_or_default()
+    }
+
+    pub fn paint_target(&self) -> PaintTarget {
+        let active = self.graph.as_ref().and_then(|g| g.active_id());
+        match self.mask_edit_layer {
+            Some(id) if active == Some(id) => PaintTarget::LayerMask,
+            _ => PaintTarget::LayerPixels,
+        }
+    }
+
     pub fn history_labels_joined(&self) -> String {
         self.history.labels_newest_first().join("|")
     }
@@ -377,14 +404,20 @@ impl SessionState {
             String::new()
         };
         let sel = if self.selection.active { " · sel" } else { "" };
+        let mask = if matches!(self.paint_target(), PaintTarget::LayerMask) {
+            " · mask"
+        } else {
+            ""
+        };
         format!(
-            "{}×{} · zoom {:.0}% · {} layers · {}{}{}",
+            "{}×{} · zoom {:.0}% · {} layers · {}{}{}{}",
             self.size.width,
             self.size.height,
             self.camera.zoom * 100.0,
             layers,
             self.active_tool,
             sel,
+            mask,
             comp
         )
     }
@@ -445,5 +478,20 @@ mod tests {
         assert_eq!(SizePreset::from_label("1080p"), Some(SizePreset::P1080));
         assert_eq!(SizePreset::from_label("2k"), Some(SizePreset::P2k));
         assert_eq!(SizePreset::from_label("nope"), None);
+    }
+
+    #[test]
+    fn paint_target_follows_mask_edit_layer() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let active = s
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id())
+            .expect("active");
+        assert_eq!(s.paint_target(), PaintTarget::LayerPixels);
+        s.mask_edit_layer = Some(active);
+        assert_eq!(s.paint_target(), PaintTarget::LayerMask);
+        assert!(s.status_summary().contains("mask"));
     }
 }

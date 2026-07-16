@@ -1,6 +1,7 @@
 //! Engine command queue types (ADR-007).
 
 use crate::LayerId;
+use crate::layer::PaintTarget;
 use crate::stroke::BrushParams;
 
 /// Commands sent from UI to the paint worker.
@@ -9,6 +10,7 @@ pub enum EngineCommand {
     SetBrush(BrushParams),
     BeginStroke {
         layer: LayerId,
+        target: PaintTarget,
         x: f32,
         y: f32,
         pressure: f32,

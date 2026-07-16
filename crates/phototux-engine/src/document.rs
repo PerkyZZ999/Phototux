@@ -256,6 +256,30 @@ impl DocumentGraph {
         Some(prev)
     }
 
+    pub fn set_clips_to_below(&mut self, id: LayerId, clips: bool) -> Option<bool> {
+        let layer = self.get_mut(id)?;
+        let prev = layer.clips_to_below;
+        layer.clips_to_below = clips;
+        self.bump();
+        Some(prev)
+    }
+
+    pub fn layer_mask_flags_joined(&self) -> String {
+        self.layers
+            .iter()
+            .map(|l| l.mask_flag().to_string())
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
+    pub fn layer_clips_joined(&self) -> String {
+        self.layers
+            .iter()
+            .map(|l| if l.clips_to_below { "1" } else { "0" })
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
     /// Insert a fully-specified layer (used by undo).
     pub fn insert_layer_at(&mut self, index: usize, layer: Layer) {
         let idx = index.min(self.layers.len());
@@ -447,5 +471,24 @@ mod tests {
         let child = g.layers()[0].id;
         assert_eq!(g.set_parent(child, Some(group)), Some(None));
         assert_eq!(g.get(child).and_then(|l| l.parent), Some(group));
+    }
+
+    #[test]
+    fn mask_flags_and_clips_joined() {
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let top = g.layers()[1].id;
+        assert_eq!(g.layer_mask_flags_joined(), "0|0");
+        g.set_mask(top, Some(LayerMask::default()));
+        assert_eq!(g.layer_mask_flags_joined(), "0|1");
+        g.set_mask(
+            top,
+            Some(LayerMask {
+                enabled: false,
+                ..Default::default()
+            }),
+        );
+        assert_eq!(g.layer_mask_flags_joined(), "0|2");
+        assert_eq!(g.set_clips_to_below(top, true), Some(false));
+        assert_eq!(g.layer_clips_joined(), "0|1");
     }
 }

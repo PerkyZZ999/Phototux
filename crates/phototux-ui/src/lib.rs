@@ -98,6 +98,9 @@ pub struct AppSession {
     layer_names: String,
     layer_visibility: String,
     layer_kinds: String,
+    layer_mask_flags: String,
+    layer_clips: String,
+    mask_edit_active: bool,
     history_labels: String,
     selection_active: bool,
     selection_x: i32,
@@ -191,6 +194,9 @@ impl AppSession {
             layer_names: String::new(),
             layer_visibility: String::new(),
             layer_kinds: String::new(),
+            layer_mask_flags: String::new(),
+            layer_clips: String::new(),
+            mask_edit_active: false,
             history_labels: String::new(),
             selection_active: false,
             selection_x: 0,
@@ -288,6 +294,21 @@ impl AppSession {
         self.layer_names = self.engine.layer_names_joined();
         self.layer_visibility = self.engine.layer_visibility_joined();
         self.layer_kinds = self.engine.layer_kinds_joined();
+        self.layer_mask_flags = self.engine.layer_mask_flags_joined();
+        self.layer_clips = self.engine.layer_clips_joined();
+        if self.engine.mask_edit_layer.is_some_and(|id| {
+            self.engine
+                .graph
+                .as_ref()
+                .and_then(|graph| graph.get(id))
+                .is_none_or(|layer| layer.mask.is_none())
+        }) {
+            self.engine.mask_edit_layer = None;
+        }
+        self.mask_edit_active = matches!(
+            self.engine.paint_target(),
+            phototux_engine::PaintTarget::LayerMask
+        );
         self.history_labels = self.engine.history_labels_joined();
         self.sync_selection_fields();
         self.sync_transform_fields();
@@ -318,6 +339,9 @@ impl AppSession {
         self.layer_names_changed();
         self.layer_visibility_changed();
         self.layer_kinds_changed();
+        self.layer_mask_flags_changed();
+        self.layer_clips_changed();
+        self.mask_edit_active_changed();
         self.history_labels_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
@@ -620,6 +644,21 @@ impl AppSession {
         Notify = layer_kinds_changed
     );
     qproperty!(
+        "layerMaskFlags",
+        Member = layer_mask_flags,
+        Notify = layer_mask_flags_changed
+    );
+    qproperty!(
+        "layerClips",
+        Member = layer_clips,
+        Notify = layer_clips_changed
+    );
+    qproperty!(
+        "maskEditActive",
+        Member = mask_edit_active,
+        Notify = mask_edit_active_changed
+    );
+    qproperty!(
         "historyLabels",
         Member = history_labels,
         Notify = history_labels_changed
@@ -822,6 +861,12 @@ impl AppSession {
     #[qsignal]
     fn layer_kinds_changed(&mut self);
     #[qsignal]
+    fn layer_mask_flags_changed(&mut self);
+    #[qsignal]
+    fn layer_clips_changed(&mut self);
+    #[qsignal]
+    fn mask_edit_active_changed(&mut self);
+    #[qsignal]
     fn history_labels_changed(&mut self);
     #[qsignal]
     fn selection_active_changed(&mut self);
@@ -975,7 +1020,11 @@ impl AppSession {
                     dirty = true;
                 }
                 EngineEvent::StrokeEnded => {
-                    self.engine.history.push_stroke("Brush stroke");
+                    self.engine.history.push_stroke(if self.mask_edit_active {
+                        "Mask stroke"
+                    } else {
+                        "Brush stroke"
+                    });
                     self.graph_revision = self.graph_revision.wrapping_add(1);
                     self.graph_revision_changed();
                     self.mark_dirty();
@@ -1020,7 +1069,7 @@ impl AppSession {
                     }
                 }
                 FileEvent::PtxOpened { path, document } => {
-                    let (graph, rasters) = document.into_graph();
+                    let (graph, rasters, masks) = document.into_parts();
                     self.clear_selection_stacks();
                     self.clear_transform_stacks();
                     match phototux_canvas::open_document(graph.size, graph.layers()) {
@@ -1028,6 +1077,15 @@ impl AppSession {
                             for (id, raster) in rasters {
                                 if let Err(error) =
                                     phototux_canvas::write_layer_rgba(LayerId(id), raster.pixels())
+                                {
+                                    self.fail_io("Open", &error);
+                                    continue;
+                                }
+                            }
+                            for (id, mask) in masks {
+                                let r8: Vec<u8> =
+                                    mask.pixels().chunks_exact(4).map(|rgba| rgba[0]).collect();
+                                if let Err(error) = phototux_canvas::write_mask_r8(LayerId(id), &r8)
                                 {
                                     self.fail_io("Open", &error);
                                     continue;
@@ -1151,9 +1209,11 @@ impl AppSession {
         let Some(layer) = self.active_id() else {
             return;
         };
+        let target = self.engine.paint_target();
         let (x, y) = self.engine.screen_to_document(sx, sy);
         self.send_paint(EngineCommand::BeginStroke {
             layer,
+            target,
             x,
             y,
             pressure: pressure.clamp(0.05, 1.0),
@@ -1462,6 +1522,9 @@ impl AppSession {
             self.sync_from_engine();
             self.active_layer_index_changed();
             self.active_opacity_changed();
+            self.layer_mask_flags_changed();
+            self.layer_clips_changed();
+            self.mask_edit_active_changed();
             self.status_text_changed();
         }
     }
@@ -1975,6 +2038,19 @@ impl AppSession {
         let Some(id) = self.active_id() else {
             return;
         };
+        let can_add = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.get(id))
+            .is_some_and(|layer| layer.mask.is_none());
+        if !can_add {
+            return;
+        }
+        if let Err(error) = phototux_canvas::ensure_mask(id) {
+            self.report_gpu("add mask", &error);
+            return;
+        }
         {
             let SessionState { graph, history, .. } = &mut self.engine;
             let Some(graph) = graph.as_mut() else {
@@ -1990,9 +2066,158 @@ impl AppSession {
                 "Add layer mask",
             );
         }
+        self.engine.mask_edit_layer = Some(id);
+        self.recomposite();
         self.mark_dirty();
         self.sync_from_engine();
         self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn delete_mask_on_active(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let has_mask = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.get(id))
+            .is_some_and(|layer| layer.mask.is_some());
+        if !has_mask {
+            return;
+        }
+        if let Err(error) = phototux_canvas::remove_mask(id) {
+            self.report_gpu("delete mask", &error);
+            return;
+        }
+        {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            let prev = graph.get(id).and_then(|layer| layer.mask.clone());
+            if graph.set_mask(id, None).is_none() {
+                return;
+            }
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::SetMask {
+                    id,
+                    prev,
+                    next: None,
+                },
+                "Delete layer mask",
+            );
+        }
+        if self.engine.mask_edit_layer == Some(id) {
+            self.engine.mask_edit_layer = None;
+        }
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+    }
+
+    #[qslot]
+    fn set_mask_enabled_on_active(&mut self, enabled: bool) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let mut changed = false;
+        {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            let Some(prev) = graph.get(id).and_then(|layer| layer.mask.clone()) else {
+                return;
+            };
+            if prev.enabled == enabled {
+                return;
+            }
+            let mut next = prev.clone();
+            next.enabled = enabled;
+            if graph.set_mask(id, Some(next.clone())).is_some() {
+                history.push_graph_applied(
+                    phototux_engine::GraphCommand::SetMask {
+                        id,
+                        prev: Some(prev),
+                        next: Some(next),
+                    },
+                    if enabled {
+                        "Enable layer mask"
+                    } else {
+                        "Disable layer mask"
+                    },
+                );
+                changed = true;
+            }
+        }
+        if changed {
+            self.recomposite();
+            self.mark_dirty();
+            self.sync_from_engine();
+            self.emit_layer_fields();
+        }
+    }
+
+    #[qslot]
+    fn set_mask_edit_target(&mut self, edit_mask: bool) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        if edit_mask
+            && self
+                .engine
+                .graph
+                .as_ref()
+                .and_then(|graph| graph.get(id))
+                .is_none_or(|layer| layer.mask.is_none())
+        {
+            return;
+        }
+        self.engine.mask_edit_layer = edit_mask.then_some(id);
+        self.sync_from_engine();
+        self.mask_edit_active_changed();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn set_clips_to_below_on_active(&mut self, clips: bool) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let mut changed = false;
+        {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            let Some(prev) = graph.set_clips_to_below(id, clips) else {
+                return;
+            };
+            if prev != clips {
+                history.push_graph_applied(
+                    phototux_engine::GraphCommand::SetClipsToBelow {
+                        id,
+                        prev,
+                        next: clips,
+                    },
+                    if clips {
+                        "Create clipping mask"
+                    } else {
+                        "Release clipping mask"
+                    },
+                );
+                changed = true;
+            }
+        }
+        if changed {
+            self.recomposite();
+            self.mark_dirty();
+            self.sync_from_engine();
+            self.emit_layer_fields();
+        }
     }
 
     #[qslot]

@@ -202,7 +202,9 @@ fn save_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken) -> F
                 Raster::new(width, height, pixels.into_boxed_slice()).map_err(|e| e.to_string())?;
             rasters.insert(id.0, raster);
         }
-        let doc = PtxDocument::from_graph(graph, rasters);
+        let (mw, mh) = (graph.size.width, graph.size.height);
+        let mut doc = PtxDocument::from_graph(graph, rasters);
+        doc.masks = collect_mask_rasters(mw, mh)?;
         save_ptx_atomic(&path, &doc).map_err(|e| e.to_string())
     })();
     match result {
@@ -235,7 +237,9 @@ fn autosave_document(
                 Raster::new(width, height, pixels.into_boxed_slice()).map_err(|e| e.to_string())?;
             rasters.insert(id.0, raster);
         }
-        let doc = PtxDocument::from_graph(graph, rasters);
+        let (mw, mh) = (graph.size.width, graph.size.height);
+        let mut doc = PtxDocument::from_graph(graph, rasters);
+        doc.masks = collect_mask_rasters(mw, mh)?;
         write_autosave(&doc, original.as_deref()).map_err(|e| e.to_string())
     })();
     match result {
@@ -249,6 +253,32 @@ fn autosave_document(
 
 fn placeholder_raster() -> Result<Raster, String> {
     Raster::new(1, 1, vec![0, 0, 0, 255].into_boxed_slice()).map_err(|error| error.to_string())
+}
+
+/// Convert GPU R8 masks into grayscale RGBA rasters for `.ptx` persistence.
+fn collect_mask_rasters(width: u32, height: u32) -> Result<HashMap<u64, Raster>, String> {
+    let masks = phototux_canvas::read_all_mask_r8().map_err(|e| e.to_string())?;
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| "mask size overflow".to_owned())?;
+    let mut out = HashMap::with_capacity(masks.len());
+    for (id, r8) in masks {
+        if r8.len() != expected {
+            return Err(format!(
+                "mask for layer {} has {} bytes; expected {expected}",
+                id.0,
+                r8.len()
+            ));
+        }
+        let mut rgba = Vec::with_capacity(expected * 4);
+        for &v in &r8 {
+            rgba.extend_from_slice(&[v, v, v, 255]);
+        }
+        let raster =
+            Raster::new(width, height, rgba.into_boxed_slice()).map_err(|e| e.to_string())?;
+        out.insert(id.0, raster);
+    }
+    Ok(out)
 }
 
 fn export_document(path: PathBuf, format: RasterFormat, cancel: &CancelToken) -> FileEvent {

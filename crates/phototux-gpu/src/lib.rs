@@ -3,6 +3,8 @@
 mod brush;
 mod composite;
 mod filters;
+mod layer_mask;
+mod mask_stamp;
 mod selection;
 mod transform_bake;
 
@@ -10,6 +12,8 @@ pub use brush::{BrushStamper, StampRequest};
 pub use composite::LayerCompositeEngine;
 pub use composite::benchmark_10x4k_ms;
 pub use filters::{FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_invert_rgba, filter_pass};
+pub use layer_mask::LayerMaskChannel;
+pub use mask_stamp::MaskStamper;
 pub use phototux_engine::MAX_LAYERS;
 pub use selection::SelectionMask;
 pub use transform_bake::{

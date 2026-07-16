@@ -51,6 +51,11 @@ pub enum GraphCommand {
         prev: Option<LayerMask>,
         next: Option<LayerMask>,
     },
+    SetClipsToBelow {
+        id: LayerId,
+        prev: bool,
+        next: bool,
+    },
 }
 
 impl GraphCommand {
@@ -85,6 +90,9 @@ impl GraphCommand {
             },
             Self::SetMask { id, next, .. } => {
                 let _ = graph.set_mask(*id, next.clone());
+            }
+            Self::SetClipsToBelow { id, next, .. } => {
+                let _ = graph.set_clips_to_below(*id, *next);
             }
         }
     }
@@ -143,6 +151,11 @@ impl GraphCommand {
                 id: *id,
                 prev: next.clone(),
                 next: prev.clone(),
+            },
+            Self::SetClipsToBelow { id, prev, next } => Self::SetClipsToBelow {
+                id: *id,
+                prev: *next,
+                next: *prev,
             },
         }
     }

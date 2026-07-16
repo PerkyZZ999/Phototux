@@ -19,6 +19,18 @@ ApplicationWindow {
            : qsTr("PhotoTux")
     color: Theme.neutral
     property string pendingDestructiveAction: ""
+    readonly property var layerMaskFlagParts: AppSession.layerMaskFlags.length > 0
+                                             ? AppSession.layerMaskFlags.split("|") : []
+    readonly property var layerClipParts: AppSession.layerClips.length > 0
+                                         ? AppSession.layerClips.split("|") : []
+    readonly property int activeMaskFlag: AppSession.activeLayerIndex >= 0
+                                         && AppSession.activeLayerIndex < layerMaskFlagParts.length
+                                         ? Number(layerMaskFlagParts[AppSession.activeLayerIndex]) : 0
+    readonly property bool activeLayerHasMask: activeMaskFlag !== 0
+    readonly property bool activeMaskEnabled: activeMaskFlag === 1
+    readonly property bool activeLayerClips: AppSession.activeLayerIndex >= 0
+                                            && AppSession.activeLayerIndex < layerClipParts.length
+                                            && layerClipParts[AppSession.activeLayerIndex] === "1"
 
     readonly property int toolStripWidth: Theme.toolStripWidth
     readonly property int dockWidth: Theme.dockWidth
@@ -277,8 +289,25 @@ ApplicationWindow {
             }
             MenuItem {
                 text: qsTr("Add &Mask")
-                enabled: AppSession.hasDocument
+                enabled: AppSession.hasDocument && !root.activeLayerHasMask
                 onTriggered: AppSession.addMaskToActive()
+            }
+            MenuItem {
+                text: qsTr("Delete Mask")
+                enabled: AppSession.hasDocument && root.activeLayerHasMask
+                onTriggered: AppSession.deleteMaskOnActive()
+            }
+            MenuItem {
+                text: root.activeMaskEnabled ? qsTr("Disable Mask") : qsTr("Enable Mask")
+                enabled: AppSession.hasDocument && root.activeLayerHasMask
+                onTriggered: AppSession.setMaskEnabledOnActive(!root.activeMaskEnabled)
+            }
+            MenuItem {
+                text: qsTr("Create Clipping Mask")
+                checkable: true
+                checked: root.activeLayerClips
+                enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
+                onTriggered: AppSession.setClipsToBelowOnActive(checked)
             }
             MenuItem {
                 text: qsTr("New &Adjustment…")
@@ -1387,6 +1416,43 @@ ApplicationWindow {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
+                            visible: root.activeLayerHasMask
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: AppSession.maskEditActive
+                                          ? qsTr("Mask · Editing") : qsTr("Mask")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                ToolButton {
+                                    implicitWidth: 28
+                                    implicitHeight: 28
+                                    icon.source: root.iconUrl("rectangle-dashed")
+                                    icon.width: 16
+                                    icon.height: 16
+                                    checkable: true
+                                    checked: AppSession.maskEditActive
+                                    onClicked: AppSession.setMaskEditTarget(checked)
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Edit layer mask")
+                                }
+                            }
+                            CheckBox {
+                                text: qsTr("Enable mask")
+                                checked: root.activeMaskEnabled
+                                onToggled: AppSession.setMaskEnabledOnActive(checked)
+                            }
+                            Button {
+                                text: qsTr("Delete Mask")
+                                onClicked: AppSession.deleteMaskOnActive()
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
                             Label {
                                 text: qsTr("Color")
                                 color: Theme.colorOnSurface
@@ -1606,12 +1672,20 @@ ApplicationWindow {
                             readonly property var nameParts: AppSession.layerNames.split("|")
                             readonly property var visParts: AppSession.layerVisibility.split("|")
                             readonly property var kindParts: AppSession.layerKinds.split("|")
+                            readonly property var maskParts: root.layerMaskFlagParts
+                            readonly property var clipParts: root.layerClipParts
                             readonly property string layerName: stackIndex >= 0 && stackIndex < nameParts.length
                                 ? nameParts[stackIndex] : ""
                             readonly property string layerKind: stackIndex >= 0 && stackIndex < kindParts.length
                                 ? kindParts[stackIndex] : "raster"
                             readonly property bool layerVis: stackIndex >= 0 && stackIndex < visParts.length
                                 ? visParts[stackIndex] === "1" : true
+                            readonly property int maskFlag: stackIndex >= 0 && stackIndex < maskParts.length
+                                ? Number(maskParts[stackIndex]) : 0
+                            readonly property bool hasMask: maskFlag !== 0
+                            readonly property bool maskEnabled: maskFlag === 1
+                            readonly property bool clipsToBelow: stackIndex >= 0 && stackIndex < clipParts.length
+                                ? clipParts[stackIndex] === "1" : false
                             readonly property bool isActive: AppSession.activeLayerIndex === stackIndex
                             color: isActive ? Theme.surfaceRaised
                                    : (layerHover.hovered ? Theme.surfaceContainer : "transparent")
@@ -1649,6 +1723,67 @@ ApplicationWindow {
                                         color: Theme.colorOnSurfaceVariant
                                         font.pixelSize: 9
                                     }
+                                }
+
+                                Rectangle {
+                                    visible: hasMask
+                                    Layout.preferredWidth: 24
+                                    Layout.preferredHeight: 24
+                                    radius: Theme.radiusXs
+                                    color: maskEnabled ? Theme.surfaceRaised : Theme.surfaceSunken
+                                    border.color: AppSession.maskEditActive && isActive
+                                                  ? Theme.primary : Theme.border
+                                    border.width: AppSession.maskEditActive && isActive ? 2 : 1
+                                    z: 2
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: qsTr("M")
+                                        color: maskEnabled ? Theme.colorOnSurface : Theme.colorOnSurfaceMuted
+                                        font.pixelSize: Theme.fontLabelSm
+                                        font.weight: Font.DemiBold
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            AppSession.setActiveLayer(stackIndex)
+                                            AppSession.setMaskEditTarget(true)
+                                        }
+                                        ToolTip.visible: containsMouse
+                                        ToolTip.text: qsTr("Edit layer mask")
+                                    }
+                                }
+
+                                Image {
+                                    visible: hasMask
+                                    source: root.iconUrl(maskEnabled ? "eye" : "eye-slash")
+                                    width: 14
+                                    height: 14
+                                    sourceSize: Qt.size(14, 14)
+                                    opacity: maskEnabled ? 1.0 : 0.55
+                                    z: 2
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            AppSession.setActiveLayer(stackIndex)
+                                            AppSession.setMaskEnabledOnActive(!maskEnabled)
+                                        }
+                                        ToolTip.visible: containsMouse
+                                        ToolTip.text: maskEnabled
+                                                      ? qsTr("Disable layer mask")
+                                                      : qsTr("Enable layer mask")
+                                    }
+                                }
+
+                                Label {
+                                    visible: clipsToBelow
+                                    text: "↳"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontBody
+                                    ToolTip.visible: clipHover.hovered
+                                    ToolTip.text: qsTr("Clipping mask")
+                                    HoverHandler { id: clipHover }
                                 }
 
                                 Label {

@@ -9,6 +9,7 @@ use std::time::Instant;
 use bytemuck::{Pod, Zeroable};
 use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId, MAX_LAYERS};
 
+use crate::layer_mask::LayerMaskChannel;
 use crate::transform_bake::inverse_affine_coeffs;
 use crate::{GpuContext, TextureTransferError};
 
@@ -17,15 +18,19 @@ struct LayerParams {
     opacity: f32,
     mode: u32,
     visible: u32,
-    _pad0: u32,
+    has_mask: u32,
     a: f32,
     b: f32,
     c: f32,
     d: f32,
     tx: f32,
     ty: f32,
-    _pad1: f32,
-    _pad2: f32,
+    mask_enabled: u32,
+    mask_inverted: u32,
+    clips_to_below: u32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 };
 
 struct Uniforms {
@@ -38,7 +43,8 @@ struct Uniforms {
 
 @group(0) @binding(0) var samp: sampler;
 @group(0) @binding(1) var layers_tex: texture_2d_array<f32>;
-@group(0) @binding(2) var<uniform> u: Uniforms;
+@group(0) @binding(2) var masks_tex: texture_2d_array<f32>;
+@group(0) @binding(3) var<uniform> u: Uniforms;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -91,6 +97,7 @@ fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    var clip_base = 1.0;
     let n = u.layer_count;
     let dims = vec2<f32>(f32(textureDimensions(layers_tex).x), f32(textureDimensions(layers_tex).y));
     for (var i: u32 = 0u; i < n; i = i + 1u) {
@@ -105,14 +112,32 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         if (src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0) {
             over = textureSample(layers_tex, samp, src_uv, i32(i));
         }
-        let oa = over.a * p.opacity;
+        var mask_f = 1.0;
+        if (p.has_mask != 0u && p.mask_enabled != 0u) {
+            var m = textureSample(masks_tex, samp, src_uv, i32(i)).r;
+            if (p.mask_inverted != 0u) {
+                m = 1.0 - m;
+            }
+            mask_f = m;
+        }
+        var oa = over.a * p.opacity * mask_f;
+        if (p.clips_to_below != 0u) {
+            oa = oa * clip_base;
+        }
         if (oa < 0.0001) {
+            if (p.clips_to_below == 0u) {
+                // Still update clip base from unclipped visible layers.
+                clip_base = over.a * p.opacity * mask_f;
+            }
             continue;
         }
         let blended = blend_fn(p.mode, acc.rgb, over.rgb);
         let rgb = mix(acc.rgb, blended, oa);
         let a = acc.a + oa * (1.0 - acc.a);
         acc = vec4<f32>(rgb, a);
+        if (p.clips_to_below == 0u) {
+            clip_base = oa;
+        }
     }
     return acc;
 }
@@ -124,15 +149,19 @@ struct LayerParamsGpu {
     opacity: f32,
     mode: u32,
     visible: u32,
-    _pad0: u32,
+    has_mask: u32,
     a: f32,
     b: f32,
     c: f32,
     d: f32,
     tx: f32,
     ty: f32,
-    _pad1: f32,
-    _pad2: f32,
+    mask_enabled: u32,
+    mask_inverted: u32,
+    clips_to_below: u32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 #[repr(C)]
@@ -154,11 +183,19 @@ pub struct LayerCompositeEngine {
     /// Layer content lives here (slice = stack packing order at composite time via uniforms index map).
     /// We keep content in dedicated 2D textures and only composite; packing order uses layer_index order list.
     layer_tex: HashMap<LayerId, wgpu::Texture>,
+    /// Per-layer R8 masks (present when graph has mask metadata).
+    mask_tex: HashMap<LayerId, LayerMaskChannel>,
     /// Working array rebuilt only when stack membership changes (not every frame).
     array_tex: wgpu::Texture,
+    /// Packed R8 masks (white fill for layers without a mask).
+    mask_array_tex: wgpu::Texture,
+    /// Shared white R8 used for slices without a mask channel.
+    mask_white: wgpu::Texture,
     array_dirty: bool,
+    mask_dirty: bool,
     /// Array-slice indices dirty from paint (incremental copy; avoids full repack).
     dirty_slices: Vec<u32>,
+    dirty_mask_slices: Vec<u32>,
     result: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
@@ -197,6 +234,16 @@ impl LayerCompositeEngine {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
@@ -283,6 +330,25 @@ impl LayerCompositeEngine {
             view_formats: &[],
         });
 
+        let mask_array_tex = ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mask-array"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: MAX_LAYERS as u32,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        let mask_white = make_r8_filled(ctx, width, height, 255, "mask-white");
+
         let result = make_rt(ctx, width, height, "comp-result");
 
         Self {
@@ -290,9 +356,14 @@ impl LayerCompositeEngine {
             height,
             layer_index: HashMap::new(),
             layer_tex: HashMap::new(),
+            mask_tex: HashMap::new(),
             array_tex,
+            mask_array_tex,
+            mask_white,
             array_dirty: true,
+            mask_dirty: true,
             dirty_slices: Vec::new(),
+            dirty_mask_slices: Vec::new(),
             result,
             pipeline,
             bind_layout,
@@ -323,8 +394,38 @@ impl LayerCompositeEngine {
 
     pub fn remove_layer(&mut self, id: LayerId) {
         self.layer_tex.remove(&id);
+        self.mask_tex.remove(&id);
         self.layer_index.remove(&id);
         self.array_dirty = true;
+        self.mask_dirty = true;
+    }
+
+    /// Allocate a white R8 mask for `id` (no-op if already present).
+    pub fn ensure_mask(&mut self, ctx: &GpuContext, id: LayerId) {
+        if self.mask_tex.contains_key(&id) {
+            return;
+        }
+        let size = DocumentSize::new(self.width, self.height);
+        self.mask_tex.insert(id, LayerMaskChannel::new(ctx, size));
+        self.mask_dirty = true;
+    }
+
+    pub fn remove_mask(&mut self, id: LayerId) {
+        if self.mask_tex.remove(&id).is_some() {
+            self.mask_dirty = true;
+        }
+    }
+
+    pub fn mask_channel(&self, id: LayerId) -> Option<&LayerMaskChannel> {
+        self.mask_tex.get(&id)
+    }
+
+    pub fn mask_channel_mut(&mut self, id: LayerId) -> Option<&mut LayerMaskChannel> {
+        self.mask_tex.get_mut(&id)
+    }
+
+    pub fn mask_texture(&self, id: LayerId) -> Option<&wgpu::Texture> {
+        self.mask_tex.get(&id).map(LayerMaskChannel::texture)
     }
 
     pub fn sync_layers_from_graph(
@@ -340,6 +441,17 @@ impl LayerCompositeEngine {
         }
         let ids: std::collections::HashSet<_> = layers.iter().map(|l| l.id).collect();
         self.layer_tex.retain(|id, _| ids.contains(id));
+        // Drop GPU masks when graph metadata no longer has a mask.
+        let masked: std::collections::HashSet<_> = layers
+            .iter()
+            .filter(|l| l.mask.is_some())
+            .map(|l| l.id)
+            .collect();
+        let before = self.mask_tex.len();
+        self.mask_tex.retain(|id, _| masked.contains(id));
+        if self.mask_tex.len() != before {
+            self.mask_dirty = true;
+        }
         const PALETTE: [[f32; 4]; 8] = [
             [0.15, 0.16, 0.20, 1.0],
             [0.25, 0.45, 0.85, 0.85],
@@ -353,18 +465,25 @@ impl LayerCompositeEngine {
         for (i, layer) in layers.iter().enumerate() {
             let color = PALETTE[i % PALETTE.len()];
             self.ensure_layer(ctx, layer.id, color);
+            if layer.mask.is_some() {
+                self.ensure_mask(ctx, layer.id);
+            }
         }
         let new_order: Vec<LayerId> = layers.iter().map(|l| l.id).collect();
         if new_order != self.stack_order {
             self.stack_order = new_order;
             self.array_dirty = true;
+            self.mask_dirty = true;
             self.dirty_slices.clear();
+            self.dirty_mask_slices.clear();
         }
         Ok(())
     }
 
     fn repack_array_if_needed(&mut self, ctx: &GpuContext) -> Result<(), String> {
-        if !self.array_dirty && self.dirty_slices.is_empty() {
+        let layers_need = self.array_dirty || !self.dirty_slices.is_empty();
+        let masks_need = self.mask_dirty || !self.dirty_mask_slices.is_empty();
+        if !layers_need && !masks_need && self.bind_group.is_some() {
             return Ok(());
         }
 
@@ -380,28 +499,13 @@ impl LayerCompositeEngine {
                 let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
                 self.layer_index.insert(*id, slice);
                 if let Some(src) = self.layer_tex.get(id) {
-                    encoder.copy_texture_to_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: src,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &self.array_tex,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d {
-                                x: 0,
-                                y: 0,
-                                z: slice,
-                            },
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::Extent3d {
-                            width: self.width,
-                            height: self.height,
-                            depth_or_array_layers: 1,
-                        },
+                    copy_slice_2d(
+                        &mut encoder,
+                        src,
+                        &self.array_tex,
+                        slice,
+                        self.width,
+                        self.height,
                     );
                 }
             }
@@ -411,30 +515,53 @@ impl LayerCompositeEngine {
                     continue;
                 };
                 if let Some(src) = self.layer_tex.get(&id) {
-                    encoder.copy_texture_to_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: src,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &self.array_tex,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d {
-                                x: 0,
-                                y: 0,
-                                z: slice,
-                            },
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::Extent3d {
-                            width: self.width,
-                            height: self.height,
-                            depth_or_array_layers: 1,
-                        },
+                    copy_slice_2d(
+                        &mut encoder,
+                        src,
+                        &self.array_tex,
+                        slice,
+                        self.width,
+                        self.height,
                     );
                 }
+            }
+        }
+
+        if self.mask_dirty {
+            for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
+                let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
+                let src = self
+                    .mask_tex
+                    .get(id)
+                    .map(LayerMaskChannel::texture)
+                    .unwrap_or(&self.mask_white);
+                copy_slice_2d(
+                    &mut encoder,
+                    src,
+                    &self.mask_array_tex,
+                    slice,
+                    self.width,
+                    self.height,
+                );
+            }
+        } else {
+            for &slice in &self.dirty_mask_slices {
+                let Some(id) = self.stack_order.get(slice as usize).copied() else {
+                    continue;
+                };
+                let src = self
+                    .mask_tex
+                    .get(&id)
+                    .map(LayerMaskChannel::texture)
+                    .unwrap_or(&self.mask_white);
+                copy_slice_2d(
+                    &mut encoder,
+                    src,
+                    &self.mask_array_tex,
+                    slice,
+                    self.width,
+                    self.height,
+                );
             }
         }
 
@@ -443,13 +570,21 @@ impl LayerCompositeEngine {
             .poll(wgpu::PollType::wait_indefinitely())
             .map_err(|error| format!("GPU poll failed during array repack: {error:?}"))?;
 
-        if self.array_dirty || self.bind_group.is_none() {
+        if self.array_dirty || self.mask_dirty || self.bind_group.is_none() {
             let array_view = self.array_tex.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("array-view"),
                 format: None,
                 dimension: Some(wgpu::TextureViewDimension::D2Array),
                 ..Default::default()
             });
+            let mask_view = self
+                .mask_array_tex
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("mask-array-view"),
+                    format: None,
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                });
             self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("composite-bg"),
                 layout: &self.bind_layout,
@@ -464,13 +599,19 @@ impl LayerCompositeEngine {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&mask_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
                         resource: self.uniform_buf.as_entire_binding(),
                     },
                 ],
             }));
         }
         self.array_dirty = false;
+        self.mask_dirty = false;
         self.dirty_slices.clear();
+        self.dirty_mask_slices.clear();
         Ok(())
     }
 
@@ -495,15 +636,19 @@ impl LayerCompositeEngine {
                 opacity: 0.0,
                 mode: 0,
                 visible: 0,
-                _pad0: 0,
+                has_mask: 0,
                 a: 1.0,
                 b: 0.0,
                 c: 0.0,
                 d: 1.0,
                 tx: 0.0,
                 ty: 0.0,
-                _pad1: 0.0,
-                _pad2: 0.0,
+                mask_enabled: 0,
+                mask_inverted: 0,
+                clips_to_below: 0,
+                _pad1: 0,
+                _pad2: 0,
+                _pad3: 0,
             }; MAX_LAYERS],
         };
 
@@ -511,19 +656,29 @@ impl LayerCompositeEngine {
             let _ = self.layer_index.get(&layer.id);
             let (a, b, c, d, tx, ty) =
                 inverse_affine_coeffs(layer.transform, self.width, self.height);
+            let (has_mask, mask_enabled, mask_inverted) = match &layer.mask {
+                Some(m) if self.mask_tex.contains_key(&layer.id) => {
+                    (1u32, u32::from(m.enabled), u32::from(m.inverted))
+                }
+                _ => (0, 0, 0),
+            };
             uniforms.layers[i] = LayerParamsGpu {
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 mode: layer.blend.as_u32(),
                 visible: u32::from(layer.visible),
-                _pad0: 0,
+                has_mask,
                 a,
                 b,
                 c,
                 d,
                 tx,
                 ty,
-                _pad1: 0.0,
-                _pad2: 0.0,
+                mask_enabled,
+                mask_inverted,
+                clips_to_below: u32::from(layer.clips_to_below),
+                _pad1: 0,
+                _pad2: 0,
+                _pad3: 0,
             };
         }
 
@@ -760,6 +915,61 @@ impl LayerCompositeEngine {
         }
     }
 
+    /// After painting into a mask texture, mark only that mask array slice dirty.
+    pub fn mark_mask_painted(&mut self, id: LayerId) {
+        if let Some(&slice) = self.layer_index.get(&id) {
+            if !self.dirty_mask_slices.contains(&slice) {
+                self.dirty_mask_slices.push(slice);
+            }
+        } else if self.mask_tex.contains_key(&id) {
+            self.mask_dirty = true;
+        }
+    }
+
+    /// Replace one layer mask with tightly packed R8 pixels.
+    ///
+    /// # Errors
+    /// Returns an error when the layer has no mask or length mismatches.
+    pub fn write_mask_r8(
+        &mut self,
+        ctx: &GpuContext,
+        id: LayerId,
+        pixels: &[u8],
+    ) -> Result<(), String> {
+        self.ensure_mask(ctx, id);
+        let mask = self
+            .mask_tex
+            .get_mut(&id)
+            .ok_or_else(|| "mask channel missing after ensure".to_owned())?;
+        mask.write_r8(ctx, pixels)?;
+        self.mask_dirty = true;
+        Ok(())
+    }
+
+    /// Read one layer mask into tightly packed R8 host memory.
+    ///
+    /// # Errors
+    /// Returns an error when the mask is missing or GPU readback fails.
+    pub fn read_mask_r8(&self, id: LayerId) -> Result<Vec<u8>, String> {
+        let mask = self
+            .mask_tex
+            .get(&id)
+            .ok_or_else(|| "mask channel not found".to_owned())?;
+        Ok(mask.cpu().to_vec())
+    }
+
+    /// Download mask CPU mirror from GPU (after paint before save).
+    ///
+    /// # Errors
+    /// Returns an error when readback fails.
+    pub fn sync_mask_cpu_from_gpu(&mut self, ctx: &GpuContext, id: LayerId) -> Result<(), String> {
+        let mask = self
+            .mask_tex
+            .get_mut(&id)
+            .ok_or_else(|| "mask channel not found".to_owned())?;
+        mask.download_from_gpu(ctx)
+    }
+
     /// GPU copy of a layer texture (for stroke undo).
     pub fn clone_layer_texture(&self, ctx: &GpuContext, id: LayerId) -> Option<wgpu::Texture> {
         let src = self.layer_tex.get(&id)?;
@@ -824,6 +1034,107 @@ impl LayerCompositeEngine {
         ctx.queue.submit(Some(encoder.finish()));
         self.array_dirty = true;
     }
+
+    /// GPU copy of a mask texture (for stroke undo).
+    pub fn clone_mask_texture(&self, ctx: &GpuContext, id: LayerId) -> Option<wgpu::Texture> {
+        let src = self.mask_tex.get(&id)?.texture();
+        let dst = make_r8_empty(ctx, self.width, self.height, "mask-undo-bak");
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("clone-mask"),
+            });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: src,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &dst,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        ctx.queue.submit(Some(encoder.finish()));
+        Some(dst)
+    }
+
+    /// Restore mask from backup texture.
+    pub fn restore_mask_texture(&mut self, ctx: &GpuContext, id: LayerId, backup: &wgpu::Texture) {
+        if !self.mask_tex.contains_key(&id) {
+            return;
+        }
+        {
+            let dst = self.mask_tex[&id].texture();
+            let mut encoder = ctx
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("restore-mask"),
+                });
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: backup,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: dst,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            ctx.queue.submit(Some(encoder.finish()));
+        }
+        self.mask_dirty = true;
+    }
+}
+
+fn copy_slice_2d(
+    encoder: &mut wgpu::CommandEncoder,
+    src: &wgpu::Texture,
+    dst_array: &wgpu::Texture,
+    slice: u32,
+    width: u32,
+    height: u32,
+) {
+    encoder.copy_texture_to_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: src,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyTextureInfo {
+            texture: dst_array,
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: 0,
+                y: 0,
+                z: slice,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 fn rgba_byte_len(width: u32, height: u32) -> Result<usize, TextureTransferError> {
@@ -852,6 +1163,51 @@ fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
             | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     })
+}
+
+fn make_r8_empty(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
+    ctx.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: w.max(1),
+            height: h.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
+}
+
+fn make_r8_filled(ctx: &GpuContext, w: u32, h: u32, value: u8, label: &str) -> wgpu::Texture {
+    let tex = make_r8_empty(ctx, w, h, label);
+    let pixels = vec![value; (w.max(1) as usize) * (h.max(1) as usize)];
+    ctx.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &pixels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(w.max(1)),
+            rows_per_image: Some(h.max(1)),
+        },
+        wgpu::Extent3d {
+            width: w.max(1),
+            height: h.max(1),
+            depth_or_array_layers: 1,
+        },
+    );
+    tex
 }
 
 /// Run the ADR-008 gate: 10 layers at 4K, return composite time ms.
@@ -975,6 +1331,31 @@ mod tests {
         let readback = engine.read_result_rgba(&ctx).expect("read composite");
 
         assert_eq!(readback, pixels);
+    }
+
+    #[test]
+    fn mask_multiply_hides_layer_pixels() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        let size = DocumentSize::new(2, 1);
+        let mut graph = DocumentGraph::new(size);
+        // Single opaque layer so composite equals layer*mask.
+        let keep = graph.layers()[0].id;
+        let drop_id = graph.layers()[1].id;
+        graph.remove_layer(drop_id);
+        graph.set_mask(keep, Some(Default::default()));
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        eng.write_layer_rgba(&ctx, keep, &[255, 0, 0, 255, 255, 0, 0, 255])
+            .expect("layer");
+        // Left pixel hidden, right revealed.
+        eng.write_mask_r8(&ctx, keep, &[0, 255]).expect("mask");
+        eng.composite(&ctx, graph.layers()).expect("composite");
+        let out = eng.read_result_rgba(&ctx).expect("readback");
+        assert_eq!(&out[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&out[4..8], &[255, 0, 0, 255]);
     }
 
     #[test]

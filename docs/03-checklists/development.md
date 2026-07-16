@@ -168,10 +168,10 @@ Work remaining to close the production feature bar. Prefer vertical slices; amen
 
 ### Masks
 
-- [~] Layer mask (create + graph field)
+- [x] Layer mask (R8 GPU channel, paint target, composite multiply, `.ptx` round-trip)
 - [ ] Vector mask
-- [ ] Clipping mask
-- [ ] Disable / Apply / Delete mask
+- [x] Clipping mask (`clips_to_below` in composite)
+- [x] Disable / Delete mask (Apply / bake TBD)
 - [ ] Refine Mask
 
 ---
@@ -404,7 +404,7 @@ Order is guidance, not locked ADR:
 
 1. ~~**Selection polish**~~ — **shipped 2026-07-16** (rect/ellipse, GPU mask, ants, combine, undo)
 2. ~~**Transform chrome**~~ — **shipped 2026-07-16** (crop, free transform, flip, rotate 90°)
-3. **Mask paint + clipping** — usable layer masks end-to-end
+3. ~~**Mask paint + clipping**~~ — **shipped 2026-07-16** (R8 paint, composite, clip, `.ptx`)
 4. **Lasso + GPU edge ants** — freehand/polygonal; irregular outline overlay
 5. **PSD depth** — channel decompress, layered import fidelity, subset export
 6. **Adjustment/filter GPU** — ship Brightness/Levels/Gaussian first

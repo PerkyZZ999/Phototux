@@ -1,19 +1,21 @@
 //! Document-scoped GPU composite + brush paint (Phase 3–4).
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use phototux_engine::{
-    BrushParams, CropRect, Dab, DocumentSize, Layer, LayerId, LayerTransform, SelectionCombine,
-    SelectionRect,
+    BrushParams, CropRect, Dab, DocumentSize, Layer, LayerId, LayerTransform, PaintTarget,
+    SelectionCombine, SelectionRect,
 };
 use phototux_gpu::{
-    BrushStamper, GpuContext, LayerCompositeEngine, SelectionMask, StampRequest, bake_affine_rgba,
-    crop_rgba, flip_rgba, rotate_rgba_90_cw,
+    BrushStamper, GpuContext, LayerCompositeEngine, MaskStamper, SelectionMask, StampRequest,
+    bake_affine_rgba, crop_rgba, flip_rgba, rotate_rgba_90_cw,
 };
 
 struct StrokeBackup {
     layer: LayerId,
+    target: PaintTarget,
     texture: wgpu::Texture,
 }
 
@@ -21,6 +23,7 @@ struct DocGpu {
     ctx: Arc<GpuContext>,
     engine: LayerCompositeEngine,
     stamper: BrushStamper,
+    mask_stamper: MaskStamper,
     selection: SelectionMask,
     stroke_backup: Option<StrokeBackup>,
     stroke_undo: Vec<StrokeBackup>,
@@ -73,12 +76,14 @@ pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String
     let ms = engine.composite(&ctx, layers)?;
     publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
         engine,
         stamper,
+        mask_stamper,
         selection,
         stroke_backup: None,
         stroke_undo: Vec::new(),
@@ -109,12 +114,14 @@ pub fn open_raster_document(
     let ms = engine.composite(&ctx, layers)?;
     publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
     let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
     *guard = Some(DocGpu {
         ctx,
         engine,
         stamper,
+        mask_stamper,
         selection,
         stroke_backup: None,
         stroke_undo: Vec::new(),
@@ -184,6 +191,62 @@ pub fn read_all_layer_rgba() -> Result<Vec<LayerRgbaSnapshot>, String> {
     Ok(out)
 }
 
+/// R8 pixels keyed by layer for all graph-backed layer masks.
+pub type LayerMaskR8 = HashMap<LayerId, Vec<u8>>;
+
+/// Read all graph-backed layer masks into tightly packed R8 host memory.
+///
+/// # Errors
+/// Returns an error when no document is open or a graph-backed mask is missing.
+pub fn read_all_mask_r8() -> Result<LayerMaskR8, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    let mut masks = HashMap::new();
+    let masked: Vec<LayerId> = doc
+        .layers_meta
+        .iter()
+        .filter(|layer| layer.mask.is_some())
+        .map(|layer| layer.id)
+        .collect();
+    for id in masked {
+        doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, id)?;
+        let pixels = doc.engine.read_mask_r8(id)?;
+        masks.insert(id, pixels);
+    }
+    Ok(masks)
+}
+
+/// Ensure a white R8 mask texture exists for `id`.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn ensure_mask(id: LayerId) -> Result<(), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.engine.ensure_mask(&doc.ctx, id);
+    Ok(())
+}
+
+/// Drop the GPU mask texture for `id`.
+///
+/// # Errors
+/// Returns an error when no document is open.
+pub fn remove_mask(id: LayerId) -> Result<(), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.engine.remove_mask(id);
+    Ok(())
+}
+
 /// Upload RGBA8 pixels into an existing layer texture after a `.ptx` open.
 ///
 /// # Errors
@@ -196,6 +259,31 @@ pub fn write_layer_rgba(id: LayerId, pixels: &[u8]) -> Result<(), String> {
         .ok_or_else(|| "no document GPU state".to_owned())?;
     doc.engine
         .write_layer_rgba(&doc.ctx, id, pixels)
+        .map_err(|error| error.to_string())?;
+    with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+    publish_result(&doc.engine)?;
+    Ok(())
+}
+
+/// Upload tightly packed R8 pixels into an existing graph-backed layer mask.
+///
+/// # Errors
+/// Returns an error when no document or graph-backed mask is open, or the upload fails.
+pub fn write_mask_r8(id: LayerId, pixels: &[u8]) -> Result<(), String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    if !doc
+        .layers_meta
+        .iter()
+        .any(|layer| layer.id == id && layer.mask.is_some())
+    {
+        return Err("layer mask metadata missing".to_owned());
+    }
+    doc.engine
+        .write_mask_r8(&doc.ctx, id, pixels)
         .map_err(|error| error.to_string())?;
     with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
     publish_result(&doc.engine)?;
@@ -348,12 +436,14 @@ fn install_document(
     let ms = engine.composite(&ctx, layers)?;
     publish_result(&engine)?;
     let stamper = BrushStamper::new(&ctx, size.width, size.height);
+    let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
         engine,
         stamper,
+        mask_stamper,
         selection,
         stroke_backup: None,
         stroke_undo: Vec::new(),
@@ -515,34 +605,42 @@ pub fn close_document() {
     }
 }
 
-/// Begin stroke: snapshot active layer for undo.
+/// Begin a stroke and snapshot its paint target for undo.
 ///
 /// # Errors
-/// Returns an error when no document/layer texture is available.
-pub fn begin_stroke(layer: LayerId) -> Result<(), String> {
+/// Returns an error when no document or paint target texture is available.
+pub fn begin_stroke(layer: LayerId, target: PaintTarget) -> Result<(), String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
-    let bak = doc
-        .engine
-        .clone_layer_texture(&doc.ctx, layer)
-        .ok_or_else(|| "missing layer texture".to_owned())?;
+    let bak = match target {
+        PaintTarget::LayerPixels => doc
+            .engine
+            .clone_layer_texture(&doc.ctx, layer)
+            .ok_or_else(|| "missing layer texture".to_owned())?,
+        PaintTarget::LayerMask => doc
+            .engine
+            .clone_mask_texture(&doc.ctx, layer)
+            .ok_or_else(|| "missing layer mask texture".to_owned())?,
+    };
     doc.stroke_backup = Some(StrokeBackup {
         layer,
+        target,
         texture: bak,
     });
     doc.stroke_redo.clear();
     Ok(())
 }
 
-/// Stamp dabs into the active layer. `t0_ms` is input timestamp for first dab latency.
+/// Stamp dabs into the active paint target. `t0_ms` is input timestamp for first dab latency.
 ///
 /// # Errors
 /// Returns an error when no document is open, stamping fails, or composite/export fails.
 pub fn stamp_dabs(
     layer: LayerId,
+    target: PaintTarget,
     dabs: &[Dab],
     params: BrushParams,
     t0_ms: Option<f64>,
@@ -559,15 +657,27 @@ pub fn stamp_dabs(
         let requests: Vec<StampRequest> = dabs
             .iter()
             .copied()
-            .map(|dab| StampRequest::from_dab(dab, params))
+            .map(|dab| match target {
+                PaintTarget::LayerPixels => StampRequest::from_dab(dab, params),
+                PaintTarget::LayerMask => StampRequest::from_dab_mask(dab, params),
+            })
             .collect();
-        {
-            let Some(tex) = doc.engine.layer_texture(layer) else {
-                return Err("layer texture missing".into());
-            };
-            doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
+        match target {
+            PaintTarget::LayerPixels => {
+                let Some(tex) = doc.engine.layer_texture(layer) else {
+                    return Err("layer texture missing".into());
+                };
+                doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
+                doc.engine.mark_layer_painted(layer);
+            }
+            PaintTarget::LayerMask => {
+                let Some(tex) = doc.engine.mask_texture(layer) else {
+                    return Err("layer mask texture missing".into());
+                };
+                doc.mask_stamper.stamp_batch(&doc.ctx, tex, &requests);
+                doc.engine.mark_mask_painted(layer);
+            }
         }
-        doc.engine.mark_layer_painted(layer);
     }
 
     if recomposite {
@@ -607,6 +717,13 @@ pub fn end_stroke() -> Result<(), String> {
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
+    let mask_layer = doc
+        .stroke_backup
+        .as_ref()
+        .and_then(|backup| (backup.target == PaintTarget::LayerMask).then_some(backup.layer));
+    if let Some(layer) = mask_layer {
+        doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, layer)?;
+    }
     if let Some(bak) = doc.stroke_backup.take() {
         doc.stroke_undo.push(bak);
         if doc.stroke_undo.len() > 64 {
@@ -647,16 +764,32 @@ pub fn undo_stroke() -> Result<f32, String> {
     let Some(prev) = doc.stroke_undo.pop() else {
         return Err("no stroke undo".into());
     };
-    let cur = doc
-        .engine
-        .clone_layer_texture(&doc.ctx, prev.layer)
-        .ok_or_else(|| "failed to snapshot layer for redo".to_owned())?;
+    let cur = match prev.target {
+        PaintTarget::LayerPixels => doc
+            .engine
+            .clone_layer_texture(&doc.ctx, prev.layer)
+            .ok_or_else(|| "failed to snapshot layer for redo".to_owned())?,
+        PaintTarget::LayerMask => doc
+            .engine
+            .clone_mask_texture(&doc.ctx, prev.layer)
+            .ok_or_else(|| "failed to snapshot layer mask for redo".to_owned())?,
+    };
     doc.stroke_redo.push(StrokeBackup {
         layer: prev.layer,
+        target: prev.target,
         texture: cur,
     });
-    doc.engine
-        .restore_layer_texture(&doc.ctx, prev.layer, &prev.texture);
+    match prev.target {
+        PaintTarget::LayerPixels => {
+            doc.engine
+                .restore_layer_texture(&doc.ctx, prev.layer, &prev.texture);
+        }
+        PaintTarget::LayerMask => {
+            doc.engine
+                .restore_mask_texture(&doc.ctx, prev.layer, &prev.texture);
+            doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, prev.layer)?;
+        }
+    }
     let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
     publish_result(&doc.engine)?;
     Ok(ms)
@@ -675,16 +808,32 @@ pub fn redo_stroke() -> Result<f32, String> {
     let Some(next) = doc.stroke_redo.pop() else {
         return Err("no stroke redo".into());
     };
-    let cur = doc
-        .engine
-        .clone_layer_texture(&doc.ctx, next.layer)
-        .ok_or_else(|| "failed to snapshot layer for undo".to_owned())?;
+    let cur = match next.target {
+        PaintTarget::LayerPixels => doc
+            .engine
+            .clone_layer_texture(&doc.ctx, next.layer)
+            .ok_or_else(|| "failed to snapshot layer for undo".to_owned())?,
+        PaintTarget::LayerMask => doc
+            .engine
+            .clone_mask_texture(&doc.ctx, next.layer)
+            .ok_or_else(|| "failed to snapshot layer mask for undo".to_owned())?,
+    };
     doc.stroke_undo.push(StrokeBackup {
         layer: next.layer,
+        target: next.target,
         texture: cur,
     });
-    doc.engine
-        .restore_layer_texture(&doc.ctx, next.layer, &next.texture);
+    match next.target {
+        PaintTarget::LayerPixels => {
+            doc.engine
+                .restore_layer_texture(&doc.ctx, next.layer, &next.texture);
+        }
+        PaintTarget::LayerMask => {
+            doc.engine
+                .restore_mask_texture(&doc.ctx, next.layer, &next.texture);
+            doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, next.layer)?;
+        }
+    }
     let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
     publish_result(&doc.engine)?;
     Ok(ms)

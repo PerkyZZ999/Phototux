@@ -278,6 +278,14 @@ pub enum FilterParams {
     Offset { x: i32, y: i32 },
 }
 
+/// Where brush/eraser strokes apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PaintTarget {
+    #[default]
+    LayerPixels,
+    LayerMask,
+}
+
 /// One layer in the ordered / hierarchical graph (metadata; pixels on GPU).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
@@ -292,6 +300,9 @@ pub struct Layer {
     pub parent: Option<LayerId>,
     pub transform: LayerTransform,
     pub mask: Option<LayerMask>,
+    /// Photoshop-style clip to the nearest non-clipping layer below.
+    #[serde(default)]
+    pub clips_to_below: bool,
     pub label_color: u8,
     pub text: Option<TextContent>,
     pub adjustment: Option<AdjustmentParams>,
@@ -314,6 +325,7 @@ impl Layer {
             parent: None,
             transform: LayerTransform::default(),
             mask: None,
+            clips_to_below: false,
             label_color: 0,
             text: None,
             adjustment: None,
@@ -360,6 +372,15 @@ impl Layer {
 
     pub fn paint_blocked(&self) -> bool {
         self.locked || self.locks.all || self.locks.pixels || self.kind != LayerKind::Raster
+    }
+
+    /// `0` = no mask, `1` = mask enabled, `2` = mask disabled.
+    pub fn mask_flag(&self) -> u8 {
+        match &self.mask {
+            None => 0,
+            Some(m) if m.enabled => 1,
+            Some(_) => 2,
+        }
     }
 }
 

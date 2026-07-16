@@ -3,12 +3,15 @@
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 
-use phototux_engine::{BrushParams, EngineCommand, EngineEvent, LayerId, StrokeBuilder};
+use phototux_engine::{
+    BrushParams, EngineCommand, EngineEvent, LayerId, PaintTarget, StrokeBuilder,
+};
 
 struct WorkerState {
     brush: BrushParams,
     stroke: Option<StrokeBuilder>,
     layer: Option<LayerId>,
+    target: Option<PaintTarget>,
     first_input_ms: Option<f64>,
     dabs_since_composite: u32,
 }
@@ -96,6 +99,7 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
         brush: BrushParams::default(),
         stroke: None,
         layer: None,
+        target: None,
         first_input_ms: None,
         dabs_since_composite: 0,
     };
@@ -111,16 +115,18 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
             }
             EngineCommand::BeginStroke {
                 layer,
+                target,
                 x,
                 y,
                 pressure,
                 t_ms,
             } => {
-                if let Err(e) = super::document_gpu::begin_stroke(layer) {
+                if let Err(e) = super::document_gpu::begin_stroke(layer, target) {
                     let _ = tx_ev.send(EngineEvent::Error(e));
                     continue;
                 }
                 st.layer = Some(layer);
+                st.target = Some(target);
                 st.first_input_ms = Some(t_ms);
                 st.dabs_since_composite = 0;
                 let mut builder = StrokeBuilder::new(st.brush);
@@ -150,9 +156,9 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                     builder.end();
                 }
                 st.stroke = None;
-                if let Some(layer) = st.layer {
+                if let (Some(layer), Some(target)) = (st.layer, st.target) {
                     if let Err(e) =
-                        super::document_gpu::stamp_dabs(layer, &[], st.brush, None, true)
+                        super::document_gpu::stamp_dabs(layer, target, &[], st.brush, None, true)
                     {
                         let _ = tx_ev.send(EngineEvent::Error(e));
                     }
@@ -168,6 +174,7 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                 }
                 let _ = tx_ev.send(EngineEvent::StrokeEnded);
                 st.layer = None;
+                st.target = None;
                 st.first_input_ms = None;
                 st.dabs_since_composite = 0;
             }
@@ -184,6 +191,9 @@ fn apply_dabs(
     let Some(layer) = st.layer else {
         return;
     };
+    let Some(target) = st.target else {
+        return;
+    };
     st.dabs_since_composite += dabs.len() as u32;
     // Coalesce: composite every few dabs for latency/FPS balance
     let recomposite = force_composite || st.dabs_since_composite >= 4;
@@ -192,7 +202,7 @@ fn apply_dabs(
     } else {
         None
     };
-    match super::document_gpu::stamp_dabs(layer, dabs, st.brush, t0, recomposite) {
+    match super::document_gpu::stamp_dabs(layer, target, dabs, st.brush, t0, recomposite) {
         Ok(ms) => {
             if recomposite {
                 st.dabs_since_composite = 0;

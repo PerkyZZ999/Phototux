@@ -26,6 +26,11 @@ pub struct PtxManifest {
     pub format_version: u32,
     pub graph: DocumentGraph,
     pub active_layer: Option<u64>,
+    /// Layer id → distinct asset id for its mask PNG.
+    ///
+    /// Older manifests omit this field and therefore load without masks.
+    #[serde(default)]
+    pub mask_asset_ids: HashMap<u64, u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +38,11 @@ pub struct PtxDocument {
     pub manifest: PtxManifest,
     /// Layer id → RGBA8 raster (full document size).
     pub rasters: HashMap<u64, Raster>,
+    /// Layer id → grayscale mask stored as RGBA8 (`R = G = B`, `A = 255`).
+    ///
+    /// Mask assets use the same PNG path as layer rasters to retain the
+    /// existing normalized [`Raster`] representation.
+    pub masks: HashMap<u64, Raster>,
 }
 
 #[derive(Debug, Error)]
@@ -61,8 +71,10 @@ impl PtxDocument {
                 format_version: PTX_FORMAT_VERSION,
                 graph,
                 active_layer,
+                mask_asset_ids: HashMap::new(),
             },
             rasters,
+            masks: HashMap::new(),
         }
     }
 
@@ -76,6 +88,14 @@ impl PtxDocument {
         }
         (self.manifest.graph, self.rasters)
     }
+
+    /// Consume into graph, layer rasters, and layer masks.
+    pub fn into_parts(mut self) -> (DocumentGraph, HashMap<u64, Raster>, HashMap<u64, Raster>) {
+        if let Some(id) = self.manifest.active_layer {
+            let _ = self.manifest.graph.set_active(LayerId(id));
+        }
+        (self.manifest.graph, self.rasters, self.masks)
+    }
 }
 
 /// Encode a document to bytes (deflate JSON + PNG assets + CRC).
@@ -83,7 +103,9 @@ impl PtxDocument {
 /// # Errors
 /// Returns [`PtxError`] on encode failures.
 pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
-    let manifest_json = serde_json::to_vec(&doc.manifest)?;
+    let mut manifest = doc.manifest.clone();
+    manifest.mask_asset_ids = allocate_mask_asset_ids(&doc.rasters, &doc.masks)?;
+    let manifest_json = serde_json::to_vec(&manifest)?;
     let mut manifest_z = Vec::new();
     {
         let mut enc = DeflateEncoder::new(&mut manifest_z, Compression::default());
@@ -91,19 +113,21 @@ pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
         enc.finish()?;
     }
 
-    let mut assets: Vec<(u64, Vec<u8>)> = Vec::with_capacity(doc.rasters.len());
+    let mut assets: Vec<(u64, Vec<u8>)> = Vec::with_capacity(doc.rasters.len() + doc.masks.len());
     let mut png = Vec::new();
     let mut z = Vec::new();
     for (id, raster) in &doc.rasters {
-        png.clear();
-        z.clear();
-        encode(&mut png, raster, RasterFormat::Png)?;
-        {
-            let mut enc = DeflateEncoder::new(&mut z, Compression::default());
-            enc.write_all(&png)?;
-            enc.finish()?;
-        }
+        encode_png_asset(&mut png, &mut z, raster)?;
         assets.push((*id, std::mem::take(&mut z)));
+    }
+    for (layer_id, mask) in &doc.masks {
+        let asset_id = manifest
+            .mask_asset_ids
+            .get(layer_id)
+            .ok_or_else(|| PtxError::Corrupt("missing mask asset id".into()))?;
+        let mask = normalize_mask(mask)?;
+        encode_png_asset(&mut png, &mut z, &mask)?;
+        assets.push((*asset_id, std::mem::take(&mut z)));
     }
     assets.sort_by_key(|(id, _)| *id);
 
@@ -163,21 +187,36 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
     let mut manifest: PtxManifest = serde_json::from_slice(&manifest_json)?;
 
     let asset_count = read_u32(body, &mut cursor)? as usize;
-    let mut rasters = HashMap::with_capacity(asset_count);
+    let mut assets = HashMap::with_capacity(asset_count);
     for _ in 0..asset_count {
         let id = read_u64(body, &mut cursor)?;
         let len = read_u32(body, &mut cursor)? as usize;
         let z = read_slice(body, &mut cursor, len)?;
         let png = inflate(z)?;
         let raster = decode(std::io::Cursor::new(png))?;
-        rasters.insert(id, raster);
+        if assets.insert(id, raster).is_some() {
+            return Err(PtxError::Corrupt("duplicate asset id".into()));
+        }
     }
+
+    let mut masks = HashMap::with_capacity(manifest.mask_asset_ids.len());
+    for (layer_id, asset_id) in &manifest.mask_asset_ids {
+        let mask = assets
+            .remove(asset_id)
+            .ok_or_else(|| PtxError::Corrupt("missing mask asset".into()))?;
+        masks.insert(*layer_id, mask);
+    }
+    let rasters = assets;
 
     if let Some(active) = manifest.active_layer {
         let _ = manifest.graph.set_active(LayerId(active));
     }
 
-    Ok(PtxDocument { manifest, rasters })
+    Ok(PtxDocument {
+        manifest,
+        rasters,
+        masks,
+    })
 }
 
 /// Atomic save to path (temp sibling → rename).
@@ -219,6 +258,53 @@ fn inflate(data: &[u8]) -> Result<Vec<u8>, PtxError> {
     let mut out = Vec::new();
     dec.read_to_end(&mut out)?;
     Ok(out)
+}
+
+fn allocate_mask_asset_ids(
+    rasters: &HashMap<u64, Raster>,
+    masks: &HashMap<u64, Raster>,
+) -> Result<HashMap<u64, u64>, PtxError> {
+    let mut used_asset_ids: std::collections::HashSet<u64> = rasters.keys().copied().collect();
+    let mut layer_ids: Vec<u64> = masks.keys().copied().collect();
+    layer_ids.sort_unstable();
+
+    let mut asset_id = 0_u64;
+    let mut mask_asset_ids = HashMap::with_capacity(layer_ids.len());
+    for layer_id in layer_ids {
+        while used_asset_ids.contains(&asset_id) {
+            asset_id = asset_id
+                .checked_add(1)
+                .ok_or_else(|| PtxError::Corrupt("exhausted mask asset ids".into()))?;
+        }
+        mask_asset_ids.insert(layer_id, asset_id);
+        used_asset_ids.insert(asset_id);
+        asset_id = asset_id
+            .checked_add(1)
+            .ok_or_else(|| PtxError::Corrupt("exhausted mask asset ids".into()))?;
+    }
+    Ok(mask_asset_ids)
+}
+
+fn encode_png_asset(png: &mut Vec<u8>, z: &mut Vec<u8>, raster: &Raster) -> Result<(), PtxError> {
+    png.clear();
+    z.clear();
+    encode(&mut *png, raster, RasterFormat::Png)?;
+    let mut enc = DeflateEncoder::new(&mut *z, Compression::default());
+    enc.write_all(png)?;
+    enc.finish()?;
+    Ok(())
+}
+
+fn normalize_mask(mask: &Raster) -> Result<Raster, PtxError> {
+    let mut pixels = Vec::with_capacity(mask.pixels().len());
+    for rgba in mask.pixels().chunks_exact(4) {
+        pixels.extend_from_slice(&[rgba[0], rgba[0], rgba[0], 255]);
+    }
+    Ok(Raster::new(
+        mask.width(),
+        mask.height(),
+        pixels.into_boxed_slice(),
+    )?)
 }
 
 fn usize_as_u32(value: usize) -> Result<u32, PtxError> {
@@ -309,6 +395,40 @@ mod tests {
         assert_eq!(back.graph().layer_count(), graph.layer_count());
         assert_eq!(back.graph().layers()[0].name, graph.layers()[0].name);
         assert_eq!(back.rasters.get(&id), Some(&raster));
+    }
+
+    #[test]
+    fn ptx_mask_roundtrip_preserves_layered_pixels() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(2, 1));
+        let background_id = graph.layers()[0].id.0;
+        let id = graph.layers()[1].id.0;
+        graph.set_mask(LayerId(id), Some(Default::default()));
+        let background = Raster::new(2, 1, vec![5, 6, 7, 255, 8, 9, 10, 255].into_boxed_slice())
+            .expect("background raster");
+        let layer = Raster::new(
+            2,
+            1,
+            vec![10, 20, 30, 255, 200, 150, 100, 255].into_boxed_slice(),
+        )
+        .expect("layer raster");
+        let mask = Raster::new(
+            2,
+            1,
+            vec![32, 32, 32, 255, 220, 220, 220, 255].into_boxed_slice(),
+        )
+        .expect("mask raster");
+        let mut doc = PtxDocument::from_graph(
+            graph,
+            HashMap::from([(background_id, background.clone()), (id, layer.clone())]),
+        );
+        doc.masks.insert(id, mask.clone());
+
+        let bytes = encode_ptx(&doc).expect("encode");
+        let back = decode_ptx(&bytes).expect("decode");
+
+        assert_eq!(back.rasters.get(&background_id), Some(&background));
+        assert_eq!(back.rasters.get(&id), Some(&layer));
+        assert_eq!(back.masks.get(&id), Some(&mask));
     }
 
     #[test]
