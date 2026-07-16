@@ -289,9 +289,158 @@ impl SelectionState {
     }
 }
 
+/// Box-blur feather of an R8 selection mask (`radius` in pixels, 0 = no-op).
+///
+/// # Errors
+/// Returns an error when the buffer length does not match `width * height`.
+pub fn feather_mask_r8(
+    width: u32,
+    height: u32,
+    mask: &[u8],
+    radius: u32,
+) -> Result<Vec<u8>, String> {
+    let w = width as usize;
+    let h = height as usize;
+    let expected = w.checked_mul(h).ok_or_else(|| "overflow".to_owned())?;
+    if mask.len() != expected {
+        return Err(format!("mask length {} != expected {expected}", mask.len()));
+    }
+    if radius == 0 || w == 0 || h == 0 {
+        return Ok(mask.to_vec());
+    }
+    let r = radius as i32;
+    let mut out = vec![0_u8; expected];
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let mut sum = 0_u32;
+            let mut count = 0_u32;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let xx = x + dx;
+                    let yy = y + dy;
+                    if xx >= 0 && yy >= 0 && (xx as usize) < w && (yy as usize) < h {
+                        sum += u32::from(mask[yy as usize * w + xx as usize]);
+                        count += 1;
+                    }
+                }
+            }
+            out[y as usize * w + x as usize] = sum.checked_div(count).map(|v| v as u8).unwrap_or(0);
+        }
+    }
+    Ok(out)
+}
+
+/// Morphological expand (dilate) of an R8 selection mask.
+///
+/// # Errors
+/// Returns an error when the buffer length does not match `width * height`.
+pub fn expand_mask_r8(
+    width: u32,
+    height: u32,
+    mask: &[u8],
+    radius: u32,
+) -> Result<Vec<u8>, String> {
+    morph_mask_r8(width, height, mask, radius, true)
+}
+
+/// Morphological contract (erode) of an R8 selection mask.
+///
+/// # Errors
+/// Returns an error when the buffer length does not match `width * height`.
+pub fn contract_mask_r8(
+    width: u32,
+    height: u32,
+    mask: &[u8],
+    radius: u32,
+) -> Result<Vec<u8>, String> {
+    morph_mask_r8(width, height, mask, radius, false)
+}
+
+fn morph_mask_r8(
+    width: u32,
+    height: u32,
+    mask: &[u8],
+    radius: u32,
+    dilate: bool,
+) -> Result<Vec<u8>, String> {
+    let w = width as usize;
+    let h = height as usize;
+    let expected = w.checked_mul(h).ok_or_else(|| "overflow".to_owned())?;
+    if mask.len() != expected {
+        return Err(format!("mask length {} != expected {expected}", mask.len()));
+    }
+    if radius == 0 || w == 0 || h == 0 {
+        return Ok(mask.to_vec());
+    }
+    let r = radius as i32;
+    let mut out = vec![0_u8; expected];
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let mut best = if dilate { 0_u8 } else { 255_u8 };
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx * dx + dy * dy > r * r {
+                        continue;
+                    }
+                    let xx = x + dx;
+                    let yy = y + dy;
+                    if xx < 0 || yy < 0 || (xx as usize) >= w || (yy as usize) >= h {
+                        if !dilate {
+                            best = 0;
+                        }
+                        continue;
+                    }
+                    let v = mask[yy as usize * w + xx as usize];
+                    if dilate {
+                        best = best.max(v);
+                    } else {
+                        best = best.min(v);
+                    }
+                }
+            }
+            out[y as usize * w + x as usize] = best;
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feather_softens_edge() {
+        let w = 5_u32;
+        let h = 5_u32;
+        let mut mask = vec![0_u8; 25];
+        mask[12] = 255; // center
+        let out = feather_mask_r8(w, h, &mask, 1).expect("feather");
+        assert!(out[12] > 0);
+        assert!(out[12] < 255);
+        assert!(out[7] > 0); // neighbor
+    }
+
+    #[test]
+    fn expand_grows_selection() {
+        let w = 7_u32;
+        let h = 7_u32;
+        let mut mask = vec![0_u8; 49];
+        mask[24] = 255; // center
+        let out = expand_mask_r8(w, h, &mask, 1).expect("expand");
+        assert_eq!(out[24], 255);
+        assert_eq!(out[23], 255);
+        assert_eq!(out[17], 255);
+    }
+
+    #[test]
+    fn contract_shrinks_selection() {
+        let w = 5_u32;
+        let h = 5_u32;
+        let mask = vec![255_u8; 25];
+        let out = contract_mask_r8(w, h, &mask, 1).expect("contract");
+        assert_eq!(out[12], 255); // center remains
+        assert_eq!(out[0], 0); // corner eroded
+    }
 
     #[test]
     fn select_all_and_clear() {

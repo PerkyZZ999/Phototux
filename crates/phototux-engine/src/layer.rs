@@ -327,11 +327,30 @@ pub struct FilterEffect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FilterParams {
-    GaussianBlur { radius: f32 },
-    BoxBlur { radius: f32 },
-    Sharpen { amount: f32 },
+    GaussianBlur {
+        radius: f32,
+    },
+    BoxBlur {
+        radius: f32,
+    },
+    Sharpen {
+        amount: f32,
+    },
     Invert,
-    Offset { x: i32, y: i32 },
+    Offset {
+        x: i32,
+        y: i32,
+    },
+    /// Directional blur (wave 2).
+    MotionBlur {
+        distance: f32,
+        angle_deg: f32,
+    },
+    /// Emboss height-map style (wave 2).
+    Emboss {
+        strength: f32,
+        angle_deg: f32,
+    },
 }
 
 /// Maximum Gaussian/box blur radius accepted by the engine.
@@ -352,6 +371,20 @@ impl FilterParams {
             },
             Self::Invert => Self::Invert,
             Self::Offset { x, y } => Self::Offset { x, y },
+            Self::MotionBlur {
+                distance,
+                angle_deg,
+            } => Self::MotionBlur {
+                distance: distance.clamp(0.0, MAX_BLUR_RADIUS),
+                angle_deg: angle_deg.rem_euclid(360.0),
+            },
+            Self::Emboss {
+                strength,
+                angle_deg,
+            } => Self::Emboss {
+                strength: strength.clamp(0.0, 4.0),
+                angle_deg: angle_deg.rem_euclid(360.0),
+            },
         }
     }
 }
@@ -368,6 +401,38 @@ impl FilterEffect {
             params: FilterParams::GaussianBlur {
                 radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
             },
+        }
+    }
+
+    /// Create an enabled Motion Blur effect.
+    pub fn motion_blur(id: u64, distance: f32, angle_deg: f32) -> Self {
+        Self {
+            id,
+            name: "Motion Blur".into(),
+            enabled: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            params: FilterParams::MotionBlur {
+                distance,
+                angle_deg,
+            }
+            .clamped(),
+        }
+    }
+
+    /// Create an enabled Emboss effect.
+    pub fn emboss(id: u64, strength: f32, angle_deg: f32) -> Self {
+        Self {
+            id,
+            name: "Emboss".into(),
+            enabled: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            params: FilterParams::Emboss {
+                strength,
+                angle_deg,
+            }
+            .clamped(),
         }
     }
 }
@@ -401,6 +466,9 @@ pub struct Layer {
     pub text: Option<TextContent>,
     pub adjustment: Option<AdjustmentParams>,
     pub effects: Vec<FilterEffect>,
+    /// Nondestructive layer styles (shadow / stroke v1).
+    #[serde(default)]
+    pub styles: Vec<super::layer_style::LayerStyle>,
     /// Serialization key for raster bytes inside `.ptx` (e.g. `layer-3`).
     pub asset_key: Option<String>,
 }
@@ -424,6 +492,7 @@ impl Layer {
             text: None,
             adjustment: None,
             effects: Vec::new(),
+            styles: Vec::new(),
             asset_key: Some(format!("layer-{}", id.0)),
         }
     }

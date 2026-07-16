@@ -32,6 +32,7 @@ pub mod command_id {
 
     pub const DOCUMENT_NEW_PRESET: &str = "document.new-preset";
     pub const DOCUMENT_NEW_SIZE: &str = "document.new-size";
+    pub const DOCUMENT_ASSIGN_PROFILE: &str = "document.assign-profile";
 
     /// Built-in commands registered for discovery / headless tests.
     pub const ALL: &[&str] = &[
@@ -50,6 +51,7 @@ pub mod command_id {
         VIEW_SET_TOOL,
         DOCUMENT_NEW_PRESET,
         DOCUMENT_NEW_SIZE,
+        DOCUMENT_ASSIGN_PROFILE,
     ];
 }
 
@@ -67,6 +69,7 @@ pub enum CommandArgs {
     Tool { tool: String },
     NewPreset { label: String },
     NewSize { width: u32, height: u32 },
+    AssignProfile { profile: String },
 }
 
 /// Host-side follow-up for undo/redo entries that own GPU or selection stacks.
@@ -161,6 +164,7 @@ impl SessionState {
             command_id::VIEW_SET_TOOL => self.cmd_view_set_tool(args),
             command_id::DOCUMENT_NEW_PRESET => self.cmd_document_new_preset(args),
             command_id::DOCUMENT_NEW_SIZE => self.cmd_document_new_size(args),
+            command_id::DOCUMENT_ASSIGN_PROFILE => self.cmd_document_assign_profile(args),
             other => Err(CommandError::Unknown(other.to_owned())),
         }
     }
@@ -430,6 +434,32 @@ impl SessionState {
             sync_doc: true,
             host_history: None,
             generation: self.document_generation(),
+        })
+    }
+
+    fn cmd_document_assign_profile(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::AssignProfile { profile } = args else {
+            return Err(CommandError::InvalidArgument("expected profile"));
+        };
+        if profile.trim().is_empty() {
+            return Err(CommandError::InvalidArgument("empty profile"));
+        }
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        graph.color.assign_profile(profile);
+        graph.bump_generation();
+        Ok(CommandEffects {
+            recomposite: false,
+            dirty: true,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: true,
+            host_history: None,
+            generation: graph.generation,
         })
     }
 }

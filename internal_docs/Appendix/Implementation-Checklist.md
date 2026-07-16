@@ -50,25 +50,27 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 
 ## Phase 4 — Engine depth
 
-- [ ] CPU reference composite (test subset)
-- [ ] Text bake + Character chrome
-- [ ] Selection modify ops
-- [ ] Color assign / convert foundation
-- [ ] Paths engine + panel
-- [ ] Shape kind + tools (after graph amend)
-- [ ] Adjustment/filter wave 2
-- [ ] Layer styles v1
-- [ ] Guides / grid / rulers / snap
-- [ ] `.ptx` chunk/integrity evolution (compat)
+- [x] CPU reference composite (Normal/Multiply/Screen/… subset tests)
+- [x] Text bake (`bake_text_rgba8` + Layer → Bake Text); Character panel descriptor (chrome TBD)
+- [x] Selection modify: feather / expand / contract (CPU + Select menu)
+- [x] Color assign foundation (`document.assign-profile`; convert TBD)
+- [x] Paths engine + stroke-to-layer (`PathDocument`, Paths panel descriptor)
+- [!] Shape kind + tools (blocked on graph amend / DR-020)
+- [x] Adjustment/filter wave 2 (Motion Blur + Emboss params + Filter menu; GPU shaders stub keys)
+- [x] Layer styles v1 (Drop Shadow + Stroke metadata + CPU `apply_styles_rgba8`)
+- [~] Guides (prefs + View menu; grid/rulers/snap TBD)
+- [~] `.ptx` chunk/integrity evolution (compat — deferred with DR-026 evolve-in-place)
+
+**Phase 4 exit (v1):** shipped foundation slices above. Remaining: Character chrome UI, Shape kind, full GPU style/filter passes, `.ptx` integrity chunks.
 
 ---
 
-## Phase 5 — Gated
+## Phase 5 — Gated (no code until gates fire)
 
-- [!] Tiling / pyramid (evidence gate)
-- [!] Multi-document (amend DR-024)
-- [P] Plugin capability seams (after Phase 1; ABI deferred)
-- [P] History spill format
+- [!] Tiling / pyramid — large-doc benchmark evidence required
+- [!] Multi-document — explicit amend of DR-024 required
+- [P] Plugin capability seams (manifests only; ABI deferred)
+- [P] History spill / retention UX
 
 ---
 

@@ -93,7 +93,7 @@ Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR update
 | Charter / lifecycle / developer guide no longer “toolkit deferred” | No DR-008 Deferred for Qt |
 | This roadmap + gap analysis point here | Agents use one plan |
 
-**Status:** In progress with this document.
+**Status:** Complete (2026-07-16).
 
 ---
 
@@ -112,6 +112,8 @@ Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR update
 
 **Do not:** rename crates; rewrite brush hot path until router batching exists.
 
+**Status:** Complete (commit `8ad2f51`).
+
 ---
 
 ### Phase 2 — Document version + snapshot leases
@@ -126,6 +128,8 @@ Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR update
 | 2.4 | History entries reference transaction/generation | Timeline inspectable |
 
 **Do not:** full immutable pixel snapshots every stroke.
+
+**Status:** Complete (with Phase 1, commit `8ad2f51`).
 
 ---
 
@@ -142,6 +146,8 @@ Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR update
 | 3.5 | Workspace preset record (even if only Reset + Essentials) | Layout restore without doc history pollution |
 
 **Do not:** full tear-off docking in first pass; topology model may precede drag UX.
+
+**Status:** Complete (commit `7fe594f`).
 
 ---
 
@@ -162,6 +168,8 @@ Order is priority, not parallel forever.
 | 4.9 | Guides / grid / rulers / snap | View chrome |
 | 4.10 | `.ptx` chunk/integrity evolution | DR-026; open old files |
 
+**Status:** Foundation complete 2026-07-16 (Shape kind + full GPU style/filter passes + `.ptx` integrity remain follow-ups). See journal `archive/docs/04-journal/2026-07-16-alignment-phase4.md`.
+
 ---
 
 ### Phase 5 — Scale & multi-doc (gated)
@@ -172,6 +180,8 @@ Order is priority, not parallel forever.
 | 5.2 Multi-document tabs | Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) | Session registry + tabs |
 | 5.3 Plugin capability seams | Phase 1 solid; product need | Manifests only; ABI still deferred |
 | 5.4 History spill / budgets | Memory pressure evidence | Retention policy UX |
+
+**Status:** Deferred / gated (2026-07-16). Journal: `archive/docs/04-journal/2026-07-16-alignment-phase5-gated.md`.
 
 ---
 

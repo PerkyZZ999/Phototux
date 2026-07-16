@@ -3,11 +3,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::DocumentSize;
+use crate::color_mgmt::DocumentColorState;
 use crate::error::DocumentError;
 use crate::layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
     MAX_BLUR_RADIUS, TextContent,
 };
+use crate::paths::PathDocument;
 
 /// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 16;
@@ -30,6 +32,12 @@ pub struct DocumentGraph {
     /// Monotonic document generation for snapshot leases / save receipts (handbook Phase 2).
     #[serde(default)]
     pub generation: u64,
+    /// Color profile metadata (assign ≠ convert).
+    #[serde(default)]
+    pub color: DocumentColorState,
+    /// Free vector paths (stroke-to-raster; Shape kind is separate).
+    #[serde(default)]
+    pub paths: PathDocument,
 }
 
 impl DocumentGraph {
@@ -43,6 +51,8 @@ impl DocumentGraph {
             active: None,
             revision: 0,
             generation: 1,
+            color: DocumentColorState::default(),
+            paths: PathDocument::default(),
         };
         let bg = g.alloc_layer("Background");
         let l1 = g.alloc_layer("Layer 1");
@@ -64,6 +74,8 @@ impl DocumentGraph {
             active: None,
             revision: 0,
             generation: 1,
+            color: DocumentColorState::default(),
+            paths: PathDocument::default(),
         };
         let mut layer = graph.alloc_layer("Image");
         layer.name = layer_name.into();
@@ -411,6 +423,40 @@ impl DocumentGraph {
         id: LayerId,
         radius: f32,
     ) -> Option<(Vec<FilterEffect>, u64)> {
+        self.add_filter_effect(id, |effect_id| {
+            FilterEffect::gaussian_blur(effect_id, radius.clamp(0.0, MAX_BLUR_RADIUS))
+        })
+    }
+
+    /// Append a Motion Blur effect to a raster layer.
+    pub fn add_motion_blur(
+        &mut self,
+        id: LayerId,
+        distance: f32,
+        angle_deg: f32,
+    ) -> Option<(Vec<FilterEffect>, u64)> {
+        self.add_filter_effect(id, |effect_id| {
+            FilterEffect::motion_blur(effect_id, distance, angle_deg)
+        })
+    }
+
+    /// Append an Emboss effect to a raster layer.
+    pub fn add_emboss(
+        &mut self,
+        id: LayerId,
+        strength: f32,
+        angle_deg: f32,
+    ) -> Option<(Vec<FilterEffect>, u64)> {
+        self.add_filter_effect(id, |effect_id| {
+            FilterEffect::emboss(effect_id, strength, angle_deg)
+        })
+    }
+
+    fn add_filter_effect(
+        &mut self,
+        id: LayerId,
+        make: impl FnOnce(u64) -> FilterEffect,
+    ) -> Option<(Vec<FilterEffect>, u64)> {
         let layer = self.get(id)?;
         if layer.kind != LayerKind::Raster {
             return None;
@@ -424,10 +470,7 @@ impl DocumentGraph {
             .saturating_add(1);
         let prev = layer.effects.clone();
         let mut next = prev.clone();
-        next.push(FilterEffect::gaussian_blur(
-            effect_id,
-            radius.clamp(0.0, MAX_BLUR_RADIUS),
-        ));
+        next.push(make(effect_id));
         let _ = self.set_effects(id, next)?;
         Some((prev, effect_id))
     }

@@ -12,8 +12,10 @@ use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentError,
     DocumentGraph, DocumentSize, EngineCommand, EngineEvent, FilterParams, HistoryKind,
-    HostHistoryAction, LayerId, LayerTransform, SelectionCombine, SelectionRect, SelectionShape,
-    SelectionState, SessionState, TextContent, TransformSession, command_id, tool_id, undo_actions,
+    HostHistoryAction, LayerId, LayerKind, LayerStyle, LayerTransform, PathPoint, SelectionCombine,
+    SelectionRect, SelectionShape, SelectionState, SessionState, TextContent, TransformSession,
+    VectorPath, bake_text_rgba8, command_id, contract_mask_r8, expand_mask_r8, feather_mask_r8,
+    stroke_path_rgba8, tool_id, undo_actions,
 };
 use prefs::Preferences;
 
@@ -1417,6 +1419,26 @@ impl AppSession {
     fn panel_properties_visible_changed(&mut self);
 
     #[qslot]
+    fn assign_document_profile(&mut self, profile: String) {
+        if let Err(error) = self.invoke_command(
+            command_id::DOCUMENT_ASSIGN_PROFILE,
+            CommandArgs::AssignProfile { profile },
+        ) {
+            self.report_gpu("assign profile", &error.to_string());
+        } else {
+            self.status_text = format!(
+                "Assigned profile (pixels not converted): {}",
+                self.engine
+                    .graph
+                    .as_ref()
+                    .map(|g| g.color.assigned_profile.as_str())
+                    .unwrap_or("?")
+            );
+            self.status_text_changed();
+        }
+    }
+
+    #[qslot]
     fn open_preferences(&mut self) {
         self.preferences_open = true;
         self.preferences_open_changed();
@@ -2564,6 +2586,178 @@ impl AppSession {
         }
     }
 
+    /// Bake active text layer to raster pixels (CPU glyph bake → GPU upload).
+    #[qslot]
+    fn bake_text_layer(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let Some(layer) = graph.get(id) else {
+            return;
+        };
+        if layer.kind != LayerKind::Text {
+            self.status_text = "Bake Text requires an active text layer".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let Some(content) = layer.text.clone() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let pixels = match bake_text_rgba8(&content, w, h) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("bake text", &error);
+                return;
+            }
+        };
+        if let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) {
+            layer.kind = LayerKind::Raster;
+            layer.text = None;
+            if layer.asset_key.is_none() {
+                layer.asset_key = Some(format!("layer-{}", id.0));
+            }
+        }
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+            self.report_gpu("bake text upload", &error);
+            return;
+        }
+        let _ = self.engine.bump_document_generation();
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.status_text = "Text baked to pixels".to_owned();
+        self.status_text_changed();
+    }
+
+    /// Morphological / feather modify of the live selection mask (`op`: feather|expand|contract).
+    #[qslot]
+    fn modify_selection(&mut self, op: String, radius: i32) {
+        if radius < 0 {
+            return;
+        }
+        let Ok(mask) = phototux_canvas::selection_snapshot() else {
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let radius = radius as u32;
+        let next = match op.as_str() {
+            "feather" => feather_mask_r8(w, h, &mask, radius),
+            "expand" => expand_mask_r8(w, h, &mask, radius),
+            "contract" => contract_mask_r8(w, h, &mask, radius),
+            _ => {
+                self.status_text = format!("Unknown selection op: {op}");
+                self.status_text_changed();
+                return;
+            }
+        };
+        match next {
+            Ok(bytes) => {
+                if let Err(error) = phototux_canvas::selection_restore(&bytes) {
+                    self.report_gpu("modify selection", &error);
+                    return;
+                }
+                self.engine.selection.feather = if op == "feather" {
+                    radius as f32
+                } else {
+                    self.engine.selection.feather
+                };
+                self.sync_from_engine();
+                self.status_text = format!("Selection {op} ({radius}px)");
+                self.status_text_changed();
+            }
+            Err(error) => self.report_gpu("modify selection", &error),
+        }
+    }
+
+    #[qslot]
+    fn add_drop_shadow_style(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) else {
+            return;
+        };
+        if layer.kind != LayerKind::Raster {
+            self.status_text = "Drop Shadow requires a raster layer".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        layer.styles.push(LayerStyle::drop_shadow_default());
+        let _ = self.engine.bump_document_generation();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.status_text = "Drop Shadow style added (CPU ref; GPU pass TBD)".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn stroke_active_path_to_layer(&mut self) {
+        let Some(graph) = self.engine.graph.as_mut() else {
+            return;
+        };
+        if graph.paths.paths.is_empty() {
+            let w = graph.size.width as f32;
+            let h = graph.size.height as f32;
+            graph.paths.add(VectorPath::polyline(
+                "Path 1",
+                vec![
+                    PathPoint {
+                        x: w * 0.2,
+                        y: h * 0.3,
+                    },
+                    PathPoint {
+                        x: w * 0.8,
+                        y: h * 0.7,
+                    },
+                ],
+                false,
+            ));
+        }
+        let idx = graph.paths.active.unwrap_or(0);
+        let Some(path) = graph.paths.paths.get(idx).cloned() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let pixels = match stroke_path_rgba8(w, h, &path, [0, 0, 0, 255], 2.0) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("stroke path", &error);
+                return;
+            }
+        };
+        let layer_name = path.name.clone();
+        let result = {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let Some(graph) = graph.as_mut() else {
+                return;
+            };
+            undo_actions::add_layer(graph, history, Some(layer_name))
+        };
+        match result {
+            Ok(id) => {
+                if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                    self.report_gpu("stroke path upload", &error);
+                    return;
+                }
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+                self.status_text = "Path stroked to new layer".to_owned();
+                self.status_text_changed();
+            }
+            Err(error) => self.report_gpu("stroke path", &error.to_string()),
+        }
+    }
+
     #[qslot]
     fn add_adjustment_layer(&mut self, kind: String) {
         let (name, params) = match kind.as_str() {
@@ -2683,6 +2877,20 @@ impl AppSession {
 
     #[qslot]
     fn add_gaussian_blur(&mut self) {
+        self.add_named_filter("gaussian");
+    }
+
+    #[qslot]
+    fn add_motion_blur(&mut self) {
+        self.add_named_filter("motion");
+    }
+
+    #[qslot]
+    fn add_emboss_filter(&mut self) {
+        self.add_named_filter("emboss");
+    }
+
+    fn add_named_filter(&mut self, kind: &str) {
         let Some(id) = self.active_id() else {
             return;
         };
@@ -2691,33 +2899,30 @@ impl AppSession {
             .graph
             .as_ref()
             .and_then(|g| g.get(id))
-            .is_some_and(|l| l.kind == phototux_engine::LayerKind::Raster);
+            .is_some_and(|l| l.kind == LayerKind::Raster);
         if !is_raster {
-            self.status_text = "Gaussian Blur requires an active raster layer".to_owned();
+            self.status_text = format!("{kind} filter requires an active raster layer");
             self.status_text_changed();
             return;
         }
-        let already = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.get(id))
-            .is_some_and(|l| {
-                l.effects
-                    .iter()
-                    .any(|e| matches!(e.params, FilterParams::GaussianBlur { .. }))
-            });
-        if already {
-            self.status_text = "Layer already has Gaussian Blur".to_owned();
-            self.status_text_changed();
-            return;
-        }
-        let Some((prev, _)) = self
-            .engine
-            .graph
-            .as_mut()
-            .and_then(|g| g.add_gaussian_blur(id, 4.0))
-        else {
+        let Some((prev, _)) = (match kind {
+            "gaussian" => self
+                .engine
+                .graph
+                .as_mut()
+                .and_then(|g| g.add_gaussian_blur(id, 4.0)),
+            "motion" => self
+                .engine
+                .graph
+                .as_mut()
+                .and_then(|g| g.add_motion_blur(id, 8.0, 0.0)),
+            "emboss" => self
+                .engine
+                .graph
+                .as_mut()
+                .and_then(|g| g.add_emboss(id, 1.0, 135.0)),
+            _ => None,
+        }) else {
             return;
         };
         let next = self
@@ -2727,11 +2932,17 @@ impl AppSession {
             .and_then(|g| g.get(id))
             .map(|l| l.effects.clone())
             .unwrap_or_default();
+        let label = match kind {
+            "gaussian" => "Gaussian Blur",
+            "motion" => "Motion Blur",
+            "emboss" => "Emboss",
+            other => other,
+        };
         {
             let generation = self.engine.bump_document_generation();
             self.engine.history.push_graph_applied(
                 phototux_engine::GraphCommand::SetEffects { id, prev, next },
-                "Gaussian Blur",
+                label,
                 generation,
             );
         }

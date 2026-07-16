@@ -301,6 +301,21 @@ ApplicationWindow {
                 onTriggered: AppSession.invertSelection()
             }
             MenuItem {
+                text: qsTr("&Feather…")
+                enabled: AppSession.hasDocument && AppSession.selectionActive
+                onTriggered: AppSession.modifySelection("feather", 4)
+            }
+            MenuItem {
+                text: qsTr("Expand")
+                enabled: AppSession.hasDocument && AppSession.selectionActive
+                onTriggered: AppSession.modifySelection("expand", 2)
+            }
+            MenuItem {
+                text: qsTr("Contract")
+                enabled: AppSession.hasDocument && AppSession.selectionActive
+                onTriggered: AppSession.modifySelection("contract", 2)
+            }
+            MenuItem {
                 text: qsTr("&Copy")
                 shortcut: "Ctrl+C"
                 enabled: AppSession.hasDocument && AppSession.selectionActive
@@ -336,6 +351,17 @@ ApplicationWindow {
                 enabled: AppSession.hasDocument && !AppSession.ioBusy
                 onTriggered: AppSession.rotateCanvas90Cw()
             }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("Assign Profile: sRGB")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.assignDocumentProfile("sRGB")
+            }
+            MenuItem {
+                text: qsTr("Assign Profile: Display-P3")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.assignDocumentProfile("Display-P3")
+            }
         }
         Menu {
             title: qsTr("&Layer")
@@ -343,6 +369,21 @@ ApplicationWindow {
                 text: qsTr("New &Group")
                 enabled: AppSession.hasDocument
                 onTriggered: AppSession.addGroupLayer()
+            }
+            MenuItem {
+                text: qsTr("Bake &Text")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.bakeTextLayer()
+            }
+            MenuItem {
+                text: qsTr("Drop &Shadow")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addDropShadowStyle()
+            }
+            MenuItem {
+                text: qsTr("Stroke Path to Layer")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.strokeActivePathToLayer()
             }
             MenuItem {
                 text: qsTr("Add &Mask")
@@ -387,6 +428,16 @@ ApplicationWindow {
                 text: qsTr("Gaussian &Blur")
                 enabled: AppSession.hasDocument
                 onTriggered: AppSession.addGaussianBlur()
+            }
+            MenuItem {
+                text: qsTr("&Motion Blur")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addMotionBlur()
+            }
+            MenuItem {
+                text: qsTr("&Emboss")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addEmbossFilter()
             }
         }
         Menu {

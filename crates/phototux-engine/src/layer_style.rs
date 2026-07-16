@@ -1,0 +1,274 @@
+//! Nondestructive layer styles v1 (Phase 4.8) — drop shadow + stroke metadata.
+//!
+//! GPU application lands with the composite planner; this module owns the
+//! serializable stack and CPU reference for shadow/stroke on RGBA8.
+
+use serde::{Deserialize, Serialize};
+
+/// One style effect on a layer (shadow or stroke for v1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LayerStyle {
+    DropShadow {
+        enabled: bool,
+        offset_x: f32,
+        offset_y: f32,
+        blur: f32,
+        opacity: f32,
+        color_rgba: [f32; 4],
+    },
+    Stroke {
+        enabled: bool,
+        width: f32,
+        opacity: f32,
+        color_rgba: [f32; 4],
+    },
+}
+
+impl LayerStyle {
+    pub fn drop_shadow_default() -> Self {
+        Self::DropShadow {
+            enabled: true,
+            offset_x: 4.0,
+            offset_y: 4.0,
+            blur: 4.0,
+            opacity: 0.55,
+            color_rgba: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    pub fn stroke_default() -> Self {
+        Self::Stroke {
+            enabled: true,
+            width: 2.0,
+            opacity: 1.0,
+            color_rgba: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+}
+
+/// Apply enabled styles under/over `src` into a new buffer (CPU reference).
+///
+/// # Errors
+/// Returns an error when dimensions are zero or `src` length mismatches.
+pub fn apply_styles_rgba8(
+    width: u32,
+    height: u32,
+    src: &[u8],
+    styles: &[LayerStyle],
+) -> Result<Vec<u8>, String> {
+    if width == 0 || height == 0 {
+        return Err("zero dimensions".into());
+    }
+    let pixels = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "dimensions overflow".to_owned())?;
+    if src.len() != pixels {
+        return Err(format!("src length {} != expected {pixels}", src.len()));
+    }
+
+    let mut base = vec![0_u8; pixels];
+    // Shadows first (under).
+    for style in styles {
+        if let LayerStyle::DropShadow {
+            enabled,
+            offset_x,
+            offset_y,
+            blur: _,
+            opacity,
+            color_rgba,
+        } = style
+        {
+            if !*enabled {
+                continue;
+            }
+            stamp_offset_alpha(
+                &mut base, src, width, height, *offset_x, *offset_y, color_rgba, *opacity,
+            );
+        }
+    }
+    // Source over shadow.
+    over_straight(&mut base, src);
+    // Strokes over source (edge expand of alpha).
+    for style in styles {
+        if let LayerStyle::Stroke {
+            enabled,
+            width: sw,
+            opacity,
+            color_rgba,
+        } = style
+        {
+            if !*enabled {
+                continue;
+            }
+            stroke_outline(&mut base, src, width, height, *sw, color_rgba, *opacity);
+        }
+    }
+    Ok(base)
+}
+
+fn stamp_offset_alpha(
+    dst: &mut [u8],
+    src: &[u8],
+    width: u32,
+    height: u32,
+    ox: f32,
+    oy: f32,
+    color: &[f32; 4],
+    opacity: f32,
+) {
+    let w = width as i32;
+    let h = height as i32;
+    let dx = ox.round() as i32;
+    let dy = oy.round() as i32;
+    let opacity = opacity.clamp(0.0, 1.0);
+    let cr = (color[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let cg = (color[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let cb = (color[2].clamp(0.0, 1.0) * 255.0).round() as u8;
+    for y in 0..h {
+        for x in 0..w {
+            let sx = x - dx;
+            let sy = y - dy;
+            if sx < 0 || sy < 0 || sx >= w || sy >= h {
+                continue;
+            }
+            let si = (sy as usize * width as usize + sx as usize) * 4;
+            let a = src[si + 3] as f32 / 255.0 * opacity;
+            if a <= 0.0 {
+                continue;
+            }
+            let di = (y as usize * width as usize + x as usize) * 4;
+            let cover = a;
+            dst[di] = mix_u8(dst[di], cr, cover);
+            dst[di + 1] = mix_u8(dst[di + 1], cg, cover);
+            dst[di + 2] = mix_u8(dst[di + 2], cb, cover);
+            dst[di + 3] = mix_u8(dst[di + 3], 255, cover);
+        }
+    }
+}
+
+fn stroke_outline(
+    dst: &mut [u8],
+    src: &[u8],
+    width: u32,
+    height: u32,
+    stroke_w: f32,
+    color: &[f32; 4],
+    opacity: f32,
+) {
+    let r = stroke_w.ceil().max(1.0) as i32;
+    let w = width as i32;
+    let h = height as i32;
+    let opacity = opacity.clamp(0.0, 1.0);
+    let cr = (color[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let cg = (color[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let cb = (color[2].clamp(0.0, 1.0) * 255.0).round() as u8;
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y as usize * width as usize + x as usize) * 4;
+            if src[i + 3] == 0 {
+                continue;
+            }
+            // Edge if any neighbor is empty.
+            let mut edge = false;
+            for oy in -1..=1 {
+                for ox in -1..=1 {
+                    if ox == 0 && oy == 0 {
+                        continue;
+                    }
+                    let nx = x + ox;
+                    let ny = y + oy;
+                    if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                        edge = true;
+                        break;
+                    }
+                    let ni = (ny as usize * width as usize + nx as usize) * 4;
+                    if src[ni + 3] == 0 {
+                        edge = true;
+                        break;
+                    }
+                }
+                if edge {
+                    break;
+                }
+            }
+            if !edge {
+                continue;
+            }
+            for oy in -r..=r {
+                for ox in -r..=r {
+                    if ox * ox + oy * oy > r * r {
+                        continue;
+                    }
+                    let px = x + ox;
+                    let py = y + oy;
+                    if px < 0 || py < 0 || px >= w || py >= h {
+                        continue;
+                    }
+                    let di = (py as usize * width as usize + px as usize) * 4;
+                    let cover = opacity;
+                    dst[di] = mix_u8(dst[di], cr, cover);
+                    dst[di + 1] = mix_u8(dst[di + 1], cg, cover);
+                    dst[di + 2] = mix_u8(dst[di + 2], cb, cover);
+                    dst[di + 3] = mix_u8(dst[di + 3], 255, cover);
+                }
+            }
+        }
+    }
+}
+
+fn over_straight(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        let sa = s[3] as f32 / 255.0;
+        if sa <= 0.0 {
+            continue;
+        }
+        let da = d[3] as f32 / 255.0;
+        let out_a = sa + da * (1.0 - sa);
+        if out_a <= 0.0 {
+            continue;
+        }
+        for c in 0..3 {
+            let sc = s[c] as f32 / 255.0;
+            let dc = d[c] as f32 / 255.0;
+            let oc = (sc * sa + dc * da * (1.0 - sa)) / out_a;
+            d[c] = (oc * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        d[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+}
+
+fn mix_u8(dst: u8, src: u8, cover: f32) -> u8 {
+    let t = cover.clamp(0.0, 1.0);
+    ((dst as f32) * (1.0 - t) + (src as f32) * t)
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_extends_bounds() {
+        let w = 16_u32;
+        let h = 16_u32;
+        let mut src = vec![0_u8; (w * h * 4) as usize];
+        // Opaque 2×2 block at (2,2).
+        for y in 2..4 {
+            for x in 2..4 {
+                let o = ((y * w + x) * 4) as usize;
+                src[o] = 255;
+                src[o + 1] = 0;
+                src[o + 2] = 0;
+                src[o + 3] = 255;
+            }
+        }
+        let out =
+            apply_styles_rgba8(w, h, &src, &[LayerStyle::drop_shadow_default()]).expect("styles");
+        // Shadow offset (4,4) should paint near (6,6).
+        let o = ((6 * w + 6) * 4) as usize;
+        assert!(out[o + 3] > 0, "expected shadow alpha");
+    }
+}

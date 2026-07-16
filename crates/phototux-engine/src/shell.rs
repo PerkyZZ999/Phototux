@@ -54,6 +54,18 @@ pub fn default_panels() -> Vec<PanelDescriptor> {
             default_region: "right".into(),
             visible_by_default: true,
         },
+        PanelDescriptor {
+            id: "panel.paths".into(),
+            title: "Paths".into(),
+            default_region: "right".into(),
+            visible_by_default: false,
+        },
+        PanelDescriptor {
+            id: "panel.character".into(),
+            title: "Character".into(),
+            default_region: "right".into(),
+            visible_by_default: false,
+        },
     ]
 }
 

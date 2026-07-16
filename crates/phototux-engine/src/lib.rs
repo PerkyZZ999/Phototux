@@ -4,16 +4,21 @@ mod brush_preset;
 mod camera;
 mod cancel;
 mod color;
+mod color_mgmt;
 mod command;
 mod commands;
+mod cpu_composite;
 mod document;
 mod error;
 mod guides;
 mod history;
 mod layer;
+mod layer_style;
+mod paths;
 mod selection;
 mod shell;
 mod stroke;
+mod text_bake;
 mod transform;
 mod undo;
 
@@ -21,8 +26,10 @@ pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};
 pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
+pub use color_mgmt::DocumentColorState;
 pub use command::{EngineCommand, EngineEvent};
 pub use commands::{CommandArgs, CommandEffects, CommandError, HostHistoryAction, command_id};
+pub use cpu_composite::{CpuLayerRef, composite_rgba8};
 pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use error::DocumentError;
 pub use guides::{Guide, GuideOrientation, ViewGuides};
@@ -31,14 +38,18 @@ pub use layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
     LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, TextContent,
 };
+pub use layer_style::{LayerStyle, apply_styles_rgba8};
+pub use paths::{PathDocument, PathPoint, VectorPath, stroke_path_rgba8};
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
+    contract_mask_r8, expand_mask_r8, feather_mask_r8,
 };
 pub use shell::{
     PanelDescriptor, ToolDescriptor, default_panels, default_tools, essentials_panel_visibility,
     panels_json, tools_json,
 };
 pub use stroke::{BrushParams, Dab, StrokeBuilder};
+pub use text_bake::bake_text_rgba8;
 pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 

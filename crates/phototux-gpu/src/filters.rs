@@ -92,6 +92,22 @@ pub fn filter_pass(params: &FilterParams) -> FilterPass {
             shader_key: "filter.offset",
             params: [x as f32, y as f32, 0.0, 0.0],
         },
+        FilterParams::MotionBlur {
+            distance,
+            angle_deg,
+        } => FilterPass {
+            label: "Motion Blur",
+            shader_key: "filter.motion_blur",
+            params: [distance, angle_deg, 0.0, 0.0],
+        },
+        FilterParams::Emboss {
+            strength,
+            angle_deg,
+        } => FilterPass {
+            label: "Emboss",
+            shader_key: "filter.emboss",
+            params: [strength, angle_deg, 0.0, 0.0],
+        },
     }
 }
 
