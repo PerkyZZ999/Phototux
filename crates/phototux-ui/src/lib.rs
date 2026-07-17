@@ -2368,6 +2368,28 @@ impl AppSession {
         self.persist_workspace_visibility();
     }
 
+    /// Toggle auto-hide for a docked panel (edge strip).
+    #[qslot]
+    fn toggle_panel_auto_hide(&mut self, panel_id: String) {
+        if let Err(reason) = self.workspace.toggle_auto_hide(&panel_id) {
+            self.status_text = format!("Auto-hide failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
+    /// Pin (reveal) an auto-hidden panel.
+    #[qslot]
+    fn pin_panel(&mut self, panel_id: String) {
+        if let Err(reason) = self.workspace.pin_panel(&panel_id) {
+            self.status_text = format!("Pin failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
     fn toggle_panel_by_id(&mut self, panel_id: &str) {
         if !self.workspace.toggle(panel_id) {
             self.status_text = format!("Unknown panel: {panel_id}");

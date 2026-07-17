@@ -35,6 +35,9 @@ pub struct DockTopology {
     /// Panels torn off into floating windows (not in [`Self::right_stack`]).
     #[serde(default)]
     pub floating: Vec<FloatingPanelPlacement>,
+    /// Docked panels collapsed to an edge strip (still in [`Self::right_stack`]).
+    #[serde(default)]
+    pub auto_hidden: Vec<String>,
 }
 
 impl Default for DockTopology {
@@ -58,6 +61,7 @@ impl DockTopology {
                 "panel.history".into(),
             ],
             floating: Vec::new(),
+            auto_hidden: Vec::new(),
         }
     }
 
@@ -72,6 +76,47 @@ impl DockTopology {
 
     pub fn is_floating(&self, panel_id: &str) -> bool {
         self.floating.iter().any(|f| f.id == panel_id)
+    }
+
+    pub fn is_auto_hidden(&self, panel_id: &str) -> bool {
+        self.auto_hidden.iter().any(|id| id == panel_id)
+    }
+
+    /// Collapse a docked panel to the edge strip (keyboard/pin reopen required).
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not docked or already hidden.
+    pub fn auto_hide(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        if !self.is_docked(panel_id) {
+            return Err("panel not in right_stack");
+        }
+        if self.is_auto_hidden(panel_id) {
+            return Ok(());
+        }
+        self.auto_hidden.push(panel_id.to_owned());
+        self.validate()
+    }
+
+    /// Pin / reveal an auto-hidden panel back to the full dock body.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not auto-hidden.
+    pub fn pin(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        let pos = self
+            .auto_hidden
+            .iter()
+            .position(|id| id == panel_id)
+            .ok_or("panel not auto-hidden")?;
+        self.auto_hidden.remove(pos);
+        self.validate()
+    }
+
+    pub fn toggle_auto_hide(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        if self.is_auto_hidden(panel_id) {
+            self.pin(panel_id)
+        } else {
+            self.auto_hide(panel_id)
+        }
     }
 
     /// Move a panel within the right stack by delta (−1 = up, +1 = down).
@@ -236,6 +281,15 @@ impl DockTopology {
                 return Err("floating geometry too small");
             }
         }
+        let mut auto_seen = std::collections::HashSet::new();
+        for id in &self.auto_hidden {
+            if !self.is_docked(id) {
+                return Err("auto-hidden panel must be docked");
+            }
+            if !auto_seen.insert(id.as_str()) {
+                return Err("duplicate auto-hidden panel");
+            }
+        }
         Ok(())
     }
 
@@ -310,6 +364,7 @@ mod tests {
             version: 1,
             right_stack: vec!["panel.layers".into()],
             floating: Vec::new(),
+            auto_hidden: Vec::new(),
         };
         assert!(topo.tear_off("panel.layers", 0, 0, 300, 200, "").is_err());
     }
@@ -335,5 +390,16 @@ mod tests {
         let json = r#"{"version":1,"right_stack":["panel.properties","panel.layers"]}"#;
         let topo = DockTopology::from_json(json).expect("de");
         assert!(topo.floating.is_empty());
+        assert!(topo.auto_hidden.is_empty());
+    }
+
+    #[test]
+    fn auto_hide_and_pin() {
+        let mut topo = DockTopology::essentials();
+        topo.auto_hide("panel.navigator").expect("hide");
+        assert!(topo.is_auto_hidden("panel.navigator"));
+        assert!(topo.is_docked("panel.navigator"));
+        topo.pin("panel.navigator").expect("pin");
+        assert!(!topo.is_auto_hidden("panel.navigator"));
     }
 }

@@ -99,19 +99,19 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 - [x] Dock topology model (right-stack v1 + validation; full split graph deferred)
 - [x] Tear-off floating docks
-- [ ] Auto-hide / reveal
+- [x] Auto-hide / reveal
 - [x] Persist topology across restart (reconcile on display change deferred)
-- [~] Drag/drop placement UX (keyboard stack reorder + index API; pointer DnD next)
+- [x] Drag/drop placement UX (header drag + keyboard reorder; full zone solver deferred)
 
 ### P2.3 Panel system
 
 - [x] QML consumes `panels_json` for visibility, titles, regions
-- [~] Panel lifecycle: open/close shipped; pin/follow-context deferred
+- [~] Panel lifecycle: open/close/pin shipped; follow-context deferred
 - [ ] Virtualized Layers/History lists for large stacks
 - [x] Placeholder / contribution slots for future panels
 - [~] Paths / Character / Navigator parity with descriptor catalog (Navigator body + Paths/Character placeholders)
 
-**P2 exit:** layout is model-driven; tear-off + presets work; document dirty unaffected by layout.
+**P2 exit:** layout is model-driven; tear-off + presets work; document dirty unaffected by layout. **Met** (split graph / user presets / list virtualization remain polish).
 
 ---
 

@@ -240,6 +240,26 @@ impl WorkspaceState {
         }
     }
 
+    /// Toggle auto-hide for a docked panel (layout-only).
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel cannot auto-hide.
+    pub fn toggle_auto_hide(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        self.dock.toggle_auto_hide(panel_id)?;
+        self.revision = self.revision.saturating_add(1);
+        Ok(())
+    }
+
+    /// Pin (reveal) an auto-hidden panel.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not auto-hidden.
+    pub fn pin_panel(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        self.dock.pin(panel_id)?;
+        self.revision = self.revision.saturating_add(1);
+        Ok(())
+    }
+
     /// JSON object for prefs / QML: `{ "panel.layers": true, … }`.
     pub fn visibility_json(&self) -> String {
         serde_json::to_string(&self.panel_visibility).unwrap_or_else(|_| "{}".into())

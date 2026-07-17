@@ -43,6 +43,7 @@ pub fn builtin_workspace_presets() -> Vec<WorkspacePreset> {
     let mut compact_dock = DockTopology::essentials();
     compact_dock.right_stack = vec!["panel.properties".into(), "panel.layers".into()];
     compact_dock.floating.clear();
+    compact_dock.auto_hidden.clear();
 
     let mut painting_vis = essentials.panel_visibility.clone();
     painting_vis.insert("panel.navigator".into(), false);
@@ -54,6 +55,7 @@ pub fn builtin_workspace_presets() -> Vec<WorkspacePreset> {
         "panel.layers".into(),
     ];
     painting_dock.floating.clear();
+    painting_dock.auto_hidden.clear();
 
     vec![
         WorkspacePreset::from_parts(

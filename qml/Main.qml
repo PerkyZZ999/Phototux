@@ -109,7 +109,30 @@ ApplicationWindow {
         return root.dockStackRow(panelId) < 1000
     }
 
+    function panelIsAutoHidden(panelId) {
+        var list = root.dockTopology.auto_hidden || []
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i] === panelId)
+                return true
+        }
+        return false
+    }
+
+    function panelShowsInDock(panelId) {
+        return root.panelIsVisible(panelId)
+                && root.panelIsDocked(panelId)
+                && !root.panelIsAutoHidden(panelId)
+    }
+
+    function commitHeaderDrag(panelId, dy) {
+        var step = Theme.panelHeaderHeight > 0 ? Theme.panelHeaderHeight : 28
+        var delta = Math.round(dy / step)
+        if (delta !== 0)
+            AppSession.movePanelInStack(panelId, delta)
+    }
+
     readonly property var floatingPanels: dockTopology.floating || []
+    readonly property var autoHiddenPanels: dockTopology.auto_hidden || []
 
     function panelTitle(panelId) {
         var all = root.panelDescriptors
@@ -529,6 +552,19 @@ ApplicationWindow {
             context: Qt.ApplicationShortcut
             enabled: !AppSession.shortcutInputYield && !AppSession.preferencesOpen
             onActivated: AppSession.handleShortcut(modelData)
+        }
+    }
+
+    Shortcut {
+        sequence: "Esc"
+        context: Qt.ApplicationShortcut
+        enabled: !AppSession.shortcutInputYield
+                 && !AppSession.preferencesOpen
+                 && root.autoHiddenPanels.length > 0
+        onActivated: {
+            var id = root.autoHiddenPanels[0]
+            if (id)
+                AppSession.pinPanel(id)
         }
     }
 
@@ -1938,15 +1974,43 @@ ApplicationWindow {
                 color: Theme.border
             }
 
+            // Auto-hide edge strip (keyboard/pin reopen — not hover-only).
+            Column {
+                id: autoHideStrip
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spaceXs
+                spacing: Theme.spaceXs
+                z: 20
+                visible: root.autoHiddenPanels.length > 0
+                Repeater {
+                    model: {
+                        var _ = AppSession.dockTopologyJson
+                        return root.autoHiddenPanels
+                    }
+                    ToolButton {
+                        required property string modelData
+                        implicitWidth: 28
+                        implicitHeight: 28
+                        text: qsTr(root.panelTitle(modelData)).charAt(0)
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Show %1").arg(qsTr(root.panelTitle(modelData)))
+                        Accessible.name: ToolTip.text
+                        onClicked: AppSession.pinPanel(modelData)
+                    }
+                }
+            }
+
             GridLayout {
                 anchors.fill: parent
+                anchors.rightMargin: autoHideStrip.visible ? 32 : 0
                 columns: 1
                 rowSpacing: 0
                 columnSpacing: 0
 
                 // Properties panel header
                 Rectangle {
-                    visible: AppSession.panelPropertiesVisible && root.panelIsDocked("panel.properties")
+                    visible: root.panelShowsInDock("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -1989,6 +2053,15 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "–"
+                            onClicked: AppSession.togglePanelAutoHide("panel.properties")
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Auto-hide panel")
+                            Accessible.name: qsTr("Auto-hide panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
                             onClicked: AppSession.tearOffPanel("panel.properties",
@@ -2001,15 +2074,21 @@ ApplicationWindow {
                     MouseArea {
                         anchors.fill: parent
                         z: -1
+                        property real pressY: 0
+                        cursorShape: Qt.SizeVerCursor
+                        onPressed: function (mouse) { pressY = mouse.y }
                         onClicked: {
                             AppSession.setWorkspaceFocusPath("panel.properties")
                             AppSession.setWorkspacePanelContext("panel.properties")
+                        }
+                        onReleased: function (mouse) {
+                            root.commitHeaderDrag("panel.properties", mouse.y - pressY)
                         }
                     }
                 }
 
                 Flickable {
-                    visible: AppSession.panelPropertiesVisible && root.panelIsDocked("panel.properties")
+                    visible: root.panelShowsInDock("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2822,7 +2901,7 @@ ApplicationWindow {
 
                 // Navigator
                 Rectangle {
-                    visible: AppSession.panelNavigatorVisible && root.panelIsDocked("panel.navigator")
+                    visible: root.panelShowsInDock("panel.navigator")
                     Layout.row: root.dockStackRow("panel.navigator") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2871,6 +2950,15 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "–"
+                            onClicked: AppSession.togglePanelAutoHide("panel.navigator")
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Auto-hide panel")
+                            Accessible.name: qsTr("Auto-hide panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
                             onClicked: AppSession.tearOffPanel("panel.navigator",
@@ -2880,11 +2968,21 @@ ApplicationWindow {
                             Accessible.name: qsTr("Tear off panel")
                         }
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        property real pressY: 0
+                        cursorShape: Qt.SizeVerCursor
+                        onPressed: function (mouse) { pressY = mouse.y }
+                        onReleased: function (mouse) {
+                            root.commitHeaderDrag("panel.navigator", mouse.y - pressY)
+                        }
+                    }
                 }
 
                 Rectangle {
                     id: navigatorPane
-                    visible: AppSession.panelNavigatorVisible && root.panelIsDocked("panel.navigator")
+                    visible: root.panelShowsInDock("panel.navigator")
                     Layout.row: root.dockStackRow("panel.navigator") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2975,7 +3073,7 @@ ApplicationWindow {
 
                 // Swatches
                 Rectangle {
-                    visible: AppSession.panelSwatchesVisible && root.panelIsDocked("panel.swatches")
+                    visible: root.panelShowsInDock("panel.swatches")
                     Layout.row: root.dockStackRow("panel.swatches") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3024,6 +3122,15 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "–"
+                            onClicked: AppSession.togglePanelAutoHide("panel.swatches")
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Auto-hide panel")
+                            Accessible.name: qsTr("Auto-hide panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
                             onClicked: AppSession.tearOffPanel("panel.swatches",
@@ -3043,10 +3150,20 @@ ApplicationWindow {
                             onClicked: AppSession.swapFgBg()
                         }
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        property real pressY: 0
+                        cursorShape: Qt.SizeVerCursor
+                        onPressed: function (mouse) { pressY = mouse.y }
+                        onReleased: function (mouse) {
+                            root.commitHeaderDrag("panel.swatches", mouse.y - pressY)
+                        }
+                    }
                 }
 
                 Rectangle {
-                    visible: AppSession.panelSwatchesVisible && root.panelIsDocked("panel.swatches")
+                    visible: root.panelShowsInDock("panel.swatches")
                     Layout.row: root.dockStackRow("panel.swatches") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3174,7 +3291,7 @@ ApplicationWindow {
 
                 // Layers panel
                 Rectangle {
-                    visible: AppSession.panelLayersVisible && root.panelIsDocked("panel.layers")
+                    visible: root.panelShowsInDock("panel.layers")
                     Layout.row: root.dockStackRow("panel.layers") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3224,6 +3341,15 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "–"
+                            onClicked: AppSession.togglePanelAutoHide("panel.layers")
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Auto-hide panel")
+                            Accessible.name: qsTr("Auto-hide panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
                             onClicked: AppSession.tearOffPanel("panel.layers",
@@ -3266,10 +3392,20 @@ ApplicationWindow {
                             ToolTip.text: qsTr("Delete layer")
                         }
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        property real pressY: 0
+                        cursorShape: Qt.SizeVerCursor
+                        onPressed: function (mouse) { pressY = mouse.y }
+                        onReleased: function (mouse) {
+                            root.commitHeaderDrag("panel.layers", mouse.y - pressY)
+                        }
+                    }
                 }
 
                 Rectangle {
-                    visible: AppSession.panelLayersVisible && root.panelIsDocked("panel.layers")
+                    visible: root.panelShowsInDock("panel.layers")
                     Layout.row: root.dockStackRow("panel.layers") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3436,7 +3572,7 @@ ApplicationWindow {
 
                 // History panel
                 Rectangle {
-                    visible: AppSession.panelHistoryVisible && root.panelIsDocked("panel.history")
+                    visible: root.panelShowsInDock("panel.history")
                     Layout.row: root.dockStackRow("panel.history") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3473,6 +3609,15 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "–"
+                            onClicked: AppSession.togglePanelAutoHide("panel.history")
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Auto-hide panel")
+                            Accessible.name: qsTr("Auto-hide panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
                             onClicked: AppSession.tearOffPanel("panel.history",
@@ -3482,9 +3627,19 @@ ApplicationWindow {
                             Accessible.name: qsTr("Tear off panel")
                         }
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        property real pressY: 0
+                        cursorShape: Qt.SizeVerCursor
+                        onPressed: function (mouse) { pressY = mouse.y }
+                        onReleased: function (mouse) {
+                            root.commitHeaderDrag("panel.history", mouse.y - pressY)
+                        }
+                    }
                 }
                 Rectangle {
-                    visible: AppSession.panelHistoryVisible && root.panelIsDocked("panel.history")
+                    visible: root.panelShowsInDock("panel.history")
                     Layout.row: root.dockStackRow("panel.history") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
