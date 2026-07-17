@@ -4,7 +4,28 @@
 
 Canonical taxonomy of PhotoTux commands: scopes, mutation classes, execution classes, undo policies, and representative ID families. This appendix organizes the contracts in [08 — Command System](../08-Command-System.md) for implementers, reviewers, and extension authors. Normative keywords follow [Requirement Keywords](Requirement-Keywords.md).
 
-Commands are the sole semantic mutation spine. Presentations emit actions; actions resolve to commands; commands produce transactions or typed failures. Widgets, panels, tools, shortcuts, importers, and plugins MUST NOT mutate authoritative state outside this taxonomy.
+Commands are the sole semantic mutation spine for **document-authoritative** commits ([08](../08-Command-System.md) Accepted v1). Presentations emit actions or QML slots; host adapters resolve to `SessionState::invoke`; commands produce transactions or typed failures. Widgets MUST NOT mutate the authoritative document graph outside this taxonomy.
+
+### Shipped command IDs (v1 router)
+
+Registered in `phototux_engine::command_id` and exercised via `SessionState::invoke`:
+
+| Family | IDs |
+| --- | --- |
+| History | `history.undo`, `history.redo` |
+| Layer | `layer.create`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.set-clip` |
+| View | `view.zoom-to`, `view.zoom-to-fit`, `view.pan-to`, `view.pan-by`, `view.zoom-at`, `view.set-tool` |
+| Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.crop`, `document.rotate-90` |
+| Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify` |
+| Mask | `mask.create`, `mask.delete`, `mask.set-enabled` |
+| Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize` |
+| Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `style.add-drop-shadow`, `style.add-stroke` |
+| Clipboard / path | `clipboard.paste-layer`, `path.stroke-to-layer` |
+| Raster | `raster.transform-commit`, `raster.flip`, `raster.fill`, `raster.gradient`, `raster.paint-stroke` |
+
+### Host-only exemptions (not document commands)
+
+Ephemeral previews (selection/crop/transform drafts); paint-worker dab stream until `raster.paint-stroke`; tool chrome (brush/FG/BG); prefs/panel toggles; file open/save/export adapters; FPS/status telemetry. See [08](../08-Command-System.md).
 
 ## Taxonomy Axes
 

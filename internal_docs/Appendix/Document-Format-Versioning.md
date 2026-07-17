@@ -4,7 +4,7 @@
 
 Versioning, compatibility, migration, and identity rules for PhotoTux native editable documents and related persistence domains. This appendix consolidates contracts from [27 — File Formats](../27-File-Formats.md), [10 — Document Model](../10-Document-Model.md), [22 — Import and Export](../22-Import-Export.md), and [20 — History Undo](../20-History-Undo.md). Normative keywords follow [Requirement Keywords](Requirement-Keywords.md).
 
-The native container encoding remains deliberately unfrozen at the byte level until prototypes validate large sparse documents, incremental save, recovery, and unknown-data round trips. Semantic versioning rules below are binding for any candidate encoding.
+**Encoding status:** `.ptx` **format version 2** writers (typed chunks `MANI` / `RASL` / `MASK` + whole-body CRC32) and **v1 read** compatibility are **Accepted** ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)). Tile-addressable sparse resources, incremental save, and further integrity strategies remain **Provisional** (Phase 5 evidence). Semantic versioning rules below stay binding for encoding evolution.
 
 ## Versioned Surfaces
 

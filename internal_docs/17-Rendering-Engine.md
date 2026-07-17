@@ -8,6 +8,17 @@ wgpu is the primary GPU abstraction. Architecture is GPU-first, not GPU-only: CP
 
 Normative language follows [Requirement Keywords](Appendix/Requirement-Keywords.md). Rendering inherits snapshot, command, layer, selection, mask, filter, color, history, and platform boundaries from foundation specifications.
 
+### Accepted v1 (shipping)
+
+| Contract | v1 reality | Target / Provisional |
+| --- | --- | --- |
+| Snapshots | Generation + metadata leases ([DR-005](Appendix/Decision-Register.md#dr-005--immutable-render-snapshots)) | Full immutable pixel snapshots + deltas |
+| Interactive present | Zero-copy GPU ([DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)) | Unchanged |
+| CPU reference | `cpu_composite` for tests / degraded paths | Broader filter parity |
+| Tiling / pyramid | Not shipped | Phase 5 when large-doc evidence demands ([DR-006](Appendix/Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) |
+
+Tile/pyramid MUSTs below are **Phase 5 Provisional** until promoted.
+
 ## Responsibilities
 
 The renderer **MUST**:

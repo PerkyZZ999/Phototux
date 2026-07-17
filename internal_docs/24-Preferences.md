@@ -8,6 +8,10 @@ PhotoTux uses four effective-value layers: built-in default, user preference, wo
 
 Preference mutation uses the [Command System](08-Command-System.md) and an atomic preference transaction. Document-scoped changes that alter document semantics use document commands and history; preference commands cannot bypass [10 — Document Model](10-Document-Model.md). Settings are local-first. Synchronization, accounts, cloud backup, policy servers, telemetry-driven defaults, AI, and proprietary service settings are explicitly out of scope. Normative language follows [Requirement Keywords](Appendix/Requirement-Keywords.md); terms follow the [Glossary](Appendix/Glossary.md).
 
+### Accepted v1 (shipping)
+
+XDG `preferences.json` + Preferences dialog: panel visibility, last tool, guides/grid/rulers/snap toggles, restore-last-tool. Host-owned preference mutations (not document history). Full snapshot/precedence engine, workspace topology persistence, and preference command bus remain **target**.
+
 ## Responsibilities
 
 The preference subsystem **MUST**:

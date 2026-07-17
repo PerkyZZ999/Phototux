@@ -8,6 +8,10 @@ The system supports high-bit-depth integer and floating-point images, wide gamut
 
 Normative meanings follow [Requirement Keywords](Appendix/Requirement-Keywords.md). Canonical ownership and snapshot rules come from [00 — Introduction](00-Introduction.md) and [10 — Document Model](10-Document-Model.md).
 
+### Accepted v1 (shipping)
+
+Foundation only: `document.assign-profile` and `document.convert-profile` for built-in sRGB ↔ Display-P3 ([DR-012](Appendix/Decision-Register.md#dr-012--assign-profile--convert-profile)). Soft-proof, display ICC discovery, and arbitrary ICC byte pipelines remain **Deferred**.
+
 ## Responsibilities
 
 Color management **MUST**:

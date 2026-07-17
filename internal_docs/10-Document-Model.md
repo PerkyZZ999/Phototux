@@ -8,6 +8,16 @@ Every user-visible document mutation **MUST** enter through the [Command System]
 
 This specification refines the charter in [00 — Introduction](00-Introduction.md), uses the user mental model in [01 — Information Architecture](01-Information-Architecture.md), and uses normative meanings from [Requirement Keywords](Appendix/Requirement-Keywords.md). Canonical terms are defined in the [Glossary](Appendix/Glossary.md).
 
+### Accepted v1 (shipping)
+
+| Contract | v1 reality | Target |
+| --- | --- | --- |
+| Mutation spine | Named commands via `SessionState::invoke` | Full async job / extension command bus |
+| Version / snapshots | Generation + metadata leases ([DR-005](Appendix/Decision-Register.md#dr-005--immutable-render-snapshots)) | Full pixel-immutable snapshot publisher |
+| Kinds | Raster, Group, Text, Adjustment, Shape ([DR-027](Appendix/Decision-Register.md#dr-027--graph-kind-set-includes-shape)) | Richer resources / extension opaques |
+| Session | Single document ([DR-024](Appendix/Decision-Register.md#dr-024--single-document-session-v1)) | Multi-doc registry |
+| Large docs | Full-layer GPU textures | Sparse tiles / pyramid (Phase 5) |
+
 ## Responsibilities
 
 The document model **MUST**:

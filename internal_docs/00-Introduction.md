@@ -56,7 +56,7 @@ The following are deliberately excluded:
 - bundled asset marketplaces or remote content catalogs;
 - network requirements for normal editing;
 - premature promises of source or binary plugin compatibility;
-- commitment to a UI toolkit, application runtime, or stable plugin ABI before validation.
+- stable binary plugin ABI / marketplace before validation ([DR-009](Appendix/Decision-Register.md)); UI toolkit is **locked** ([DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)).
 
 Importing documented third-party file formats is not a proprietary workflow. Such support MUST be isolated behind format adapters, tested against independent fixtures, and described in format-neutral terms.
 
@@ -65,12 +65,12 @@ Importing documented third-party file formats is not a proprietary workflow. Suc
 1. **Document owns truth.** Persistent editable state belongs to the document model. Views, panels, render caches, and GPU resources are projections.
 2. **Commands are mutation spine.** Every user-visible mutation enters through a command. Commands validate preconditions, declare affected regions or objects, and produce an undoable transaction or a typed failure.
 3. **History stores transactions.** Undo and redo operate on committed transactions, not UI events and not arbitrary snapshots of the entire process.
-4. **Rendering reads immutable state.** Render workers consume versioned snapshots and bounded deltas. They MUST NOT mutate the authoritative document.
+4. **Rendering reads immutable state.** Render workers consume versioned snapshots and bounded deltas (Accepted v1: document generation + metadata leases — [DR-005](Appendix/Decision-Register.md#dr-005--immutable-render-snapshots)). They MUST NOT mutate the authoritative document.
 5. **GPU first, not GPU only.** wgpu is the primary rendering and compute abstraction. Correctness, recoverability, and device compatibility outrank theoretical throughput.
 6. **Concurrency is explicit.** Thread affinity, ownership, cancellation, backpressure, and snapshot lifetime are API concerns.
 7. **Native at edges.** Linux host adapters provide desktop integration without leaking host APIs into portable editing semantics.
 8. **Local capability, least authority.** File and extension operations receive only required resources and capabilities.
-9. **Measure before freezing.** Toolkit, runtime, plugin ABI, tile size, and scheduling policy remain provisional until representative workloads are profiled.
+9. **Measure before freezing.** Plugin ABI, tile size, and scheduling policy remain provisional until representative workloads are profiled. Toolkit/stack already frozen ([DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)).
 10. **Errors remain actionable.** Failures identify affected operation, preserved state, recovery path, and diagnostic context.
 
 ## Personas and Core Workflows

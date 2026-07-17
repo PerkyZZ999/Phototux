@@ -41,7 +41,13 @@ Legend for severity:
 | Document as editable truth (intent) | DR-002 | `DocumentGraph` / GPU layer textures are authority for pixels; UI projects |
 | wgpu GPU path | DR-006 | `phototux_gpu` + Vulkan-first canvas present |
 | Portable engine vs UI | DR-007 (spirit) | `phototux_engine` has no Qt; UI in `phototux_ui` |
-| Layered raster stack | 10 / 11 | Raster, Group, Text, Adjustment; masks, clip, opacity, blends |
+| Layered raster stack | 10 / 11 / DR-027 | Raster, Group, Text, Adjustment, **Shape**; masks, clip, opacity, blends |
+| Command spine (document commits) | DR-003, 08 | `SessionState::invoke` + `command_id::*`; AppSession host adapter |
+| Snapshot leases (v1) | DR-005 | Document generation + `DocumentSnapshotLease` / `mark_persisted` |
+| Color assign/convert foundation | DR-012, 16 | `document.assign-profile` / `document.convert-profile` |
+| Preferences dialog | 24 | XDG `preferences.json` + Preferences UI |
+| `.ptx` v2 chunks | DR-026 | Typed `MANI`/`RASL`/`MASK` + CRC; v1 read |
+| Guides / Character chrome | 03 / 18 | View guides/grid/rulers/snap; Character Properties + text bake |
 | Undo / history panel | DR-004 (partial) | `HistoryService` + stroke/transform/selection stacks |
 | Staged / atomic save | DR-014 | `.ptx` atomic write path in `phototux_io` |
 | Interchange ≠ native | DR-013 (spirit) | PSD behind adapter + compatibility report |
@@ -58,39 +64,39 @@ These are assets. Alignment must **not** discard zero-copy present, working brus
 
 | # | Handbook says | Code has | Severity |
 | --- | --- | --- | --- |
-| A1 | Every user-visible mutation enters a **named command** with validation → transaction → history (DR-003, 08) | Mutations mostly via **`AppSession` QObject slots** + direct engine/GPU calls; `EngineCommand` is **paint-worker only** | **A** |
-| A2 | Render consumes **immutable versioned snapshots / deltas** (DR-005, 17) | Canvas holds live GPU document; recomposite from mutable graph; no snapshot lease API | **A** |
-| A3 | Workspace / docking / panels are first-class with **workspace transactions** separate from document history (03–05, DR-015) | Single large `qml/Main.qml` shell; docks are layout regions, not a topology model | **A** |
+| A1 | Every **document-authoritative** mutation enters a **named command** (DR-003, 08 Accepted v1) | **Shipped:** `SessionState::invoke` covers history/layer/view/document/selection/mask/filter/style/text/shape/raster commits. Host-only: previews, paint stream, prefs chrome, I/O adapters. GPU-then-commit for canvas ops. | **Closed (v1)** |
+| A2 | Render consumes **immutable versioned snapshots / deltas** (DR-005, 17) | **Partial / Accepted v1:** generation + metadata leases; full pixel snapshot publisher **Provisional** (Phase 5) | **A** (deferred depth) |
+| A3 | Workspace / docking / panels with **workspace transactions** (03–05, DR-015) | **Accepted v1:** shell descriptors + prefs + Essentials reset; QML-hardcoded menus/shortcuts. Full topology **target** | **A** (deferred depth) |
 | A4 | Lifecycle orchestrates session, multi-window, recovery, renderer generations (02) | App start → New Document / open; recovery APIs partial; no formal lifecycle controller | **A** |
-| A5 | Per-document mutation serialization; multi-doc first-class (DR-010, 02–03) | **Single document** session (archived ADR-013); no doc registry | **A** / **C** |
-| A6 | GPU-first **with mandatory CPU reference/fallback** + tiling / pyramid (DR-006, 17) | GPU-first interactive path; **no** full CPU compositor; **no** sparse tile pyramid; full-layer textures | **A** |
-| A7 | Presentation model toolkit-neutral; UI toolkit **Deferred** (DR-008) | **Qt 6 + qtbridge locked in code** and archived ADR-002/003 | **C** (see §5) |
-| A8 | Proposed crate split: domain / commands / history / snapshot / render-graph / linux-host… (32) | Coarse crates: `engine`, `gpu`, `canvas`, `ui`, `io`, `phototux` | **C** |
-| A9 | Extension seams + capability model now; ABI deferred (DR-009, 23) | No plugin host; no extension opaque chunks in `.ptx` yet | **F** / **C** |
+| A5 | Per-document mutation serialization; multi-doc first-class (DR-010, 02–03) | **Single document** session ([DR-024](Decision-Register.md#dr-024--single-document-session-v1)); no doc registry until DR amend | **Deferred (DR-024)** |
+| A6 | GPU-first **with mandatory CPU reference/fallback** + tiling / pyramid (DR-006, 17) | GPU interactive + **CPU composite reference** for tests; tiling/pyramid **Phase 5 / Provisional** | **A** (Phase 5) |
+| A7 | UI toolkit | **Superseded:** DR-008 → [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) Qt 6 + qtbridge | **Closed** |
+| A8 | Proposed crate split (32) | Coarse crates locked ([DR-025](Decision-Register.md#dr-025--crate-topology-coarse-workspace)); §32 = ownership map | **Closed (DR-025)** |
+| A9 | Extension seams + capability model now; ABI deferred (DR-009, 23) | No plugin host; seams after command spine — **Deferred** product | **F** / **Deferred** |
 
 ### 3.2 Document / layers / engines — **F** / **A**
 
 | # | Handbook says | Code has | Severity |
 | --- | --- | --- | --- |
 | D1 | Rich document aggregate: resources, profiles, version vectors, opaque extension objects (10, 27) | `DocumentGraph` + size + layers; limited metadata; no ICC pipeline | **F** |
-| D2 | Shape engine + Shape layers; text bake boundaries (18, 19, DR-020) | Text metadata create only; **no Shape kind**; no path engine | **F** |
-| D3 | Color management: assign ≠ convert; soft-proof (16, DR-012) | FG/BG/swatches; no document profile / convert | **F** |
-| D4 | Filter engine as declarative plans + CPU/GPU executors (15) | Brightness/Levels + Gaussian effect; contracts for more | **F** |
+| D2 | Shape engine + Shape layers; text bake (18, 19, DR-020/027) | **Shipped v1:** `LayerKind::Shape` (rect/ellipse/line), path stroke, text bake + Character chrome; full boolean Shape **Deferred** | **F** (depth) |
+| D3 | Color management: assign ≠ convert; soft-proof (16, DR-012) | **Shipped foundation:** assign/convert sRGB↔Display-P3; soft-proof / full ICC **Deferred** | **F** (depth) |
+| D4 | Filter engine as declarative plans + CPU/GPU executors (15) | Adjustments + Gaussian/Motion/Emboss + EffectPass styles; full filter graph **target** | **F** (depth) |
 | D5 | Selection concepts distinct: object vs pixel vs focus vs edit target (DR-011, 12) | Pixel selection + active layer; concepts collapsed in UI | **A** / **F** |
 | D6 | Mask system with vector masks, refine, apply semantics (13) | Raster layer masks + clipping; no vector mask / refine | **F** |
 | D7 | History = transaction records with retention budgets / spill (20) | Mixed: graph undo commands + GPU pixel snapshots for strokes/transforms | **A** |
-| D8 | Native container: chunked, tile-addressable, integrity, incremental strategies; **bytes deferred** (27, DR-013) | Concrete **`.ptx`** (archived ADR-016) — works, but not handbook’s full chunk/tile model | **C** / **A** |
+| D8 | Native container: chunked, integrity, sparse/incremental (27, DR-013/026) | **Shipped:** `.ptx` **v2 write / v1 read** (typed chunks + CRC). Tile-sparse / incremental save **Phase 5 Provisional** | **A** (Phase 5) |
 
 ### 3.3 Shell / UX systems — **F**
 
 | # | Handbook says | Code has | Severity |
 | --- | --- | --- | --- |
 | U1 | Docking system with tear-off, auto-hide, topology validation (04) | Fixed multi-pane layout | **F** |
-| U2 | Panel system descriptors, contributions, placeholders (05) | Layers, History, Properties, Swatches, Navigator hardcoded | **F** |
-| U3 | Toolbar / tool options as registry-driven (06) | Tool strip + Properties in QML | **F** |
-| U4 | Context menus from action/command registry (07) | Mostly menu bar / dock buttons | **F** |
-| U5 | Shortcut system with customizable bindings (09) | Partial hardcoded shortcuts | **F** |
-| U6 | Preferences + themes as persisted services (24, 25) | Theme tokens in QML; no Preferences dialog | **F** |
+| U2 | Panel system descriptors (05) | **Partial v1:** `shell` panel descriptors + prefs visibility; QML still hardcodes chrome (Accepted v1 / DR-015) | **F** (target registry) |
+| U3 | Toolbar / tool options as registry-driven (06) | Tool descriptors exist; strip still hardcoded QML (Accepted v1) | **F** |
+| U4 | Context menus from action/command registry (07) | Hardcoded menus → commands (Accepted v1) | **F** |
+| U5 | Shortcut system with customizable bindings (09) | Partial hardcoded shortcuts (Accepted v1) | **F** |
+| U6 | Preferences + themes as persisted services (24, 25) | **Shipped:** XDG prefs + Preferences dialog; theme tokens in QML | **Closed (v1)** / theme depth **F** |
 | U7 | Dialogs / command search / workspace presets (03, 26) | New/Export/About/unsaved; no workspace manager | **F** |
 | U8 | Accessibility semantic tree projection + AT-SPI host (29, DR-016) | Basic Qt a11y; no handbook descriptor projection | **F** |
 
@@ -117,7 +123,7 @@ These are assets. Alignment must **not** discard zero-copy present, working brus
 
 | Item | Where | Handbook stance | Note |
 | --- | --- | --- | --- |
-| Qt 6 + qtbridge + QML AOT | `phototux_ui`, `phototux` | DR-008 **Deferred** | **Strongest conflict** — code already shipped |
+| Qt 6 + qtbridge + QML AOT | `phototux_ui`, `phototux` | DR-023 **Accepted** (DR-008 superseded) | **Resolved** |
 | Zero-copy Vulkan present only | archived ADR-005, canvas | Allows CPU fallback for correctness; present path not spelled as ADR-005 | Compatible if CPU is **non-interactive** path |
 | Single document v1 | archived ADR-013 | Lifecycle/workspace assume multi-doc | Promote single-doc as **Provisional** or amend DR |
 | Concrete `.ptx` format | `phototux_io`, ADR-016 | Native bytes **Deferred** (DR-013) | Promote `.ptx` as Provisional/Accepted with migration story |

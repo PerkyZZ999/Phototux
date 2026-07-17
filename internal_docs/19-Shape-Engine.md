@@ -8,6 +8,10 @@ Every persistent geometry/style mutation **MUST** enter through the [Command Sys
 
 Rendering is GPU-first through wgpu, not GPU-only. A CPU geometry/raster path provides reference behavior, fallback, export consistency, and recovery. Core geometry is cross-platform; Linux-native adapters provide input, accessibility, clipboard/file capabilities, and presentation without contaminating semantic records.
 
+### Accepted v1 (shipping)
+
+[DR-027](Appendix/Decision-Register.md#dr-027--graph-kind-set-includes-shape): `LayerKind::Shape` with rect / ellipse / line primitives, fill/stroke, create + rasterize commands, CPU/GPU raster contribution. Boolean ops, full parametric sets, and advanced path editing are **Deferred** incremental work.
+
 ## Responsibilities
 
 The shape engine **MUST**:

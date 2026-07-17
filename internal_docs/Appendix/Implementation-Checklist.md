@@ -25,7 +25,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 - [x] `AppSession` routes core slots through router (behavior-stable)
 - [x] Command Taxonomy lists shipped IDs
 - [x] Headless command tests (no Qt)
-- [ ] Remaining AppSession mutations (masks, filters, selection…) still direct — wrap in later slices
+- [x] Remaining document-authoritative AppSession mutations wrapped (selection/mask/filter/style/text/shape/raster; GPU-then-commit where needed)
 
 ---
 
@@ -54,7 +54,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 - [x] Text bake (`bake_text_rgba8` + Layer → Bake Text)
 - [x] Character chrome (Properties Character section + live canvas preview)
 - [x] Selection modify: feather / expand / contract (CPU + Select menu)
-- [x] Color assign foundation (`document.assign-profile`; convert TBD)
+- [x] Color assign foundation (`document.assign-profile`)
 - [x] Paths engine + stroke-to-layer (`PathDocument`, Paths panel descriptor)
 - [x] Shape kind + tools (DR-027; rect/ellipse/line + rasterize)
 - [x] Adjustment/filter wave 2 (Motion Blur + Emboss; GPU `EffectPass`)
