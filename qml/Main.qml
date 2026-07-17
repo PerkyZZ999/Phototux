@@ -23,6 +23,18 @@ ApplicationWindow {
                                              ? AppSession.layerMaskFlags.split("|") : []
     readonly property var layerClipParts: AppSession.layerClips.length > 0
                                          ? AppSession.layerClips.split("|") : []
+    readonly property var layerNameParts: AppSession.layerNames.length > 0
+                                         ? AppSession.layerNames.split("|") : []
+    readonly property var layerVisParts: AppSession.layerVisibility.length > 0
+                                        ? AppSession.layerVisibility.split("|") : []
+    readonly property var layerSelParts: AppSession.layerSelection.length > 0
+                                        ? AppSession.layerSelection.split("|") : []
+    readonly property var historyLabelParts: AppSession.historyLabels.length > 0
+                                            ? AppSession.historyLabels.split("|") : []
+    readonly property var historyKindParts: AppSession.historyKinds.length > 0
+                                           ? AppSession.historyKinds.split("|") : []
+    readonly property var historyIdParts: AppSession.historyEntryIds.length > 0
+                                         ? AppSession.historyEntryIds.split("|") : []
     readonly property int activeMaskFlag: AppSession.activeLayerIndex >= 0
                                          && AppSession.activeLayerIndex < layerMaskFlagParts.length
                                          ? Number(layerMaskFlagParts[AppSession.activeLayerIndex]) : 0
@@ -3959,31 +3971,27 @@ ApplicationWindow {
                         anchors.fill: parent
                         clip: true
                         spacing: 0
+                        reuseItems: true
+                        cacheBuffer: Theme.toolHit * 4
                         model: AppSession.layerCount
                         delegate: Rectangle {
                             width: layerList.width
                             height: 36
                             readonly property int stackIndex: AppSession.layerCount - 1 - index
-                            readonly property var nameParts: AppSession.layerNames.split("|")
-                            readonly property var visParts: AppSession.layerVisibility.split("|")
-                            readonly property var kindParts: AppSession.layerKinds.split("|")
-                            readonly property var maskParts: root.layerMaskFlagParts
-                            readonly property var clipParts: root.layerClipParts
-                            readonly property string layerName: stackIndex >= 0 && stackIndex < nameParts.length
-                                ? nameParts[stackIndex] : ""
-                            readonly property string layerKind: stackIndex >= 0 && stackIndex < kindParts.length
-                                ? kindParts[stackIndex] : "raster"
-                            readonly property bool layerVis: stackIndex >= 0 && stackIndex < visParts.length
-                                ? visParts[stackIndex] === "1" : true
-                            readonly property int maskFlag: stackIndex >= 0 && stackIndex < maskParts.length
-                                ? Number(maskParts[stackIndex]) : 0
+                            readonly property string layerName: stackIndex >= 0 && stackIndex < root.layerNameParts.length
+                                ? root.layerNameParts[stackIndex] : ""
+                            readonly property string layerKind: stackIndex >= 0 && stackIndex < root.layerKindParts.length
+                                ? root.layerKindParts[stackIndex] : "raster"
+                            readonly property bool layerVis: stackIndex >= 0 && stackIndex < root.layerVisParts.length
+                                ? root.layerVisParts[stackIndex] === "1" : true
+                            readonly property int maskFlag: stackIndex >= 0 && stackIndex < root.layerMaskFlagParts.length
+                                ? Number(root.layerMaskFlagParts[stackIndex]) : 0
                             readonly property bool hasMask: maskFlag !== 0
                             readonly property bool maskEnabled: maskFlag === 1
-                            readonly property bool clipsToBelow: stackIndex >= 0 && stackIndex < clipParts.length
-                                ? clipParts[stackIndex] === "1" : false
-                            readonly property var selParts: AppSession.layerSelection.split("|")
-                            readonly property bool isSelected: stackIndex >= 0 && stackIndex < selParts.length
-                                ? selParts[stackIndex] === "1" : false
+                            readonly property bool clipsToBelow: stackIndex >= 0 && stackIndex < root.layerClipParts.length
+                                ? root.layerClipParts[stackIndex] === "1" : false
+                            readonly property bool isSelected: stackIndex >= 0 && stackIndex < root.layerSelParts.length
+                                ? root.layerSelParts[stackIndex] === "1" : false
                             readonly property bool isActive: AppSession.activeLayerIndex === stackIndex
                             color: isActive || isSelected ? Theme.surfaceRaised
                                    : (layerHover.hovered ? Theme.surfaceContainer : "transparent")
@@ -4196,18 +4204,19 @@ ApplicationWindow {
                     Layout.preferredHeight: visible ? 120 : 0
                     color: Theme.surfaceSunken
                     ListView {
+                        id: historyList
                         anchors.fill: parent
                         clip: true
-                        model: AppSession.historyLabels.length > 0
-                               ? AppSession.historyLabels.split("|") : []
+                        reuseItems: true
+                        cacheBuffer: 88
+                        model: root.historyLabelParts
                         delegate: Label {
-                            width: parent ? parent.width : 100
+                            width: historyList.width
                             height: 22
                             leftPadding: Theme.spaceSm
                             text: {
-                                var kinds = AppSession.historyKinds.length > 0
-                                            ? AppSession.historyKinds.split("|") : []
-                                var kind = index < kinds.length ? kinds[index] : ""
+                                var kind = index < root.historyKindParts.length
+                                           ? root.historyKindParts[index] : ""
                                 return kind.length > 0 ? (modelData + " · " + kind) : modelData
                             }
                             color: Theme.colorOnSurfaceVariant
@@ -4217,10 +4226,8 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {
-                                    var ids = AppSession.historyEntryIds.length > 0
-                                              ? AppSession.historyEntryIds.split("|") : []
-                                    if (index < ids.length)
-                                        AppSession.jumpHistoryEntry(Number(ids[index]))
+                                    if (index < root.historyIdParts.length)
+                                        AppSession.jumpHistoryEntry(Number(root.historyIdParts[index]))
                                 }
                             }
                         }

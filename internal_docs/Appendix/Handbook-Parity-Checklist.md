@@ -131,7 +131,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 - [x] QML consumes `panels_json` for visibility, titles, regions
 - [~] Panel lifecycle: open/close/pin shipped; follow-context deferred
-- [ ] Virtualized Layers/History lists for large stacks
+- [x] Virtualized Layers/History lists for large stacks — `ListView` + `reuseItems` + root pipe caches
 - [x] Placeholder / contribution slots for future panels
 - [~] Paths / Character / Navigator parity with descriptor catalog (Navigator body + Paths/Character placeholders)
 
@@ -447,7 +447,7 @@ Priority order for agents (see also Roadmap §7):
 
 1. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)
 2. **DR-017 device evidence** — Tier M present/boot measurements when hardware available
-3. Independent polish — toolbar overflow, fuzzy palette, History/Layers virtualization
+3. Independent polish — remaining `[~]` chrome depth only (overflow/fuzzy/virtualization shipped)
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 
