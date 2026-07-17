@@ -83,6 +83,13 @@ pub mod command_id {
     pub const RASTER_GRADIENT: &str = "raster.gradient";
     pub const RASTER_PAINT_STROKE: &str = "raster.paint-stroke";
 
+    /// Application chrome — host opens preferences dialog.
+    pub const APP_SHOW_PREFERENCES: &str = "app.show-preferences";
+    /// Workspace chrome — reset panel visibility to Essentials.
+    pub const WORKSPACE_RESET: &str = "workspace.reset";
+    /// Workspace chrome — toggle a panel by id (`panel.layers`, …).
+    pub const WORKSPACE_TOGGLE_PANEL: &str = "workspace.toggle-panel";
+
     /// Built-in commands registered for discovery / headless tests.
     pub const ALL: &[&str] = &[
         HISTORY_UNDO,
@@ -134,10 +141,13 @@ pub mod command_id {
         RASTER_FILL,
         RASTER_GRADIENT,
         RASTER_PAINT_STROKE,
+        APP_SHOW_PREFERENCES,
+        WORKSPACE_RESET,
+        WORKSPACE_TOGGLE_PANEL,
     ];
 }
 
-/// Host follow-up after a successful command (canvas / pixel work).
+/// Host follow-up after a successful command (canvas / pixel / chrome work).
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostFollowUp {
     None,
@@ -145,6 +155,14 @@ pub enum HostFollowUp {
     ConvertPixels {
         from: String,
         to: String,
+    },
+    /// Open the preferences dialog (application chrome).
+    ShowPreferences,
+    /// Reset workspace panel visibility to Essentials.
+    ResetWorkspace,
+    /// Toggle visibility of a dock panel by descriptor id.
+    TogglePanel {
+        panel_id: String,
     },
 }
 
@@ -254,6 +272,9 @@ pub enum CommandArgs {
         width: u32,
         height: u32,
     },
+    TogglePanel {
+        panel_id: String,
+    },
 }
 
 /// Host-side follow-up for undo/redo entries that own GPU or selection stacks.
@@ -290,6 +311,21 @@ impl CommandEffects {
             sync_selection: false,
             host_history: None,
             host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation: 0,
+        }
+    }
+
+    fn host_chrome(follow_up: HostFollowUp) -> Self {
+        Self {
+            recomposite: false,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: false,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: follow_up,
             created_layer: None,
             generation: 0,
         }
@@ -406,8 +442,34 @@ impl SessionState {
             command_id::RASTER_FILL => self.cmd_raster_history("Fill"),
             command_id::RASTER_GRADIENT => self.cmd_raster_history("Gradient"),
             command_id::RASTER_PAINT_STROKE => self.cmd_raster_paint_stroke(args),
+            command_id::APP_SHOW_PREFERENCES => {
+                Ok(CommandEffects::host_chrome(HostFollowUp::ShowPreferences))
+            }
+            command_id::WORKSPACE_RESET => {
+                Ok(CommandEffects::host_chrome(HostFollowUp::ResetWorkspace))
+            }
+            command_id::WORKSPACE_TOGGLE_PANEL => self.cmd_workspace_toggle_panel(args),
             other => Err(CommandError::Unknown(other.to_owned())),
         }
+    }
+
+    fn cmd_workspace_toggle_panel(
+        &self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::TogglePanel { panel_id } = args else {
+            return Err(CommandError::InvalidArgument(
+                "workspace.toggle-panel requires TogglePanel args",
+            ));
+        };
+        if !panel_id.starts_with("panel.") {
+            return Err(CommandError::InvalidArgument(
+                "panel_id must be a panel.* descriptor id",
+            ));
+        }
+        Ok(CommandEffects::host_chrome(HostFollowUp::TogglePanel {
+            panel_id,
+        }))
     }
 
     pub fn document_generation(&self) -> u64 {

@@ -896,7 +896,12 @@ impl AppSession {
             | cid::VIEW_ZOOM_TO_FIT
             | cid::STYLE_ADD_DROP_SHADOW
             | cid::STYLE_ADD_STROKE
-            | cid::DOCUMENT_ROTATE_90 => Ok(CommandArgs::None),
+            | cid::DOCUMENT_ROTATE_90
+            | cid::APP_SHOW_PREFERENCES
+            | cid::WORKSPACE_RESET => Ok(CommandArgs::None),
+            cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
+                panel_id: arg.unwrap_or("panel.layers").to_owned(),
+            }),
             cid::DOCUMENT_ASSIGN_PROFILE => Ok(CommandArgs::AssignProfile {
                 profile: arg.unwrap_or("sRGB").to_owned(),
             }),
@@ -1068,6 +1073,9 @@ impl AppSession {
             HostFollowUp::ConvertPixels { from, to } => {
                 self.apply_convert_pixels(&from, &to);
             }
+            HostFollowUp::ShowPreferences => self.open_preferences(),
+            HostFollowUp::ResetWorkspace => self.reset_workspace(),
+            HostFollowUp::TogglePanel { panel_id } => self.toggle_panel_by_id(&panel_id),
         }
         if effects.recomposite {
             self.recomposite();
@@ -2164,6 +2172,26 @@ impl AppSession {
         self.panel_properties_visible = value;
         self.persist_prefs();
         self.panel_properties_visible_changed();
+    }
+
+    fn toggle_panel_by_id(&mut self, panel_id: &str) {
+        match panel_id {
+            "panel.navigator" => {
+                self.set_panel_navigator_visible(!self.panel_navigator_visible);
+            }
+            "panel.swatches" => {
+                self.set_panel_swatches_visible(!self.panel_swatches_visible);
+            }
+            "panel.layers" => self.set_panel_layers_visible(!self.panel_layers_visible),
+            "panel.history" => self.set_panel_history_visible(!self.panel_history_visible),
+            "panel.properties" => {
+                self.set_panel_properties_visible(!self.panel_properties_visible);
+            }
+            _ => {
+                self.status_text = format!("Unknown panel: {panel_id}");
+                self.status_text_changed();
+            }
+        }
     }
 
     #[qslot]

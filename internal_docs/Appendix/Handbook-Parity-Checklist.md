@@ -75,11 +75,11 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.7 Command system depth
 
-- [ ] Descriptor metadata: scope, mutation class, undo policy, conflict policy (taxonomy axes)
-- [ ] Application/workspace-scope command IDs where chrome needs them (`app.show-preferences`, workspace toggles)
-- [ ] Keep host-only exemptions documented (previews, paint stream, I/O adapters)
+- [x] Descriptor metadata: scope, mutation class, undo policy, conflict policy (taxonomy axes) — `CommandMeta` / `COMMAND_META_ALL`
+- [x] Application/workspace-scope command IDs where chrome needs them (`app.show-preferences`, workspace toggles)
+- [x] Keep host-only exemptions documented (previews, paint stream, I/O adapters) — taxonomy catalog
 
-**P1 exit:** chrome is action/command driven for shipped surfaces; palette works; shortcuts customizable.
+**P1 exit:** chrome is action/command driven for shipped surfaces; palette works; shortcuts customizable. **Met** (remaining `[~]` polish elsewhere does not block).
 
 ---
 

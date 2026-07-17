@@ -22,10 +22,11 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 | Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `style.add-drop-shadow`, `style.add-stroke` |
 | Clipboard / path | `clipboard.paste-layer`, `path.stroke-to-layer` |
 | Raster | `raster.transform-commit`, `raster.flip`, `raster.fill`, `raster.gradient`, `raster.paint-stroke` |
+| App / workspace | `app.show-preferences`, `workspace.reset`, `workspace.toggle-panel` |
 
 ### Host-only exemptions (not document commands)
 
-Ephemeral previews (selection/crop/transform drafts); paint-worker dab stream until `raster.paint-stroke`; tool chrome (brush/FG/BG); prefs/panel toggles; file open/save/export adapters; FPS/status telemetry. See [08](../08-Command-System.md).
+See **Host-only exemption catalog** below. High level: ephemeral previews; paint dab stream until `raster.paint-stroke`; tool chrome; file I/O adapters; telemetry. Prefs/workspace chrome is now registered as application/workspace commands that return `HostFollowUp` (host applies UI; document dirty unchanged).
 
 ## Taxonomy Axes
 
@@ -397,20 +398,41 @@ Diagnostics MUST exclude pixel payloads and private paths by default ([08](../08
 - [ ] Extension commands are capability-scoped and budgeted.
 - [x] Headless tests invoke commands without UI toolkits (engine `commands` module tests).
 
-## Shipped built-in IDs (Phase 1 — `phototux_engine::command_id`)
+## Shipped built-in IDs × axes (`phototux_engine::command_meta`)
 
-Implemented via `SessionState::invoke`. Host (`AppSession`) routes QML slots through these IDs. Paint dabs remain `EngineCommand` (worker traffic), not taxonomy document commits until stroke-end history.
+Source of truth: `CommandMeta` / `COMMAND_META_ALL` in engine (must cover every `command_id::ALL`). Axes: scope · mutation · undo · conflict.
 
-| ID | Scope | Notes |
-| --- | --- | --- |
-| `history.undo` / `history.redo` | document / history-meta | Graph undo in-engine; stroke/selection/transform return host follow-up |
-| `layer.create` / `layer.delete` | document | |
-| `layer.set-active` | document | Does not mark dirty |
-| `layer.set-visibility` / `layer.set-opacity` / `layer.set-blend` / `layer.reorder` | document | |
-| `view.zoom-to` / `view.zoom-to-fit` / `view.pan-to` / `view.set-tool` | view | Undo policy none |
-| `document.new-preset` / `document.new-size` | document | Resets session graph; dirty cleared by host |
+| Family | Scope | Mutation | Undo | Conflict |
+| --- | --- | --- | --- | --- |
+| `history.undo` / `history.redo` | document | history-meta | none | exclusive-op |
+| `layer.*` (except set-active) | document | document | transaction / mergeable (opacity) | exact-version |
+| `layer.set-active` | document | ephemeral | none | latest-wins-view |
+| `view.*` | view | ephemeral | none | latest-wins-view |
+| `document.new-*` | document | document | none | exclusive-op |
+| `document.assign/convert/crop/rotate` | document | document | transaction | exact-version |
+| `selection.*` | selection | document | transaction | exact-version |
+| `mask.*` / `text.*` / `shape.*` / `filter.*` / `style.*` | document | document | transaction / mergeable (params) | exact-version |
+| `clipboard.paste-layer` / `path.stroke-to-layer` / `raster.*` | document | document | transaction / groupable (paint-stroke) | exact-version |
+| `app.show-preferences` | application | preference | none | latest-wins-view |
+| `workspace.reset` / `workspace.toggle-panel` | workspace | workspace | none | latest-wins-view |
 
-Further IDs land as later phases wrap remaining `AppSession` mutations.
+Paint dabs remain `EngineCommand` until stroke-end `raster.paint-stroke`.
+
+## Host-only exemption catalog
+
+Operations that MUST NOT go through document-authoritative `SessionState::invoke` as graph mutations. Chrome that is registered above still uses `HostFollowUp` for the actual UI side effect.
+
+| Class | Owner | Examples | Why exempt / host |
+| --- | --- | --- | --- |
+| Paint stream | `phototux_canvas` / paint worker | Dab `EngineCommand` traffic | Streaming; commits via `raster.paint-stroke` |
+| Ephemeral previews | UI + GPU | Selection rubber-band, crop/transform drafts | Not committed until replace/commit command |
+| Tool chrome | `AppSession` | Brush size/hardness, FG/BG, eyedropper sample | Presentation state; not document graph |
+| File I/O adapters | `phototux_io` + file worker | Open/save/export/PSD/`.ptx` | Host I/O; dirty/receipt after success |
+| Destructive file chrome | QML + `host_op` | `document.new/open/close`, `app.quit` | Dialog + unsaved gate before session replace |
+| Dialog chrome | QML | About, save-as, export, command palette open | Presentation; palette invokes actions by id |
+| Telemetry | UI | FPS, status text, startup ms | Non-authoritative |
+| `HostFollowUp::ConvertPixels` | UI GPU path | After `document.convert-profile` | Pixel rewrite after command commits metadata |
+| Remaining `host_op` | `actions.rs` → `dispatch_host_op` | Selection modify GPU path, shape create wrappers, guides toggles, clipboard copy, mask paint helpers | Bridge until fully routed; still must not bypass history for document pixels without a command |
 
 ## Cross References
 

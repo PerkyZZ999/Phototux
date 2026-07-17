@@ -200,6 +200,27 @@ pub const ALL: &[CommandMeta] = &[
         UndoPolicy::Groupable,
         ConflictPolicy::ExactVersion,
     ),
+    meta(
+        command_id::APP_SHOW_PREFERENCES,
+        CommandScope::Application,
+        MutationClass::Preference,
+        UndoPolicy::None,
+        ConflictPolicy::LatestWinsView,
+    ),
+    meta(
+        command_id::WORKSPACE_RESET,
+        CommandScope::Workspace,
+        MutationClass::Workspace,
+        UndoPolicy::None,
+        ConflictPolicy::LatestWinsView,
+    ),
+    meta(
+        command_id::WORKSPACE_TOGGLE_PANEL,
+        CommandScope::Workspace,
+        MutationClass::Workspace,
+        UndoPolicy::None,
+        ConflictPolicy::LatestWinsView,
+    ),
 ];
 
 /// Look up taxonomy metadata for a registered command id.
