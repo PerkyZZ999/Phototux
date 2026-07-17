@@ -2211,6 +2211,17 @@ impl AppSession {
         self.persist_workspace_visibility();
     }
 
+    /// Set visibility by panel descriptor id (prefs / descriptor-driven chrome).
+    #[qslot]
+    fn set_panel_visible(&mut self, panel_id: String, value: bool) {
+        if !self.workspace.set_visible(&panel_id, value) {
+            self.status_text = format!("Unknown panel: {panel_id}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
     fn toggle_panel_by_id(&mut self, panel_id: &str) {
         if !self.workspace.toggle(panel_id) {
             self.status_text = format!("Unknown panel: {panel_id}");

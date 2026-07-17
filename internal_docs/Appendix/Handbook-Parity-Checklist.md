@@ -89,27 +89,27 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 ### P2.1 Workspace model
 
-- [ ] Semantic workspace state separate from document (DR-015)
-- [ ] Workspace transaction / undo policy (layout changes ≠ document dirty)
-- [ ] Named workspace presets (built-in + user)
-- [ ] Reset scopes: Essentials / last saved / factory
+- [x] Semantic workspace state separate from document (DR-015)
+- [x] Workspace transaction / undo policy (layout changes ≠ document dirty)
+- [~] Named workspace presets (built-in Essentials only; user presets deferred)
+- [~] Reset scopes: Essentials shipped; last saved / factory deferred
 - [ ] Active view / focus / panel context as distinct fields
 
 ### P2.2 Docking topology
 
-- [ ] Dock topology model (split/stack regions, validation)
+- [x] Dock topology model (right-stack v1 + validation; full split graph deferred)
 - [ ] Tear-off floating docks
 - [ ] Auto-hide / reveal
-- [ ] Persist topology across restart (reconcile on display change)
+- [x] Persist topology across restart (reconcile on display change deferred)
 - [ ] Drag/drop placement UX
 
 ### P2.3 Panel system
 
-- [ ] QML consumes `panels_json` for visibility, titles, regions
-- [ ] Panel lifecycle: open/close/pin/follow-context
+- [x] QML consumes `panels_json` for visibility, titles, regions
+- [~] Panel lifecycle: open/close shipped; pin/follow-context deferred
 - [ ] Virtualized Layers/History lists for large stacks
-- [ ] Placeholder / contribution slots for future panels
-- [ ] Paths / Character / Navigator parity with descriptor catalog
+- [x] Placeholder / contribution slots for future panels
+- [~] Paths / Character / Navigator parity with descriptor catalog (Navigator body + Paths/Character placeholders)
 
 **P2 exit:** layout is model-driven; tear-off + presets work; document dirty unaffected by layout.
 

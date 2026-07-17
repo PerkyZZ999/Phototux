@@ -72,6 +72,60 @@ ApplicationWindow {
             return []
         }
     }
+    readonly property var panelDescriptors: {
+        try {
+            return JSON.parse(AppSession.panelDescriptorsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+    readonly property var dockTopology: {
+        try {
+            return JSON.parse(AppSession.dockTopologyJson || "{}")
+        } catch (e) {
+            return ({ right_stack: [] })
+        }
+    }
+    readonly property var panelVisibilityMap: {
+        try {
+            return JSON.parse(AppSession.panelVisibilityJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+    readonly property var dockRightStack: dockTopology.right_stack || []
+
+    function panelTitle(panelId) {
+        var all = root.panelDescriptors
+        for (var i = 0; i < all.length; ++i) {
+            if (all[i].id === panelId)
+                return all[i].title || panelId
+        }
+        return panelId
+    }
+
+    function panelIsVisible(panelId) {
+        if (panelId === "panel.navigator")
+            return AppSession.panelNavigatorVisible
+        if (panelId === "panel.swatches")
+            return AppSession.panelSwatchesVisible
+        if (panelId === "panel.layers")
+            return AppSession.panelLayersVisible
+        if (panelId === "panel.history")
+            return AppSession.panelHistoryVisible
+        if (panelId === "panel.properties")
+            return AppSession.panelPropertiesVisible
+        var m = root.panelVisibilityMap
+        return m[panelId] === true
+    }
+
+    function panelHasBody(panelId) {
+        return panelId === "panel.properties"
+                || panelId === "panel.navigator"
+                || panelId === "panel.swatches"
+                || panelId === "panel.layers"
+                || panelId === "panel.history"
+    }
 
     // Fallback map if a descriptor still uses tool.* icon keys.
     readonly property var toolIconStemMap: ({
@@ -1827,7 +1881,7 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.spaceSm
-                        text: qsTr("Properties")
+                        text: qsTr(root.panelTitle("panel.properties"))
                         color: Theme.colorOnSurfaceVariant
                         font.pixelSize: Theme.fontLabel
                         font.weight: Font.Medium
@@ -2666,7 +2720,7 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.spaceSm
-                        text: qsTr("Navigator")
+                        text: qsTr(root.panelTitle("panel.navigator"))
                         color: Theme.colorOnSurfaceVariant
                         font.pixelSize: Theme.fontLabel
                         font.weight: Font.Medium
@@ -2785,7 +2839,7 @@ ApplicationWindow {
                         anchors.leftMargin: Theme.spaceSm
                         anchors.rightMargin: Theme.spaceXs
                         Label {
-                            text: qsTr("Swatches")
+                            text: qsTr(root.panelTitle("panel.swatches"))
                             color: Theme.colorOnSurfaceVariant
                             font.pixelSize: Theme.fontLabel
                             font.weight: Font.Medium
@@ -2953,7 +3007,7 @@ ApplicationWindow {
                         anchors.rightMargin: Theme.spaceXs
                         spacing: Theme.spaceXs
                         Label {
-                            text: qsTr("Layers")
+                            text: qsTr(root.panelTitle("panel.layers"))
                             color: Theme.colorOnSurfaceVariant
                             font.pixelSize: Theme.fontLabel
                             font.weight: Font.Medium
@@ -3169,7 +3223,7 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.spaceSm
-                        text: qsTr("History")
+                        text: qsTr(root.panelTitle("panel.history"))
                         color: Theme.colorOnSurfaceVariant
                         font.pixelSize: Theme.fontLabel
                         font.weight: Font.Medium
@@ -3194,6 +3248,61 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontBodySm
                             elide: Text.ElideRight
                             Accessible.name: modelData
+                        }
+                    }
+                }
+
+                // Placeholder slots for descriptor panels without a body yet.
+                Repeater {
+                    model: {
+                        var _ = AppSession.panelVisibilityJson
+                        var stack = root.dockRightStack
+                        var all = root.panelDescriptors
+                        var out = []
+                        var seen = ({})
+                        for (var s = 0; s < stack.length; ++s) {
+                            var id = stack[s]
+                            if (root.panelIsVisible(id) && !root.panelHasBody(id)) {
+                                out.push(id)
+                                seen[id] = true
+                            }
+                        }
+                        for (var i = 0; i < all.length; ++i) {
+                            var pid = all[i].id
+                            if (!seen[pid] && root.panelIsVisible(pid) && !root.panelHasBody(pid))
+                                out.push(pid)
+                        }
+                        return out
+                    }
+                    delegate: ColumnLayout {
+                        required property string modelData
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.panelHeaderHeight
+                            color: Theme.surfaceContainer
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.left: parent.left
+                                anchors.leftMargin: Theme.spaceSm
+                                text: qsTr(root.panelTitle(modelData))
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabel
+                                font.weight: Font.Medium
+                            }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 48
+                            color: Theme.surfaceSunken
+                            Label {
+                                anchors.centerIn: parent
+                                text: qsTr("Coming soon")
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontBodySm
+                                opacity: 0.7
+                            }
                         }
                     }
                 }
@@ -3494,30 +3603,34 @@ ApplicationWindow {
                     font.pixelSize: Theme.fontLabel
                     font.weight: Font.DemiBold
                 }
-                CheckBox {
-                    text: qsTr("Navigator")
-                    checked: AppSession.panelNavigatorVisible
-                    onToggled: AppSession.setPanelNavigatorVisible(checked)
-                }
-                CheckBox {
-                    text: qsTr("Swatches")
-                    checked: AppSession.panelSwatchesVisible
-                    onToggled: AppSession.setPanelSwatchesVisible(checked)
-                }
-                CheckBox {
-                    text: qsTr("Layers")
-                    checked: AppSession.panelLayersVisible
-                    onToggled: AppSession.setPanelLayersVisible(checked)
-                }
-                CheckBox {
-                    text: qsTr("History")
-                    checked: AppSession.panelHistoryVisible
-                    onToggled: AppSession.setPanelHistoryVisible(checked)
-                }
-                CheckBox {
-                    text: qsTr("Properties")
-                    checked: AppSession.panelPropertiesVisible
-                    onToggled: AppSession.setPanelPropertiesVisible(checked)
+                Repeater {
+                    model: {
+                        var _ = AppSession.panelVisibilityJson
+                        var stack = root.dockRightStack
+                        var all = root.panelDescriptors
+                        var out = []
+                        var seen = ({})
+                        for (var s = 0; s < stack.length; ++s) {
+                            for (var i = 0; i < all.length; ++i) {
+                                if (all[i].id === stack[s]) {
+                                    out.push(all[i])
+                                    seen[all[i].id] = true
+                                    break
+                                }
+                            }
+                        }
+                        for (var j = 0; j < all.length; ++j) {
+                            if (!seen[all[j].id])
+                                out.push(all[j])
+                        }
+                        return out
+                    }
+                    delegate: CheckBox {
+                        required property var modelData
+                        text: qsTr(modelData.title || modelData.id)
+                        checked: root.panelIsVisible(modelData.id)
+                        onToggled: AppSession.setPanelVisible(modelData.id, checked)
+                    }
                 }
 
                 Button {
