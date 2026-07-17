@@ -118,6 +118,10 @@ pub struct AppSession {
     mask_edit_active: bool,
     /// Distinct from focus/object selection: pixel selection channel active.
     pixel_selection_active: bool,
+    /// Object-selection labels (layer names), distinct from pixel selection (DR-011).
+    object_selection_label: String,
+    /// Last polite announce string for status / a11y.
+    last_announce: String,
     /// `layer` or `mask` (PaintTarget).
     edit_target: String,
     edit_target_label: String,
@@ -271,6 +275,8 @@ impl AppSession {
             layer_clips: String::new(),
             mask_edit_active: false,
             pixel_selection_active: false,
+            object_selection_label: String::new(),
+            last_announce: String::new(),
             edit_target: "layer".to_owned(),
             edit_target_label: "Layer pixels".to_owned(),
             active_layer_kind: String::new(),
@@ -653,6 +659,8 @@ impl AppSession {
     fn sync_selection_fields(&mut self) {
         self.selection_active = self.engine.selection.active;
         self.pixel_selection_active = self.engine.selection.active;
+        self.object_selection_label = self.engine.object_selection_names_joined();
+        self.last_announce = self.engine.last_announce.clone();
         self.selection_combine = self.engine.selection.combine.as_str().to_owned();
         self.selection_shape = self.engine.selection.shape.as_str().to_owned();
         if let Some(b) = self.engine.selection.bounds {
@@ -671,6 +679,8 @@ impl AppSession {
     fn emit_selection_fields(&mut self) {
         self.selection_active_changed();
         self.pixel_selection_active_changed();
+        self.object_selection_label_changed();
+        self.last_announce_changed();
         self.selection_x_changed();
         self.selection_y_changed();
         self.selection_w_changed();
@@ -1128,6 +1138,8 @@ impl AppSession {
             HostFollowUp::ApplyWorkspacePreset { preset_id } => {
                 self.apply_workspace_preset(preset_id);
             }
+            HostFollowUp::SelectionToMask => self.apply_selection_to_mask_host(),
+            HostFollowUp::MaskToSelection => self.apply_mask_to_selection_host(),
         }
         if effects.recomposite {
             self.recomposite();
@@ -1426,6 +1438,16 @@ impl AppSession {
         "pixelSelectionActive",
         Member = pixel_selection_active,
         Notify = pixel_selection_active_changed
+    );
+    qproperty!(
+        "objectSelectionLabel",
+        Member = object_selection_label,
+        Notify = object_selection_label_changed
+    );
+    qproperty!(
+        "lastAnnounce",
+        Member = last_announce,
+        Notify = last_announce_changed
     );
     qproperty!(
         "editTarget",
@@ -1874,6 +1896,10 @@ impl AppSession {
     fn mask_edit_active_changed(&mut self);
     #[qsignal]
     fn pixel_selection_active_changed(&mut self);
+    #[qsignal]
+    fn object_selection_label_changed(&mut self);
+    #[qsignal]
+    fn last_announce_changed(&mut self);
     #[qsignal]
     fn edit_target_changed(&mut self);
     #[qsignal]
@@ -3778,6 +3804,81 @@ impl AppSession {
             command_id::FILTER_SET_GAUSSIAN_RADIUS,
             CommandArgs::FilterGaussianRadius { radius },
         );
+    }
+
+    fn apply_selection_to_mask_host(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let r8 = match phototux_canvas::selection_snapshot() {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.report_gpu("selection to mask", &error);
+                return;
+            }
+        };
+        let needs_create = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.get(id))
+            .is_some_and(|layer| layer.mask.is_none());
+        if needs_create {
+            if let Err(error) = phototux_canvas::ensure_mask(id) {
+                self.report_gpu("selection to mask", &error);
+                return;
+            }
+            if let Err(error) = self.invoke_command(command_id::MASK_CREATE, CommandArgs::None) {
+                self.report_gpu("selection to mask", &error.to_string());
+                return;
+            }
+        }
+        if let Err(error) = phototux_canvas::write_mask_r8(id, &r8) {
+            self.report_gpu("selection to mask", &error);
+            return;
+        }
+        self.engine.announce("Selection copied to layer mask");
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.status_text = self.engine.status_summary();
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+    }
+
+    fn apply_mask_to_selection_host(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let r8 = match phototux_canvas::read_mask_r8(id) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.report_gpu("mask to selection", &error);
+                return;
+            }
+        };
+        if let Err(error) = phototux_canvas::selection_restore(&r8) {
+            self.report_gpu("mask to selection", &error);
+            return;
+        }
+        let bounds = phototux_engine::SelectionRect {
+            x: 0,
+            y: 0,
+            width: self.engine.size.width,
+            height: self.engine.size.height,
+        };
+        self.engine
+            .selection
+            .set_mask_polygon(bounds, phototux_engine::SelectionCombine::Replace);
+        self.engine.announce("Layer mask copied to pixel selection");
+        self.push_selection_snapshot();
+        self.sync_selection_fields();
+        self.emit_selection_fields();
+        self.status_text = self.engine.status_summary();
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
     }
 
     #[qslot]

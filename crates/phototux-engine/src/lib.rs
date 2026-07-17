@@ -194,6 +194,10 @@ pub struct SessionState {
     pub transform_session: Option<TransformSession>,
     /// When set, brush/eraser edits this layer's mask instead of pixels.
     pub mask_edit_layer: Option<LayerId>,
+    /// Object selection (layer ids) — distinct from pixel selection and edit target (DR-011).
+    pub selected_layer_ids: Vec<LayerId>,
+    /// Last polite announcement for chrome / a11y projection.
+    pub last_announce: String,
     pub colors: ColorState,
     pub guides: ViewGuides,
     pub brush_presets: BrushPresetLibrary,
@@ -236,6 +240,8 @@ impl Default for SessionState {
             selection: SelectionState::default(),
             transform_session: None,
             mask_edit_layer: None,
+            selected_layer_ids: Vec::new(),
+            last_announce: String::new(),
             colors: ColorState::default(),
             guides: ViewGuides::default(),
             brush_presets: BrushPresetLibrary::with_defaults(),
@@ -318,8 +324,11 @@ impl SessionState {
         self.selection.clear();
         self.transform_session = None;
         self.mask_edit_layer = None;
+        self.selected_layer_ids.clear();
+        self.last_announce.clear();
         self.document_path = None;
         self.last_persisted_generation = None;
+        self.sync_object_selection_to_active();
         self.zoom_to_fit();
     }
 
@@ -338,7 +347,10 @@ impl SessionState {
         self.selection.clear();
         self.transform_session = None;
         self.mask_edit_layer = None;
+        self.selected_layer_ids.clear();
+        self.last_announce.clear();
         self.last_persisted_generation = None;
+        self.sync_object_selection_to_active();
         self.zoom_to_fit();
     }
 
@@ -513,6 +525,42 @@ impl SessionState {
         }
     }
 
+    /// Align object selection with the active layer (single-select default).
+    pub fn sync_object_selection_to_active(&mut self) {
+        if let Some(id) = self.graph.as_ref().and_then(|g| g.active_id()) {
+            self.selected_layer_ids = vec![id];
+        } else {
+            self.selected_layer_ids.clear();
+        }
+    }
+
+    /// Replace object selection with explicit layer ids (must exist in the graph).
+    pub fn set_object_selection(&mut self, ids: Vec<LayerId>) {
+        let Some(graph) = self.graph.as_ref() else {
+            self.selected_layer_ids.clear();
+            return;
+        };
+        self.selected_layer_ids = ids
+            .into_iter()
+            .filter(|id| graph.get(*id).is_some())
+            .collect();
+    }
+
+    pub fn object_selection_names_joined(&self) -> String {
+        let Some(graph) = self.graph.as_ref() else {
+            return String::new();
+        };
+        self.selected_layer_ids
+            .iter()
+            .filter_map(|id| graph.get(*id).map(|layer| layer.name.clone()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    pub fn announce(&mut self, message: impl Into<String>) {
+        self.last_announce = message.into();
+    }
+
     pub fn history_labels_joined(&self) -> String {
         self.history.labels_newest_first().join("|")
     }
@@ -536,10 +584,18 @@ impl SessionState {
             .filter(|s| !s.is_empty())
             .unwrap_or("?");
         let edit = self.edit_target_label();
-        let sel = if self.selection.active {
+        let pixel = if self.selection.active {
             "pixel selection"
         } else {
             "no pixel selection"
+        };
+        let object = {
+            let joined = self.object_selection_names_joined();
+            if joined.is_empty() {
+                "no object selection".to_owned()
+            } else {
+                format!("object: {joined}")
+            }
         };
         let comp = if self.composite_ms > 0.0 {
             format!(" · composite {:.2} ms", self.composite_ms)
@@ -547,14 +603,15 @@ impl SessionState {
             String::new()
         };
         format!(
-            "{}×{} · zoom {:.0}% · {} ({}) · {} · {} · {} layers · {}{}",
+            "{}×{} · zoom {:.0}% · {} ({}) · {} · {} · {} · {} layers · {}{}",
             self.size.width,
             self.size.height,
             self.camera.zoom * 100.0,
             layer_name,
             layer_kind,
             edit,
-            sel,
+            object,
+            pixel,
             layers,
             self.active_tool,
             comp

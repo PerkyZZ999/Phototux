@@ -54,6 +54,10 @@ pub mod command_id {
     pub const SELECTION_INVERT: &str = "selection.invert";
     pub const SELECTION_SELECT_ALL: &str = "selection.select-all";
     pub const SELECTION_MODIFY: &str = "selection.modify";
+    /// Copy pixel selection R8 into the active layer mask (host GPU).
+    pub const SELECTION_TO_MASK: &str = "selection.to-mask";
+    /// Load active layer mask R8 into the pixel selection channel (host GPU).
+    pub const MASK_TO_SELECTION: &str = "mask.to-selection";
 
     pub const MASK_CREATE: &str = "mask.create";
     pub const MASK_DELETE: &str = "mask.delete";
@@ -122,6 +126,8 @@ pub mod command_id {
         SELECTION_INVERT,
         SELECTION_SELECT_ALL,
         SELECTION_MODIFY,
+        SELECTION_TO_MASK,
+        MASK_TO_SELECTION,
         MASK_CREATE,
         MASK_DELETE,
         MASK_SET_ENABLED,
@@ -171,6 +177,10 @@ pub enum HostFollowUp {
     ApplyWorkspacePreset {
         preset_id: String,
     },
+    /// Copy pixel selection into the active layer mask (GPU host).
+    SelectionToMask,
+    /// Copy active layer mask into the pixel selection channel (GPU host).
+    MaskToSelection,
 }
 
 /// Parameters for [`SessionState::invoke`].
@@ -431,6 +441,8 @@ impl SessionState {
             command_id::SELECTION_INVERT => self.cmd_selection_invert(),
             command_id::SELECTION_SELECT_ALL => self.cmd_selection_select_all(),
             command_id::SELECTION_MODIFY => self.cmd_selection_modify(args),
+            command_id::SELECTION_TO_MASK => self.cmd_selection_to_mask(),
+            command_id::MASK_TO_SELECTION => self.cmd_mask_to_selection(),
             command_id::MASK_CREATE => self.cmd_mask_create(),
             command_id::MASK_DELETE => self.cmd_mask_delete(),
             command_id::MASK_SET_ENABLED => self.cmd_mask_set_enabled(args),
@@ -591,12 +603,18 @@ impl SessionState {
         let CommandArgs::LayerIndex(index) = args else {
             return Err(CommandError::InvalidArgument("expected layer index"));
         };
-        let Some(graph) = self.graph.as_mut() else {
-            return Err(CommandError::Document(DocumentError::NoDocument));
+        let generation = {
+            let Some(graph) = self.graph.as_mut() else {
+                return Err(CommandError::Document(DocumentError::NoDocument));
+            };
+            if !graph.set_active_index(index.max(0) as usize) {
+                return Err(CommandError::Rejected("invalid layer index"));
+            }
+            graph.generation
         };
-        if !graph.set_active_index(index.max(0) as usize) {
-            return Err(CommandError::Rejected("invalid layer index"));
-        }
+        self.sync_object_selection_to_active();
+        let name = self.object_selection_names_joined();
+        self.announce(format!("Object selection: {name}"));
         Ok(CommandEffects {
             recomposite: false,
             dirty: false,
@@ -607,7 +625,7 @@ impl SessionState {
             host_history: None,
             host_follow_up: HostFollowUp::None,
             created_layer: None,
-            generation: graph.generation,
+            generation,
         })
     }
 
@@ -1046,6 +1064,35 @@ impl SessionState {
         self.history
             .push_selection(format!("Selection {op}"), generation);
         Ok(CommandEffects::selection_edit(generation))
+    }
+
+    fn cmd_selection_to_mask(&mut self) -> Result<CommandEffects, CommandError> {
+        if !self.has_document {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        }
+        if !self.selection.active {
+            return Err(CommandError::Rejected("no pixel selection"));
+        }
+        let _ = self.active_layer_id()?;
+        self.announce("Selection → layer mask");
+        Ok(CommandEffects::host_chrome(HostFollowUp::SelectionToMask))
+    }
+
+    fn cmd_mask_to_selection(&mut self) -> Result<CommandEffects, CommandError> {
+        if !self.has_document {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        }
+        let id = self.active_layer_id()?;
+        let has_mask = self
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .is_some_and(|layer| layer.mask.is_some());
+        if !has_mask {
+            return Err(CommandError::Rejected("no layer mask"));
+        }
+        self.announce("Layer mask → selection");
+        Ok(CommandEffects::host_chrome(HostFollowUp::MaskToSelection))
     }
 
     fn cmd_mask_create(&mut self) -> Result<CommandEffects, CommandError> {

@@ -222,6 +222,20 @@ pub fn read_all_mask_r8() -> Result<LayerMaskR8, String> {
     Ok(masks)
 }
 
+/// Read tightly packed R8 pixels for one graph-backed layer mask.
+///
+/// # Errors
+/// Returns an error when no document is open or the mask is missing.
+pub fn read_mask_r8(id: LayerId) -> Result<Vec<u8>, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, id)?;
+    doc.engine.read_mask_r8(id)
+}
+
 /// Ensure a white R8 mask texture exists for `id`.
 ///
 /// # Errors

@@ -2120,18 +2120,31 @@ ApplicationWindow {
                                     var kind = AppSession.activeLayerKind.length > 0
                                                ? AppSession.activeLayerKind
                                                : qsTr("layer")
+                                    var obj = AppSession.objectSelectionLabel.length > 0
+                                              ? qsTr("object: %1").arg(AppSession.objectSelectionLabel)
+                                              : qsTr("no object selection")
                                     var sel = AppSession.pixelSelectionActive
                                               ? qsTr("pixel selection active")
                                               : qsTr("no pixel selection")
-                                    return qsTr("%1 · %2 · %3")
+                                    return qsTr("%1 · %2 · %3 · %4")
                                            .arg(kind)
                                            .arg(AppSession.editTargetLabel)
+                                           .arg(obj)
                                            .arg(sel)
                                 }
                                 color: Theme.colorOnSurfaceMuted
                                 font.pixelSize: Theme.fontLabelSm
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
+                            }
+                            Label {
+                                visible: AppSession.lastAnnounce.length > 0
+                                text: AppSession.lastAnnounce
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabelSm
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                                Accessible.name: AppSession.lastAnnounce
                             }
                             RowLayout {
                                 Layout.fillWidth: true

@@ -121,15 +121,15 @@ Chapters: [01](../01-Information-Architecture.md), [12](../12-Selection-System.m
 
 ### P3.1 Chrome (this batch)
 
-- [~] Distinct: object selection vs pixel selection vs focus vs context target vs active edit target — pixel selection + edit target exposed (`pixelSelectionActive`, `editTarget`); object-selection later
+- [x] Distinct: object selection vs pixel selection vs focus vs context target vs active edit target (`objectSelectionLabel`, `pixelSelectionActive`, `editTarget`, workspace focus)
 - [x] UI chrome never collapses these into one “selection” (status + Properties separate clauses)
-- [ ] Commands/announce for each concept (full DR-011 announce suite later)
+- [~] Commands/announce for each concept (`lastAnnounce` + status; full a11y flood-control later)
 - [x] Mask-edit target vs layer pixels clearly indicated (Properties Edit target row + status)
 - [~] Selection channel ops (replace/add/subtract/intersect) complete in chrome (tool options present)
-- [ ] Marching-ants / overlay performance within interactive budgets
-- [ ] Select → mask / mask → selection flows
+- [~] Marching-ants / overlay performance within interactive budgets (GPU ants shipped; SLO evidence → P13)
+- [x] Select → mask / mask → selection flows (`selection.to-mask`, `mask.to-selection`)
 
-**P3 exit:** DR-011 concepts visible and enforced in tools + Properties + status.
+**P3 exit:** DR-011 concepts visible and enforced in tools + Properties + status. **Met** for shipped concepts (multi-object select polish deferred).
 
 ---
 
