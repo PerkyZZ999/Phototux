@@ -12,8 +12,8 @@ use crate::document::MAX_LAYERS;
 use crate::error::DocumentError;
 use crate::history::HistoryKind;
 use crate::layer::{
-    AdjustmentParams, BlendMode, LayerId, LayerKind, LayerMask, LayerTransform, PaintTarget,
-    ShapeContent, TextContent,
+    AdjustmentParams, BlendMode, FillContent, LayerId, LayerKind, LayerMask, LayerTransform,
+    PaintTarget, ShapeContent, TextContent,
 };
 use crate::layer_style::LayerStyle;
 use crate::selection::{SelectionCombine, SelectionRect, SelectionShape};
@@ -26,6 +26,8 @@ pub mod command_id {
     pub const HISTORY_REDO: &str = "history.redo";
 
     pub const LAYER_CREATE: &str = "layer.create";
+    pub const LAYER_CREATE_FILL: &str = "layer.create-fill";
+    pub const LAYER_SET_FILL_COLOR: &str = "layer.set-fill-color";
     pub const LAYER_DELETE: &str = "layer.delete";
     pub const LAYER_SET_ACTIVE: &str = "layer.set-active";
     pub const LAYER_SET_VISIBILITY: &str = "layer.set-visibility";
@@ -109,6 +111,8 @@ pub mod command_id {
         HISTORY_REDO,
         HISTORY_JUMP,
         LAYER_CREATE,
+        LAYER_CREATE_FILL,
+        LAYER_SET_FILL_COLOR,
         LAYER_DELETE,
         LAYER_SET_ACTIVE,
         LAYER_SET_VISIBILITY,
@@ -287,6 +291,12 @@ pub enum CommandArgs {
     ShapeBoolean {
         op: String,
     },
+    FillCreate {
+        color_rgba: [f32; 4],
+    },
+    FillColor {
+        color_rgba: [f32; 4],
+    },
     FilterAdjustment {
         kind: String,
     },
@@ -460,6 +470,8 @@ impl SessionState {
             command_id::HISTORY_REDO => self.cmd_history_redo(),
             command_id::HISTORY_JUMP => self.cmd_history_jump(args),
             command_id::LAYER_CREATE => self.cmd_layer_create(),
+            command_id::LAYER_CREATE_FILL => self.cmd_layer_create_fill(args),
+            command_id::LAYER_SET_FILL_COLOR => self.cmd_layer_set_fill_color(args),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
             command_id::LAYER_SET_VISIBILITY => self.cmd_layer_set_visibility(args),
@@ -683,6 +695,86 @@ impl SessionState {
         }
         undo_actions::add_layer(graph, history, None)?;
         Ok(CommandEffects::document_edit(graph.generation))
+    }
+
+    fn cmd_layer_create_fill(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let color = match args {
+            CommandArgs::FillCreate { color_rgba } => color_rgba,
+            CommandArgs::None => FillContent::default().color_rgba,
+            _ => return Err(CommandError::InvalidArgument("expected fill color")),
+        };
+        let content = FillContent {
+            color_rgba: [
+                color[0].clamp(0.0, 1.0),
+                color[1].clamp(0.0, 1.0),
+                color[2].clamp(0.0, 1.0),
+                color[3].clamp(0.0, 1.0),
+            ],
+        };
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let id = graph.add_fill_top(None, content)?;
+        let index = graph.index_of(id).unwrap_or(0);
+        let layer = graph
+            .get(id)
+            .cloned()
+            .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?;
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(
+            crate::GraphCommand::AddLayer { id, index, layer },
+            "Add fill layer",
+            generation,
+        );
+        self.selected_layer_ids = vec![id];
+        self.announce("Added fill layer");
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    fn cmd_layer_set_fill_color(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::FillColor { color_rgba } = args else {
+            return Err(CommandError::InvalidArgument("expected fill color"));
+        };
+        let id = self.active_layer_id()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.kind != LayerKind::Fill {
+            return Err(CommandError::Rejected("active layer is not a fill"));
+        }
+        let next = FillContent {
+            color_rgba: [
+                color_rgba[0].clamp(0.0, 1.0),
+                color_rgba[1].clamp(0.0, 1.0),
+                color_rgba[2].clamp(0.0, 1.0),
+                color_rgba[3].clamp(0.0, 1.0),
+            ],
+        };
+        let Some(prev) = graph.set_fill(id, Some(next.clone())) else {
+            return Err(CommandError::Rejected("set fill failed"));
+        };
+        if prev.as_ref() == Some(&next) {
+            return Err(CommandError::Rejected("fill unchanged"));
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(
+            crate::GraphCommand::SetFill {
+                id,
+                prev,
+                next: Some(next),
+            },
+            "Set fill color",
+            generation,
+        );
+        Ok(CommandEffects::document_edit(generation))
     }
 
     /// Targets for multi-select structural ops (selection when non-empty, else active).
@@ -2415,6 +2507,34 @@ mod tests {
         for id in &ids {
             assert!(g.get(*id).unwrap().parent.is_none());
         }
+    }
+
+    #[test]
+    fn create_fill_layer_via_command() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let n = s.layer_count();
+        s.invoke(
+            command_id::LAYER_CREATE_FILL,
+            CommandArgs::FillCreate {
+                color_rgba: [1.0, 0.0, 0.0, 1.0],
+            },
+        )
+        .expect("fill");
+        assert_eq!(s.layer_count(), n + 1);
+        let id = s.graph.as_ref().unwrap().active_id().unwrap();
+        let layer = s.graph.as_ref().unwrap().get(id).unwrap();
+        assert_eq!(layer.kind, LayerKind::Fill);
+        assert_eq!(layer.fill.as_ref().unwrap().color_rgba[0], 1.0);
+        s.invoke(
+            command_id::LAYER_SET_FILL_COLOR,
+            CommandArgs::FillColor {
+                color_rgba: [0.0, 1.0, 0.0, 1.0],
+            },
+        )
+        .expect("recolor");
+        let layer = s.graph.as_ref().unwrap().get(id).unwrap();
+        assert_eq!(layer.fill.as_ref().unwrap().color_rgba[1], 1.0);
     }
 
     #[test]

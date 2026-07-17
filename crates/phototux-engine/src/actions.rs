@@ -405,6 +405,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
         ),
         act(
+            "action.layer.new-fill",
+            "New &Fill Layer",
+            "layer",
+            "has_document",
+            Some(command_id::LAYER_CREATE_FILL),
+            None,
+            None,
+            None,
+            None,
+        ),
+        act(
             "action.layer.delete",
             "&Delete Layer",
             "layer",

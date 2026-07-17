@@ -2,7 +2,7 @@
 
 use crate::document::DocumentGraph;
 use crate::layer::{
-    AdjustmentParams, BlendMode, FilterEffect, Layer, LayerId, LayerMask, LockFlags,
+    AdjustmentParams, BlendMode, FillContent, FilterEffect, Layer, LayerId, LayerMask, LockFlags,
 };
 
 /// One undoable gesture applied to the document graph (structure only in Phase 3).
@@ -73,6 +73,11 @@ pub enum GraphCommand {
         prev: Vec<FilterEffect>,
         next: Vec<FilterEffect>,
     },
+    SetFill {
+        id: LayerId,
+        prev: Option<FillContent>,
+        next: Option<FillContent>,
+    },
     SetParent {
         id: LayerId,
         prev: Option<LayerId>,
@@ -134,6 +139,9 @@ impl GraphCommand {
             }
             Self::SetEffects { id, next, .. } => {
                 let _ = graph.set_effects(*id, next.clone());
+            }
+            Self::SetFill { id, next, .. } => {
+                let _ = graph.set_fill(*id, next.clone());
             }
             Self::SetParent { id, next, .. } => {
                 let _ = graph.set_parent(*id, *next);
@@ -220,6 +228,11 @@ impl GraphCommand {
                 next: prev.clone(),
             },
             Self::SetEffects { id, prev, next } => Self::SetEffects {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetFill { id, prev, next } => Self::SetFill {
                 id: *id,
                 prev: next.clone(),
                 next: prev.clone(),

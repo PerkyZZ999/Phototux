@@ -254,6 +254,8 @@ pub struct LayerCompositeEngine {
     stack_order: Vec<LayerId>,
     /// Pre-pack effect/style plan per layer.
     pack_plans: HashMap<LayerId, LayerPackPlan>,
+    /// Last applied solid fill colors (rewrite GPU when params change).
+    fill_colors: HashMap<LayerId, [f32; 4]>,
     blur: SeparableBlur,
     effects: EffectPass,
 }
@@ -425,6 +427,7 @@ impl LayerCompositeEngine {
             last_composite_ms: 0.0,
             stack_order: Vec::new(),
             pack_plans: HashMap::new(),
+            fill_colors: HashMap::new(),
             blur: SeparableBlur::new(ctx, width, height),
             effects: EffectPass::new(ctx, width, height),
         }
@@ -496,6 +499,7 @@ impl LayerCompositeEngine {
         }
         let ids: std::collections::HashSet<_> = layers.iter().map(|l| l.id).collect();
         self.layer_tex.retain(|id, _| ids.contains(id));
+        self.fill_colors.retain(|id, _| ids.contains(id));
         // Drop GPU masks when graph metadata no longer has a mask.
         let masked: std::collections::HashSet<_> = layers
             .iter()
@@ -522,6 +526,22 @@ impl LayerCompositeEngine {
             match layer.kind {
                 LayerKind::Adjustment => {
                     self.ensure_layer(ctx, layer.id, [0.0, 0.0, 0.0, 0.0]);
+                }
+                LayerKind::Fill => {
+                    let color = layer
+                        .fill
+                        .as_ref()
+                        .map(|f| f.color_rgba)
+                        .unwrap_or([0.45, 0.55, 0.75, 1.0]);
+                    self.ensure_layer(ctx, layer.id, color);
+                    let dirty = self
+                        .fill_colors
+                        .get(&layer.id)
+                        .is_none_or(|prev| prev != &color);
+                    if dirty {
+                        self.write_solid_fill(ctx, layer.id, color)?;
+                        self.fill_colors.insert(layer.id, color);
+                    }
                 }
                 _ => {
                     let color = PALETTE[i % PALETTE.len()];
@@ -858,6 +878,33 @@ impl LayerCompositeEngine {
 
     pub fn layer_texture_mut(&mut self, id: LayerId) -> Option<&mut wgpu::Texture> {
         self.layer_tex.get_mut(&id)
+    }
+
+    fn write_solid_fill(
+        &mut self,
+        ctx: &GpuContext,
+        id: LayerId,
+        color: [f32; 4],
+    ) -> Result<(), String> {
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let px = w
+            .checked_mul(h)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or_else(|| "fill dimensions overflow".to_owned())?;
+        let r = (color[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+        let g = (color[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+        let b = (color[2].clamp(0.0, 1.0) * 255.0).round() as u8;
+        let a = (color[3].clamp(0.0, 1.0) * 255.0).round() as u8;
+        let mut pixels = vec![0_u8; px];
+        for chunk in pixels.chunks_exact_mut(4) {
+            chunk[0] = r;
+            chunk[1] = g;
+            chunk[2] = b;
+            chunk[3] = a;
+        }
+        self.write_layer_rgba(ctx, id, &pixels)
+            .map_err(|e| e.to_string())
     }
 
     /// Replace one layer with tightly packed RGBA8 pixels.

@@ -59,8 +59,9 @@ pub use filter_plan::{FilterPlan, FilterPlanNode};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
-    AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
-    LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, ShapeContent, TextContent, VectorMask,
+    AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
+    LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, ShapeContent,
+    TextContent, VectorMask,
 };
 pub use layer_style::{LayerStyle, apply_styles_rgba8};
 pub use paths::{

@@ -6,8 +6,8 @@ use crate::DocumentSize;
 use crate::color_mgmt::DocumentColorState;
 use crate::error::DocumentError;
 use crate::layer::{
-    AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
-    MAX_BLUR_RADIUS, ShapeContent, TextContent,
+    AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
+    LayerKind, LayerMask, MAX_BLUR_RADIUS, ShapeContent, TextContent,
 };
 use crate::paths::PathDocument;
 
@@ -171,7 +171,12 @@ impl DocumentGraph {
             l.visible
                 && matches!(
                     l.kind,
-                    LayerKind::Raster | LayerKind::Text | LayerKind::Group | LayerKind::Adjustment
+                    LayerKind::Raster
+                        | LayerKind::Text
+                        | LayerKind::Group
+                        | LayerKind::Adjustment
+                        | LayerKind::Fill
+                        | LayerKind::Shape
                 )
         })
     }
@@ -289,6 +294,42 @@ impl DocumentGraph {
         self.active = Some(id);
         self.bump();
         Ok(id)
+    }
+
+    /// Add a solid fill layer on top.
+    ///
+    /// # Errors
+    /// Returns [`DocumentError::LayerLimitReached`] when the layer cap is reached.
+    pub fn add_fill_top(
+        &mut self,
+        name: Option<String>,
+        content: FillContent,
+    ) -> Result<LayerId, DocumentError> {
+        if !self.can_add_layer() {
+            return Err(DocumentError::layer_limit(MAX_LAYERS));
+        }
+        let id = LayerId(self.next_id);
+        self.next_id += 1;
+        let layer = Layer::fill_layer(id, name.unwrap_or_else(|| "Fill".into()), content);
+        self.layers.push(layer);
+        self.active = Some(id);
+        self.bump();
+        Ok(id)
+    }
+
+    pub fn set_fill(
+        &mut self,
+        id: LayerId,
+        fill: Option<FillContent>,
+    ) -> Option<Option<FillContent>> {
+        let layer = self.get_mut(id)?;
+        if layer.kind != LayerKind::Fill {
+            return None;
+        }
+        let prev = layer.fill.clone();
+        layer.fill = fill;
+        self.bump();
+        Some(prev)
     }
 
     pub fn set_parent(&mut self, id: LayerId, parent: Option<LayerId>) -> Option<Option<LayerId>> {

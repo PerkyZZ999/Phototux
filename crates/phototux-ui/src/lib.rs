@@ -173,6 +173,7 @@ pub struct AppSession {
     active_blend: String,
     foreground_hex: String,
     background_hex: String,
+    fill_color_hex: String,
     recent_colors: String,
     viewport_width: f32,
     viewport_height: f32,
@@ -337,6 +338,7 @@ impl AppSession {
             active_blend: "normal".to_owned(),
             foreground_hex: "#000000".to_owned(),
             background_hex: "#FFFFFF".to_owned(),
+            fill_color_hex: "#738CBF".to_owned(),
             recent_colors: String::new(),
             viewport_width: 1.0,
             viewport_height: 1.0,
@@ -557,6 +559,10 @@ impl AppSession {
         self.active_blend = active_layer
             .map(|l| l.blend.as_str().to_owned())
             .unwrap_or_else(|| "normal".to_owned());
+        self.fill_color_hex = active_layer
+            .and_then(|l| l.fill.as_ref())
+            .map(|f| phototux_engine::ColorState::to_hex(f.color_rgba))
+            .unwrap_or_else(|| "#738CBF".to_owned());
         self.sync_color_fields();
         self.viewport_width = self.engine.viewport_w;
         self.viewport_height = self.engine.viewport_h;
@@ -732,6 +738,7 @@ impl AppSession {
         self.active_blend_changed();
         self.foreground_hex_changed();
         self.background_hex_changed();
+        self.fill_color_hex_changed();
         self.recent_colors_changed();
         self.viewport_width_changed();
         self.viewport_height_changed();
@@ -1097,6 +1104,7 @@ impl AppSession {
             | cid::LAYER_CREATE
             | cid::LAYER_DELETE
             | cid::LAYER_GROUP
+            | cid::LAYER_UNGROUP
             | cid::VIEW_ZOOM_TO_FIT
             | cid::STYLE_ADD_DROP_SHADOW
             | cid::STYLE_ADD_STROKE
@@ -1106,6 +1114,14 @@ impl AppSession {
             | cid::MASK_CREATE_VECTOR
             | cid::SELECTION_TO_MASK
             | cid::MASK_TO_SELECTION => Ok(CommandArgs::None),
+            cid::LAYER_CREATE_FILL => Ok(CommandArgs::FillCreate {
+                color_rgba: [
+                    self.engine.colors.foreground[0],
+                    self.engine.colors.foreground[1],
+                    self.engine.colors.foreground[2],
+                    1.0,
+                ],
+            }),
             cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
                 panel_id: arg.unwrap_or("panel.layers").to_owned(),
             }),
@@ -1856,6 +1872,11 @@ impl AppSession {
         Notify = foreground_hex_changed
     );
     qproperty!(
+        "fillColorHex",
+        Member = fill_color_hex,
+        Notify = fill_color_hex_changed
+    );
+    qproperty!(
         "backgroundHex",
         Member = background_hex,
         Notify = background_hex_changed
@@ -2229,6 +2250,8 @@ impl AppSession {
     fn active_blend_changed(&mut self);
     #[qsignal]
     fn foreground_hex_changed(&mut self);
+    #[qsignal]
+    fn fill_color_hex_changed(&mut self);
     #[qsignal]
     fn background_hex_changed(&mut self);
     #[qsignal]
@@ -3900,6 +3923,30 @@ impl AppSession {
         if let Err(error) = self.invoke_command(command_id::LAYER_GROUP, CommandArgs::None) {
             self.report_gpu("add group", &error.to_string());
         }
+    }
+
+    #[qslot]
+    fn add_fill_layer(&mut self) {
+        let color = self.engine.colors.foreground;
+        if let Err(error) = self.invoke_command(
+            command_id::LAYER_CREATE_FILL,
+            CommandArgs::FillCreate {
+                color_rgba: [color[0], color[1], color[2], 1.0],
+            },
+        ) {
+            self.report_gpu("add fill", &error.to_string());
+        }
+    }
+
+    #[qslot]
+    fn set_active_fill_hex(&mut self, hex: String) {
+        let Some(rgba) = phototux_engine::ColorState::from_hex(&hex) else {
+            return;
+        };
+        let _ = self.invoke_command(
+            command_id::LAYER_SET_FILL_COLOR,
+            CommandArgs::FillColor { color_rgba: rgba },
+        );
     }
 
     #[qslot]

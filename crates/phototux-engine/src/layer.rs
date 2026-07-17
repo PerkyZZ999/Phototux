@@ -17,6 +17,8 @@ pub enum LayerKind {
     Adjustment,
     /// Vector shape layer (DR-027); rasterized for composite.
     Shape,
+    /// Procedural solid fill (handbook 11); not a paintable raster buffer.
+    Fill,
 }
 
 impl LayerKind {
@@ -27,6 +29,21 @@ impl LayerKind {
             Self::Text => "text",
             Self::Adjustment => "adjustment",
             Self::Shape => "shape",
+            Self::Fill => "fill",
+        }
+    }
+}
+
+/// Solid fill definition for [`LayerKind::Fill`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FillContent {
+    pub color_rgba: [f32; 4],
+}
+
+impl Default for FillContent {
+    fn default() -> Self {
+        Self {
+            color_rgba: [0.45, 0.55, 0.75, 1.0],
         }
     }
 }
@@ -525,6 +542,8 @@ pub struct Layer {
     pub adjustment: Option<AdjustmentParams>,
     #[serde(default)]
     pub shape: Option<ShapeContent>,
+    #[serde(default)]
+    pub fill: Option<FillContent>,
     pub effects: Vec<FilterEffect>,
     /// Nondestructive layer styles (shadow / stroke v1).
     #[serde(default)]
@@ -556,6 +575,7 @@ impl Layer {
             text: None,
             adjustment: None,
             shape: None,
+            fill: None,
             effects: Vec::new(),
             styles: Vec::new(),
             filter_plan: crate::filter_plan::FilterPlan::new(),
@@ -585,6 +605,14 @@ impl Layer {
         layer
     }
 
+    pub fn fill_layer(id: LayerId, name: impl Into<String>, content: FillContent) -> Self {
+        let mut layer = Self::new(id, name);
+        layer.kind = LayerKind::Fill;
+        layer.fill = Some(content);
+        layer.asset_key = None;
+        layer
+    }
+
     pub fn adjustment_layer(
         id: LayerId,
         name: impl Into<String>,
@@ -607,7 +635,10 @@ impl Layer {
     }
 
     pub fn paint_blocked(&self) -> bool {
-        self.locked || self.locks.all || self.locks.pixels || self.kind != LayerKind::Raster
+        self.locked
+            || self.locks.all
+            || self.locks.pixels
+            || !matches!(self.kind, LayerKind::Raster)
     }
 
     pub fn position_blocked(&self) -> bool {

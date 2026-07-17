@@ -2313,6 +2313,39 @@ ApplicationWindow {
                             }
                         }
 
+                        // Fill layer chrome
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: root.activeLayerKind === "fill"
+                            Label {
+                                text: qsTr("Fill")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceSm
+                                Label {
+                                    text: qsTr("Color")
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontLabelSm
+                                }
+                                TextField {
+                                    Layout.fillWidth: true
+                                    text: AppSession.fillColorHex
+                                    onEditingFinished: AppSession.setActiveFillHex(text)
+                                }
+                                Rectangle {
+                                    width: 22
+                                    height: 22
+                                    radius: Theme.radiusXs
+                                    color: AppSession.fillColorHex
+                                    border.color: Theme.border
+                                }
+                            }
+                        }
+
                         // Character / text layer chrome
                         ColumnLayout {
                             id: characterProps
@@ -3628,7 +3661,9 @@ ApplicationWindow {
                                         anchors.centerIn: parent
                                         text: layerKind === "group" ? "G"
                                               : (layerKind === "text" ? "T"
-                                              : (layerKind === "adjustment" ? "A" : ""))
+                                              : (layerKind === "adjustment" ? "A"
+                                              : (layerKind === "fill" ? "F"
+                                              : (layerKind === "shape" ? "S" : ""))))
                                         color: Theme.colorOnSurfaceVariant
                                         font.pixelSize: 9
                                     }
