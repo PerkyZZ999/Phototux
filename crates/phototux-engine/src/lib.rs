@@ -1,5 +1,6 @@
 //! Pure document/session types — no Qt (ADR-006, ADR-011, ADR-017).
 
+mod actions;
 mod brush_preset;
 mod camera;
 mod cancel;
@@ -22,6 +23,7 @@ mod text_bake;
 mod transform;
 mod undo;
 
+pub use actions::{ActionDescriptor, action_by_id, actions_json, default_actions};
 pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};
 pub use cancel::CancelToken;

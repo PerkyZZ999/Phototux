@@ -20,6 +20,16 @@ use phototux_engine::{
 };
 use prefs::Preferences;
 
+fn parse_modify_arg(arg: &str) -> (String, i32) {
+    let mut parts = arg.split(':');
+    let op = parts.next().unwrap_or("feather").to_owned();
+    let radius = parts
+        .next()
+        .and_then(|r| r.parse::<i32>().ok())
+        .unwrap_or(4);
+    (op, radius)
+}
+
 #[derive(Clone)]
 struct SelectionSnapshot {
     state: SelectionState,
@@ -169,6 +179,7 @@ pub struct AppSession {
     prefs: Preferences,
     panel_descriptors_json: String,
     tool_descriptors_json: String,
+    actions_json: String,
     preferences_open: bool,
     pref_show_guides: bool,
     pref_restore_last_tool: bool,
@@ -304,6 +315,7 @@ impl AppSession {
             prefs: Preferences::default(),
             panel_descriptors_json: phototux_engine::panels_json(),
             tool_descriptors_json: phototux_engine::tools_json(),
+            actions_json: phototux_engine::actions_json(),
             preferences_open: false,
             pref_show_guides: true,
             pref_restore_last_tool: false,
@@ -797,6 +809,205 @@ impl AppSession {
         let effects = self.engine.invoke(id, args)?;
         self.apply_command_effects(effects);
         Ok(())
+    }
+
+    fn active_layer_has_mask(&self) -> bool {
+        let idx = self.active_layer_index;
+        if idx < 0 {
+            return false;
+        }
+        self.layer_mask_flags
+            .split('|')
+            .nth(idx as usize)
+            .is_some_and(|f| f != "0" && !f.is_empty())
+    }
+
+    fn action_enablement(&self, tag: &str) -> bool {
+        let busy = self.io_busy;
+        match tag {
+            "always" => true,
+            "io_idle" => !busy,
+            "has_document" => self.has_document && !busy,
+            "has_document_io_idle" => self.has_document && !busy,
+            "can_undo" => self.can_undo && !busy,
+            "can_redo" => self.can_redo && !busy,
+            "selection_active" => self.has_document && self.selection_active && !busy,
+            "has_mask" => self.has_document && self.active_layer_has_mask() && !busy,
+            "no_mask" => self.has_document && !self.active_layer_has_mask() && !busy,
+            _ => self.has_document && !busy,
+        }
+    }
+
+    fn command_args_for_action(
+        command_id: &str,
+        arg: Option<&str>,
+    ) -> Result<CommandArgs, CommandError> {
+        use phototux_engine::command_id as cid;
+        match command_id {
+            cid::HISTORY_UNDO
+            | cid::HISTORY_REDO
+            | cid::LAYER_CREATE
+            | cid::LAYER_GROUP
+            | cid::VIEW_ZOOM_TO_FIT
+            | cid::STYLE_ADD_DROP_SHADOW
+            | cid::STYLE_ADD_STROKE
+            | cid::DOCUMENT_ROTATE_90 => Ok(CommandArgs::None),
+            cid::DOCUMENT_ASSIGN_PROFILE => Ok(CommandArgs::AssignProfile {
+                profile: arg.unwrap_or("sRGB").to_owned(),
+            }),
+            cid::DOCUMENT_CONVERT_PROFILE => Ok(CommandArgs::ConvertProfile {
+                profile: arg.unwrap_or("sRGB").to_owned(),
+            }),
+            cid::FILTER_ADD_ADJUSTMENT => Ok(CommandArgs::FilterAdjustment {
+                kind: arg.unwrap_or("brightness").to_owned(),
+            }),
+            cid::FILTER_ADD_EFFECT => Ok(CommandArgs::FilterEffect {
+                kind: arg.unwrap_or("gaussian").to_owned(),
+            }),
+            cid::RASTER_FLIP => Ok(CommandArgs::RasterFlip {
+                horizontal: arg != Some("v"),
+            }),
+            _ => {
+                if arg.is_none() {
+                    Ok(CommandArgs::None)
+                } else {
+                    Err(CommandError::InvalidArgument(
+                        "unsupported command args for action",
+                    ))
+                }
+            }
+        }
+    }
+
+    fn dispatch_host_op(&mut self, op: &str, arg: Option<&str>) {
+        match op {
+            "document.new" => {
+                // QML must open new-doc dialog via destructive flow; signal via status.
+                self.status_text = "host:document.new".into();
+                self.status_text_changed();
+            }
+            "document.open" => {
+                self.status_text = "host:document.open".into();
+                self.status_text_changed();
+            }
+            "document.save" => {
+                if !self.document_path.is_empty() {
+                    self.save_document(String::new());
+                } else {
+                    self.status_text = "host:document.save_as".into();
+                    self.status_text_changed();
+                }
+            }
+            "document.save_as" => {
+                self.status_text = "host:document.save_as".into();
+                self.status_text_changed();
+            }
+            "document.export" => {
+                self.status_text = "host:document.export".into();
+                self.status_text_changed();
+            }
+            "document.close" => {
+                self.status_text = "host:document.close".into();
+                self.status_text_changed();
+            }
+            "app.quit" => {
+                self.status_text = "host:app.quit".into();
+                self.status_text_changed();
+            }
+            "help.about" => {
+                self.status_text = "host:help.about".into();
+                self.status_text_changed();
+            }
+            "prefs.open" => self.open_preferences(),
+            "clipboard.copy" => self.copy_selection(),
+            "clipboard.paste_layer" => self.paste_as_new_layer(),
+            "selection.select_all" => self.select_all(),
+            "selection.deselect" => self.select_none(),
+            "selection.invert" => self.invert_selection(),
+            "selection.modify" => {
+                let (op_name, radius) = parse_modify_arg(arg.unwrap_or("feather:4"));
+                self.modify_selection(op_name, radius);
+            }
+            "raster.flip" => self.flip_active_layer(arg != Some("v")),
+            "document.rotate_90" => self.rotate_canvas_90_cw(),
+            "text.bake" => self.bake_text_layer(),
+            "shape.create" => self.add_shape_layer(arg.unwrap_or("rect").to_owned()),
+            "shape.rasterize" => self.rasterize_shape_layer(),
+            "path.stroke" => self.stroke_active_path_to_layer(),
+            "mask.create" => self.add_mask_to_active(),
+            "mask.delete" => self.delete_mask_on_active(),
+            "mask.toggle_enabled" => {
+                let enabled = self
+                    .engine
+                    .graph
+                    .as_ref()
+                    .and_then(|g| {
+                        let id = g.active_id()?;
+                        g.get(id)?.mask.as_ref().map(|m| m.enabled)
+                    })
+                    .unwrap_or(false);
+                self.set_mask_enabled_on_active(!enabled);
+            }
+            "layer.toggle_clip" => {
+                let clips = self
+                    .engine
+                    .graph
+                    .as_ref()
+                    .and_then(|g| {
+                        let id = g.active_id()?;
+                        Some(g.get(id)?.clips_to_below)
+                    })
+                    .unwrap_or(false);
+                self.set_clips_to_below_on_active(!clips);
+            }
+            "view.toggle_guides" => {
+                let v = !self.engine.guides.show_guides;
+                self.set_guides_visible(v);
+            }
+            "view.toggle_grid" => {
+                let v = !self.engine.guides.show_grid;
+                self.set_grid_visible(v);
+            }
+            "view.toggle_rulers" => {
+                let v = !self.engine.guides.show_rulers;
+                self.set_rulers_visible(v);
+            }
+            "view.toggle_snap" => {
+                let v = !self.engine.guides.snap;
+                self.set_snap_enabled(v);
+            }
+            "view.guide_v" => {
+                let x = self.engine.size.width as f32 / 2.0;
+                self.add_guide("v".into(), x);
+            }
+            "view.guide_h" => {
+                let y = self.engine.size.height as f32 / 2.0;
+                self.add_guide("h".into(), y);
+            }
+            "view.clear_guides" => self.clear_guides(),
+            "workspace.reset" => self.reset_workspace(),
+            op if op.starts_with("panel.toggle:") => {
+                let panel = op.trim_start_matches("panel.toggle:");
+                match panel {
+                    "navigator" => {
+                        self.set_panel_navigator_visible(!self.panel_navigator_visible);
+                    }
+                    "swatches" => {
+                        self.set_panel_swatches_visible(!self.panel_swatches_visible);
+                    }
+                    "layers" => self.set_panel_layers_visible(!self.panel_layers_visible),
+                    "history" => self.set_panel_history_visible(!self.panel_history_visible),
+                    "properties" => {
+                        self.set_panel_properties_visible(!self.panel_properties_visible);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                self.status_text = format!("Unknown host op: {op}");
+                self.status_text_changed();
+            }
+        }
     }
 
     fn apply_command_effects(&mut self, effects: CommandEffects) {
@@ -1342,6 +1553,11 @@ impl AppSession {
         Notify = tool_descriptors_json_changed
     );
     qproperty!(
+        "actionsJson",
+        Member = actions_json,
+        Notify = actions_json_changed
+    );
+    qproperty!(
         "preferencesOpen",
         Member = preferences_open,
         Notify = preferences_open_changed
@@ -1590,6 +1806,8 @@ impl AppSession {
     #[qsignal]
     fn tool_descriptors_json_changed(&mut self);
     #[qsignal]
+    fn actions_json_changed(&mut self);
+    #[qsignal]
     fn preferences_open_changed(&mut self);
     #[qsignal]
     fn pref_show_guides_changed(&mut self);
@@ -1661,6 +1879,39 @@ impl AppSession {
         ) {
             self.report_gpu("convert profile", &error.to_string());
         }
+    }
+
+    #[qslot]
+    fn invoke_action(&mut self, id: String) {
+        let Some(action) = phototux_engine::action_by_id(&id) else {
+            self.status_text = format!("Unknown action: {id}");
+            self.status_text_changed();
+            return;
+        };
+        if !self.action_enablement(&action.enablement) {
+            return;
+        }
+        if let Some(host) = action.host_op.as_deref() {
+            self.dispatch_host_op(host, action.arg.as_deref());
+            return;
+        }
+        if let Some(cid) = action.command_id.as_deref() {
+            match Self::command_args_for_action(cid, action.arg.as_deref()) {
+                Ok(args) => {
+                    if let Err(error) = self.invoke_command(cid, args) {
+                        self.report_gpu("action", &error.to_string());
+                    }
+                }
+                Err(error) => self.report_gpu("action", &error.to_string()),
+            }
+        }
+    }
+
+    #[qslot]
+    fn action_enabled(&mut self, id: String) -> bool {
+        phototux_engine::action_by_id(&id)
+            .map(|a| self.action_enablement(&a.enablement))
+            .unwrap_or(false)
     }
 
     #[qslot]
