@@ -186,6 +186,10 @@ pub struct AppSession {
     panel_descriptors_json: String,
     tool_descriptors_json: String,
     actions_json: String,
+    shortcuts_json: String,
+    action_shortcuts_json: String,
+    /// When true, global shortcut resolve yields (text fields / IME).
+    shortcut_input_yield: bool,
     preferences_open: bool,
     pref_show_guides: bool,
     pref_restore_last_tool: bool,
@@ -326,6 +330,9 @@ impl AppSession {
             panel_descriptors_json: phototux_engine::panels_json(),
             tool_descriptors_json: phototux_engine::tools_json(),
             actions_json: phototux_engine::actions_json(),
+            shortcuts_json: phototux_engine::shortcuts_json(),
+            action_shortcuts_json: phototux_engine::action_shortcuts_json(),
+            shortcut_input_yield: false,
             preferences_open: false,
             pref_show_guides: true,
             pref_restore_last_tool: false,
@@ -1607,6 +1614,21 @@ impl AppSession {
         Notify = actions_json_changed
     );
     qproperty!(
+        "shortcutsJson",
+        Member = shortcuts_json,
+        Notify = shortcuts_json_changed
+    );
+    qproperty!(
+        "actionShortcutsJson",
+        Member = action_shortcuts_json,
+        Notify = action_shortcuts_json_changed
+    );
+    qproperty!(
+        "shortcutInputYield",
+        Member = shortcut_input_yield,
+        Notify = shortcut_input_yield_changed
+    );
+    qproperty!(
         "preferencesOpen",
         Member = preferences_open,
         Notify = preferences_open_changed
@@ -1865,6 +1887,12 @@ impl AppSession {
     #[qsignal]
     fn actions_json_changed(&mut self);
     #[qsignal]
+    fn shortcuts_json_changed(&mut self);
+    #[qsignal]
+    fn action_shortcuts_json_changed(&mut self);
+    #[qsignal]
+    fn shortcut_input_yield_changed(&mut self);
+    #[qsignal]
     fn preferences_open_changed(&mut self);
     #[qsignal]
     fn pref_show_guides_changed(&mut self);
@@ -1969,6 +1997,37 @@ impl AppSession {
         phototux_engine::action_by_id(&id)
             .map(|a| self.action_enablement(&a.enablement))
             .unwrap_or(false)
+    }
+
+    #[qslot]
+    fn shortcut_action(&mut self, chord: String) -> String {
+        let map = phototux_engine::default_shortcut_map();
+        phototux_engine::resolve_shortcut(&map, &chord)
+            .unwrap_or("")
+            .to_owned()
+    }
+
+    #[qslot]
+    fn handle_shortcut(&mut self, chord: String) -> bool {
+        if self.preferences_open || self.shortcut_input_yield {
+            return false;
+        }
+        let map = phototux_engine::default_shortcut_map();
+        let Some(action_id) = phototux_engine::resolve_shortcut(&map, &chord) else {
+            return false;
+        };
+        let id = action_id.to_owned();
+        self.invoke_action(id);
+        true
+    }
+
+    #[qslot]
+    fn set_shortcut_input_yield(&mut self, yield_input: bool) {
+        if self.shortcut_input_yield == yield_input {
+            return;
+        }
+        self.shortcut_input_yield = yield_input;
+        self.shortcut_input_yield_changed();
     }
 
     #[qslot]

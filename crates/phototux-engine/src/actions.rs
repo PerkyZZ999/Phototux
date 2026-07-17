@@ -3,6 +3,8 @@
 //! Presentations resolve `ActionDescriptor::id` → `command_id` and/or `host_op`.
 //! Document mutations still enter [`crate::SessionState::invoke`].
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::command_id;
@@ -781,6 +783,84 @@ pub fn context_actions_json(ctx: &str) -> String {
     serde_json::to_string(&actions_for_context(ctx)).unwrap_or_else(|_| "[]".into())
 }
 
+/// Normalize a Qt-style shortcut chord (`ctrl+shift+z` → `Ctrl+Shift+Z`).
+pub fn normalize_shortcut(raw: &str) -> String {
+    raw.split('+')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|part| {
+            let lower = part.to_ascii_lowercase();
+            match lower.as_str() {
+                "ctrl" | "control" | "cmd" => "Ctrl".to_owned(),
+                "shift" => "Shift".to_owned(),
+                "alt" | "option" => "Alt".to_owned(),
+                "meta" | "super" | "win" => "Meta".to_owned(),
+                _ if part.len() == 1 => part.to_ascii_uppercase(),
+                _ => {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => {
+                            let mut s = first.to_ascii_uppercase().to_string();
+                            s.extend(chars);
+                            s
+                        }
+                        None => String::new(),
+                    }
+                }
+            }
+        })
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// Default chord → action id map from built-in descriptors.
+pub fn default_shortcut_map() -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for action in default_actions() {
+        let Some(shortcut) = action.shortcut.as_deref() else {
+            continue;
+        };
+        let chord = normalize_shortcut(shortcut);
+        if chord.is_empty() {
+            continue;
+        }
+        map.entry(chord).or_insert(action.id);
+    }
+    map
+}
+
+/// Default action id → chord map (for menu / palette display).
+pub fn default_action_shortcuts() -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for action in default_actions() {
+        let Some(shortcut) = action.shortcut.as_deref() else {
+            continue;
+        };
+        let chord = normalize_shortcut(shortcut);
+        if !chord.is_empty() {
+            map.entry(action.id).or_insert(chord);
+        }
+    }
+    map
+}
+
+/// Resolve a chord against a shortcut map.
+pub fn resolve_shortcut<'a>(map: &'a BTreeMap<String, String>, chord: &str) -> Option<&'a str> {
+    let key = normalize_shortcut(chord);
+    map.get(&key).map(String::as_str)
+}
+
+/// JSON object: chord → action id.
+pub fn shortcuts_json() -> String {
+    serde_json::to_string(&default_shortcut_map()).unwrap_or_else(|_| "{}".into())
+}
+
+/// JSON object: action id → chord.
+pub fn action_shortcuts_json() -> String {
+    serde_json::to_string(&default_action_shortcuts()).unwrap_or_else(|_| "{}".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -846,5 +926,30 @@ mod tests {
         );
         assert!(!actions_for_context("canvas").is_empty());
         assert!(!actions_for_context("selection").is_empty());
+    }
+
+    #[test]
+    fn normalize_shortcut_stable() {
+        assert_eq!(normalize_shortcut("ctrl+z"), "Ctrl+Z");
+        assert_eq!(normalize_shortcut("Ctrl+Shift+Z"), "Ctrl+Shift+Z");
+        assert_eq!(normalize_shortcut("ctrl + shift + z"), "Ctrl+Shift+Z");
+    }
+
+    #[test]
+    fn default_shortcut_chords_unique() {
+        let mut seen = HashSet::new();
+        for action in default_actions() {
+            let Some(shortcut) = action.shortcut.as_deref() else {
+                continue;
+            };
+            let chord = normalize_shortcut(shortcut);
+            assert!(
+                seen.insert(chord.clone()),
+                "duplicate default chord {chord} (action {})",
+                action.id
+            );
+        }
+        let map = default_shortcut_map();
+        assert_eq!(resolve_shortcut(&map, "ctrl+z"), Some("action.edit.undo"));
     }
 }

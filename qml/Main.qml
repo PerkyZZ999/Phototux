@@ -50,6 +50,21 @@ ApplicationWindow {
             return []
         }
     }
+    readonly property var shortcutMap: {
+        try {
+            return JSON.parse(AppSession.shortcutsJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+    readonly property var actionShortcutMap: {
+        try {
+            return JSON.parse(AppSession.actionShortcutsJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+    readonly property var shortcutChordList: Object.keys(root.shortcutMap)
     readonly property var toolDescriptors: {
         try {
             return JSON.parse(AppSession.toolDescriptorsJson || "[]")
@@ -81,6 +96,22 @@ ApplicationWindow {
     function toolIconStem(iconKey) {
         return root.toolIconStemMap[iconKey] || iconKey
     }
+
+    function shortcutForAction(actionId) {
+        return root.actionShortcutMap[actionId] || ""
+    }
+
+    function refreshShortcutYield() {
+        var item = root.activeFocusItem
+        var yieldKeys = false
+        if (item) {
+            // TextInput covers TextField; TextEdit covers multiline editors.
+            yieldKeys = (item instanceof TextInput) || (item instanceof TextEdit)
+        }
+        AppSession.setShortcutInputYield(yieldKeys || AppSession.preferencesOpen)
+    }
+
+    onActiveFocusItemChanged: root.refreshShortcutYield()
 
     function actionsForMenu(menuName) {
         var out = []
@@ -395,8 +426,14 @@ ApplicationWindow {
         id: actionMenuItem
         MenuItem {
             required property var modelData
-            text: modelData.label
-            shortcut: modelData.shortcut ? modelData.shortcut : ""
+            // Shortcut activation is owned by the Instantiator below (yield-aware).
+            // Show the chord in the native shortcut column for display only via Action
+            // that shares the sequence but is not used for invoke when Instantiator runs —
+            // so leave `shortcut` empty here and append a compact hint to the label.
+            text: {
+                var sc = root.shortcutForAction(modelData.id)
+                return sc.length > 0 ? (modelData.label + "\t" + sc) : modelData.label
+            }
             enabled: root.actionIsEnabled(modelData.id)
             checkable: root.actionIsCheckable(modelData.id)
             checked: root.actionIsChecked(modelData.id)
@@ -407,6 +444,24 @@ ApplicationWindow {
                 else
                     root.runAction(modelData.id)
             }
+        }
+    }
+
+    Instantiator {
+        model: root.shortcutChordList
+        Shortcut {
+            required property string modelData
+            sequence: modelData
+            context: Qt.ApplicationShortcut
+            enabled: !AppSession.shortcutInputYield && !AppSession.preferencesOpen
+            onActivated: AppSession.handleShortcut(modelData)
+        }
+    }
+
+    Connections {
+        target: AppSession
+        function onPreferencesOpenChanged() {
+            root.refreshShortcutYield()
         }
     }
 
