@@ -141,6 +141,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             if (p.mask_inverted != 0u) {
                 m = 1.0 - m;
             }
+            // Density: M' = 1 - density × (1 - M); p3 carries density for non-adjustment layers.
+            let density = clamp(p.p3, 0.0, 1.0);
+            m = 1.0 - density * (1.0 - m);
             mask_f = m;
         }
 
@@ -783,7 +786,15 @@ impl LayerCompositeEngine {
                 }
                 _ => (0, 0, 0),
             };
-            let (kind, adj_op, p0, p1, p2, p3) = adjustment_gpu_params(layer);
+            let (kind, adj_op, p0, p1, p2, mut p3) = adjustment_gpu_params(layer);
+            // Non-adjustment layers carry mask density in p3 for the composite shader.
+            if kind == 0 {
+                p3 = layer
+                    .mask
+                    .as_ref()
+                    .map(|m| m.density.clamp(0.0, 1.0))
+                    .unwrap_or(1.0);
+            }
             uniforms.layers[i] = LayerParamsGpu {
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 mode: layer.blend.as_u32(),

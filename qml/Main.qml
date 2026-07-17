@@ -2952,6 +2952,52 @@ ApplicationWindow {
                                 checked: root.activeMaskEnabled
                                 onToggled: AppSession.setMaskEnabledOnActive(checked)
                             }
+                            CheckBox {
+                                text: qsTr("Invert")
+                                checked: AppSession.maskInverted
+                                onToggled: AppSession.setMaskAttributesOnActive(
+                                               AppSession.maskDensity, AppSession.maskFeather,
+                                               checked, AppSession.maskLinked)
+                            }
+                            CheckBox {
+                                text: qsTr("Link mask")
+                                checked: AppSession.maskLinked
+                                onToggled: AppSession.setMaskAttributesOnActive(
+                                               AppSession.maskDensity, AppSession.maskFeather,
+                                               AppSession.maskInverted, checked)
+                            }
+                            Label {
+                                text: qsTr("Density %1%").arg(Math.round(AppSession.maskDensity * 100))
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 1
+                                value: AppSession.maskDensity
+                                onMoved: AppSession.setMaskAttributesOnActive(
+                                             value, AppSession.maskFeather,
+                                             AppSession.maskInverted, AppSession.maskLinked)
+                            }
+                            Label {
+                                text: qsTr("Feather %1 px").arg(AppSession.maskFeather.toFixed(1))
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 64
+                                value: AppSession.maskFeather
+                                onMoved: AppSession.setMaskAttributesOnActive(
+                                             AppSession.maskDensity, value,
+                                             AppSession.maskInverted, AppSession.maskLinked)
+                            }
+                            Button {
+                                text: qsTr("Apply Mask")
+                                onClicked: AppSession.invokeAction("action.layer.apply-mask")
+                            }
                             Button {
                                 text: qsTr("Delete Mask")
                                 onClicked: AppSession.deleteMaskOnActive()
@@ -3773,7 +3819,7 @@ ApplicationWindow {
                                     color: Theme.primary
                                     font.pixelSize: Theme.fontBody
                                     ToolTip.visible: clipHover.hovered
-                                    ToolTip.text: qsTr("Clipping mask")
+                                    ToolTip.text: qsTr("Clipped to layer below — delete base releases clip")
                                     HoverHandler { id: clipHover }
                                 }
 

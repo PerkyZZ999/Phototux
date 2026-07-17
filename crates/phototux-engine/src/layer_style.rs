@@ -1,11 +1,11 @@
-//! Nondestructive layer styles v1 (Phase 4.8) — drop shadow + stroke metadata.
+//! Nondestructive layer styles — shadow, stroke, outer glow, color overlay.
 //!
 //! GPU application lands with the composite planner; this module owns the
-//! serializable stack and CPU reference for shadow/stroke on RGBA8.
+//! serializable stack and CPU reference for styles on RGBA8.
 
 use serde::{Deserialize, Serialize};
 
-/// One style effect on a layer (shadow or stroke for v1).
+/// One style effect on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LayerStyle {
@@ -20,6 +20,17 @@ pub enum LayerStyle {
     Stroke {
         enabled: bool,
         width: f32,
+        opacity: f32,
+        color_rgba: [f32; 4],
+    },
+    OuterGlow {
+        enabled: bool,
+        radius: f32,
+        opacity: f32,
+        color_rgba: [f32; 4],
+    },
+    ColorOverlay {
+        enabled: bool,
         opacity: f32,
         color_rgba: [f32; 4],
     },
@@ -43,6 +54,23 @@ impl LayerStyle {
             width: 2.0,
             opacity: 1.0,
             color_rgba: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    pub fn outer_glow_default() -> Self {
+        Self::OuterGlow {
+            enabled: true,
+            radius: 6.0,
+            opacity: 0.65,
+            color_rgba: [1.0, 0.85, 0.2, 1.0],
+        }
+    }
+
+    pub fn color_overlay_default() -> Self {
+        Self::ColorOverlay {
+            enabled: true,
+            opacity: 0.45,
+            color_rgba: [0.2, 0.45, 0.9, 1.0],
         }
     }
 }
@@ -69,43 +97,84 @@ pub fn apply_styles_rgba8(
     }
 
     let mut base = vec![0_u8; pixels];
-    // Shadows first (under).
+    // Glow + shadows first (under).
     for style in styles {
-        if let LayerStyle::DropShadow {
-            enabled,
-            offset_x,
-            offset_y,
-            blur: _,
+        match style {
+            LayerStyle::DropShadow {
+                enabled: true,
+                offset_x,
+                offset_y,
+                blur: _,
+                opacity,
+                color_rgba,
+            } => {
+                stamp_offset_alpha(
+                    &mut base, src, width, height, *offset_x, *offset_y, color_rgba, *opacity,
+                );
+            }
+            LayerStyle::OuterGlow {
+                enabled: true,
+                radius,
+                opacity,
+                color_rgba,
+            } => {
+                // Approximate glow as several soft rings around alpha.
+                let r = radius.max(1.0);
+                for k in 1..=3 {
+                    let o = r * (k as f32) / 3.0;
+                    let falloff = *opacity * (1.0 - (k as f32 - 1.0) / 3.0) * 0.35;
+                    stamp_offset_alpha(&mut base, src, width, height, o, 0.0, color_rgba, falloff);
+                    stamp_offset_alpha(&mut base, src, width, height, -o, 0.0, color_rgba, falloff);
+                    stamp_offset_alpha(&mut base, src, width, height, 0.0, o, color_rgba, falloff);
+                    stamp_offset_alpha(&mut base, src, width, height, 0.0, -o, color_rgba, falloff);
+                }
+            }
+            _ => {}
+        }
+    }
+    // Source over under-styles.
+    over_straight(&mut base, src);
+    // Color overlay on source coverage.
+    for style in styles {
+        if let LayerStyle::ColorOverlay {
+            enabled: true,
             opacity,
             color_rgba,
         } = style
         {
-            if !*enabled {
-                continue;
-            }
-            stamp_offset_alpha(
-                &mut base, src, width, height, *offset_x, *offset_y, color_rgba, *opacity,
-            );
+            color_overlay(&mut base, src, color_rgba, *opacity);
         }
     }
-    // Source over shadow.
-    over_straight(&mut base, src);
-    // Strokes over source (edge expand of alpha).
+    // Strokes over source.
     for style in styles {
         if let LayerStyle::Stroke {
-            enabled,
+            enabled: true,
             width: sw,
             opacity,
             color_rgba,
         } = style
         {
-            if !*enabled {
-                continue;
-            }
             stroke_outline(&mut base, src, width, height, *sw, color_rgba, *opacity);
         }
     }
     Ok(base)
+}
+
+fn color_overlay(dst: &mut [u8], src: &[u8], color: &[f32; 4], opacity: f32) {
+    let opacity = opacity.clamp(0.0, 1.0);
+    let cr = (color[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let cg = (color[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let cb = (color[2].clamp(0.0, 1.0) * 255.0).round() as u8;
+    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        let sa = s[3] as f32 / 255.0;
+        if sa <= 0.0 {
+            continue;
+        }
+        let cover = opacity * sa;
+        d[0] = mix_u8(d[0], cr, cover);
+        d[1] = mix_u8(d[1], cg, cover);
+        d[2] = mix_u8(d[2], cb, cover);
+    }
 }
 
 fn stamp_offset_alpha(
@@ -170,7 +239,6 @@ fn stroke_outline(
             if src[i + 3] == 0 {
                 continue;
             }
-            // Edge if any neighbor is empty.
             let mut edge = false;
             for oy in -1..=1 {
                 for ox in -1..=1 {
@@ -255,7 +323,6 @@ mod tests {
         let w = 16_u32;
         let h = 16_u32;
         let mut src = vec![0_u8; (w * h * 4) as usize];
-        // Opaque 2×2 block at (2,2).
         for y in 2..4 {
             for x in 2..4 {
                 let o = ((y * w + x) * 4) as usize;
@@ -267,8 +334,30 @@ mod tests {
         }
         let out =
             apply_styles_rgba8(w, h, &src, &[LayerStyle::drop_shadow_default()]).expect("styles");
-        // Shadow offset (4,4) should paint near (6,6).
         let o = ((6 * w + 6) * 4) as usize;
         assert!(out[o + 3] > 0, "expected shadow alpha");
+    }
+
+    #[test]
+    fn outer_glow_and_overlay_apply() {
+        let w = 8_u32;
+        let h = 8_u32;
+        let mut src = vec![0_u8; (w * h * 4) as usize];
+        let o = ((3 * w + 3) * 4) as usize;
+        src[o] = 255;
+        src[o + 1] = 255;
+        src[o + 2] = 255;
+        src[o + 3] = 255;
+        let out = apply_styles_rgba8(
+            w,
+            h,
+            &src,
+            &[
+                LayerStyle::outer_glow_default(),
+                LayerStyle::color_overlay_default(),
+            ],
+        )
+        .expect("styles");
+        assert_eq!(out.len(), src.len());
     }
 }

@@ -142,6 +142,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let lap = 4.0 * c - l - r - t - b;
         return vec4<f32>(clamp(c + amount * lap, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
     }
+    // 8 = color overlay (lerp rgb toward color by opacity × alpha)
+    if (u.mode == 8u) {
+        let t = clamp(u.p0, 0.0, 1.0) * src.a;
+        return vec4<f32>(mix(src.rgb, u.color.rgb, t), src.a);
+    }
     return src;
 }
 "#;
@@ -529,6 +534,36 @@ impl EffectPass {
             use_a = true;
         }
 
+        if let Some(overlay) = plan.color_overlay {
+            let src = if use_a {
+                self.scratch_a.clone()
+            } else {
+                self.scratch_b.clone()
+            };
+            let dst = if use_a {
+                &self.scratch_b
+            } else {
+                &self.scratch_a
+            };
+            self.run(
+                ctx,
+                encoder,
+                &src,
+                &self.black,
+                dst,
+                EffectUniformsGpu {
+                    mode: 8,
+                    p0: overlay.opacity,
+                    p1: 0.0,
+                    p2: 0.0,
+                    color: overlay.color_rgba,
+                    offset: [0.0; 2],
+                    _pad: [0.0; 2],
+                },
+            );
+            use_a = !use_a;
+        }
+
         if let Some(stroke) = plan.stroke {
             let base = if use_a {
                 self.scratch_a.clone()
@@ -595,7 +630,14 @@ pub struct LayerPackPlan {
     /// Sharpen amount when present (`FilterParams::Sharpen`).
     pub sharpen: Option<f32>,
     pub drop_shadow: Option<ShadowPlan>,
+    pub color_overlay: Option<ColorOverlayPlan>,
     pub stroke: Option<StrokePlan>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ColorOverlayPlan {
+    pub opacity: f32,
+    pub color_rgba: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -622,6 +664,7 @@ impl LayerPackPlan {
             emboss: None,
             sharpen: None,
             drop_shadow: None,
+            color_overlay: None,
             stroke: None,
         }
     }
@@ -632,6 +675,7 @@ impl LayerPackPlan {
             || self.emboss.is_some()
             || self.sharpen.is_some_and(|a| a > 0.001)
             || self.drop_shadow.is_some()
+            || self.color_overlay.is_some()
             || self.stroke.is_some()
     }
 
@@ -690,6 +734,30 @@ impl LayerPackPlan {
                 } => {
                     plan.stroke = Some(StrokePlan {
                         width: *width,
+                        opacity: *opacity,
+                        color_rgba: *color_rgba,
+                    });
+                }
+                LayerStyle::OuterGlow {
+                    enabled: true,
+                    radius,
+                    opacity,
+                    color_rgba,
+                } if plan.drop_shadow.is_none() => {
+                    plan.drop_shadow = Some(ShadowPlan {
+                        offset_x: 0.0,
+                        offset_y: 0.0,
+                        blur: *radius,
+                        opacity: *opacity,
+                        color_rgba: *color_rgba,
+                    });
+                }
+                LayerStyle::ColorOverlay {
+                    enabled: true,
+                    opacity,
+                    color_rgba,
+                } => {
+                    plan.color_overlay = Some(ColorOverlayPlan {
                         opacity: *opacity,
                         color_rgba: *color_rgba,
                     });

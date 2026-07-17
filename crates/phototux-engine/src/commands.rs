@@ -70,6 +70,7 @@ pub mod command_id {
     pub const MASK_SET_ENABLED: &str = "mask.set-enabled";
     pub const MASK_SET_ATTRIBUTES: &str = "mask.set-attributes";
     pub const MASK_CREATE_VECTOR: &str = "mask.create-vector";
+    pub const MASK_APPLY: &str = "mask.apply";
 
     pub const TEXT_CREATE: &str = "text.create";
     pub const TEXT_SET_CONTENT: &str = "text.set-content";
@@ -88,6 +89,8 @@ pub mod command_id {
 
     pub const STYLE_ADD_DROP_SHADOW: &str = "style.add-drop-shadow";
     pub const STYLE_ADD_STROKE: &str = "style.add-stroke";
+    pub const STYLE_ADD_OUTER_GLOW: &str = "style.add-outer-glow";
+    pub const STYLE_ADD_COLOR_OVERLAY: &str = "style.add-color-overlay";
 
     pub const CLIPBOARD_PASTE_LAYER: &str = "clipboard.paste-layer";
     pub const PATH_STROKE_TO_LAYER: &str = "path.stroke-to-layer";
@@ -150,6 +153,7 @@ pub mod command_id {
         MASK_SET_ENABLED,
         MASK_SET_ATTRIBUTES,
         MASK_CREATE_VECTOR,
+        MASK_APPLY,
         TEXT_CREATE,
         TEXT_SET_CONTENT,
         TEXT_BAKE,
@@ -164,6 +168,8 @@ pub mod command_id {
         EFFECT_SET_ENABLED,
         STYLE_ADD_DROP_SHADOW,
         STYLE_ADD_STROKE,
+        STYLE_ADD_OUTER_GLOW,
+        STYLE_ADD_COLOR_OVERLAY,
         CLIPBOARD_PASTE_LAYER,
         PATH_STROKE_TO_LAYER,
         RASTER_TRANSFORM_COMMIT,
@@ -203,6 +209,8 @@ pub enum HostFollowUp {
     SelectionToMask,
     /// Copy active layer mask into the pixel selection channel (GPU host).
     MaskToSelection,
+    /// Bake active layer mask into layer pixels, then clear mask (GPU host).
+    ApplyMask,
     /// Undo `steps` times to jump the history timeline (host applies stroke/selection stacks).
     HistoryJump {
         steps: u32,
@@ -524,6 +532,7 @@ impl SessionState {
             command_id::MASK_SET_ENABLED => self.cmd_mask_set_enabled(args),
             command_id::MASK_SET_ATTRIBUTES => self.cmd_mask_set_attributes(args),
             command_id::MASK_CREATE_VECTOR => self.cmd_mask_create_vector(),
+            command_id::MASK_APPLY => self.cmd_mask_apply(),
             command_id::TEXT_CREATE => self.cmd_text_create(args),
             command_id::TEXT_SET_CONTENT => self.cmd_text_set_content(args),
             command_id::TEXT_BAKE => self.cmd_text_bake(),
@@ -538,6 +547,8 @@ impl SessionState {
             command_id::EFFECT_SET_ENABLED => self.cmd_effect_set_enabled(args),
             command_id::STYLE_ADD_DROP_SHADOW => self.cmd_style_add_drop_shadow(),
             command_id::STYLE_ADD_STROKE => self.cmd_style_add_stroke(),
+            command_id::STYLE_ADD_OUTER_GLOW => self.cmd_style_add_outer_glow(),
+            command_id::STYLE_ADD_COLOR_OVERLAY => self.cmd_style_add_color_overlay(),
             command_id::CLIPBOARD_PASTE_LAYER => self.cmd_clipboard_paste_layer(args),
             command_id::PATH_STROKE_TO_LAYER => self.cmd_path_stroke_to_layer(args),
             command_id::RASTER_TRANSFORM_COMMIT => self.cmd_raster_transform_commit(),
@@ -832,7 +843,33 @@ impl SessionState {
             }
         }
 
+        // Break clips whose base is being deleted (nearest non-clipping layer below).
+        let mut batch = Vec::new();
+        let order = graph.stack_order();
+        for (idx, id) in order.iter().enumerate() {
+            let Some(layer) = graph.get(*id) else {
+                continue;
+            };
+            if !layer.clips_to_below || targets.contains(id) {
+                continue;
+            }
+            let old_base = order[..idx]
+                .iter()
+                .rev()
+                .find(|below| graph.get(**below).is_some_and(|l| !l.clips_to_below));
+            if old_base.is_some_and(|b| targets.contains(b)) {
+                if let Some(true) = graph.set_clips_to_below(*id, false) {
+                    batch.push(crate::GraphCommand::SetClipsToBelow {
+                        id: *id,
+                        prev: true,
+                        next: false,
+                    });
+                }
+            }
+        }
+
         let prev_active = graph.active_id();
+        let broke = batch.len();
         // Delete top→bottom so recorded indices match removal order.
         let mut deletes = Vec::with_capacity(targets.len());
         for id in targets.iter().rev() {
@@ -840,6 +877,11 @@ impl SessionState {
                 for cmd in deletes.iter().rev() {
                     if let crate::GraphCommand::DeleteLayer { index, layer, .. } = cmd {
                         graph.insert_layer_at(*index, layer.clone());
+                    }
+                }
+                for cmd in batch.iter().rev() {
+                    if let crate::GraphCommand::SetClipsToBelow { id, prev, .. } = cmd {
+                        let _ = graph.set_clips_to_below(*id, *prev);
                     }
                 }
                 return Err(CommandError::Rejected("delete layer failed"));
@@ -851,20 +893,26 @@ impl SessionState {
                 prev_active,
             });
         }
-        // Store bottom→top (apply order for redo of Batch).
         deletes.reverse();
+        batch.extend(deletes);
         graph.bump_generation();
         let generation = graph.generation;
-        let label = if deletes.len() == 1 {
+        let label = if targets.len() == 1 {
             "Delete layer".to_owned()
         } else {
-            format!("Delete {} layers", deletes.len())
+            format!("Delete {} layers", targets.len())
         };
         self.history
-            .push_graph_applied(crate::GraphCommand::Batch(deletes), label, generation);
+            .push_graph_applied(crate::GraphCommand::Batch(batch), label, generation);
         self.sync_object_selection_to_active();
         let name = self.object_selection_names_joined();
-        self.announce(format!("Object selection: {name}"));
+        if broke > 0 {
+            self.announce(format!(
+                "Object selection: {name}; released {broke} clipping mask(s)"
+            ));
+        } else {
+            self.announce(format!("Object selection: {name}"));
+        }
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -1595,6 +1643,32 @@ impl SessionState {
         Ok(CommandEffects::host_chrome(HostFollowUp::MaskToSelection))
     }
 
+    fn cmd_mask_apply(&mut self) -> Result<CommandEffects, CommandError> {
+        if !self.has_document {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        }
+        let id = self.active_layer_id()?;
+        let Some(layer) = self.graph.as_ref().and_then(|g| g.get(id)) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.mask.is_none() {
+            return Err(CommandError::Rejected("no layer mask"));
+        }
+        if layer.kind != LayerKind::Raster {
+            return Err(CommandError::Rejected("apply mask requires raster layer"));
+        }
+        if layer.paint_blocked() {
+            return Err(CommandError::Rejected("layer is locked"));
+        }
+        self.announce("Apply layer mask");
+        let mut effects = CommandEffects::host_chrome(HostFollowUp::ApplyMask);
+        effects.recomposite = true;
+        effects.dirty = true;
+        effects.sync_layers = true;
+        effects.generation = self.document_generation();
+        Ok(effects)
+    }
+
     fn cmd_mask_create(&mut self) -> Result<CommandEffects, CommandError> {
         let id = self.active_layer_id()?;
         let SessionState {
@@ -2283,6 +2357,38 @@ impl SessionState {
         Ok(CommandEffects::document_edit(graph.generation))
     }
 
+    fn cmd_style_add_outer_glow(&mut self) -> Result<CommandEffects, CommandError> {
+        let id = self.active_layer_id()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get_mut(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.kind != LayerKind::Raster {
+            return Err(CommandError::Rejected("outer glow requires raster"));
+        }
+        layer.styles.push(LayerStyle::outer_glow_default());
+        graph.bump_generation();
+        Ok(CommandEffects::document_edit(graph.generation))
+    }
+
+    fn cmd_style_add_color_overlay(&mut self) -> Result<CommandEffects, CommandError> {
+        let id = self.active_layer_id()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get_mut(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.kind != LayerKind::Raster {
+            return Err(CommandError::Rejected("color overlay requires raster"));
+        }
+        layer.styles.push(LayerStyle::color_overlay_default());
+        graph.bump_generation();
+        Ok(CommandEffects::document_edit(graph.generation))
+    }
+
     fn cmd_clipboard_paste_layer(
         &mut self,
         args: CommandArgs,
@@ -2596,6 +2702,31 @@ mod tests {
         for id in &ids {
             assert!(g.get(*id).unwrap().parent.is_none());
         }
+    }
+
+    #[test]
+    fn delete_clip_base_breaks_clip() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let ids = s.graph.as_ref().unwrap().stack_order();
+        let base = ids[0];
+        let top = ids[1];
+        s.set_object_selection(vec![top]);
+        s.invoke(
+            command_id::LAYER_SET_CLIP,
+            CommandArgs::LayerSetClip { clips: true },
+        )
+        .expect("clip");
+        assert!(s.graph.as_ref().unwrap().get(top).unwrap().clips_to_below);
+        s.set_object_selection(vec![base]);
+        s.invoke(command_id::LAYER_DELETE, CommandArgs::None)
+            .expect("delete base");
+        assert!(s.graph.as_ref().unwrap().get(base).is_none());
+        assert!(!s.graph.as_ref().unwrap().get(top).unwrap().clips_to_below);
+        s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        assert!(s.graph.as_ref().unwrap().get(base).is_some());
+        assert!(s.graph.as_ref().unwrap().get(top).unwrap().clips_to_below);
     }
 
     #[test]

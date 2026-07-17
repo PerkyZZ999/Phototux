@@ -120,6 +120,10 @@ pub struct AppSession {
     layer_clips: String,
     layer_selection: String,
     mask_edit_active: bool,
+    mask_density: f32,
+    mask_feather: f32,
+    mask_inverted: bool,
+    mask_linked: bool,
     /// Distinct from focus/object selection: pixel selection channel active.
     pixel_selection_active: bool,
     /// Object-selection labels (layer names), distinct from pixel selection (DR-011).
@@ -292,6 +296,10 @@ impl AppSession {
             layer_clips: String::new(),
             layer_selection: String::new(),
             mask_edit_active: false,
+            mask_density: 1.0,
+            mask_feather: 0.0,
+            mask_inverted: false,
+            mask_linked: true,
             pixel_selection_active: false,
             object_selection_label: String::new(),
             last_announce: String::new(),
@@ -517,6 +525,23 @@ impl AppSession {
             self.engine.paint_target(),
             phototux_engine::PaintTarget::LayerMask
         );
+        let mask = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .and_then(|l| l.mask.as_ref());
+        if let Some(m) = mask {
+            self.mask_density = m.density;
+            self.mask_feather = m.feather;
+            self.mask_inverted = m.inverted;
+            self.mask_linked = m.linked;
+        } else {
+            self.mask_density = 1.0;
+            self.mask_feather = 0.0;
+            self.mask_inverted = false;
+            self.mask_linked = true;
+        }
         self.edit_target = self.engine.edit_target_id().to_owned();
         self.edit_target_label = self.engine.edit_target_label().to_owned();
         let idx = self.active_layer_index;
@@ -723,6 +748,10 @@ impl AppSession {
         self.layer_clips_changed();
         self.layer_selection_changed();
         self.mask_edit_active_changed();
+        self.mask_density_changed();
+        self.mask_feather_changed();
+        self.mask_inverted_changed();
+        self.mask_linked_changed();
         self.edit_target_changed();
         self.edit_target_label_changed();
         self.active_layer_kind_changed();
@@ -1112,6 +1141,9 @@ impl AppSession {
             | cid::VIEW_ZOOM_TO_FIT
             | cid::STYLE_ADD_DROP_SHADOW
             | cid::STYLE_ADD_STROKE
+            | cid::STYLE_ADD_OUTER_GLOW
+            | cid::STYLE_ADD_COLOR_OVERLAY
+            | cid::MASK_APPLY
             | cid::DOCUMENT_ROTATE_90
             | cid::APP_SHOW_PREFERENCES
             | cid::WORKSPACE_RESET
@@ -1338,6 +1370,7 @@ impl AppSession {
             }
             HostFollowUp::SelectionToMask => self.apply_selection_to_mask_host(),
             HostFollowUp::MaskToSelection => self.apply_mask_to_selection_host(),
+            HostFollowUp::ApplyMask => self.apply_mask_host(),
             HostFollowUp::HistoryJump { steps } => {
                 for _ in 0..steps {
                     let _ = self.invoke_command(command_id::HISTORY_UNDO, CommandArgs::None);
@@ -1644,6 +1677,26 @@ impl AppSession {
         "maskEditActive",
         Member = mask_edit_active,
         Notify = mask_edit_active_changed
+    );
+    qproperty!(
+        "maskDensity",
+        Member = mask_density,
+        Notify = mask_density_changed
+    );
+    qproperty!(
+        "maskFeather",
+        Member = mask_feather,
+        Notify = mask_feather_changed
+    );
+    qproperty!(
+        "maskInverted",
+        Member = mask_inverted,
+        Notify = mask_inverted_changed
+    );
+    qproperty!(
+        "maskLinked",
+        Member = mask_linked,
+        Notify = mask_linked_changed
     );
     qproperty!(
         "pixelSelectionActive",
@@ -2167,6 +2220,14 @@ impl AppSession {
     fn layer_selection_changed(&mut self);
     #[qsignal]
     fn mask_edit_active_changed(&mut self);
+    #[qsignal]
+    fn mask_density_changed(&mut self);
+    #[qsignal]
+    fn mask_feather_changed(&mut self);
+    #[qsignal]
+    fn mask_inverted_changed(&mut self);
+    #[qsignal]
+    fn mask_linked_changed(&mut self);
     #[qsignal]
     fn pixel_selection_active_changed(&mut self);
     #[qsignal]
@@ -4249,6 +4310,31 @@ impl AppSession {
     }
 
     #[qslot]
+    fn add_outer_glow_style(&mut self) {
+        if let Err(error) = self.invoke_command(command_id::STYLE_ADD_OUTER_GLOW, CommandArgs::None)
+        {
+            self.status_text = error.to_string();
+            self.status_text_changed();
+            return;
+        }
+        self.status_text = "Outer Glow style added".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn add_color_overlay_style(&mut self) {
+        if let Err(error) =
+            self.invoke_command(command_id::STYLE_ADD_COLOR_OVERLAY, CommandArgs::None)
+        {
+            self.status_text = error.to_string();
+            self.status_text_changed();
+            return;
+        }
+        self.status_text = "Color Overlay style added".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
     fn stroke_active_path_to_layer(&mut self) {
         let Some(graph) = self.engine.graph.as_mut() else {
             return;
@@ -4426,6 +4512,70 @@ impl AppSession {
         self.last_announce_changed();
     }
 
+    fn apply_mask_host(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(mask_meta) = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .and_then(|l| l.mask.clone())
+        else {
+            return;
+        };
+        let (_w, _h, mut rgba) = match phototux_canvas::read_layer_rgba(id) {
+            Ok(v) => v,
+            Err(error) => {
+                self.report_gpu("apply mask", &error);
+                return;
+            }
+        };
+        let r8 = match phototux_canvas::read_mask_r8(id) {
+            Ok(v) => v,
+            Err(error) => {
+                self.report_gpu("apply mask", &error);
+                return;
+            }
+        };
+        if r8.len() * 4 != rgba.len() {
+            self.report_gpu("apply mask", "mask/layer size mismatch");
+            return;
+        }
+        let density = mask_meta.density.clamp(0.0, 1.0);
+        for (px, &m) in rgba.chunks_exact_mut(4).zip(r8.iter()) {
+            let mut mf = m as f32 / 255.0;
+            if mask_meta.inverted {
+                mf = 1.0 - mf;
+            }
+            mf = 1.0 - density * (1.0 - mf);
+            let a = (px[3] as f32 / 255.0) * mf;
+            px[3] = (a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &rgba) {
+            self.report_gpu("apply mask", &error);
+            return;
+        }
+        if let Err(error) = self.invoke_command(command_id::MASK_DELETE, CommandArgs::None) {
+            self.report_gpu("apply mask clear", &error.to_string());
+            return;
+        }
+        let generation = self.engine.document_generation();
+        self.engine
+            .history
+            .push_stroke("Apply layer mask", generation);
+        self.engine.announce("Applied layer mask");
+        self.mark_dirty();
+        self.recomposite();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.status_text = self.engine.status_summary();
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+    }
+
     fn apply_mask_to_selection_host(&mut self) {
         let Some(id) = self.active_id() else {
             return;
@@ -4507,6 +4657,34 @@ impl AppSession {
     }
 
     #[qslot]
+    fn set_mask_attributes_on_active(
+        &mut self,
+        density: f32,
+        feather: f32,
+        inverted: bool,
+        linked: bool,
+    ) {
+        let enabled = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .and_then(|l| l.mask.as_ref())
+            .map(|m| m.enabled)
+            .unwrap_or(true);
+        let _ = self.invoke_command(
+            command_id::MASK_SET_ATTRIBUTES,
+            CommandArgs::MaskAttributes {
+                enabled,
+                linked,
+                density,
+                feather,
+                inverted,
+            },
+        );
+    }
+
+    #[qslot]
     fn set_mask_enabled_on_active(&mut self, enabled: bool) {
         let _ = self.invoke_command(
             command_id::MASK_SET_ENABLED,
@@ -4532,6 +4710,10 @@ impl AppSession {
         self.engine.mask_edit_layer = edit_mask.then_some(id);
         self.sync_from_engine();
         self.mask_edit_active_changed();
+        self.mask_density_changed();
+        self.mask_feather_changed();
+        self.mask_inverted_changed();
+        self.mask_linked_changed();
         self.edit_target_changed();
         self.edit_target_label_changed();
         self.status_text_changed();
