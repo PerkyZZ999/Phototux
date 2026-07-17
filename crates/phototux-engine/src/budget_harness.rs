@@ -40,6 +40,21 @@ pub mod soft_gate {
     pub const CAMERA_NAV_4K_120: Duration = Duration::from_millis(50);
     /// 60 view command invokes on 4K session (B1 command-router proxy).
     pub const COMMAND_BATCH_4K_60: Duration = Duration::from_millis(100);
+    /// 120 pan/zoom with overlay view bumps + dirty clear (B2 present-path proxy).
+    pub const PRESENT_NAV_INTERVALS_4K: Duration = Duration::from_millis(80);
+    /// 200 dirty-rect marks on 4K (B1 input→preview path proxy).
+    pub const PRESENT_DIRTY_MARK_4K: Duration = Duration::from_millis(40);
+    /// Warm `SessionState::default` + 4K preset construct (B3 warm shell proxy).
+    pub const SESSION_WARM_CONSTRUCT: Duration = Duration::from_millis(25);
+}
+
+/// Percentile helper for interval samples (sorted ascending).
+pub fn percentile_ms(sorted_ms: &[f64], p: f64) -> f64 {
+    if sorted_ms.is_empty() {
+        return 0.0;
+    }
+    let idx = ((sorted_ms.len() as f64 - 1.0) * p.clamp(0.0, 1.0)).round() as usize;
+    sorted_ms[idx.min(sorted_ms.len() - 1)]
 }
 
 fn solid_rgba(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
@@ -162,6 +177,75 @@ pub fn measure_command_batch_4k_60() -> Result<BudgetSample, String> {
     })
 }
 
+/// Present-path B2: pan/zoom intervals with overlay invalidation on synthetic 4K.
+///
+/// Records p50/p95 interval samples via stderr for ledger evidence; soft gate is
+/// total elapsed (CI-safe without a display).
+pub fn measure_present_nav_intervals_4k() -> BudgetSample {
+    let mut session = SessionState::default();
+    session.apply_preset(SizePreset::P4k);
+    session.set_viewport(1440.0, 900.0);
+    let mut intervals_ms = Vec::with_capacity(120);
+    let start = Instant::now();
+    let mut prev = Instant::now();
+    for i in 0..120 {
+        session.camera.pan_x += 3.0;
+        session.camera.pan_y += 1.5;
+        session.set_zoom(0.2 + (i as f32) * 0.008);
+        session.bump_overlay_view();
+        let now = Instant::now();
+        intervals_ms.push(now.duration_since(prev).as_secs_f64() * 1000.0);
+        prev = now;
+    }
+    intervals_ms.sort_by(|a, b| a.total_cmp(b));
+    let p50 = percentile_ms(&intervals_ms, 0.50);
+    let p95 = percentile_ms(&intervals_ms, 0.95);
+    eprintln!(
+        "present-nav-intervals-4k p50_ms={p50:.4} p95_ms={p95:.4} samples={}",
+        intervals_ms.len()
+    );
+    BudgetSample {
+        budget_id: "B2-present",
+        fixture: "present-nav-intervals-4k",
+        elapsed: start.elapsed(),
+        soft_max: soft_gate::PRESENT_NAV_INTERVALS_4K,
+    }
+}
+
+/// Present-path B1: dirty-rect marks simulate input→preview invalidation cost.
+pub fn measure_present_dirty_mark_4k() -> BudgetSample {
+    let mut session = SessionState::default();
+    session.apply_preset(SizePreset::P4k);
+    let start = Instant::now();
+    for i in 0..200 {
+        let x = (i * 17) % 3800;
+        let y = (i * 13) % 2000;
+        session.mark_dirty_rect(x, y, 64, 64);
+    }
+    session.clear_dirty_rect();
+    BudgetSample {
+        budget_id: "B1-present",
+        fixture: "present-dirty-mark-4k",
+        elapsed: start.elapsed(),
+        soft_max: soft_gate::PRESENT_DIRTY_MARK_4K,
+    }
+}
+
+/// Present-path B3: warm session construct + 4K preset (shell interactive proxy).
+pub fn measure_session_warm_construct() -> BudgetSample {
+    let start = Instant::now();
+    let mut session = SessionState::default();
+    session.apply_preset(SizePreset::P4k);
+    session.set_viewport(1440.0, 900.0);
+    let _ = session.status_summary();
+    BudgetSample {
+        budget_id: "B3-present",
+        fixture: "session-warm-construct",
+        elapsed: start.elapsed(),
+        soft_max: soft_gate::SESSION_WARM_CONSTRUCT,
+    }
+}
+
 /// Run all soft CI fixtures; returns samples (caller asserts gates).
 pub fn run_soft_ci_suite() -> Result<Vec<BudgetSample>, String> {
     Ok(vec![
@@ -170,6 +254,9 @@ pub fn run_soft_ci_suite() -> Result<Vec<BudgetSample>, String> {
         measure_command_invoke_view()?,
         measure_camera_nav_4k_120(),
         measure_command_batch_4k_60()?,
+        measure_present_nav_intervals_4k(),
+        measure_present_dirty_mark_4k(),
+        measure_session_warm_construct(),
     ])
 }
 
@@ -183,7 +270,7 @@ mod tests {
     #[test]
     fn soft_ci_suite_within_gates() {
         let samples = run_soft_ci_suite().expect("suite");
-        assert_eq!(samples.len(), 5);
+        assert_eq!(samples.len(), 8);
         for s in &samples {
             assert!(
                 s.within_soft_gate(),

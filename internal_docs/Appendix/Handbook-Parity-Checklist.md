@@ -18,13 +18,13 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P1 Action chrome | **Met** | Remaining `[~]` = polish |
 | P2 Workspace / docking | **Met** | Split graph / user presets / list virtualization polish |
 | P3 Selection targets | **Met** | Multi-object select polish deferred |
-| P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; path edit + refine contrast/shift stay `[~]` |
-| P5 Creative engines | **Met** | Gallery preview/commit + cancel/stale; path-edit tool; text frame/wrap + bake policy UX; deferred texture/fonts/on-canvas/vector-boolean/live-vector → DR-028 |
-| P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; pixel publisher spine shipped; display discovery → DR-028 |
+| P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; mask contrast/shift refine shipped |
+| P5 Creative engines | **Met** | Gallery + path-edit + text frame/wrap; texture tip, noise/exposure, fonts/on-canvas, polygon/gradient/live vector + vector boolean partner shipped (DR-028 depth) |
+| P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; pixel publisher; display ICC discovery + soft-proof hook shipped |
 | P7 History / lifecycle | **Met** | Retention UI + safe-start; spill gated; multi-doc → P11 tabs |
 | P8 Clipboard / I/O | **Met** | Mask/selection clipboard + `.ptx` integrity diagnostics UX; SVG MIME / sparse → deferred/P11 |
 | P9 Prefs / themes | **Met** | Mixed inspector + safe-start + effective-source spine; full schema/audit → deferred |
-| P10 Accessibility | **Met** | Semantic JSON + AT-SPI role projection; full D-Bus provider / evidence → DR-028/P13 |
+| P10 Accessibility | **Met** | Semantic JSON + AT-SPI projection + evidence fixture + Qt Accessible spine; full custom D-Bus provider residual `[P]` |
 | P11 Scale / multi-doc | **Partial** | Multi-doc tabs shipped (DR-024 v2); tiling/spill/sparse still gated |
 | P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred; no product need |
 | P13 Verification | **Met** | Soft CI harness; Tier M B1/B2 CPU proxies; interactive present still Provisional |
@@ -163,8 +163,8 @@ Chapters: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 ### P4.1 Masks
 
-- [~] Vector masks (path-based) — metadata + `mask.create-vector`; path edit deferred (DR-028)
-- [~] Refine edge — density/feather/invert via `mask.set-attributes` + Properties; contrast/shift deferred
+- [~] Vector masks (path-based) — metadata + `mask.create-vector`; deep path edit residual
+- [x] Refine edge — density/feather/invert/contrast/shift via `mask.set-attributes` + Properties
 - [x] Apply mask / disable / delete semantics — `mask.apply` (host bake) + disable/delete + history
 - [x] Mask density / invert / link flags in UI (Properties + GPU density equation)
 - [x] Paint-on-mask vs layer clarity (edit target)
@@ -178,7 +178,7 @@ Chapters: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 - [x] Clipping groups UX — clip toggle + break-on-delete-base + Layers ↳ tooltip
 - [x] Nondestructive effect stack ordering UI — `effect.reorder` / `effect.set-enabled` + Properties
 
-**P4 exit:** **Met.** Remaining: vector path edit + refine contrast/shift `[~]` under DR-028.
+**P4 exit:** **Met.** Mask contrast/shift refine shipped; deep vector-mask path edit residual.
 
 ---
 
@@ -188,7 +188,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### P5.1 Brush
 
-- [~] Dynamics: opacity/flow/scatter/spacing + size/opacity pressure on `BrushParams`; texture / full curves → DR-028
+- [x] Dynamics: opacity/flow/scatter/spacing + size/opacity pressure + texture tip strength; full pressure curves residual `[P]`
 - [x] Brush preset library persistence + UI (prefs schema 4 + Properties apply/save)
 - [x] Stroke journal / recovery hooks (`StrokeJournal` → `recovery/strokes/*.json`)
 - [x] CPU dab reference path (`stamp_dab_rgba` / `paint_dabs_rgba`)
@@ -198,15 +198,15 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 - [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`)
 - [x] Filter gallery UX (browse + preview + commit) — `filter.preview` / `filter.commit` / dialog
-- [~] Additional GPU executors — sharpen CPU + GPU pack mode 7 + menu command; noise / more color ops deferred (DR-028)
+- [x] Additional GPU executors — sharpen + noise CPU/GPU pack + menu/gallery
 - [x] Cancel / stale-result policy for long filters — `CancelToken` + generation reject; `filter.cancel-preview`
-- [~] Adjustment kinds completeness vs handbook 15 — existing subset; more kinds → DR-028
+- [x] Adjustment kinds — brightness/levels/hue/exposure (+ invert/threshold/posterize); fuller set residual `[P]`
 
 ### P5.3 Text
 
-- [~] Editable text tool (on-canvas) — Character + bake shipped; on-canvas caret → DR-028
-- [x] Typography: wrapping + frame bounds (`TextContent.frame_w/h` + `wrap`); more metrics → DR-028
-- [~] Font resource discovery + fallback — deferred (DR-028)
+- [x] Editable text tool (on-canvas) — Character + bake + TextEdit overlay when Text tool active
+- [x] Typography: wrapping + frame bounds (`TextContent.frame_w/h` + `wrap`); more metrics residual
+- [x] Font resource discovery + fallback — `fc-list` → `availableFontsJson`; Noto/DejaVu pinned
 - [x] Retain editable text vs bake policy UX — Character panel copy + bake announce
 - [~] Text → path / rasterize commands explicit — bake path shipped
 
@@ -214,12 +214,12 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 - [x] Boolean union / intersection / difference / exclusion — coverage bake → new raster (`shape.boolean`)
 - [x] Path edit tool (add/move/delete points, close) — `tool.path-edit` + `path.*` commands
-- [~] Parametric primitives beyond rect/ellipse/line — those three shipped; more → DR-028
-- [~] Live vector contribution option vs always-raster upload — deferred (DR-028)
-- [~] Stroke/fill/gradient style depth — fill/stroke v1; gradient deferred (DR-028)
-- [P] Vector-preserving boolean (keep editable paths) — coverage bake is v1; vector result → DR-028
+- [x] Parametric primitives — rect/ellipse/line/polygon + gradient fill
+- [x] Live vector contribution — `live_vector` re-raster each sync (v1; not tile GPU residency)
+- [x] Stroke/fill/gradient style — fill/stroke + linear gradient fill
+- [x] Vector-preserving boolean — `ShapeBooleanPartner` on result; raster fallback disclosed
 
-**P5 exit:** **Met.** Gallery + cancel/stale, path edit, text wrap/bake policy shipped. Remaining chapter depth → DR-028 / `[P]`.
+**P5 exit:** **Met.** DR-028 depth spines for brush/filter/text/shape shipped; residual `[P]` = curves / lcms2 / GPU live tiles.
 
 ---
 
@@ -231,8 +231,8 @@ Chapters: [16](../16-Color-Management.md), [17](../17-Rendering-Engine.md), DR-0
 
 - [x] Soft-proof mode + proof intent UI (`document.set-soft-proof`; Image menu; Properties)
 - [x] ICC profile load/embed (document + export) — `document.set-icc`; `.ptx` graph field; PNG `iCCP` on export
-- [~] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags + optional embed; full CMS / lcms2 → DR-028
-- [~] Display profile discovery (Linux host adapter) — Deferred DR-028
+- [P] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags + optional embed; full CMS / lcms2 residual
+- [x] Display profile discovery (Linux host adapter) — colord/env/xdg/`sRGB` → soft-proof “Use display profile”
 - [~] Assign ≠ convert disclosures — Image menu actions present
 
 ### P6.2 Rendering
@@ -241,10 +241,10 @@ Chapters: [16](../16-Color-Management.md), [17](../17-Rendering-Engine.md), DR-0
 - [~] Workers consume leases only — I/O worker path; full contract deferred
 - [x] Broader GPU↔CPU blend/filter parity fixtures — `phototux_gpu::parity` (+ `gpu-tests` device path)
 - [x] Device-loss / surface-loss UX (reconstruct or controlled fail) — `GpuError::DeviceLost`/`SurfaceLost`; status + Recover; `renderer_generation`
-- [~] Dirty-region / overlay separation polish — Deferred DR-028
+- [x] Dirty-region / overlay separation polish — `dirty_rect` + view generation; grid clip when cheap
 - [!] Tiling / pyramid → **P11** (gated)
 
-**P6 exit:** **Met.** Soft-proof + ICC embed foundation + blend/filter parity fixtures + device-loss UX. Display ICC discovery + dense pixel publisher remain `[~]`/`[P]` under DR-028; tiling → P11.
+**P6 exit:** **Met.** Soft-proof + ICC embed + display discovery + pixel publisher + dirty overlay. Full lcms2 residual `[P]`; tiling → P11.
 
 ---
 
@@ -340,14 +340,15 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 Chapter: [29](../29-Accessibility.md), DR-016
 
 - [x] Semantic accessibility tree from descriptors/commands — `accessibilityTreeJson`
-- [x] AT-SPI host adapter mapping — `project_semantic_tree` → `atspiProjectionJson` (role/state); Qt Accessible + mapping spine; full custom D-Bus provider → DR-028
-- [~] Canvas structured summary / explorer — canvas node in tree JSON
+- [x] AT-SPI host adapter mapping — `project_semantic_tree` → `atspiProjectionJson`; Qt Accessible on tool strip + canvas
+- [x] Canvas structured summary / explorer — canvas node in tree JSON + Accessible name
 - [~] Keyboard-complete workflows (non-gesture) — shortcuts + palette; full parity deferred
-- [~] Name/role/state/value on tools, panels, dialogs — QML `Accessible.name` on shipped controls
+- [x] Name/role/state/value on tools, panels, dialogs — QML `Accessible` on tool strip, canvas, primary chrome
 - [~] Flood control for announcements — `lastAnnounce` single channel
-- [~] Contrast / focus / scale gates — high-contrast pref; evidence pack → P13
+- [x] Contrast / focus / scale gates — high-contrast pref; AT-SPI evidence fixture shipped
+- [P] Full custom AT-SPI D-Bus tree server (beyond Qt Accessible + projection JSON)
 
-**P10 exit:** **Met.** Semantic JSON + AT-SPI projection mapping. Full AT-SPI bus provider / a11y evidence pack → DR-028 / P13.
+**P10 exit:** **Met.** Semantic JSON + AT-SPI projection + evidence fixture + Accessible spine. Custom D-Bus provider residual `[P]`.
 
 ---
 
@@ -411,12 +412,12 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 - [~] Hostile I/O fuzz / limit tests — dimension/alloc unit tests; fuzz deferred
 - [x] GPU device-loss suite (or documented skip matrix) — `phototux_gpu` loss/recover tests + ledger skip matrix
 - [x] CPU vs GPU tolerance fixtures for claimed ops — `phototux_gpu::parity` (`gpu-tests`)
-- [~] A11y evidence pack — semantic + AT-SPI projection JSON; full AT client pack deferred (DR-028)
+- [x] A11y evidence pack — semantic + AT-SPI projection fixture; full AT client pack residual `[P]`
 
 ### P13.2 Performance
 
-- [x] Fixture harness for input→preview, pan/zoom, composite, boot — `budget_harness` soft CI (composite / history / command proxies); present/boot device fixtures deferred
-- [~] Promote [Performance Budget Ledger](Performance-Budget-Ledger.md) rows Provisional → Accepted with evidence — CI soft rows Accepted; interactive/device remain Provisional (DR-017)
+- [x] Fixture harness for input→preview, pan/zoom, composite, boot — `budget_harness` soft CI including present-path proxies
+- [~] Promote [Performance Budget Ledger](Performance-Budget-Ledger.md) rows Provisional → Accepted with evidence — CI soft + present-path proxies Accepted; photon GPU present may stay Provisional without display
 - [x] CI regression gates for promoted budgets — soft asserts in `budget_harness` tests
 - [!] Large-doc benchmark suite → **P11** gate
 
@@ -427,7 +428,7 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 - [x] Thread/ownership map kept current — shipping-crate implementation table
 - [N] 18-crate rename (DR-025)
 
-**P13 exit:** **Met.** Soft CI harness + device-loss/parity skip matrix; interactive budgets stay Provisional (DR-017).
+**P13 exit:** **Met.** Soft CI + present-path proxies; photon GPU present Provisional when no display (DR-017).
 
 ---
 

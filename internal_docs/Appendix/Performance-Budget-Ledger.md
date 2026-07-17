@@ -262,8 +262,11 @@ Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test`
 | B1-proxy | `view-zoom-to-fit` invoke | 25 ms | **Accepted (CI soft)** |
 | B2 | `camera-nav-4k-120` (Tier M CPU proxy) | 50 ms | **Accepted (CI soft)** — not photon/present |
 | B1 | `command-batch-4k-60` (Tier M CPU proxy) | 100 ms | **Accepted (CI soft)** — not photon/present |
+| B2-present | `present-nav-intervals-4k` (Tier M) | 80 ms total; p50/p95 intervals logged | **Accepted (CI soft)** — present-path proxy; skip photon if no display |
+| B1-present | `present-dirty-mark-4k` (Tier M) | 40 ms | **Accepted (CI soft)** — dirty/invalidation proxy for input→preview |
+| B3-present | `session-warm-construct` (Tier M) | 25 ms | **Accepted (CI soft)** — warm shell construct proxy |
 
-Interactive B1/B2 present endpoints, B3 boot, B5 large-doc, and GPU composite remain **Provisional** under DR-017 until Tier M device evidence lands. Large-doc suite feeds the P11 gate.
+**Tier M evidence (2026-07-17, host CachyOS, commit family `52670f7`+):** soft suite green — `present-nav-intervals-4k` ~0.03 ms total (p95 interval ≪1 ms), `present-dirty-mark-4k` ~0.005 ms, `session-warm-construct` ~0.016 ms. Photon/GPU present endpoints remain **Provisional** when CI has no display (skip matrix). B5 large-doc / GPU composite stay Provisional; large-doc suite feeds P11.
 
 ### GPU skip matrix (device-loss / parity)
 

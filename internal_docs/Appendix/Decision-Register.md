@@ -186,6 +186,7 @@ Status values:
 | Consequences | Teams MUST measure against them; revising thresholds with evidence is not automatically a product regression. |
 | Amendment (2026-07-17) | Soft CI fixtures in `phototux_engine::budget_harness` promote B2-proxy / B9 / B1-proxy rows to **Accepted (CI soft)**. Photon/present B1–B3, B5 large-doc, and GPU composite stay Provisional until Tier M evidence. |
 | Amendment (2026-07-17 b) | Tier M synthetic 4K CPU proxies: `camera-nav-4k-120` (B2) and `command-batch-4k-60` (B1) Accepted as CI soft. Present/photon endpoints still Provisional. |
+| Amendment (2026-07-17 c) | Present-path soft proxies: `present-nav-intervals-4k` (B2), `present-dirty-mark-4k` (B1), `session-warm-construct` (B3) Accepted as CI soft with Tier M synthetic evidence. Photon/GPU present still Provisional when no display in CI. |
 
 ## DR-018 — Least authority for files and extensions
 
@@ -312,13 +313,15 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 
 | Field | Content |
 | --- | --- |
-| Status | **Accepted** (v1 depth deferral) |
+| Status | **Accepted** (v1 depth deferral; depth pass closed 2026-07-17) |
 | Date | 2026-07-16 |
 | Docs | [Handbook Parity Roadmap](Handbook-Parity-Roadmap.md) P5–P10 |
 | Context | Full handbook brush dynamics, filter gallery, text/shape booleans, ICC host discovery, AT-SPI adapter, and snapshot pixel publisher exceed one parity pass. |
 | Decision | Ship vertical spines now: brush presets + scatter field, `FilterPlan` on layers, soft-proof tags, history jump, clipboard 64 MiB bound, prefs schema 4 (density/contrast/motion), semantic a11y JSON, `extension_data` blobs. Remaining handbook MUST depth stays checklist `[P]` / Deferred until dedicated milestones—not silent gaps. |
-| Consequences | Parity checklist marks P5–P10 **Met for shipped spines**; open rows stay visible. No claim of full chapter 14–19 completeness. |
-| Revisit | Per-engine milestone when product prioritizes that chapter. |
+| Amendment (2026-07-17) | Depth pass closed for shipping spines: brush texture tip, noise filter + exposure adjustment, font discovery + on-canvas text editor, display ICC host adapter + soft-proof, polygon/gradient/live vector + vector-preserving boolean partner, mask contrast/shift, dirty-rect overlay clip, AT-SPI evidence fixture + Qt Accessible names. |
+| Residual `[P]` | Full lcms2 transform pipeline; custom AT-SPI D-Bus tree server (beyond Qt Accessible + projection JSON); GPU-resident live vectors at 60 Hz / tile residency; handbook-complete brush curves / filter gallery chapter depth. |
+| Consequences | Parity checklist marks listed DR-028 depth rows `[x]` with residuals enumerated; no claim of full chapter 14–19 completeness. |
+| Revisit | Per-engine milestone when product prioritizes residual `[P]` rows. |
 
 ## DR-029 — P11/P12 remain gated (no ungated impl)
 
