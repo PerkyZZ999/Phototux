@@ -185,6 +185,8 @@ Popup {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
+                                Accessible.role: Accessible.Button
+                                Accessible.name: qsTr("New File")
                                 onClicked: {
                                     dialog.close()
                                     dialog.requestNew()
@@ -226,6 +228,8 @@ Popup {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
+                                Accessible.role: Accessible.Button
+                                Accessible.name: qsTr("Open File")
                                 onClicked: {
                                     dialog.close()
                                     dialog.requestOpen()

@@ -400,38 +400,47 @@ ApplicationWindow {
             return false
         if (text === "host:document.new") {
             root.requestDestructiveAction("new")
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:document.open") {
             root.requestDestructiveAction("open")
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:document.save_as") {
             saveFileDialog.open()
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:document.export") {
             exportFileDialog.open()
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:document.close") {
             root.requestDestructiveAction("close")
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:app.quit") {
             root.requestDestructiveAction("quit")
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:help.about") {
             aboutDialog.open()
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:palette.open") {
             commandPalette.showPalette()
+            AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:document.embed_icc") {
             embedIccFileDialog.open()
+            AppSession.clearHostStatusMarker()
             return true
         }
         return false
@@ -1405,9 +1414,11 @@ ApplicationWindow {
                 }
             }
 
-            // Live on-canvas text editor (presentation until bake/commit)
-            TextEdit {
-                id: textCanvasEditor
+            // Live on-canvas text editor (presentation until bake/commit).
+            // Qt Quick TextEdit has no `background` property (Controls TextArea does);
+            // wrapping with a Rectangle keeps chrome without aborting QML creation.
+            Item {
+                id: textCanvasEditorHost
                 z: 3
                 visible: AppSession.hasDocument && AppSession.textLayerActive
                          && AppSession.activeTool === "tool.text"
@@ -1425,41 +1436,49 @@ ApplicationWindow {
                      ? AppSession.textFrameH
                      : Math.max(AppSession.textFontSize * 2, 48))
                     * AppSession.zoom)
-                text: AppSession.textBody
-                color: AppSession.textColorHex
-                selectedTextColor: Theme.colorOnPrimary
-                selectionColor: Theme.primary
-                font.family: AppSession.textFontFamily
-                font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
-                wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
-                horizontalAlignment: AppSession.textAlignment === 1
-                                     ? TextEdit.AlignHCenter
-                                     : (AppSession.textAlignment === 2
-                                        ? TextEdit.AlignRight : TextEdit.AlignLeft)
-                background: Rectangle {
+
+                Rectangle {
+                    anchors.fill: parent
                     color: "#22000000"
                     border.color: Theme.primary
                     border.width: 1
                     radius: 2
                 }
-                Accessible.name: qsTr("On-canvas text editor")
-                onTextChanged: {
-                    if (activeFocus && text !== AppSession.textBody) {
-                        AppSession.updateActiveText(
-                                    text,
-                                    AppSession.textFontFamily,
-                                    AppSession.textFontSize,
-                                    AppSession.textTracking,
-                                    AppSession.textLineSpacing,
-                                    AppSession.textAlignment,
-                                    AppSession.textColorHex)
+
+                TextEdit {
+                    id: textCanvasEditor
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    text: AppSession.textBody
+                    color: AppSession.textColorHex
+                    selectedTextColor: Theme.colorOnPrimary
+                    selectionColor: Theme.primary
+                    font.family: AppSession.textFontFamily
+                    font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
+                    wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
+                    horizontalAlignment: AppSession.textAlignment === 1
+                                         ? TextEdit.AlignHCenter
+                                         : (AppSession.textAlignment === 2
+                                            ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                    Accessible.name: qsTr("On-canvas text editor")
+                    onTextChanged: {
+                        if (activeFocus && text !== AppSession.textBody) {
+                            AppSession.updateActiveText(
+                                        text,
+                                        AppSession.textFontFamily,
+                                        AppSession.textFontSize,
+                                        AppSession.textTracking,
+                                        AppSession.textLineSpacing,
+                                        AppSession.textAlignment,
+                                        AppSession.textColorHex)
+                        }
                     }
-                }
-                Connections {
-                    target: AppSession
-                    function onTextBodyChanged() {
-                        if (!textCanvasEditor.activeFocus)
-                            textCanvasEditor.text = AppSession.textBody
+                    Connections {
+                        target: AppSession
+                        function onTextBodyChanged() {
+                            if (!textCanvasEditor.activeFocus)
+                                textCanvasEditor.text = AppSession.textBody
+                        }
                     }
                 }
             }
@@ -5498,14 +5517,16 @@ ApplicationWindow {
     NewDocumentDialog {
         id: newDocDialog
         anchors.centerIn: parent
-        onAccepted: function (presetLabel, w, h) {
+        onCreateRequested: function (presetLabel, w, h) {
             AppSession.setViewportSize(canvasHost.width, canvasHost.height)
             if (presetLabel && presetLabel.length > 0)
                 AppSession.applySizePreset(presetLabel)
             else
                 AppSession.applyDocumentSize(w, h)
-            brushSlider.value = AppSession.brushSize
-            layerOpacitySlider.value = AppSession.activeOpacity
+            if (typeof brushSlider !== "undefined" && brushSlider)
+                brushSlider.value = AppSession.brushSize
+            if (typeof layerOpacitySlider !== "undefined" && layerOpacitySlider)
+                layerOpacitySlider.value = AppSession.activeOpacity
             root.syncBlendCombo()
         }
     }

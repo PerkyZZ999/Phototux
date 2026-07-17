@@ -48,9 +48,12 @@ pub fn discover_display_profile() -> DisplayProfileInfo {
 }
 
 fn probe_colord() -> Option<DisplayProfileInfo> {
-    // Best-effort: `colormgr get-devices` / profile path via busctl when available.
-    let output = Command::new("busctl")
+    // Best-effort: colord D-Bus via busctl. Bound the wait so a stuck session bus
+    // cannot hang AppSession construction (and therefore QML window creation).
+    let output = Command::new("timeout")
         .args([
+            "1s",
+            "busctl",
             "--user",
             "call",
             "org.freedesktop.ColorManager",

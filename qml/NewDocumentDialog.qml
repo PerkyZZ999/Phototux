@@ -12,7 +12,7 @@ Popup {
     height: 480
     padding: 0
 
-    signal accepted(string presetLabel, int width, int height)
+    signal createRequested(string presetLabel, int width, int height)
 
     property string selectedPreset: "1080p"
     property int customW: 1920
@@ -35,6 +35,21 @@ Popup {
                 spinH.value = presets[i].h
                 break
             }
+        }
+    }
+
+    function confirmCreate() {
+        if (dialog.selectedPreset && dialog.selectedPreset.length > 0)
+            dialog.createRequested(dialog.selectedPreset, 0, 0)
+        else
+            dialog.createRequested("", spinW.value, spinH.value)
+        dialog.close()
+    }
+
+    Keys.onPressed: function (event) {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            dialog.confirmCreate()
+            event.accepted = true
         }
     }
 
@@ -314,45 +329,47 @@ Popup {
 
                         Item { Layout.fillHeight: true }
 
-                        Button {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: qsTr("Cancel")
-                            onClicked: dialog.close()
-                            background: Rectangle {
-                                radius: Theme.radiusSm
-                                color: parent.down ? Theme.surfaceContainerHigh : Theme.surfaceRaised
-                                border.color: Theme.border
-                            }
-                            contentItem: Text {
-                                text: parent.text
-                                color: Theme.colorOnSurface
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: Theme.fontLabel
-                            }
-                        }
+                            spacing: Theme.spaceSm
 
-                        Button {
-                            Layout.fillWidth: true
-                            text: qsTr("Create")
-                            onClicked: {
-                                if (dialog.selectedPreset && dialog.selectedPreset.length > 0)
-                                    dialog.accepted(dialog.selectedPreset, 0, 0)
-                                else
-                                    dialog.accepted("", spinW.value, spinH.value)
-                                dialog.close()
+                            Button {
+                                Layout.fillWidth: true
+                                text: qsTr("Cancel")
+                                onClicked: dialog.close()
+                                background: Rectangle {
+                                    radius: Theme.radiusSm
+                                    color: parent.down ? Theme.surfaceContainerHigh : Theme.surfaceRaised
+                                    border.color: Theme.border
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.colorOnSurface
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize: Theme.fontLabel
+                                }
                             }
-                            background: Rectangle {
-                                radius: Theme.radiusSm
-                                color: parent.down ? Theme.primaryHover : Theme.primary
-                            }
-                            contentItem: Text {
-                                text: parent.text
-                                color: Theme.primaryOn
-                                font.weight: Font.DemiBold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: Theme.fontLabel
+
+                            Button {
+                                Layout.fillWidth: true
+                                text: qsTr("Create")
+                                focus: true
+                                onClicked: dialog.confirmCreate()
+                                Keys.onReturnPressed: dialog.confirmCreate()
+                                Keys.onEnterPressed: dialog.confirmCreate()
+                                background: Rectangle {
+                                    radius: Theme.radiusSm
+                                    color: parent.down ? Theme.primaryHover : Theme.primary
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.primaryOn
+                                    font.weight: Font.DemiBold
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize: Theme.fontLabel
+                                }
                             }
                         }
                     }

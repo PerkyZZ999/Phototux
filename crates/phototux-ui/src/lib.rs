@@ -513,8 +513,10 @@ impl AppSession {
             guides_json: "[]".into(),
             grid_spacing: 32.0,
         };
+        // Field-only init: qtbridge attaches the QObject proxy *after* Default returns.
+        // Emitting `*_changed()` here panics with "No proxy" and aborts the process.
         out.apply_loaded_preferences();
-        out.refresh_recovery_list();
+        out.sync_recovery_list_fields();
         let display = display_icc::discover_display_profile();
         out.display_profile_tag = display.soft_proof_tag();
         out.display_profile_name = display.name;
@@ -745,6 +747,7 @@ impl AppSession {
         self.sync_filter_preview_fields();
         self.sync_guides_fields();
         self.refresh_pref_effective_json();
+        self.pref_effective_json_changed();
         self.status_text = self.engine.status_summary();
     }
 
@@ -1027,7 +1030,6 @@ impl AppSession {
             "show_guides": { "value": guides, "source": guides_src.as_str() },
         });
         self.pref_effective_json = map.to_string();
-        self.pref_effective_json_changed();
     }
 
     fn emit_layer_fields(&mut self) {
@@ -1313,6 +1315,9 @@ impl AppSession {
         let (chords, actions) = phototux_engine::effective_shortcuts_json(&self.prefs.keymap);
         self.shortcuts_json = chords;
         self.action_shortcuts_json = actions;
+    }
+
+    fn emit_shortcut_maps(&mut self) {
         self.shortcuts_json_changed();
         self.action_shortcuts_json_changed();
     }
@@ -3322,6 +3327,7 @@ impl AppSession {
             defaults.contains_key(id)
         });
         self.refresh_shortcut_maps();
+        self.emit_shortcut_maps();
         self.persist_prefs();
     }
 
@@ -3329,6 +3335,7 @@ impl AppSession {
     fn reset_keymap(&mut self) {
         self.prefs.keymap.clear();
         self.refresh_shortcut_maps();
+        self.emit_shortcut_maps();
         self.persist_prefs();
     }
 
@@ -3683,6 +3690,7 @@ impl AppSession {
         self.sync_pref_fields_from_store();
         self.persist_prefs();
         self.emit_pref_fields();
+        self.pref_effective_json_changed();
         self.status_text = "Workspace reset to Essentials".to_owned();
         self.status_text_changed();
     }
@@ -4298,10 +4306,19 @@ impl AppSession {
     }
 
     #[qslot]
-    fn refresh_recovery_list(&mut self) {
+    fn sync_recovery_list_fields(&mut self) {
         let entries = list_recoverable().unwrap_or_default();
         self.recovery_entries_json =
             serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into());
+    }
+
+    #[qslot]
+    fn refresh_recovery_list(&mut self) {
+        self.sync_recovery_list_fields();
+        self.emit_recovery_list();
+    }
+
+    fn emit_recovery_list(&mut self) {
         self.recovery_entries_json_changed();
     }
 
@@ -4324,7 +4341,8 @@ impl AppSession {
                     .unwrap_or_else(|| PathBuf::from(&entry.snapshot_path));
                 self.apply_opened_ptx(path, document);
                 let _ = discard_recovery(&entry);
-                self.refresh_recovery_list();
+                self.sync_recovery_list_fields();
+                self.emit_recovery_list();
                 self.status_text = "Recovered unsaved document".to_owned();
                 self.status_text_changed();
             }
@@ -4340,7 +4358,8 @@ impl AppSession {
         if let Some(entry) = entries.into_iter().find(|e| e.document_id == document_id) {
             let _ = discard_recovery(&entry);
         }
-        self.refresh_recovery_list();
+        self.sync_recovery_list_fields();
+        self.emit_recovery_list();
     }
 
     #[qslot]
@@ -4426,6 +4445,15 @@ impl AppSession {
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
         }
+    }
+
+    #[qslot]
+    fn clear_host_status_marker(&mut self) {
+        if !self.status_text.starts_with("host:") {
+            return;
+        }
+        self.status_text = self.engine.status_summary();
+        self.status_text_changed();
     }
 
     #[qslot]
