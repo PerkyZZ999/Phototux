@@ -166,7 +166,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 - [~] Dynamics: size/opacity/flow pressure curves, scatter, texture (handbook subset prioritized) — opacity/flow/scatter/spacing + size/opacity pressure on `BrushParams`; texture deferred ([DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices))
 - [x] Brush preset library persistence + UI (prefs schema 4 JSON + Properties apply/save)
-- [ ] Stroke journal / recovery hooks
+- [x] Stroke journal / recovery hooks (`StrokeJournal` → recovery/strokes/*.json)
 - [x] CPU dab reference path for tests (`stamp_dab_rgba` / `paint_dabs_rgba`)
 - [P] Tile-aware stroke planner (after P11 tiling)
 

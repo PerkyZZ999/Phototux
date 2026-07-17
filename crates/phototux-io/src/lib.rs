@@ -14,7 +14,7 @@ pub use ptx::{
 };
 pub use recovery::{
     RecoveryEntry, RecoveryError, discard_recovery, list_recoverable, load_recovery, recovery_dir,
-    write_autosave,
+    write_autosave, write_stroke_journal,
 };
 
 use std::ffi::OsString;

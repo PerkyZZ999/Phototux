@@ -45,7 +45,7 @@ struct TransformSnapshot {
 
 const SELECTION_UNDO_LIMIT: usize = 64;
 const TRANSFORM_UNDO_LIMIT: usize = 32;
-use phototux_io::{RasterFormat, format_report};
+use phototux_io::{RasterFormat, format_report, write_stroke_journal};
 use qtbridge::qobject;
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
@@ -2849,6 +2849,10 @@ impl AppSession {
                 EngineEvent::StrokeLatency { ms } => {
                     self.engine.set_stroke_latency_ms(ms);
                     dirty = true;
+                }
+                EngineEvent::StrokeJournaled(entry) => {
+                    // Best-effort recovery hook; never fail the stroke on journal I/O.
+                    let _ = write_stroke_journal(&entry);
                 }
                 EngineEvent::StrokeEnded => {
                     let label = if self.mask_edit_active {

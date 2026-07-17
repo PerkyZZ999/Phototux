@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 
 use phototux_engine::{
-    BrushParams, EngineCommand, EngineEvent, LayerId, PaintTarget, StrokeBuilder,
+    BrushParams, EngineCommand, EngineEvent, LayerId, PaintTarget, StrokeBuilder, StrokeJournal,
 };
 
 struct WorkerState {
@@ -14,6 +14,7 @@ struct WorkerState {
     target: Option<PaintTarget>,
     first_input_ms: Option<f64>,
     dabs_since_composite: u32,
+    journal: StrokeJournal,
 }
 
 /// Handle to enqueue paint commands from the UI thread.
@@ -102,6 +103,7 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
         target: None,
         first_input_ms: None,
         dabs_since_composite: 0,
+        journal: StrokeJournal::default(),
     };
 
     while let Ok(cmd) = rx.recv() {
@@ -129,8 +131,11 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                 st.target = Some(target);
                 st.first_input_ms = Some(t_ms);
                 st.dabs_since_composite = 0;
+                st.journal
+                    .begin(layer, target, st.brush, x, y, pressure, t_ms);
                 let mut builder = StrokeBuilder::new(st.brush);
                 let dabs = builder.begin(x, y, pressure);
+                st.journal.push_dabs(&dabs);
                 st.stroke = Some(builder);
                 apply_dabs(&mut st, &dabs, true, &tx_ev);
             }
@@ -143,11 +148,13 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                 if st.first_input_ms.is_none() {
                     st.first_input_ms = Some(t_ms);
                 }
+                st.journal.sample(x, y, pressure, t_ms);
                 let Some(builder) = st.stroke.as_mut() else {
                     continue;
                 };
                 let dabs = builder.move_to(x, y, pressure);
                 if !dabs.is_empty() {
+                    st.journal.push_dabs(&dabs);
                     apply_dabs(&mut st, &dabs, false, &tx_ev);
                 }
             }
@@ -166,11 +173,15 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                 if let Err(e) = super::document_gpu::end_stroke() {
                     let _ = tx_ev.send(EngineEvent::Error(e));
                 }
+                let journaled = st.journal.end();
                 let ms = super::document_gpu::last_composite_ms();
                 let _ = tx_ev.send(EngineEvent::CompositeDone { ms });
                 let lat = super::document_gpu::last_stroke_latency_ms();
                 if lat > 0.0 {
                     let _ = tx_ev.send(EngineEvent::StrokeLatency { ms: lat });
+                }
+                if let Some(entry) = journaled {
+                    let _ = tx_ev.send(EngineEvent::StrokeJournaled(entry));
                 }
                 let _ = tx_ev.send(EngineEvent::StrokeEnded);
                 st.layer = None;

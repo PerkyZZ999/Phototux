@@ -7,6 +7,10 @@
 - Deterministic scatter in `StrokeBuilder`; GPU stamp uses `stamp_alpha` (no double pressure on radius)
 - Sharpen: `FilterEffect::sharpen`, Filter menu action, `cpu_sharpen_rgba` fixture
 
+## Also shipped
+
+- Stroke journal (`StrokeJournal`) with paint-worker events → `recovery/strokes/*.json`
+
 ## Still open (DR-028)
 
-Stroke journal/recovery hooks; texture tips; GPU sharpen pack path; filter gallery UX.
+Texture tips; GPU sharpen pack path; filter gallery UX.

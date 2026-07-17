@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use phototux_engine::JournalStroke;
+
 use crate::ptx::{self, PtxDocument, PtxError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +113,19 @@ pub fn discard_recovery(entry: &RecoveryEntry) -> Result<(), RecoveryError> {
     let index = dir.join(format!("{}.json", entry.document_id));
     let _ = fs::remove_file(index);
     Ok(())
+}
+
+/// Persist a stroke journal entry under the recovery directory (handbook 14 hooks).
+///
+/// # Errors
+/// Returns [`RecoveryError`] on filesystem or encode failure.
+pub fn write_stroke_journal(stroke: &JournalStroke) -> Result<PathBuf, RecoveryError> {
+    let dir = recovery_dir().join("strokes");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("stroke-{}.json", stroke.id));
+    let json = phototux_engine::StrokeJournal::stroke_to_json(stroke)?;
+    fs::write(&path, json)?;
+    Ok(path)
 }
 
 fn unix_ms() -> u128 {

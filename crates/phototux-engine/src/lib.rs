@@ -23,6 +23,7 @@ mod paths;
 mod selection;
 mod shell;
 mod stroke;
+mod stroke_journal;
 mod text_bake;
 mod transform;
 mod undo;
@@ -74,6 +75,9 @@ pub use shell::{
     panels_json, tools_json,
 };
 pub use stroke::{BrushParams, Dab, StrokeBuilder, dab_coverage, paint_dabs_rgba, stamp_dab_rgba};
+pub use stroke_journal::{
+    BrushParamsSnapshot, DabSnapshot, JournalStroke, StrokeJournal, StrokeSample,
+};
 pub use text_bake::bake_text_rgba8;
 pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
