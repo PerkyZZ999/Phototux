@@ -200,6 +200,7 @@ pub const ALL: &[CommandMeta] = &[
     doc_tx(command_id::TEXT_BAKE),
     doc_tx(command_id::SHAPE_CREATE),
     doc_tx(command_id::SHAPE_RASTERIZE),
+    doc_tx(command_id::SHAPE_BOOLEAN),
     doc_tx(command_id::FILTER_ADD_ADJUSTMENT),
     doc_merge(command_id::FILTER_SET_PARAMETERS),
     doc_tx(command_id::FILTER_ADD_EFFECT),

@@ -18,7 +18,7 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 | Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.set-soft-proof`, `document.crop`, `document.rotate-90` |
 | Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify`, `selection.to-mask` |
 | Mask | `mask.create`, `mask.delete`, `mask.set-enabled`, `mask.to-selection` |
-| Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize` |
+| Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize`, `shape.boolean` |
 | Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `style.add-drop-shadow`, `style.add-stroke` |
 | Clipboard / path | `clipboard.paste-layer`, `path.stroke-to-layer` |
 | Raster | `raster.transform-commit`, `raster.flip`, `raster.fill`, `raster.gradient`, `raster.paint-stroke` |

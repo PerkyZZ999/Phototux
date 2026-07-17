@@ -1128,6 +1128,9 @@ impl AppSession {
             cid::FILTER_ADD_EFFECT => Ok(CommandArgs::FilterEffect {
                 kind: arg.unwrap_or("gaussian").to_owned(),
             }),
+            cid::SHAPE_BOOLEAN => Ok(CommandArgs::ShapeBoolean {
+                op: arg.unwrap_or("union").to_owned(),
+            }),
             cid::RASTER_FLIP => Ok(CommandArgs::RasterFlip {
                 horizontal: arg != Some("v"),
             }),
@@ -1315,6 +1318,9 @@ impl AppSession {
                 for _ in 0..steps {
                     let _ = self.invoke_command(command_id::HISTORY_UNDO, CommandArgs::None);
                 }
+            }
+            HostFollowUp::ShapeBoolean { op, a, b, result } => {
+                self.apply_shape_boolean_host(op, a, b, result);
             }
         }
         if effects.recomposite {
@@ -3719,9 +3725,37 @@ impl AppSession {
             self.status_text_changed();
             return;
         }
+        let os_ok = Self::push_os_clipboard_rgba(width, height, &pixels).is_ok();
         self.clipboard_rgba = Some((width, height, pixels));
-        self.status_text = "Copied".to_owned();
+        self.status_text = if os_ok {
+            "Copied (app + system clipboard)".to_owned()
+        } else {
+            "Copied (app clipboard only)".to_owned()
+        };
         self.status_text_changed();
+    }
+
+    fn push_os_clipboard_rgba(width: u32, height: u32, pixels: &[u8]) -> Result<(), String> {
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard
+            .set_image(arboard::ImageData {
+                width: width as usize,
+                height: height as usize,
+                bytes: std::borrow::Cow::Borrowed(pixels),
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    fn pull_os_clipboard_rgba() -> Option<(u32, u32, Vec<u8>)> {
+        let mut clipboard = arboard::Clipboard::new().ok()?;
+        let img = clipboard.get_image().ok()?;
+        let width = u32::try_from(img.width).ok()?;
+        let height = u32::try_from(img.height).ok()?;
+        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+        if img.bytes.len() > MAX_CLIPBOARD_BYTES {
+            return None;
+        }
+        Some((width, height, img.bytes.into_owned()))
     }
 
     #[qslot]
@@ -3807,10 +3841,15 @@ impl AppSession {
 
     #[qslot]
     fn paste_as_new_layer(&mut self) {
-        let Some((width, height, pixels)) = self.clipboard_rgba.clone() else {
+        let payload = self
+            .clipboard_rgba
+            .clone()
+            .or_else(Self::pull_os_clipboard_rgba);
+        let Some((width, height, pixels)) = payload else {
             self.fail_io("Paste", "clipboard empty");
             return;
         };
+        let _ = (width, height);
         match self.invoke_command(
             command_id::CLIPBOARD_PASTE_LAYER,
             CommandArgs::PasteLayer {
@@ -3820,9 +3859,12 @@ impl AppSession {
             Ok(()) => {
                 if let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) {
                     if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
-                        let _ = (width, height, error);
+                        self.report_gpu("paste upload", &error);
+                        return;
                     }
                     self.recomposite();
+                    self.status_text = "Pasted layer".to_owned();
+                    self.status_text_changed();
                 }
             }
             Err(error) => self.report_gpu("paste", &error.to_string()),
@@ -3963,6 +4005,55 @@ impl AppSession {
             ]
         });
         rasterize_shape_rgba8(w, h, &content.path, fill, stroke, content.stroke_width)
+    }
+
+    fn apply_shape_boolean_host(
+        &mut self,
+        op: phototux_engine::BooleanOp,
+        a: LayerId,
+        b: LayerId,
+        result: LayerId,
+    ) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let Some(content_a) = graph.get(a).and_then(|l| l.shape.clone()) else {
+            self.report_gpu("shape boolean", "shape A missing");
+            return;
+        };
+        let Some(content_b) = graph.get(b).and_then(|l| l.shape.clone()) else {
+            self.report_gpu("shape boolean", "shape B missing");
+            return;
+        };
+        let pixels_a = match Self::shape_pixels(&content_a, w, h) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("shape boolean", &error);
+                return;
+            }
+        };
+        let pixels_b = match Self::shape_pixels(&content_b, w, h) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("shape boolean", &error);
+                return;
+            }
+        };
+        let combined = match phototux_engine::boolean_rgba8(&pixels_a, &pixels_b, op) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("shape boolean", &error);
+                return;
+            }
+        };
+        if let Err(error) = phototux_canvas::write_layer_rgba(result, &combined) {
+            self.report_gpu("shape boolean upload", &error);
+            return;
+        }
+        self.recomposite();
+        self.status_text = format!("Boolean {}", op.as_str());
+        self.status_text_changed();
     }
 
     /// Bake active shape layer to raster (clears shape payload).

@@ -174,7 +174,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 - [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`; JSON round-trip)
 - [ ] Filter gallery UX (browse + preview + commit)
-- [~] Additional GPU executors (sharpen, noise, color ops…) with CPU reference — `cpu_sharpen_rgba` + Sharpen effect command; GPU pack path deferred
+- [~] Additional GPU executors (sharpen, noise, color ops…) with CPU reference — `cpu_sharpen_rgba` + GPU pack mode 7 + Sharpen command; noise deferred
 - [ ] Cancel / stale-result policy for long filters
 - [~] Adjustment kinds completeness vs handbook 15 — existing subset; gallery deferred (DR-028)
 
@@ -188,7 +188,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### P5.4 Shape
 
-- [ ] Boolean union / intersection / difference / exclusion
+- [x] Boolean union / intersection / difference / exclusion — coverage bake → new raster layer (`shape.boolean`)
 - [ ] Path edit tool (add/move/delete points, close)
 - [~] Parametric primitives beyond rect/ellipse/line — rect/ellipse/line shipped; more deferred (DR-028)
 - [ ] Live vector contribution option vs always-raster upload
@@ -254,8 +254,8 @@ Chapters: [21](../21-Clipboard.md), [22](../22-Import-Export.md), [27](../27-Fil
 
 ### P8.1 Clipboard
 
-- [~] Capability-scoped host clipboard bridge — in-app RGBA clipboard; OS MIME bridge deferred
-- [~] Multi-format negotiation (pixels / layer / SVG-ish paths as available) — pixels → paste layer
+- [x] Capability-scoped host clipboard bridge — in-app RGBA + OS image via `arboard`
+- [~] Multi-format negotiation (pixels / layer / SVG-ish paths as available) — pixels image MIME; SVG deferred
 - [ ] Mask / selection payload copy
 - [x] Security / size bounds (64 MiB refuse on copy)
 

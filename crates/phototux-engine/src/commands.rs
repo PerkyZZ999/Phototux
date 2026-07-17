@@ -74,6 +74,7 @@ pub mod command_id {
 
     pub const SHAPE_CREATE: &str = "shape.create";
     pub const SHAPE_RASTERIZE: &str = "shape.rasterize";
+    pub const SHAPE_BOOLEAN: &str = "shape.boolean";
 
     pub const FILTER_ADD_ADJUSTMENT: &str = "filter.add-adjustment";
     pub const FILTER_SET_PARAMETERS: &str = "filter.set-parameters";
@@ -146,6 +147,7 @@ pub mod command_id {
         TEXT_BAKE,
         SHAPE_CREATE,
         SHAPE_RASTERIZE,
+        SHAPE_BOOLEAN,
         FILTER_ADD_ADJUSTMENT,
         FILTER_SET_PARAMETERS,
         FILTER_ADD_EFFECT,
@@ -194,6 +196,13 @@ pub enum HostFollowUp {
     /// Undo `steps` times to jump the history timeline (host applies stroke/selection stacks).
     HistoryJump {
         steps: u32,
+    },
+    /// Rasterize two shape layers, boolean-combine, write into `result` raster layer.
+    ShapeBoolean {
+        op: crate::BooleanOp,
+        a: crate::LayerId,
+        b: crate::LayerId,
+        result: crate::LayerId,
     },
 }
 
@@ -272,6 +281,9 @@ pub enum CommandArgs {
     },
     ShapeCreate {
         content: ShapeContent,
+    },
+    ShapeBoolean {
+        op: String,
     },
     FilterAdjustment {
         kind: String,
@@ -490,6 +502,7 @@ impl SessionState {
             command_id::TEXT_BAKE => self.cmd_text_bake(),
             command_id::SHAPE_CREATE => self.cmd_shape_create(args),
             command_id::SHAPE_RASTERIZE => self.cmd_shape_rasterize(),
+            command_id::SHAPE_BOOLEAN => self.cmd_shape_boolean(args),
             command_id::FILTER_ADD_ADJUSTMENT => self.cmd_filter_add_adjustment(args),
             command_id::FILTER_SET_PARAMETERS => self.cmd_filter_set_parameters(args),
             command_id::FILTER_ADD_EFFECT => self.cmd_filter_add_effect(args),
@@ -1553,6 +1566,90 @@ impl SessionState {
         }
         graph.bump_generation();
         Ok(CommandEffects::document_edit(graph.generation))
+    }
+
+    fn resolve_boolean_shape_pair(&self) -> Result<(LayerId, LayerId), CommandError> {
+        let Some(graph) = self.graph.as_ref() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let selected: Vec<LayerId> = self
+            .selected_layer_ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                graph
+                    .get(*id)
+                    .is_some_and(|l| l.kind == LayerKind::Shape && l.shape.is_some())
+            })
+            .collect();
+        if selected.len() >= 2 {
+            return Ok((selected[0], selected[1]));
+        }
+        let active = self.active_layer_id()?;
+        let Some(active_layer) = graph.get(active) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if active_layer.kind != LayerKind::Shape || active_layer.shape.is_none() {
+            return Err(CommandError::Rejected("active layer is not a shape"));
+        }
+        let idx = graph
+            .index_of(active)
+            .ok_or(CommandError::Rejected("layer missing"))?;
+        for i in (0..idx).rev() {
+            let id = graph.layers()[i].id;
+            if graph
+                .get(id)
+                .is_some_and(|l| l.kind == LayerKind::Shape && l.shape.is_some())
+            {
+                return Ok((active, id));
+            }
+        }
+        Err(CommandError::Rejected(
+            "need two shape layers (select two, or stack a shape below active)",
+        ))
+    }
+
+    fn cmd_shape_boolean(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::ShapeBoolean { op } = args else {
+            return Err(CommandError::InvalidArgument("expected ShapeBoolean"));
+        };
+        let op = crate::BooleanOp::parse(&op)
+            .ok_or(CommandError::InvalidArgument("unknown boolean op"))?;
+        let (a, b) = self.resolve_boolean_shape_pair()?;
+        let label = format!("Boolean {}", op.as_str());
+        self.announce(label.clone());
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        if graph.layer_count() >= MAX_LAYERS {
+            return Err(CommandError::Document(DocumentError::layer_limit(
+                MAX_LAYERS,
+            )));
+        }
+        let result = graph.add_layer_top(Some(label.clone()))?;
+        let index = graph.index_of(result).unwrap_or(0);
+        let layer = graph
+            .get(result)
+            .cloned()
+            .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?;
+        let generation = {
+            graph.bump_generation();
+            graph.generation
+        };
+        history.push_graph_applied(
+            crate::GraphCommand::AddLayer {
+                id: result,
+                index,
+                layer,
+            },
+            &label,
+            generation,
+        );
+        let mut effects = CommandEffects::document_edit(generation);
+        effects.created_layer = Some(result);
+        effects.host_follow_up = HostFollowUp::ShapeBoolean { op, a, b, result };
+        Ok(effects)
     }
 
     fn cmd_filter_add_adjustment(

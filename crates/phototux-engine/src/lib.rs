@@ -21,6 +21,7 @@ mod layer;
 mod layer_style;
 mod paths;
 mod selection;
+mod shape_boolean;
 mod shell;
 mod stroke;
 mod stroke_journal;
@@ -70,6 +71,7 @@ pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
     contract_mask_r8, expand_mask_r8, feather_mask_r8,
 };
+pub use shape_boolean::{BooleanOp, boolean_rgba8};
 pub use shell::{
     PanelDescriptor, ToolDescriptor, default_panels, default_tools, essentials_panel_visibility,
     panels_json, tools_json,
