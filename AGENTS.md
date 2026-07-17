@@ -8,7 +8,7 @@ Agent-facing constitution for **PhotoTux**.
 **Gap inventory:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).  
 **Slice tracker:** [`internal_docs/Appendix/Implementation-Checklist.md`](internal_docs/Appendix/Implementation-Checklist.md).
 
-If handbook Decision Register conflicts with archived ADRs or code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` remain bridge docs until absorbed into the handbook.
+If handbook Decision Register conflicts with archived ADRs or code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` are **non-normative bridges** → handbook + Decision Register. Archived ADR map: [`internal_docs/Appendix/Archived-ADR-to-DR-Map.md`](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
 
 ---
 
@@ -19,13 +19,13 @@ PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor w
 | Layer | Choice | Notes |
 |-------|--------|-------|
 | Platform | Linux / Wayland v1 | Handbook local-first + Linux host |
-| UI | Qt 6.10+ QML, Controls 2; Kirigami deferred | Shipped; promote in Decision Register (handbook DR-008 was Deferred) |
-| FFI | `qtbridge` 0.2; thin C++ canvas + QML AOT only | Shipped |
-| GPU | `wgpu` Vulkan-first | Handbook DR-006 |
+| UI | Qt 6.10+ QML, Controls 2; Kirigami deferred | DR-023 Accepted (DR-008 superseded) |
+| FFI | `qtbridge` 0.2; thin C++ canvas + QML AOT only | DR-023 |
+| GPU | `wgpu` Vulkan-first | DR-006 / DR-023 |
 | Present | Zero-copy interactive; debug readback only | Keep; CPU = tests/degraded only |
-| Crates | Multi-crate `phototux_*` | Fine-grained split in handbook 32 is **target**, not immediate |
-| Threads | Paint command queue + workers | Evolve toward handbook command spine |
-| Doc model | Graph v2 layers in engine | Single doc v1 until DR amend |
+| Crates | Multi-crate `phototux_*` | DR-025 coarse; handbook 32 = ownership map |
+| Threads | Paint queue + `SessionState::invoke` document spine | Document commits routed; paint stream host-only until stroke-end |
+| Doc model | Graph v2 layers in engine | Single doc v1 (DR-024) until DR amend |
 | License | GPL-3.0-or-later | |
 | Surface | **Desktop GUI only** | No CLI/TUI/web product |
 
@@ -251,7 +251,8 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 | `internal_docs/Appendix/Implementation-Checklist.md` | Living slice tracker |
 | `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
 | `archive/docs/` | Archived former `/docs/` (ADRs, journals, old IA) |
-| `SPEC.md` / `CONSTRAINTS.md` | Bridge product constraints (migrate into handbook over time) |
+| `SPEC.md` / `CONSTRAINTS.md` | Non-normative bridges → handbook + Decision Register |
+| `internal_docs/Appendix/Archived-ADR-to-DR-Map.md` | Archived ADR → live DR |
 | `scripts/check-rust.sh` | Quality gate |
 | `.githooks/pre-commit` | Commit gate |
 

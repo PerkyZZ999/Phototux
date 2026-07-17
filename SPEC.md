@@ -1,5 +1,7 @@
 # SPEC.md: PhotoTux Project Specification
 
+> **Non-normative bridge.** Authoritative engineering contracts live in [`internal_docs/`](internal_docs/README.md) (Engineering Handbook) and the [Decision Register](internal_docs/Appendix/Decision-Register.md). Tech stack locks: [DR-023](internal_docs/Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase). Archived ADRs: [`archive/docs/01-decisions/`](archive/docs/01-decisions/) — map in [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md). Prefer handbook chapters over this file when they disagree.
+
 ## 1. Project Overview & Vision
 
 **PhotoTux** is a professional-grade, high-performance raster and vector image editor designed natively for modern Linux systems running Wayland.
@@ -150,6 +152,6 @@ cargo run -p phototux    # launches the editor window (dev)
 ./scripts/check-rust.sh  # rustfmt + clippy + rust-doctor
 ```
 
-Crate layout and phases: see `docs/01-decisions/` and `docs/03-checklists/development.md`.
+Crate layout and phases: see [`internal_docs/`](internal_docs/README.md), [Alignment Roadmap](internal_docs/Appendix/Alignment-Roadmap.md), and [Implementation Checklist](internal_docs/Appendix/Implementation-Checklist.md). Historical ADRs: [`archive/docs/01-decisions/`](archive/docs/01-decisions/).
 
 ---

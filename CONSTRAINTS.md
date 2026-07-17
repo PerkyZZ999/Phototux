@@ -1,5 +1,7 @@
 # Project Constraints
 
+> **Non-normative bridge.** Hard locks and Accepted decisions are indexed in the handbook [Decision Register](internal_docs/Appendix/Decision-Register.md) ([DR-023](internal_docs/Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) stack, [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--single-document-session-v1) single-doc, [DR-026](internal_docs/Appendix/Decision-Register.md#dr-026--native-ptx-container-v1) `.ptx`). Engineering Handbook: [`internal_docs/`](internal_docs/README.md). Archived ADR evidence: [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
+
 ## Technical Constraints
 
 | Constraint | Value | Reversibility | Rationale |
@@ -13,7 +15,7 @@
 | GPU API path | `wgpu` → Vulkan preferred | Medium | Portable GPU; Vulkan native on Linux |
 | Render strategy | Zero-copy GPU texture shared into Qt RHI / QSGTexture | Hard (product pillar) | No full-frame FFI pixel copies |
 | Packaging target (later) | Desktop Linux app | Soft | Flatpak/AppImage/distro packages deferred |
-| Product surface (v1) | **Desktop GUI only** | Hard for v1 | No CLI product, no TUI, no web (ADR-014) |
+| Product surface (v1) | **Desktop GUI only** | Hard for v1 | No CLI product, no TUI, no web (DR-023 / archived ADR-014) |
 
 ## Resource Constraints
 
@@ -41,13 +43,13 @@
 2. Rust backend + Qt 6 QML frontend
 3. Zero-copy GPU canvas strategy (pixels stay on GPU; bridge carries commands/state only)
 4. Performance SLOs in README Success Criteria remain acceptance gates for canvas work
-5. **Desktop GUI only** for MVP/v1 — no CLI product, no TUI, no web/Electron (ADR-014)
+5. **Desktop GUI only** for MVP/v1 — no CLI product, no TUI, no web/Electron (handbook surface + archived ADR-014)
 
 ## Soft Constraints (Preferred but Reversible)
 
-1. `qtbridge` for app logic; hybrid canvas C++ allowed (ADR-003) if custom item needs it
+1. `qtbridge` for app logic; hybrid canvas C++ allowed (DR-023 / archived ADR-003) if custom item needs it
 2. KDE HIG-aligned dense dark shell (not GNOME/libadwaita); Controls 2 first, Kirigami deferred
-3. Arch/CachyOS as reference host; local checks only until public OSS (ADR-013)
+3. Arch/CachyOS as reference host; local checks only until public OSS
 4. Vulkan-first `wgpu` backend (Metal/DX12 irrelevant for now)
 
 ## Constraint Change Log

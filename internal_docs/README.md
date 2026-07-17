@@ -66,7 +66,10 @@ internal_docs/
     ├── Performance-Budget-Ledger.md
     ├── Accessibility-Checklist.md
     ├── Decision-Register.md
-    └── Codebase-Handbook-Gap-Analysis.md
+    ├── Codebase-Handbook-Gap-Analysis.md
+    ├── Alignment-Roadmap.md
+    ├── Implementation-Checklist.md
+    └── Archived-ADR-to-DR-Map.md
 ```
 
 ## Numbered Series (00–32)
