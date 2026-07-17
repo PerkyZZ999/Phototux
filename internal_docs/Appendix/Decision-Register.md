@@ -60,10 +60,12 @@ Status values:
 
 | Field | Content |
 | --- | --- |
-| Status | Accepted |
-| Docs | [17](../17-Rendering-Engine.md), 10 |
+| Status | **Accepted** (v1 lease); full pixel-immutable snapshots **Provisional** |
+| Docs | [17](../17-Rendering-Engine.md), 10, [Alignment Roadmap](Alignment-Roadmap.md) |
 | Decision | Render workers consume versioned immutable snapshots and bounded deltas; they MUST NOT mutate authoritative documents. |
-| Consequences | Snapshot publisher required; stale result policy required; GPU caches keyed by full semantic inputs. |
+| Accepted v1 (shipping) | Document **generation** counters plus metadata **`DocumentSnapshotLease`** (and `mark_persisted`) are the authoritative stale-result / cache-key contract. Workers and GPU paths key off generation; they do not hold mutable graph refs across async work. |
+| Provisional (later) | Full immutable pixel snapshot blobs, dense delta streams, and tile/pyramid publishers remain target architecture (Phase 5 / [DR-006](#dr-006--gpu-first-via-wgpu-not-gpu-only) evidence). |
+| Consequences | Snapshot publisher required at the semantic level; stale result policy required; GPU caches keyed by full semantic inputs (generation + params). Do not rewrite interactive present for paper-pure pixel clones until evidence demands. |
 
 ## DR-006 — GPU-first via wgpu, not GPU-only
 
@@ -142,7 +144,7 @@ Status values:
 | Status | Accepted (policy); encoding detail in [DR-026](#dr-026--native-ptx-container-v1) |
 | Docs | [27](../27-File-Formats.md), [22](../22-Import-Export.md) |
 | Decision | Native versioned container is editable persistence authority. Third-party formats are adapters with loss disclosure. |
-| Encoding | `.ptx` v1 is the shipping native container; evolve toward chunked/integrity goals without renaming the product format. |
+| Encoding | **`.ptx` v2 write / v1 read** — writers emit format version 2 typed chunks (`MANI` / `RASL` / `MASK` + whole-body CRC32); readers still open v1 monolithic bodies ([DR-026](#dr-026--native-ptx-container-v1)). Product extension stays `.ptx`. |
 | Evidence needed | Huge sparse, incremental save, recovery, unknown preserve (guides evolution, not a greenfield format). |
 
 ## DR-014 — Staged save and atomic replace
@@ -161,7 +163,8 @@ Status values:
 | Status | Accepted |
 | Docs | [03](../03-Workspace-System.md), [24](../24-Preferences.md) |
 | Decision | Workspace/layout/view presentation persist separately from editable documents by default. |
-| Consequences | Closing views ≠ closing documents; restore is reconciliation. |
+| Accepted v1 (shipping) | Panel/tool **descriptors** in `phototux_engine::shell` are the semantic catalog; XDG prefs + Reset Essentials persist panel visibility / last tool; Qt QML hardcodes menus, shortcuts, and context menus. Full `WorkspaceTransaction` topology, tear-off docking, and action-driven chrome remain **target** (not v1 blockers). |
+| Consequences | Closing views ≠ closing documents; restore is reconciliation. Agents MUST NOT treat hardcoded QML chrome as a contract violation of this DR while v1 stands. |
 
 ## DR-016 — Accessibility is semantic, not pixel inference
 

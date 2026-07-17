@@ -4,7 +4,21 @@
 
 A workspace is a local presentation arrangement for documents, canvas views, tools, panels, and status. It is neither a document nor a native window, though a window normally presents one workspace root. Workspace state can be discarded or reconstructed without losing editable content. This specification defines default geography, multi-view relationships, presets, serialization, restoration, responsive adaptation, and ownership boundaries. Dock topology, panel instances, tool presentation, and shortcut bindings are delegated to [04 — Docking System](04-Docking-System.md), [05 — Panel System](05-Panel-System.md), [06 — Toolbar System](06-Toolbar-System.md), and [09 — Shortcut System](09-Shortcut-System.md).
 
-PhotoTux remains toolkit-neutral. Layout contracts use semantic regions and stable IDs rather than widget trees. Normal operation is local-first and excludes accounts, cloud synchronization, remote workspaces, AI features, and vendor-specific modes.
+### Accepted v1 (shipping)
+
+Per [DR-015](Appendix/Decision-Register.md#dr-015--workspace-state-separate-from-documents) and [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) / [DR-024](Appendix/Decision-Register.md#dr-024--single-document-session-v1):
+
+| Surface | v1 reality | Target (later) |
+| --- | --- | --- |
+| Panel/tool catalog | `phototux_engine::shell` descriptors (`panels_json` / `tools_json`) | Same IDs drive chrome |
+| Persistence | XDG prefs: panel visibility, last tool; Reset Essentials | Full workspace topology serialization |
+| Menus / shortcuts / context | Hardcoded Qt QML (`Main.qml`) → `AppSession` | Action/command ID registry |
+| Documents | Single document session | Multi-doc tabs (needs DR-024 amend) |
+| Docking | Fixed regions + show/hide | Tear-off / `WorkspaceTransaction` |
+
+Agents building features **MUST** keep document mutations on the command spine; they **MUST NOT** treat “rewrite menus as action descriptors” as a v1 alignment blocker.
+
+Layout contracts use semantic regions and stable IDs rather than widget trees where descriptors exist. Host presentation is Qt 6 QML ([DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)). Normal operation is local-first and excludes accounts, cloud synchronization, remote workspaces, AI features, and vendor-specific modes.
 
 ## Responsibilities
 

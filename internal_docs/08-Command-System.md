@@ -2,9 +2,22 @@
 
 ## Overview
 
-The command system is PhotoTux’s sole semantic mutation spine. Every user-visible mutation of document, application, workspace, tool, preference, resource, or extension-managed semantic state enters through a named command. Presentations emit actions; action resolution supplies scope and parameters; command routing performs authoritative validation, scheduling, transaction construction, commit, history registration, publication, progress, cancellation, and structured result reporting.
+The command system is PhotoTux’s sole semantic mutation spine for **document-authoritative** commits. Named commands enter through `SessionState::invoke` (host adapter: `AppSession` → command IDs). Presentations emit actions or QML slots; routing performs validation, commit, history registration, and effect publication.
 
-Direct mutation from widgets, panels, tools, context menus, shortcuts, jobs, importers, or extensions is forbidden. Read-only queries and ephemeral presentation updates need not be commands, but any state with semantic persistence, undo, cross-view visibility, or operational consequence **MUST** have an explicit owner and command path.
+**Accepted v1 scope:** every document-authoritative mutation (graph, selection, masks, filters/styles that persist, raster commits, view camera that is session-shared, history undo/redo) **MUST** enter a named command. Target architecture still aims at workspace/preference/extension commands; those are not v1 blockers when they have an explicit host owner (see host-only classes below).
+
+Direct mutation of the authoritative document graph from widgets, panels, tools, context menus, shortcuts, jobs, importers, or extensions is forbidden. Read-only queries and ephemeral presentation updates need not be commands, but any state with semantic persistence, undo, cross-view visibility, or operational consequence **MUST** have an explicit owner and command path (or a documented host-only exemption below).
+
+### Host-only classes (not document commands)
+
+| Class | Examples | Owner |
+| --- | --- | --- |
+| **Ephemeral preview** | Selection/crop/transform drafts, hover overlays | Host / tool; commit path uses a command |
+| **Paint stream** | `stroke_begin` / point / end until stroke commit | Engine worker; stroke-end registers history via command or equivalent commit |
+| **Tool chrome** | Brush size, FG/BG colors, mask-edit target, selection combine mode | Session UI / resource state |
+| **Preferences / workspace chrome** | Panel toggles, Reset Essentials, guides visibility prefs | Prefs service ([DR-015](Appendix/Decision-Register.md#dr-015--workspace-state-separate-from-documents) v1) |
+| **Host I/O adapters** | File dialogs, open/save/export workers, GPU document open sync | Lifecycle / async-job; taxonomy may name them later without forcing a full persistence bus today |
+| **Telemetry / shell** | Viewport size, FPS, status text | Non-authoritative |
 
 ## Responsibilities
 
