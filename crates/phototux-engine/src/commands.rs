@@ -47,8 +47,10 @@ pub mod command_id {
     pub const DOCUMENT_NEW_SIZE: &str = "document.new-size";
     pub const DOCUMENT_ASSIGN_PROFILE: &str = "document.assign-profile";
     pub const DOCUMENT_CONVERT_PROFILE: &str = "document.convert-profile";
+    pub const DOCUMENT_SET_SOFT_PROOF: &str = "document.set-soft-proof";
     pub const DOCUMENT_CROP: &str = "document.crop";
     pub const DOCUMENT_ROTATE_90: &str = "document.rotate-90";
+    pub const HISTORY_JUMP: &str = "history.jump";
 
     pub const SELECTION_REPLACE: &str = "selection.replace";
     pub const SELECTION_DESELECT: &str = "selection.deselect";
@@ -103,6 +105,7 @@ pub mod command_id {
     pub const ALL: &[&str] = &[
         HISTORY_UNDO,
         HISTORY_REDO,
+        HISTORY_JUMP,
         LAYER_CREATE,
         LAYER_DELETE,
         LAYER_SET_ACTIVE,
@@ -123,6 +126,7 @@ pub mod command_id {
         DOCUMENT_NEW_SIZE,
         DOCUMENT_ASSIGN_PROFILE,
         DOCUMENT_CONVERT_PROFILE,
+        DOCUMENT_SET_SOFT_PROOF,
         DOCUMENT_CROP,
         DOCUMENT_ROTATE_90,
         SELECTION_REPLACE,
@@ -187,6 +191,10 @@ pub enum HostFollowUp {
     SelectionToMask,
     /// Copy active layer mask into the pixel selection channel (GPU host).
     MaskToSelection,
+    /// Undo `steps` times to jump the history timeline (host applies stroke/selection stacks).
+    HistoryJump {
+        steps: u32,
+    },
 }
 
 /// Parameters for [`SessionState::invoke`].
@@ -314,6 +322,13 @@ pub enum CommandArgs {
         feather: f32,
         inverted: bool,
     },
+    SoftProof {
+        profile: String,
+        intent: String,
+    },
+    HistoryJump {
+        entry_id: u64,
+    },
 }
 
 /// Host-side follow-up for undo/redo entries that own GPU or selection stacks.
@@ -429,6 +444,7 @@ impl SessionState {
         match id {
             command_id::HISTORY_UNDO => self.cmd_history_undo(),
             command_id::HISTORY_REDO => self.cmd_history_redo(),
+            command_id::HISTORY_JUMP => self.cmd_history_jump(args),
             command_id::LAYER_CREATE => self.cmd_layer_create(),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
@@ -454,6 +470,7 @@ impl SessionState {
             command_id::DOCUMENT_NEW_SIZE => self.cmd_document_new_size(args),
             command_id::DOCUMENT_ASSIGN_PROFILE => self.cmd_document_assign_profile(args),
             command_id::DOCUMENT_CONVERT_PROFILE => self.cmd_document_convert_profile(args),
+            command_id::DOCUMENT_SET_SOFT_PROOF => self.cmd_document_set_soft_proof(args),
             command_id::DOCUMENT_CROP => self.cmd_document_crop(args),
             command_id::DOCUMENT_ROTATE_90 => self.cmd_document_rotate_90(),
             command_id::SELECTION_REPLACE => self.cmd_selection_replace(args),
@@ -597,6 +614,23 @@ impl SessionState {
             }
         }
         Ok(effects)
+    }
+
+    fn cmd_history_jump(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::HistoryJump { entry_id } = args else {
+            return Err(CommandError::InvalidArgument("expected HistoryJump"));
+        };
+        let steps = self
+            .history
+            .undo_steps_to_entry(entry_id)
+            .ok_or(CommandError::Rejected("history entry not found"))?;
+        if steps == 0 {
+            return Err(CommandError::Rejected("already at history entry"));
+        }
+        self.announce(format!("Jump history (−{steps})"));
+        Ok(CommandEffects::host_chrome(HostFollowUp::HistoryJump {
+            steps: u32::try_from(steps).unwrap_or(u32::MAX),
+        }))
     }
 
     fn cmd_history_redo(&mut self) -> Result<CommandEffects, CommandError> {
@@ -1018,6 +1052,40 @@ impl SessionState {
             effects.host_follow_up = HostFollowUp::ConvertPixels { from, to: profile };
         }
         Ok(effects)
+    }
+
+    fn cmd_document_set_soft_proof(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SoftProof { profile, intent } = args else {
+            return Err(CommandError::InvalidArgument("expected SoftProof"));
+        };
+        let (generation, message) = {
+            let Some(graph) = self.graph.as_mut() else {
+                return Err(CommandError::Document(DocumentError::NoDocument));
+            };
+            graph.color.set_soft_proof(profile.clone(), intent);
+            let message = if graph.color.soft_proof_active() {
+                format!("Soft-proof: {profile}")
+            } else {
+                "Soft-proof off".into()
+            };
+            (graph.generation, message)
+        };
+        self.announce(message);
+        Ok(CommandEffects {
+            recomposite: false,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: true,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation,
+        })
     }
 
     fn cmd_document_crop(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {

@@ -50,14 +50,22 @@ QtObject {
     readonly property int controlHeight: 28
     readonly property int toolHit: 40
 
-    readonly property int fontWindow: 13
-    readonly property int fontHeadline: 16
-    readonly property int fontHeadlineSm: 13
-    readonly property int fontBody: 12
-    readonly property int fontBodySm: 11
-    readonly property int fontLabel: 11
-    readonly property int fontLabelSm: 10
-    readonly property int fontMono: 11
+    // Density / a11y packs (prefs → AppSession); Theme remains single token source.
+    property bool highContrast: false
+    property bool reducedMotion: false
+    property string uiDensity: "dense"
+    readonly property real densityScale: uiDensity === "comfortable" ? 1.15 : 1.0
+    readonly property color borderEffective: highContrast ? "#8A8A96" : border
+    readonly property color colorOnSurfaceEffective: highContrast ? "#FFFFFF" : colorOnSurface
+
+    readonly property int fontWindow: Math.round(13 * densityScale)
+    readonly property int fontHeadline: Math.round(16 * densityScale)
+    readonly property int fontHeadlineSm: Math.round(13 * densityScale)
+    readonly property int fontBody: Math.round(12 * densityScale)
+    readonly property int fontBodySm: Math.round(11 * densityScale)
+    readonly property int fontLabel: Math.round(11 * densityScale)
+    readonly property int fontLabelSm: Math.round(10 * densityScale)
+    readonly property int fontMono: Math.round(11 * densityScale)
 
     readonly property url logoUrl: "qrc:/qt/qml/PhotoTux/App/logo-ui.png"
 

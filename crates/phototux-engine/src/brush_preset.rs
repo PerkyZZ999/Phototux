@@ -14,6 +14,9 @@ pub struct BrushPreset {
     pub smoothing: f32,
     pub size_pressure: bool,
     pub opacity_pressure: bool,
+    /// Scatter amount 0..1 (handbook brush dynamics subset).
+    #[serde(default)]
+    pub scatter: f32,
     pub color: [f32; 4],
 }
 
@@ -29,6 +32,7 @@ impl Default for BrushPreset {
             smoothing: 0.0,
             size_pressure: true,
             opacity_pressure: false,
+            scatter: 0.0,
             color: [0.0, 0.0, 0.0, 1.0],
         }
     }
@@ -65,6 +69,26 @@ impl BrushPresetLibrary {
 
     pub fn from_json(text: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(text)
+    }
+
+    pub fn apply_index(&self, index: usize) -> Option<&BrushPreset> {
+        self.presets.get(index)
+    }
+
+    pub fn upsert(&mut self, preset: BrushPreset) {
+        if let Some(existing) = self.presets.iter_mut().find(|p| p.name == preset.name) {
+            *existing = preset;
+        } else {
+            self.presets.push(preset);
+        }
+    }
+
+    pub fn names_joined(&self) -> String {
+        self.presets
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join("|")
     }
 }
 

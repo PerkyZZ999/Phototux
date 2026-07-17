@@ -709,6 +709,10 @@ ApplicationWindow {
         }
     }
 
+    Binding { target: Theme; property: "highContrast"; value: AppSession.prefHighContrast }
+    Binding { target: Theme; property: "reducedMotion"; value: AppSession.prefReducedMotion }
+    Binding { target: Theme; property: "uiDensity"; value: AppSession.prefUiDensity }
+
     Component.onCompleted: {
         AppSession.clampFloatingPanels(0, 0, Screen.width, Screen.height)
         if (!AppSession.hasDocument && !AppSession.ioBusy)
@@ -2726,6 +2730,51 @@ ApplicationWindow {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
+                            visible: AppSession.activeTool === "tool.brush"
+                                     || AppSession.activeTool === "tool.eraser"
+                            Label {
+                                text: qsTr("Brush presets")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Repeater {
+                                    model: AppSession.brushPresetNames.length > 0
+                                           ? AppSession.brushPresetNames.split("|") : []
+                                    Button {
+                                        text: modelData
+                                        flat: true
+                                        onClicked: AppSession.applyBrushPreset(index)
+                                        Accessible.name: qsTr("Apply brush preset %1").arg(modelData)
+                                    }
+                                }
+                            }
+                            Button {
+                                text: qsTr("Save current as preset")
+                                flat: true
+                                enabled: AppSession.hasDocument
+                                onClicked: AppSession.saveCurrentBrushPreset("Custom")
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.hasDocument
+                            Label {
+                                text: AppSession.softProofActive
+                                      ? qsTr("Soft-proof: %1").arg(AppSession.softProofProfile)
+                                      : qsTr("Soft-proof: Off")
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
                             visible: root.activeLayerHasMask
                             RowLayout {
                                 Layout.fillWidth: true
@@ -3687,11 +3736,25 @@ ApplicationWindow {
                             width: parent ? parent.width : 100
                             height: 22
                             leftPadding: Theme.spaceSm
-                            text: modelData
+                            text: {
+                                var kinds = AppSession.historyKinds.length > 0
+                                            ? AppSession.historyKinds.split("|") : []
+                                var kind = index < kinds.length ? kinds[index] : ""
+                                return kind.length > 0 ? (modelData + " · " + kind) : modelData
+                            }
                             color: Theme.colorOnSurfaceVariant
                             font.pixelSize: Theme.fontBodySm
                             elide: Text.ElideRight
-                            Accessible.name: modelData
+                            Accessible.name: text
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    var ids = AppSession.historyEntryIds.length > 0
+                                              ? AppSession.historyEntryIds.split("|") : []
+                                    if (index < ids.length)
+                                        AppSession.jumpHistoryEntry(Number(ids[index]))
+                                }
+                            }
                         }
                     }
                 }
@@ -4041,6 +4104,39 @@ ApplicationWindow {
                     text: qsTr("Restore last tool on launch")
                     checked: AppSession.prefRestoreLastTool
                     onToggled: AppSession.setPrefRestoreLastTool(checked)
+                }
+
+                Label {
+                    Layout.topMargin: Theme.spaceSm
+                    text: qsTr("Appearance & accessibility")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontLabel
+                    font.weight: Font.DemiBold
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: qsTr("UI density")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontBodySm
+                        Layout.fillWidth: true
+                    }
+                    ComboBox {
+                        model: [qsTr("Dense"), qsTr("Comfortable")]
+                        currentIndex: AppSession.prefUiDensity === "comfortable" ? 1 : 0
+                        onActivated: AppSession.setPrefUiDensity(
+                                         index === 1 ? "comfortable" : "dense")
+                    }
+                }
+                CheckBox {
+                    text: qsTr("High contrast chrome")
+                    checked: AppSession.prefHighContrast
+                    onToggled: AppSession.setPrefHighContrast(checked)
+                }
+                CheckBox {
+                    text: qsTr("Reduced motion")
+                    checked: AppSession.prefReducedMotion
+                    onToggled: AppSession.setPrefReducedMotion(checked)
                 }
 
                 Label {

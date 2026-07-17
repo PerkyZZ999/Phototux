@@ -38,6 +38,16 @@ pub struct DocumentGraph {
     /// Free vector paths (stroke-to-raster; Shape kind is separate).
     #[serde(default)]
     pub paths: PathDocument,
+    /// Opaque extension blobs (capability seams / P12); host must not interpret.
+    #[serde(default)]
+    pub extension_data: Vec<ExtensionBlob>,
+}
+
+/// Opaque keyed payload for future extension contribution (DR-009 seams).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionBlob {
+    pub key: String,
+    pub bytes: Vec<u8>,
 }
 
 impl DocumentGraph {
@@ -53,6 +63,7 @@ impl DocumentGraph {
             generation: 1,
             color: DocumentColorState::default(),
             paths: PathDocument::default(),
+            extension_data: Vec::new(),
         };
         let bg = g.alloc_layer("Background");
         let l1 = g.alloc_layer("Layer 1");
@@ -76,6 +87,7 @@ impl DocumentGraph {
             generation: 1,
             color: DocumentColorState::default(),
             paths: PathDocument::default(),
+            extension_data: Vec::new(),
         };
         let mut layer = graph.alloc_layer("Image");
         layer.name = layer_name.into();
@@ -633,6 +645,20 @@ mod tests {
         let child = g.layers()[0].id;
         assert_eq!(g.set_parent(child, Some(group)), Some(None));
         assert_eq!(g.get(child).and_then(|l| l.parent), Some(group));
+    }
+
+    #[test]
+    fn extension_blob_roundtrips_in_graph_json() {
+        let mut g = DocumentGraph::new(DocumentSize::new(8, 8));
+        g.extension_data.push(crate::ExtensionBlob {
+            key: "com.example.plugin".into(),
+            bytes: vec![1, 2, 3, 4],
+        });
+        let json = serde_json::to_string(&g).expect("ser");
+        let back: DocumentGraph = serde_json::from_str(&json).expect("de");
+        assert_eq!(back.extension_data.len(), 1);
+        assert_eq!(back.extension_data[0].key, "com.example.plugin");
+        assert_eq!(back.extension_data[0].bytes, vec![1, 2, 3, 4]);
     }
 
     #[test]

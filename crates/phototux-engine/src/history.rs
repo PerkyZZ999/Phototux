@@ -148,6 +148,31 @@ impl HistoryService {
         self.undo.push(entry);
         Some(kind)
     }
+
+    /// Number of undo steps needed to make `entry_id` the newest remaining entry.
+    ///
+    /// Returns `None` when the id is unknown. Jumping onto the current tip returns `Some(0)`.
+    pub fn undo_steps_to_entry(&self, entry_id: u64) -> Option<usize> {
+        let pos = self.undo.iter().position(|e| e.id == entry_id)?;
+        Some(self.undo.len().saturating_sub(pos + 1))
+    }
+
+    pub fn entry_ids_newest_first(&self) -> Vec<u64> {
+        self.undo.iter().rev().map(|e| e.id).collect()
+    }
+
+    pub fn kinds_newest_first(&self) -> Vec<&'static str> {
+        self.undo
+            .iter()
+            .rev()
+            .map(|e| match e.kind {
+                HistoryKind::Graph => "graph",
+                HistoryKind::Stroke => "stroke",
+                HistoryKind::Selection => "selection",
+                HistoryKind::Transform => "transform",
+            })
+            .collect()
+    }
 }
 
 impl Default for HistoryService {

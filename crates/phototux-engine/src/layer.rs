@@ -517,6 +517,9 @@ pub struct Layer {
     /// Nondestructive layer styles (shadow / stroke v1).
     #[serde(default)]
     pub styles: Vec<super::layer_style::LayerStyle>,
+    /// Declarative filter / effect plan (handbook 15); executors apply nodes later.
+    #[serde(default)]
+    pub filter_plan: crate::filter_plan::FilterPlan,
     /// Serialization key for raster bytes inside `.ptx` (e.g. `layer-3`).
     pub asset_key: Option<String>,
 }
@@ -543,6 +546,7 @@ impl Layer {
             shape: None,
             effects: Vec::new(),
             styles: Vec::new(),
+            filter_plan: crate::filter_plan::FilterPlan::new(),
             asset_key: Some(format!("layer-{}", id.0)),
         }
     }

@@ -11,6 +11,16 @@ pub struct DocumentColorState {
     pub assigned_profile: String,
     /// True when pixels were last written assuming `assigned_profile`.
     pub pixels_match_assigned: bool,
+    /// Soft-proof display simulation (proof profile tag; empty = off).
+    #[serde(default)]
+    pub soft_proof_profile: String,
+    /// Soft-proof intent: `perceptual` | `relative` | `saturation` | `absolute`.
+    #[serde(default = "default_proof_intent")]
+    pub soft_proof_intent: String,
+}
+
+fn default_proof_intent() -> String {
+    "relative".into()
 }
 
 impl Default for DocumentColorState {
@@ -18,6 +28,8 @@ impl Default for DocumentColorState {
         Self {
             assigned_profile: "sRGB".into(),
             pixels_match_assigned: true,
+            soft_proof_profile: String::new(),
+            soft_proof_intent: default_proof_intent(),
         }
     }
 }
@@ -35,6 +47,20 @@ impl DocumentColorState {
     /// Record that a convert operation rewrote pixels to match the assigned profile.
     pub fn mark_converted(&mut self) {
         self.pixels_match_assigned = true;
+    }
+
+    /// Enable or disable soft-proof (empty profile disables).
+    pub fn set_soft_proof(&mut self, profile: impl Into<String>, intent: impl Into<String>) {
+        self.soft_proof_profile = profile.into();
+        let intent = intent.into();
+        self.soft_proof_intent = match intent.as_str() {
+            "perceptual" | "saturation" | "absolute" => intent,
+            _ => "relative".into(),
+        };
+    }
+
+    pub fn soft_proof_active(&self) -> bool {
+        !self.soft_proof_profile.is_empty()
     }
 
     /// Prepare convert: assign target profile and return whether a pixel rewrite is needed.

@@ -127,6 +127,12 @@ pub struct AppSession {
     edit_target_label: String,
     active_layer_kind: String,
     history_labels: String,
+    history_entry_ids: String,
+    history_kinds: String,
+    brush_preset_names: String,
+    soft_proof_profile: String,
+    soft_proof_active: bool,
+    accessibility_tree_json: String,
     selection_active: bool,
     selection_x: i32,
     selection_y: i32,
@@ -203,6 +209,9 @@ pub struct AppSession {
     preferences_open: bool,
     pref_show_guides: bool,
     pref_restore_last_tool: bool,
+    pref_ui_density: String,
+    pref_high_contrast: bool,
+    pref_reduced_motion: bool,
     panel_navigator_visible: bool,
     panel_swatches_visible: bool,
     panel_layers_visible: bool,
@@ -281,6 +290,12 @@ impl AppSession {
             edit_target_label: "Layer pixels".to_owned(),
             active_layer_kind: String::new(),
             history_labels: String::new(),
+            history_entry_ids: String::new(),
+            history_kinds: String::new(),
+            brush_preset_names: String::new(),
+            soft_proof_profile: String::new(),
+            soft_proof_active: false,
+            accessibility_tree_json: "[]".into(),
             selection_active: false,
             selection_x: 0,
             selection_y: 0,
@@ -358,6 +373,9 @@ impl AppSession {
             preferences_open: false,
             pref_show_guides: true,
             pref_restore_last_tool: false,
+            pref_ui_density: "dense".into(),
+            pref_high_contrast: false,
+            pref_reduced_motion: false,
             panel_navigator_visible: true,
             panel_swatches_visible: true,
             panel_layers_visible: true,
@@ -459,6 +477,24 @@ impl AppSession {
             String::new()
         };
         self.history_labels = self.engine.history_labels_joined();
+        self.history_entry_ids = self
+            .engine
+            .history
+            .entry_ids_newest_first()
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join("|");
+        self.history_kinds = self.engine.history.kinds_newest_first().join("|");
+        self.brush_preset_names = self.engine.brush_presets.names_joined();
+        if let Some(graph) = self.engine.graph.as_ref() {
+            self.soft_proof_profile = graph.color.soft_proof_profile.clone();
+            self.soft_proof_active = graph.color.soft_proof_active();
+        } else {
+            self.soft_proof_profile.clear();
+            self.soft_proof_active = false;
+        }
+        self.accessibility_tree_json = self.build_accessibility_tree_json();
         self.sync_selection_fields();
         self.sync_transform_fields();
         self.document_path = self.engine.document_path.clone().unwrap_or_default();
@@ -632,6 +668,12 @@ impl AppSession {
         self.edit_target_label_changed();
         self.active_layer_kind_changed();
         self.history_labels_changed();
+        self.history_entry_ids_changed();
+        self.history_kinds_changed();
+        self.brush_preset_names_changed();
+        self.soft_proof_profile_changed();
+        self.soft_proof_active_changed();
+        self.accessibility_tree_json_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
         self.document_path_changed();
@@ -654,6 +696,43 @@ impl AppSession {
         self.status_text_changed();
         self.emit_text_fields();
         self.emit_guides_fields();
+    }
+
+    fn build_accessibility_tree_json(&self) -> String {
+        let mut nodes = Vec::new();
+        nodes.push(serde_json::json!({
+            "id": "chrome.toolbar",
+            "role": "toolbar",
+            "name": "Tools",
+            "state": { "enabled": true },
+        }));
+        nodes.push(serde_json::json!({
+            "id": "chrome.canvas",
+            "role": "image",
+            "name": if self.has_document {
+                format!("Canvas {}×{}", self.engine.size.width, self.engine.size.height)
+            } else {
+                "Empty canvas".into()
+            },
+            "state": {
+                "busy": self.io_busy,
+                "editTarget": self.edit_target,
+                "pixelSelection": self.pixel_selection_active,
+                "objectSelection": self.object_selection_label,
+            },
+        }));
+        for panel in phototux_engine::default_panels() {
+            nodes.push(serde_json::json!({
+                "id": panel.id,
+                "role": "panel",
+                "name": panel.title,
+                "state": {
+                    "visible": self.workspace.is_visible(&panel.id),
+                    "docked": self.workspace.dock.is_docked(&panel.id),
+                },
+            }));
+        }
+        serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".into())
     }
 
     fn sync_selection_fields(&mut self) {
@@ -846,6 +925,14 @@ impl AppSession {
         self.pref_show_rulers = self.prefs.show_rulers;
         self.pref_snap = self.prefs.snap_enabled;
         self.pref_restore_last_tool = self.prefs.restore_last_tool;
+        self.pref_ui_density = self.prefs.ui_density.clone();
+        self.pref_high_contrast = self.prefs.high_contrast;
+        self.pref_reduced_motion = self.prefs.reduced_motion;
+        if let Ok(lib) =
+            phototux_engine::BrushPresetLibrary::from_json(&self.prefs.brush_presets_json)
+        {
+            self.engine.brush_presets = lib;
+        }
         self.sync_panel_visibility_from_workspace();
         self.sync_guides_fields();
     }
@@ -888,6 +975,9 @@ impl AppSession {
         self.pref_show_rulers_changed();
         self.pref_snap_changed();
         self.pref_restore_last_tool_changed();
+        self.pref_ui_density_changed();
+        self.pref_high_contrast_changed();
+        self.pref_reduced_motion_changed();
         self.panel_navigator_visible_changed();
         self.panel_swatches_visible_changed();
         self.panel_layers_visible_changed();
@@ -978,6 +1068,14 @@ impl AppSession {
             cid::DOCUMENT_CONVERT_PROFILE => Ok(CommandArgs::ConvertProfile {
                 profile: arg.unwrap_or("sRGB").to_owned(),
             }),
+            cid::DOCUMENT_SET_SOFT_PROOF => {
+                let raw = arg.unwrap_or(":relative");
+                let (profile, intent) = match raw.split_once(':') {
+                    Some((p, i)) => (p.to_owned(), i.to_owned()),
+                    None => (raw.to_owned(), "relative".to_owned()),
+                };
+                Ok(CommandArgs::SoftProof { profile, intent })
+            }
             cid::FILTER_ADD_ADJUSTMENT => Ok(CommandArgs::FilterAdjustment {
                 kind: arg.unwrap_or("brightness").to_owned(),
             }),
@@ -1167,6 +1265,11 @@ impl AppSession {
             }
             HostFollowUp::SelectionToMask => self.apply_selection_to_mask_host(),
             HostFollowUp::MaskToSelection => self.apply_mask_to_selection_host(),
+            HostFollowUp::HistoryJump { steps } => {
+                for _ in 0..steps {
+                    let _ = self.invoke_command(command_id::HISTORY_UNDO, CommandArgs::None);
+                }
+            }
         }
         if effects.recomposite {
             self.recomposite();
@@ -1497,6 +1600,36 @@ impl AppSession {
         Notify = history_labels_changed
     );
     qproperty!(
+        "historyEntryIds",
+        Member = history_entry_ids,
+        Notify = history_entry_ids_changed
+    );
+    qproperty!(
+        "historyKinds",
+        Member = history_kinds,
+        Notify = history_kinds_changed
+    );
+    qproperty!(
+        "brushPresetNames",
+        Member = brush_preset_names,
+        Notify = brush_preset_names_changed
+    );
+    qproperty!(
+        "softProofProfile",
+        Member = soft_proof_profile,
+        Notify = soft_proof_profile_changed
+    );
+    qproperty!(
+        "softProofActive",
+        Member = soft_proof_active,
+        Notify = soft_proof_active_changed
+    );
+    qproperty!(
+        "accessibilityTreeJson",
+        Member = accessibility_tree_json,
+        Notify = accessibility_tree_json_changed
+    );
+    qproperty!(
         "selectionActive",
         Member = selection_active,
         Notify = selection_active_changed
@@ -1797,6 +1930,21 @@ impl AppSession {
     );
     qproperty!("prefSnap", Member = pref_snap, Notify = pref_snap_changed);
     qproperty!(
+        "prefUiDensity",
+        Member = pref_ui_density,
+        Notify = pref_ui_density_changed
+    );
+    qproperty!(
+        "prefHighContrast",
+        Member = pref_high_contrast,
+        Notify = pref_high_contrast_changed
+    );
+    qproperty!(
+        "prefReducedMotion",
+        Member = pref_reduced_motion,
+        Notify = pref_reduced_motion_changed
+    );
+    qproperty!(
         "guidesJson",
         Member = guides_json,
         Notify = guides_json_changed
@@ -1936,6 +2084,18 @@ impl AppSession {
     #[qsignal]
     fn history_labels_changed(&mut self);
     #[qsignal]
+    fn history_entry_ids_changed(&mut self);
+    #[qsignal]
+    fn history_kinds_changed(&mut self);
+    #[qsignal]
+    fn brush_preset_names_changed(&mut self);
+    #[qsignal]
+    fn soft_proof_profile_changed(&mut self);
+    #[qsignal]
+    fn soft_proof_active_changed(&mut self);
+    #[qsignal]
+    fn accessibility_tree_json_changed(&mut self);
+    #[qsignal]
     fn selection_active_changed(&mut self);
     #[qsignal]
     fn selection_x_changed(&mut self);
@@ -2063,6 +2223,12 @@ impl AppSession {
     fn pref_show_rulers_changed(&mut self);
     #[qsignal]
     fn pref_snap_changed(&mut self);
+    #[qsignal]
+    fn pref_ui_density_changed(&mut self);
+    #[qsignal]
+    fn pref_high_contrast_changed(&mut self);
+    #[qsignal]
+    fn pref_reduced_motion_changed(&mut self);
     #[qsignal]
     fn guides_json_changed(&mut self);
     #[qsignal]
@@ -2272,6 +2438,35 @@ impl AppSession {
         self.pref_restore_last_tool = value;
         self.persist_prefs();
         self.pref_restore_last_tool_changed();
+    }
+
+    #[qslot]
+    fn set_pref_ui_density(&mut self, value: String) {
+        let density = if value == "comfortable" {
+            "comfortable"
+        } else {
+            "dense"
+        };
+        self.prefs.ui_density = density.to_owned();
+        self.pref_ui_density = density.to_owned();
+        self.persist_prefs();
+        self.pref_ui_density_changed();
+    }
+
+    #[qslot]
+    fn set_pref_high_contrast(&mut self, value: bool) {
+        self.prefs.high_contrast = value;
+        self.pref_high_contrast = value;
+        self.persist_prefs();
+        self.pref_high_contrast_changed();
+    }
+
+    #[qslot]
+    fn set_pref_reduced_motion(&mut self, value: bool) {
+        self.prefs.reduced_motion = value;
+        self.pref_reduced_motion = value;
+        self.persist_prefs();
+        self.pref_reduced_motion_changed();
     }
 
     #[qslot]
@@ -3449,9 +3644,91 @@ impl AppSession {
         let Ok((width, height, pixels)) = phototux_canvas::read_composite_rgba() else {
             return;
         };
+        // Hostile-input bound: refuse payloads over 64 MiB RGBA.
+        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+        if pixels.len() > MAX_CLIPBOARD_BYTES {
+            self.status_text = "Copy refused: clipboard size limit".to_owned();
+            self.status_text_changed();
+            return;
+        }
         self.clipboard_rgba = Some((width, height, pixels));
         self.status_text = "Copied".to_owned();
         self.status_text_changed();
+    }
+
+    #[qslot]
+    fn jump_history_entry(&mut self, entry_id: i64) {
+        if entry_id < 0 {
+            return;
+        }
+        let _ = self.invoke_command(
+            command_id::HISTORY_JUMP,
+            CommandArgs::HistoryJump {
+                entry_id: entry_id as u64,
+            },
+        );
+    }
+
+    #[qslot]
+    fn set_soft_proof(&mut self, profile: String, intent: String) {
+        let _ = self.invoke_command(
+            command_id::DOCUMENT_SET_SOFT_PROOF,
+            CommandArgs::SoftProof { profile, intent },
+        );
+    }
+
+    #[qslot]
+    fn apply_brush_preset(&mut self, index: i32) {
+        let Some(preset) = self
+            .engine
+            .brush_presets
+            .apply_index(index.max(0) as usize)
+            .cloned()
+        else {
+            return;
+        };
+        self.engine.set_brush_size(preset.size);
+        self.engine.set_brush_hardness(preset.hardness);
+        self.engine.set_brush_color(
+            preset.color[0],
+            preset.color[1],
+            preset.color[2],
+            preset.color[3],
+        );
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
+        self.sync_from_engine();
+        self.brush_size_changed();
+        self.brush_hardness_changed();
+        self.brush_color_changed();
+        self.status_text = format!("Brush preset: {}", preset.name);
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn save_current_brush_preset(&mut self, name: String) {
+        let name = if name.trim().is_empty() {
+            "Custom".to_owned()
+        } else {
+            name
+        };
+        let preset = phototux_engine::BrushPreset {
+            name,
+            size: self.engine.brush_size,
+            hardness: self.engine.brush_hardness,
+            opacity: 1.0,
+            flow: 1.0,
+            spacing: self.engine.brush.spacing() / self.engine.brush_size.max(1.0),
+            smoothing: 0.0,
+            size_pressure: true,
+            opacity_pressure: false,
+            scatter: 0.0,
+            color: self.engine.brush_color,
+        };
+        self.engine.brush_presets.upsert(preset);
+        self.prefs.brush_presets_json = self.engine.brush_presets.to_json().unwrap_or_default();
+        let _ = self.prefs.save();
+        self.brush_preset_names = self.engine.brush_presets.names_joined();
+        self.brush_preset_names_changed();
     }
 
     #[qslot]

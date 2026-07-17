@@ -116,6 +116,13 @@ const fn sel_tx(id: &'static str) -> CommandMeta {
 /// Built-in metadata table — must cover [`command_id::ALL`].
 pub const ALL: &[CommandMeta] = &[
     meta(
+        command_id::HISTORY_JUMP,
+        CommandScope::Document,
+        MutationClass::HistoryMeta,
+        UndoPolicy::None,
+        ConflictPolicy::ExactVersion,
+    ),
+    meta(
         command_id::HISTORY_UNDO,
         CommandScope::Document,
         MutationClass::HistoryMeta,
@@ -167,6 +174,13 @@ pub const ALL: &[CommandMeta] = &[
     ),
     doc_tx(command_id::DOCUMENT_ASSIGN_PROFILE),
     doc_tx(command_id::DOCUMENT_CONVERT_PROFILE),
+    meta(
+        command_id::DOCUMENT_SET_SOFT_PROOF,
+        CommandScope::Document,
+        MutationClass::Ephemeral,
+        UndoPolicy::None,
+        ConflictPolicy::LatestWinsView,
+    ),
     doc_tx(command_id::DOCUMENT_CROP),
     doc_tx(command_id::DOCUMENT_ROTATE_90),
     sel_tx(command_id::SELECTION_REPLACE),

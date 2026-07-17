@@ -38,9 +38,25 @@ pub struct Preferences {
     /// Last explicitly saved layout snapshot (visibility + dock JSON object).
     #[serde(default)]
     pub last_saved_workspace_json: String,
+    /// Persisted brush preset library JSON (schema 4+).
+    #[serde(default)]
+    pub brush_presets_json: String,
+    /// UI density: `dense` | `comfortable`.
+    #[serde(default = "default_ui_density")]
+    pub ui_density: String,
+    /// High-contrast chrome preference.
+    #[serde(default)]
+    pub high_contrast: bool,
+    /// Reduced-motion preference.
+    #[serde(default)]
+    pub reduced_motion: bool,
     /// Action id → shortcut chord overrides (empty map = defaults only).
     pub keymap: BTreeMap<String, String>,
     pub schema_version: u32,
+}
+
+fn default_ui_density() -> String {
+    "dense".into()
 }
 
 impl Default for Preferences {
@@ -61,8 +77,14 @@ impl Default for Preferences {
             panel_visibility: ws.panel_visibility.clone(),
             dock_topology_json: ws.dock.to_json().unwrap_or_default(),
             last_saved_workspace_json: String::new(),
+            brush_presets_json: phototux_engine::BrushPresetLibrary::with_defaults()
+                .to_json()
+                .unwrap_or_default(),
+            ui_density: default_ui_density(),
+            high_contrast: false,
+            reduced_motion: false,
             keymap: BTreeMap::new(),
-            schema_version: 3,
+            schema_version: 4,
         }
     }
 }
@@ -101,7 +123,15 @@ impl Preferences {
                 .insert("panel.properties".into(), self.panel_properties);
         }
         self.sync_legacy_bools_from_map();
-        self.schema_version = self.schema_version.max(3);
+        if self.brush_presets_json.is_empty() {
+            self.brush_presets_json = phototux_engine::BrushPresetLibrary::with_defaults()
+                .to_json()
+                .unwrap_or_default();
+        }
+        if self.ui_density.is_empty() {
+            self.ui_density = default_ui_density();
+        }
+        self.schema_version = self.schema_version.max(4);
     }
 
     fn sync_legacy_bools_from_map(&mut self) {
@@ -209,6 +239,6 @@ mod tests {
         p.panel_navigator = false;
         p.migrate_panel_visibility();
         assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
-        assert_eq!(p.schema_version, 3);
+        assert_eq!(p.schema_version, 4);
     }
 }

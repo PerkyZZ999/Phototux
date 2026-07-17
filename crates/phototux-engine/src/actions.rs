@@ -370,6 +370,28 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
         ),
+        act(
+            "action.image.soft-proof-p3",
+            "Soft-Proof: Display-P3",
+            "image",
+            "has_document",
+            Some(command_id::DOCUMENT_SET_SOFT_PROOF),
+            None,
+            Some("Display-P3:relative"),
+            None,
+            None,
+        ),
+        act(
+            "action.image.soft-proof-off",
+            "Soft-Proof: Off",
+            "image",
+            "has_document",
+            Some(command_id::DOCUMENT_SET_SOFT_PROOF),
+            None,
+            Some(":relative"),
+            None,
+            None,
+        ),
         // Layer
         act(
             "action.layer.new-raster",

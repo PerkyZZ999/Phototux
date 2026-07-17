@@ -7,12 +7,14 @@ mod cancel;
 mod color;
 mod color_mgmt;
 mod command;
+mod command_conformance;
 mod command_meta;
 mod commands;
 mod cpu_composite;
 mod dock;
 mod document;
 mod error;
+mod filter_plan;
 mod guides;
 mod history;
 mod layer;
@@ -49,8 +51,9 @@ pub use commands::{
 };
 pub use cpu_composite::{CpuLayerRef, composite_rgba8};
 pub use dock::{DockTopology, FloatingPanelPlacement, ScreenRect};
-pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
+pub use document::{DocumentGraph, ExtensionBlob, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use error::DocumentError;
+pub use filter_plan::{FilterPlan, FilterPlanNode};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
