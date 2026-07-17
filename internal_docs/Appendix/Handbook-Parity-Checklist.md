@@ -36,15 +36,15 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.1 Action registry
 
-- [ ] Stable `ActionId` / contribution descriptors (label, icon, command, enablement deps)
-- [ ] Resolve presentation → action → `SessionState::invoke` (or host-only handler)
-- [ ] Enablement from command applicability (not ad-hoc QML bools)
+- [x] Stable `ActionId` / contribution descriptors (label, icon, command, enablement deps)
+- [x] Resolve presentation → action → `SessionState::invoke` (or host-only handler)
+- [x] Enablement from command applicability (not ad-hoc QML bools)
 
 ### P1.2 Menus
 
-- [ ] File / Edit / Select / View / Image / Layer / Filters / Tools / Window / Help driven by action IDs
-- [ ] Menu completeness vs IA ([01](../01-Information-Architecture.md)) for shipped commands
-- [ ] No document mutation from menu slots that bypass invoke
+- [x] File / Edit / Select / View / Image / Layer / Filters / Tools / Window / Help driven by action IDs (MenuBar; Tools menu N/A v1; context menus still hardcoded — P1.4)
+- [~] Menu completeness vs IA ([01](../01-Information-Architecture.md)) for shipped commands
+- [x] No document mutation from menu slots that bypass invoke (MenuBar → `invokeAction`)
 
 ### P1.3 Toolbars & tools
 

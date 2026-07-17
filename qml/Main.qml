@@ -43,6 +43,166 @@ ApplicationWindow {
             return []
         }
     }
+    readonly property var actionDescriptors: {
+        try {
+            return JSON.parse(AppSession.actionsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
+    function actionsForMenu(menuName) {
+        var out = []
+        var all = root.actionDescriptors
+        for (var i = 0; i < all.length; ++i) {
+            if (all[i].menu === menuName)
+                out.push(all[i])
+        }
+        return out
+    }
+
+    function actionBindingDeps() {
+        // Touch session props so MenuItem.enabled bindings refresh.
+        return AppSession.canUndo
+                + AppSession.canRedo
+                + AppSession.hasDocument
+                + AppSession.ioBusy
+                + AppSession.selectionActive
+                + root.activeLayerHasMask
+                + AppSession.activeLayerIndex
+                + AppSession.prefShowGuides
+                + AppSession.prefShowGrid
+                + AppSession.prefShowRulers
+                + AppSession.prefSnap
+                + AppSession.panelNavigatorVisible
+                + AppSession.panelSwatchesVisible
+                + AppSession.panelLayersVisible
+                + AppSession.panelHistoryVisible
+                + AppSession.panelPropertiesVisible
+                + root.activeLayerClips
+                + root.activeMaskEnabled
+    }
+
+    function actionIsEnabled(actionId) {
+        var _ = root.actionBindingDeps()
+        return AppSession.actionEnabled(actionId)
+    }
+
+    function actionIsCheckable(actionId) {
+        return actionId.indexOf("action.view.toggle-") === 0
+                || actionId.indexOf("action.window.panel-") === 0
+                || actionId === "action.layer.toggle-clip"
+    }
+
+    function actionIsChecked(actionId) {
+        switch (actionId) {
+        case "action.view.toggle-guides":
+            return AppSession.prefShowGuides
+        case "action.view.toggle-grid":
+            return AppSession.prefShowGrid
+        case "action.view.toggle-rulers":
+            return AppSession.prefShowRulers
+        case "action.view.toggle-snap":
+            return AppSession.prefSnap
+        case "action.window.panel-navigator":
+            return AppSession.panelNavigatorVisible
+        case "action.window.panel-swatches":
+            return AppSession.panelSwatchesVisible
+        case "action.window.panel-layers":
+            return AppSession.panelLayersVisible
+        case "action.window.panel-history":
+            return AppSession.panelHistoryVisible
+        case "action.window.panel-properties":
+            return AppSession.panelPropertiesVisible
+        case "action.layer.toggle-clip":
+            return root.activeLayerClips
+        default:
+            return false
+        }
+    }
+
+    function applyCheckableAction(actionId, checked) {
+        switch (actionId) {
+        case "action.view.toggle-guides":
+            AppSession.setGuidesVisible(checked)
+            break
+        case "action.view.toggle-grid":
+            AppSession.setGridVisible(checked)
+            break
+        case "action.view.toggle-rulers":
+            AppSession.setRulersVisible(checked)
+            break
+        case "action.view.toggle-snap":
+            AppSession.setSnapEnabled(checked)
+            break
+        case "action.window.panel-navigator":
+            AppSession.setPanelNavigatorVisible(checked)
+            break
+        case "action.window.panel-swatches":
+            AppSession.setPanelSwatchesVisible(checked)
+            break
+        case "action.window.panel-layers":
+            AppSession.setPanelLayersVisible(checked)
+            break
+        case "action.window.panel-history":
+            AppSession.setPanelHistoryVisible(checked)
+            break
+        case "action.window.panel-properties":
+            AppSession.setPanelPropertiesVisible(checked)
+            break
+        case "action.layer.toggle-clip":
+            AppSession.setClipsToBelowOnActive(checked)
+            break
+        default:
+            AppSession.invokeAction(actionId)
+            break
+        }
+    }
+
+    function runAction(actionId) {
+        AppSession.invokeAction(actionId)
+    }
+
+    function handleHostStatusMarker(text) {
+        if (!text || text.indexOf("host:") !== 0)
+            return false
+        if (text === "host:document.new") {
+            root.requestDestructiveAction("new")
+            return true
+        }
+        if (text === "host:document.open") {
+            root.requestDestructiveAction("open")
+            return true
+        }
+        if (text === "host:document.save_as") {
+            saveFileDialog.open()
+            return true
+        }
+        if (text === "host:document.export") {
+            exportFileDialog.open()
+            return true
+        }
+        if (text === "host:document.close") {
+            root.requestDestructiveAction("close")
+            return true
+        }
+        if (text === "host:app.quit") {
+            root.requestDestructiveAction("quit")
+            return true
+        }
+        if (text === "host:help.about") {
+            aboutDialog.open()
+            return true
+        }
+        return false
+    }
+
+    Connections {
+        target: AppSession
+        function onStatusTextChanged() {
+            root.handleHostStatusMarker(AppSession.statusText)
+        }
+    }
 
     readonly property int toolStripWidth: Theme.toolStripWidth
     readonly property int dockWidth: Theme.dockWidth
@@ -184,399 +344,114 @@ ApplicationWindow {
         }
     }
 
-    Action {
-        id: newAction
-        text: qsTr("&New…")
-        icon.source: root.iconUrl("file-plus")
-        shortcut: "Ctrl+N"
-        enabled: !AppSession.ioBusy
-        onTriggered: root.requestDestructiveAction("new")
-    }
-
-    Action {
-        id: openAction
-        text: qsTr("&Open…")
-        icon.source: root.iconUrl("folder-open")
-        shortcut: "Ctrl+O"
-        enabled: !AppSession.ioBusy
-        onTriggered: root.requestDestructiveAction("open")
-    }
-
-    Action {
-        id: saveAction
-        text: qsTr("&Save")
-        icon.source: root.iconUrl("floppy-disk")
-        shortcut: "Ctrl+S"
-        enabled: AppSession.hasDocument && !AppSession.ioBusy
-        onTriggered: {
-            if (AppSession.documentPath && AppSession.documentPath.length > 0)
-                AppSession.saveDocument("")
-            else
-                saveFileDialog.open()
+    Component {
+        id: actionMenuItem
+        MenuItem {
+            required property var modelData
+            text: modelData.label
+            shortcut: modelData.shortcut ? modelData.shortcut : ""
+            enabled: root.actionIsEnabled(modelData.id)
+            checkable: root.actionIsCheckable(modelData.id)
+            checked: root.actionIsChecked(modelData.id)
+            icon.source: modelData.icon_key ? root.iconUrl(modelData.icon_key) : ""
+            onTriggered: {
+                if (checkable)
+                    root.applyCheckableAction(modelData.id, checked)
+                else
+                    root.runAction(modelData.id)
+            }
         }
-    }
-
-    Action {
-        id: saveAsAction
-        text: qsTr("Save &As…")
-        shortcut: "Ctrl+Shift+S"
-        enabled: AppSession.hasDocument && !AppSession.ioBusy
-        onTriggered: saveFileDialog.open()
-    }
-
-    Action {
-        id: exportAction
-        text: qsTr("&Export…")
-        icon.source: root.iconUrl("export")
-        shortcut: "Ctrl+Shift+E"
-        enabled: AppSession.hasDocument && !AppSession.ioBusy
-        onTriggered: exportFileDialog.open()
-    }
-
-    Action {
-        id: closeAction
-        text: qsTr("&Close")
-        icon.source: root.iconUrl("x")
-        shortcut: "Ctrl+W"
-        enabled: AppSession.hasDocument && !AppSession.ioBusy
-        onTriggered: root.requestDestructiveAction("close")
-    }
-
-    Action {
-        id: quitAction
-        text: qsTr("&Quit")
-        shortcut: "Ctrl+Q"
-        onTriggered: root.requestDestructiveAction("quit")
-    }
-
-    Action {
-        id: undoAction
-        text: qsTr("&Undo")
-        icon.source: root.iconUrl("arrow-counter-clockwise")
-        shortcut: "Ctrl+Z"
-        enabled: AppSession.canUndo && !AppSession.ioBusy
-        onTriggered: AppSession.undo()
-    }
-
-    Action {
-        id: redoAction
-        text: qsTr("&Redo")
-        icon.source: root.iconUrl("arrow-clockwise")
-        shortcut: "Ctrl+Shift+Z"
-        enabled: AppSession.canRedo && !AppSession.ioBusy
-        onTriggered: AppSession.redo()
-    }
-
-    Action {
-        id: zoomFitAction
-        text: qsTr("Zoom to &Fit")
-        icon.source: root.iconUrl("corners-in")
-        shortcut: "Ctrl+Shift+J"
-        enabled: AppSession.hasDocument
-        onTriggered: AppSession.zoomToFit()
     }
 
     menuBar: MenuBar {
         Menu {
+            id: fileMenu
             title: qsTr("&File")
-            MenuItem { action: newAction }
-            MenuItem { action: openAction }
-            MenuSeparator {}
-            MenuItem { action: saveAction }
-            MenuItem { action: saveAsAction }
-            MenuItem { action: exportAction }
-            MenuSeparator {}
-            MenuItem { action: closeAction }
-            MenuItem { action: quitAction }
+            Instantiator {
+                model: root.actionsForMenu("file")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => fileMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => fileMenu.removeItem(object)
+            }
         }
         Menu {
+            id: editMenu
             title: qsTr("&Edit")
-            MenuItem { action: undoAction }
-            MenuItem { action: redoAction }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Select &All")
-                shortcut: "Ctrl+A"
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.selectAll()
-            }
-            MenuItem {
-                text: qsTr("Deselect")
-                shortcut: "Ctrl+D"
-                enabled: AppSession.hasDocument && AppSession.selectionActive
-                onTriggered: AppSession.selectNone()
-            }
-            MenuItem {
-                text: qsTr("&Invert Selection")
-                shortcut: "Ctrl+Shift+I"
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.invertSelection()
-            }
-            MenuItem {
-                text: qsTr("&Feather…")
-                enabled: AppSession.hasDocument && AppSession.selectionActive
-                onTriggered: AppSession.modifySelection("feather", 4)
-            }
-            MenuItem {
-                text: qsTr("Expand")
-                enabled: AppSession.hasDocument && AppSession.selectionActive
-                onTriggered: AppSession.modifySelection("expand", 2)
-            }
-            MenuItem {
-                text: qsTr("Contract")
-                enabled: AppSession.hasDocument && AppSession.selectionActive
-                onTriggered: AppSession.modifySelection("contract", 2)
-            }
-            MenuItem {
-                text: qsTr("&Copy")
-                shortcut: "Ctrl+C"
-                enabled: AppSession.hasDocument && AppSession.selectionActive
-                onTriggered: AppSession.copySelection()
-            }
-            MenuItem {
-                text: qsTr("Paste as New Layer")
-                shortcut: "Ctrl+V"
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.pasteAsNewLayer()
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("&Preferences…")
-                shortcut: "Ctrl+,"
-                onTriggered: AppSession.openPreferences()
+            Instantiator {
+                model: root.actionsForMenu("edit")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => editMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => editMenu.removeItem(object)
             }
         }
         Menu {
+            id: selectMenu
+            title: qsTr("&Select")
+            Instantiator {
+                model: root.actionsForMenu("select")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => selectMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => selectMenu.removeItem(object)
+            }
+        }
+        Menu {
+            id: imageMenu
             title: qsTr("&Image")
-            MenuItem {
-                text: qsTr("Flip &Horizontal")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.flipActiveLayer(true)
-            }
-            MenuItem {
-                text: qsTr("Flip &Vertical")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.flipActiveLayer(false)
-            }
-            MenuItem {
-                text: qsTr("Rotate 90° &Clockwise")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.rotateCanvas90Cw()
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Assign Profile: sRGB")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.assignDocumentProfile("sRGB")
-            }
-            MenuItem {
-                text: qsTr("Assign Profile: Display-P3")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.assignDocumentProfile("Display-P3")
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Convert to sRGB")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.convertDocumentProfile("sRGB")
-            }
-            MenuItem {
-                text: qsTr("Convert to Display-P3")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.convertDocumentProfile("Display-P3")
+            Instantiator {
+                model: root.actionsForMenu("image")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => imageMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => imageMenu.removeItem(object)
             }
         }
         Menu {
+            id: layerMenu
             title: qsTr("&Layer")
-            MenuItem {
-                text: qsTr("New &Group")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addGroupLayer()
-            }
-            MenuItem {
-                text: qsTr("Bake &Text")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.bakeTextLayer()
-            }
-            Menu {
-                title: qsTr("New &Shape")
-                enabled: AppSession.hasDocument
-                MenuItem {
-                    text: qsTr("Rectangle")
-                    onTriggered: AppSession.addShapeLayer("rect")
-                }
-                MenuItem {
-                    text: qsTr("Ellipse")
-                    onTriggered: AppSession.addShapeLayer("ellipse")
-                }
-                MenuItem {
-                    text: qsTr("Line")
-                    onTriggered: AppSession.addShapeLayer("line")
-                }
-            }
-            MenuItem {
-                text: qsTr("Rasterize Shape")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.rasterizeShapeLayer()
-            }
-            MenuItem {
-                text: qsTr("Drop &Shadow")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addDropShadowStyle()
-            }
-            MenuItem {
-                text: qsTr("Layer Stroke Style")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addStrokeStyle()
-            }
-            MenuItem {
-                text: qsTr("Stroke Path to Layer")
-                enabled: AppSession.hasDocument && !AppSession.ioBusy
-                onTriggered: AppSession.strokeActivePathToLayer()
-            }
-            MenuItem {
-                text: qsTr("Add &Mask")
-                enabled: AppSession.hasDocument && !root.activeLayerHasMask
-                onTriggered: AppSession.addMaskToActive()
-            }
-            MenuItem {
-                text: qsTr("Delete Mask")
-                enabled: AppSession.hasDocument && root.activeLayerHasMask
-                onTriggered: AppSession.deleteMaskOnActive()
-            }
-            MenuItem {
-                text: root.activeMaskEnabled ? qsTr("Disable Mask") : qsTr("Enable Mask")
-                enabled: AppSession.hasDocument && root.activeLayerHasMask
-                onTriggered: AppSession.setMaskEnabledOnActive(!root.activeMaskEnabled)
-            }
-            MenuItem {
-                text: qsTr("Create Clipping Mask")
-                checkable: true
-                checked: root.activeLayerClips
-                enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
-                onTriggered: AppSession.setClipsToBelowOnActive(checked)
-            }
-            Menu {
-                title: qsTr("New &Adjustment")
-                enabled: AppSession.hasDocument
-                MenuItem {
-                    text: qsTr("Brightness/Contrast")
-                    enabled: AppSession.hasDocument
-                    onTriggered: AppSession.addAdjustmentLayer("brightness")
-                }
-                MenuItem {
-                    text: qsTr("Levels")
-                    enabled: AppSession.hasDocument
-                    onTriggered: AppSession.addAdjustmentLayer("levels")
-                }
+            Instantiator {
+                model: root.actionsForMenu("layer")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => layerMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => layerMenu.removeItem(object)
             }
         }
         Menu {
+            id: filterMenu
             title: qsTr("Filte&r")
-            MenuItem {
-                text: qsTr("Gaussian &Blur")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addGaussianBlur()
-            }
-            MenuItem {
-                text: qsTr("&Motion Blur")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addMotionBlur()
-            }
-            MenuItem {
-                text: qsTr("&Emboss")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addEmbossFilter()
+            Instantiator {
+                model: root.actionsForMenu("filter")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => filterMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => filterMenu.removeItem(object)
             }
         }
         Menu {
+            id: viewMenu
             title: qsTr("&View")
-            MenuItem { action: zoomFitAction }
-            MenuItem {
-                text: qsTr("Show &Guides")
-                checkable: true
-                checked: AppSession.prefShowGuides
-                onTriggered: AppSession.setGuidesVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("Show G&rid")
-                checkable: true
-                checked: AppSession.prefShowGrid
-                onTriggered: AppSession.setGridVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("Show &Rulers")
-                checkable: true
-                checked: AppSession.prefShowRulers
-                onTriggered: AppSession.setRulersVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("Sna&p")
-                checkable: true
-                checked: AppSession.prefSnap
-                onTriggered: AppSession.setSnapEnabled(checked)
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("New Vertical Guide")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addGuide("v", AppSession.docWidth / 2)
-            }
-            MenuItem {
-                text: qsTr("New Horizontal Guide")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.addGuide("h", AppSession.docHeight / 2)
-            }
-            MenuItem {
-                text: qsTr("Clear Guides")
-                enabled: AppSession.hasDocument
-                onTriggered: AppSession.clearGuides()
+            Instantiator {
+                model: root.actionsForMenu("view")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => viewMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => viewMenu.removeItem(object)
             }
         }
         Menu {
+            id: windowMenu
             title: qsTr("&Window")
-            MenuItem {
-                text: qsTr("Navigator")
-                checkable: true
-                checked: AppSession.panelNavigatorVisible
-                onTriggered: AppSession.setPanelNavigatorVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("Swatches")
-                checkable: true
-                checked: AppSession.panelSwatchesVisible
-                onTriggered: AppSession.setPanelSwatchesVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("Layers")
-                checkable: true
-                checked: AppSession.panelLayersVisible
-                onTriggered: AppSession.setPanelLayersVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("History")
-                checkable: true
-                checked: AppSession.panelHistoryVisible
-                onTriggered: AppSession.setPanelHistoryVisible(checked)
-            }
-            MenuItem {
-                text: qsTr("Properties")
-                checkable: true
-                checked: AppSession.panelPropertiesVisible
-                onTriggered: AppSession.setPanelPropertiesVisible(checked)
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: qsTr("Reset Workspace")
-                onTriggered: AppSession.resetWorkspace()
+            Instantiator {
+                model: root.actionsForMenu("window")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => windowMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => windowMenu.removeItem(object)
             }
         }
         Menu {
+            id: helpMenu
             title: qsTr("&Help")
-            MenuItem {
-                text: qsTr("&About PhotoTux")
-                icon.source: root.iconUrl("info")
-                onTriggered: aboutDialog.open()
+            Instantiator {
+                model: root.actionsForMenu("help")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => helpMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => helpMenu.removeItem(object)
             }
         }
     }
@@ -627,28 +502,34 @@ ApplicationWindow {
             }
 
             ToolButton {
-                action: newAction
+                icon.source: root.iconUrl("file-plus")
                 display: AbstractButton.IconOnly
                 icon.width: 16
                 icon.height: 16
+                enabled: root.actionIsEnabled("action.file.new")
+                onClicked: root.runAction("action.file.new")
                 ToolTip.visible: hovered
-                ToolTip.text: newAction.text
+                ToolTip.text: qsTr("New…")
             }
 
             ToolButton {
-                action: openAction
+                icon.source: root.iconUrl("folder-open")
                 display: AbstractButton.IconOnly
                 icon.width: 16
                 icon.height: 16
+                enabled: root.actionIsEnabled("action.file.open")
+                onClicked: root.runAction("action.file.open")
                 ToolTip.visible: hovered
-                ToolTip.text: openAction.text
+                ToolTip.text: qsTr("Open…")
             }
 
             ToolButton {
-                action: exportAction
+                icon.source: root.iconUrl("export")
                 display: AbstractButton.IconOnly
                 icon.width: 16
                 icon.height: 16
+                enabled: root.actionIsEnabled("action.file.export")
+                onClicked: root.runAction("action.file.export")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Export PNG, JPEG, or PSD subset")
             }
@@ -658,20 +539,24 @@ ApplicationWindow {
             }
 
             ToolButton {
-                action: undoAction
+                icon.source: root.iconUrl("arrow-counter-clockwise")
                 display: AbstractButton.IconOnly
                 icon.width: 16
                 icon.height: 16
+                enabled: root.actionIsEnabled("action.edit.undo")
+                onClicked: root.runAction("action.edit.undo")
                 ToolTip.visible: hovered
-                ToolTip.text: undoAction.text
+                ToolTip.text: qsTr("Undo")
             }
             ToolButton {
-                action: redoAction
+                icon.source: root.iconUrl("arrow-clockwise")
                 display: AbstractButton.IconOnly
                 icon.width: 16
                 icon.height: 16
+                enabled: root.actionIsEnabled("action.edit.redo")
+                onClicked: root.runAction("action.edit.redo")
                 ToolTip.visible: hovered
-                ToolTip.text: redoAction.text
+                ToolTip.text: qsTr("Redo")
             }
 
             Item { Layout.fillWidth: true }
