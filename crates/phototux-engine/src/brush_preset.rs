@@ -17,7 +17,17 @@ pub struct BrushPreset {
     /// Scatter amount 0..1 (handbook brush dynamics subset).
     #[serde(default)]
     pub scatter: f32,
+    /// Tip texture key: `none` | `noise`.
+    #[serde(default = "default_texture_kind")]
+    pub texture: String,
+    /// Texture mix 0..1.
+    #[serde(default)]
+    pub texture_strength: f32,
     pub color: [f32; 4],
+}
+
+fn default_texture_kind() -> String {
+    "none".into()
 }
 
 impl Default for BrushPreset {
@@ -33,6 +43,8 @@ impl Default for BrushPreset {
             size_pressure: true,
             opacity_pressure: false,
             scatter: 0.0,
+            texture: default_texture_kind(),
+            texture_strength: 0.0,
             color: [0.0, 0.0, 0.0, 1.0],
         }
     }
@@ -57,6 +69,13 @@ impl BrushPresetLibrary {
                 BrushPreset {
                     name: "Hard Round".into(),
                     hardness: 1.0,
+                    ..BrushPreset::default()
+                },
+                BrushPreset {
+                    name: "Noise Tip".into(),
+                    texture: "noise".into(),
+                    texture_strength: 0.55,
+                    hardness: 0.7,
                     ..BrushPreset::default()
                 },
             ],

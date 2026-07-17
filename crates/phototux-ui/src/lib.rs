@@ -108,6 +108,7 @@ pub struct AppSession {
     pan_y: f32,
     brush_size: f32,
     brush_hardness: f32,
+    brush_texture_strength: f32,
     brush_r: f32,
     brush_g: f32,
     brush_b: f32,
@@ -320,6 +321,7 @@ impl AppSession {
             pan_y: engine.camera.pan_y,
             brush_size: engine.brush_size,
             brush_hardness: engine.brush_hardness,
+            brush_texture_strength: engine.brush.texture_strength,
             brush_r: engine.brush_color[0],
             brush_g: engine.brush_color[1],
             brush_b: engine.brush_color[2],
@@ -593,6 +595,7 @@ impl AppSession {
         self.pan_y = self.engine.camera.pan_y;
         self.brush_size = self.engine.brush_size;
         self.brush_hardness = self.engine.brush_hardness;
+        self.brush_texture_strength = self.engine.brush.texture_strength;
         self.brush_r = self.engine.brush_color[0];
         self.brush_g = self.engine.brush_color[1];
         self.brush_b = self.engine.brush_color[2];
@@ -751,6 +754,22 @@ impl AppSession {
                 self.adjustment_p0 = *black;
                 self.adjustment_p1 = *white;
                 self.adjustment_p2 = *gamma;
+            }
+            Some(AdjustmentParams::Exposure { stops, gamma }) => {
+                self.adjustment_kind = "exposure".into();
+                self.adjustment_p0 = *stops;
+                self.adjustment_p1 = *gamma;
+                self.adjustment_p2 = 0.0;
+            }
+            Some(AdjustmentParams::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+            }) => {
+                self.adjustment_kind = "hue".into();
+                self.adjustment_p0 = *hue;
+                self.adjustment_p1 = *saturation;
+                self.adjustment_p2 = *lightness;
             }
             Some(other) => {
                 self.adjustment_kind = other.kind_key().into();
@@ -1988,6 +2007,11 @@ impl AppSession {
         Member = brush_hardness,
         Notify = brush_hardness_changed
     );
+    qproperty!(
+        "brushTextureStrength",
+        Member = brush_texture_strength,
+        Notify = brush_texture_strength_changed
+    );
     qproperty!("brushR", Member = brush_r, Notify = brush_color_changed);
     qproperty!("brushG", Member = brush_g, Notify = brush_color_changed);
     qproperty!("brushB", Member = brush_b, Notify = brush_color_changed);
@@ -2672,6 +2696,8 @@ impl AppSession {
     fn brush_size_changed(&mut self);
     #[qsignal]
     fn brush_hardness_changed(&mut self);
+    #[qsignal]
+    fn brush_texture_strength_changed(&mut self);
     #[qsignal]
     fn brush_color_changed(&mut self);
     #[qsignal]
@@ -3627,6 +3653,21 @@ impl AppSession {
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_hardness_changed();
+    }
+
+    #[qslot]
+    fn set_brush_texture_strength(&mut self, value: f32) {
+        let s = value.clamp(0.0, 1.0);
+        self.engine.brush.texture_strength = s;
+        self.engine.brush.texture = if s > 0.001 {
+            phototux_engine::BrushTextureKind::Noise
+        } else {
+            phototux_engine::BrushTextureKind::None
+        };
+        self.brush_texture_strength = s;
+        self.engine.sync_brush_from_tool();
+        self.send_paint(EngineCommand::SetBrush(self.engine.brush));
+        self.brush_texture_strength_changed();
     }
 
     #[qslot]
@@ -4876,10 +4917,14 @@ impl AppSession {
         self.engine.brush.scatter = preset.scatter.clamp(0.0, 1.0);
         self.engine.brush.size_pressure = preset.size_pressure;
         self.engine.brush.opacity_pressure = preset.opacity_pressure;
+        self.engine.brush.texture =
+            phototux_engine::BrushTextureKind::from_str_key(&preset.texture);
+        self.engine.brush.texture_strength = preset.texture_strength.clamp(0.0, 1.0);
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_size_changed();
         self.brush_hardness_changed();
+        self.brush_texture_strength_changed();
         self.brush_color_changed();
         self.status_text = format!("Brush preset: {}", preset.name);
         self.status_text_changed();
@@ -4903,6 +4948,8 @@ impl AppSession {
             size_pressure: self.engine.brush.size_pressure,
             opacity_pressure: self.engine.brush.opacity_pressure,
             scatter: self.engine.brush.scatter,
+            texture: self.engine.brush.texture.as_str().to_owned(),
+            texture_strength: self.engine.brush.texture_strength,
             color: self.engine.brush_color,
         };
         self.engine.brush_presets.upsert(preset);

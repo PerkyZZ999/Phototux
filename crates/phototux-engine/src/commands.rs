@@ -2210,6 +2210,13 @@ impl SessionState {
                     lightness: 0.0,
                 },
             ),
+            "exposure" => (
+                "Exposure",
+                AdjustmentParams::Exposure {
+                    stops: 0.0,
+                    gamma: 1.0,
+                },
+            ),
             _ => (
                 "Brightness/Contrast",
                 AdjustmentParams::BrightnessContrast {
@@ -2262,6 +2269,19 @@ impl SessionState {
                 black: p0,
                 white: p1,
                 gamma: p2,
+            },
+            AdjustmentParams::HueSaturation { .. } => AdjustmentParams::HueSaturation {
+                hue: p0,
+                saturation: p1,
+                lightness: p2,
+            },
+            AdjustmentParams::Exposure { .. } => AdjustmentParams::Exposure {
+                stops: p0,
+                gamma: p1.max(0.01),
+            },
+            AdjustmentParams::Threshold { .. } => AdjustmentParams::Threshold { level: p0 },
+            AdjustmentParams::Posterize { .. } => AdjustmentParams::Posterize {
+                levels: p0.round().clamp(2.0, 256.0) as u32,
             },
             other => other.clone(),
         };
@@ -2318,6 +2338,7 @@ impl SessionState {
                 .as_mut()
                 .and_then(|g| g.add_emboss(id, 1.0, 135.0)),
             "sharpen" => self.graph.as_mut().and_then(|g| g.add_sharpen(id, 1.0)),
+            "noise" => self.graph.as_mut().and_then(|g| g.add_noise(id, 0.35)),
             _ => None,
         }) else {
             return Err(CommandError::InvalidArgument("unknown effect kind"));
@@ -2333,6 +2354,7 @@ impl SessionState {
             "motion" => "Motion Blur",
             "emboss" => "Emboss",
             "sharpen" => "Sharpen",
+            "noise" => "Noise",
             other => other,
         };
         let generation = self.bump_document_generation();

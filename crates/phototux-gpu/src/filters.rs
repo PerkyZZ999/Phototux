@@ -61,6 +61,11 @@ pub fn adjustment_pass(params: &AdjustmentParams) -> FilterPass {
                 params: [levels_f, 0.0, 0.0, 0.0],
             }
         }
+        AdjustmentParams::Exposure { stops, gamma } => FilterPass {
+            label: "Exposure",
+            shader_key: "adjust.exposure",
+            params: [stops, gamma, 0.0, 0.0],
+        },
     }
 }
 
@@ -107,6 +112,11 @@ pub fn filter_pass(params: &FilterParams) -> FilterPass {
             label: "Emboss",
             shader_key: "filter.emboss",
             params: [strength, angle_deg, 0.0, 0.0],
+        },
+        FilterParams::Noise { amount } => FilterPass {
+            label: "Noise",
+            shader_key: "filter.noise",
+            params: [amount, 0.0, 0.0, 0.0],
         },
     }
 }
@@ -317,6 +327,57 @@ pub fn cpu_emboss_rgba(pixels: &mut [u8], width: u32, height: u32, strength: f32
     }
 }
 
+/// CPU exposure (EV stops + gamma) for golden / preview without GPU.
+pub fn cpu_exposure_rgba(pixels: &mut [u8], stops: f32, gamma: f32) {
+    let mul = 2.0_f32.powf(stops.clamp(-5.0, 5.0));
+    let gamma = gamma.clamp(0.01, 10.0);
+    for px in pixels.chunks_exact_mut(4) {
+        for c in &mut px[..3] {
+            let mut t = (f32::from(*c) / 255.0 * mul).clamp(0.0, 1.0);
+            t = t.powf(1.0 / gamma);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "exposure output clamped to 0..255 before cast"
+            )]
+            {
+                *c = (t * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
+/// CPU film-grain noise (deterministic hash; RGB; alpha preserved).
+pub fn cpu_noise_rgba(pixels: &mut [u8], width: u32, height: u32, amount: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    if amount < 0.001 || width == 0 || height == 0 {
+        return;
+    }
+    let w = width as usize;
+    for (i, px) in pixels.chunks_exact_mut(4).enumerate() {
+        let x = (i % w) as u32;
+        let y = (i / w) as u32;
+        let mut n = x
+            .wrapping_mul(374_761_393)
+            .wrapping_add(y.wrapping_mul(668_265_263));
+        n = (n ^ (n >> 13)).wrapping_mul(1_274_126_177);
+        n ^= n >> 16;
+        let grain = (n & 0xFF) as f32 / 255.0;
+        let delta = (grain - 0.5) * 2.0 * amount * 255.0;
+        for c in &mut px[..3] {
+            let next = f32::from(*c) + delta;
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "noise output clamped to byte"
+            )]
+            {
+                *c = next.round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
 /// CPU reference unsharp / Laplacian sharpen (RGB; alpha preserved).
 pub fn cpu_sharpen_rgba(pixels: &mut [u8], width: u32, height: u32, amount: f32) {
     let amount = amount.clamp(0.0, 4.0);
@@ -401,5 +462,22 @@ mod tests {
         px[4 * 4 + 3] = 255;
         cpu_sharpen_rgba(&mut px, 3, 3, 0.5);
         assert!(px[4 * 4] > 200, "center r={}", px[4 * 4]);
+    }
+
+    #[test]
+    fn exposure_brightens() {
+        let mut px = [64_u8, 64, 64, 255];
+        cpu_exposure_rgba(&mut px, 1.0, 1.0);
+        assert!(px[0] > 64);
+    }
+
+    #[test]
+    fn noise_perturbs_flat() {
+        let mut px = vec![128_u8; 16 * 4];
+        for chunk in px.chunks_exact_mut(4) {
+            chunk[3] = 255;
+        }
+        cpu_noise_rgba(&mut px, 4, 4, 0.5);
+        assert!(px.iter().take(12).any(|&c| c != 128));
     }
 }

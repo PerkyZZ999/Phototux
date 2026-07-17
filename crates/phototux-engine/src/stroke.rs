@@ -1,5 +1,29 @@
 //! Brush parameters, stroke dab placement, and CPU stamp reference (handbook 14).
 
+/// Built-in tip texture kinds (DR-028 brush texture spine).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BrushTextureKind {
+    #[default]
+    None,
+    Noise,
+}
+
+impl BrushTextureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Noise => "noise",
+        }
+    }
+
+    pub fn from_str_key(s: &str) -> Self {
+        match s {
+            "noise" => Self::Noise,
+            _ => Self::None,
+        }
+    }
+}
+
 /// Solid brush / eraser parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BrushParams {
@@ -19,6 +43,10 @@ pub struct BrushParams {
     pub size_pressure: bool,
     /// Scale stamp opacity by pointer pressure when true.
     pub opacity_pressure: bool,
+    /// Tip texture kind.
+    pub texture: BrushTextureKind,
+    /// Texture mix 0..1 (0 = smooth tip).
+    pub texture_strength: f32,
 }
 
 impl Default for BrushParams {
@@ -34,6 +62,8 @@ impl Default for BrushParams {
             scatter: 0.0,
             size_pressure: true,
             opacity_pressure: false,
+            texture: BrushTextureKind::None,
+            texture_strength: 0.0,
         }
     }
 }
@@ -56,6 +86,8 @@ impl BrushParams {
             scatter: self.scatter.clamp(0.0, 1.0),
             size_pressure: self.size_pressure,
             opacity_pressure: self.opacity_pressure,
+            texture: self.texture,
+            texture_strength: self.texture_strength.clamp(0.0, 1.0),
         }
     }
 
@@ -215,12 +247,18 @@ pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, para
     let x1 = ((cx.ceil() as i32) + r_ceil).min(w - 1);
     let y1 = ((cy.ceil() as i32) + r_ceil).min(h - 1);
     let hard = params.hardness;
+    let tex_s = params.texture_strength;
+    let use_noise = matches!(params.texture, BrushTextureKind::Noise) && tex_s > 0.001;
     for y in y0..=y1 {
         for x in x0..=x1 {
             let dx = x as f32 + 0.5 - cx;
             let dy = y as f32 + 0.5 - cy;
             let dist = (dx * dx + dy * dy).sqrt();
-            let cover = dab_coverage(dist, radius, hard) * alpha;
+            let mut cover = dab_coverage(dist, radius, hard) * alpha;
+            if use_noise {
+                let n = tip_noise(x as u32, y as u32);
+                cover *= 1.0 - tex_s + tex_s * n;
+            }
             if cover <= 0.001 {
                 continue;
             }
@@ -271,6 +309,16 @@ pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, para
             }
         }
     }
+}
+
+/// Deterministic tip noise in 0..1 (hash of pixel coords).
+fn tip_noise(x: u32, y: u32) -> f32 {
+    let mut h = x
+        .wrapping_mul(374_761_393)
+        .wrapping_add(y.wrapping_mul(668_265_263));
+    h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+    h ^= h >> 16;
+    (h & 0xFFFF) as f32 / 65535.0
 }
 
 /// Stamp many dabs (CPU reference / recovery path).

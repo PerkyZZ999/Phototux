@@ -71,6 +71,7 @@ impl From<BrushParamsSnapshot> for BrushParams {
             scatter: p.scatter,
             size_pressure: p.size_pressure,
             opacity_pressure: p.opacity_pressure,
+            ..BrushParams::default()
         }
         .clamped()
     }

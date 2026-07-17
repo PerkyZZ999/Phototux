@@ -10,7 +10,7 @@ use crate::layer::{FilterEffect, LayerId, MAX_BLUR_RADIUS};
 #[derive(Debug, Clone)]
 pub struct FilterPreviewSession {
     pub layer_id: LayerId,
-    /// Effect kind: `gaussian` | `motion` | `emboss` | `sharpen`.
+    /// Effect kind: `gaussian` | `motion` | `emboss` | `sharpen` | `noise`.
     pub kind: String,
     pub p0: f32,
     pub p1: f32,
@@ -59,6 +59,7 @@ impl FilterPreviewSession {
             "motion" => Some(FilterEffect::motion_blur(0, self.p0, self.p1)),
             "emboss" => Some(FilterEffect::emboss(0, self.p0, self.p1)),
             "sharpen" => Some(FilterEffect::sharpen(0, self.p0)),
+            "noise" => Some(FilterEffect::noise(0, self.p0)),
             _ => None,
         }
     }
@@ -69,13 +70,14 @@ impl FilterPreviewSession {
             "motion" => "Motion Blur",
             "emboss" => "Emboss",
             "sharpen" => "Sharpen",
+            "noise" => "Noise",
             _ => "Filter",
         }
     }
 }
 
 /// Known gallery effect kinds (v1 shipped set).
-pub const GALLERY_EFFECT_KINDS: &[&str] = &["gaussian", "motion", "emboss", "sharpen"];
+pub const GALLERY_EFFECT_KINDS: &[&str] = &["gaussian", "motion", "emboss", "sharpen", "noise"];
 
 pub fn kind_is_supported(kind: &str) -> bool {
     GALLERY_EFFECT_KINDS.contains(&kind)
@@ -87,6 +89,7 @@ fn default_params(kind: &str) -> (f32, f32, f32) {
         "motion" => (8.0, 0.0, 0.0),
         "emboss" => (1.0, 135.0, 0.0),
         "sharpen" => (1.0, 0.0, 0.0),
+        "noise" => (0.35, 0.0, 0.0),
         _ => (0.0, 0.0, 0.0),
     }
 }

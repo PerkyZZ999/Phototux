@@ -2852,9 +2852,12 @@ ApplicationWindow {
                             spacing: Theme.spaceXs
                             visible: AppSession.adjustmentKind === "brightness"
                                      || AppSession.adjustmentKind === "levels"
+                                     || AppSession.adjustmentKind === "exposure"
                             Label {
                                 text: AppSession.adjustmentKind === "levels"
-                                      ? qsTr("Levels") : qsTr("Brightness/Contrast")
+                                      ? qsTr("Levels")
+                                      : (AppSession.adjustmentKind === "exposure"
+                                         ? qsTr("Exposure") : qsTr("Brightness/Contrast"))
                                 color: Theme.colorOnSurface
                                 font.pixelSize: Theme.fontBodySm
                             }
@@ -2982,6 +2985,56 @@ ApplicationWindow {
                                 value: AppSession.adjustmentP2
                                 onMoved: AppSession.setAdjustmentParams(
                                              AppSession.adjustmentP0, AppSession.adjustmentP1, value)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "exposure"
+                                Label {
+                                    text: qsTr("Stops")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: AppSession.adjustmentP0.toFixed(2)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "exposure"
+                                from: -5
+                                to: 5
+                                value: AppSession.adjustmentP0
+                                onMoved: AppSession.setAdjustmentParams(
+                                             value, AppSession.adjustmentP1, 0)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "exposure"
+                                Label {
+                                    text: qsTr("Gamma")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: AppSession.adjustmentP1.toFixed(2)
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                visible: AppSession.adjustmentKind === "exposure"
+                                from: 0.1
+                                to: 3
+                                value: AppSession.adjustmentP1
+                                onMoved: AppSession.setAdjustmentParams(
+                                             AppSession.adjustmentP0, value, 0)
                             }
                         }
 
@@ -3126,6 +3179,38 @@ ApplicationWindow {
                                 value: AppSession.brushHardness
                                 enabled: AppSession.hasDocument
                                 onMoved: AppSession.setBrushHardness(value)
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.activeTool === "tool.brush"
+                                     || AppSession.activeTool === "tool.eraser"
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Texture")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: Math.round(textureSlider.value * 100) + " %"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontMono
+                                    font.family: "Noto Sans Mono"
+                                }
+                            }
+                            Slider {
+                                id: textureSlider
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 1
+                                value: AppSession.brushTextureStrength
+                                enabled: AppSession.hasDocument
+                                onMoved: AppSession.setBrushTextureStrength(value)
+                                Accessible.name: qsTr("Brush tip texture strength")
                             }
                         }
 
@@ -4515,8 +4600,8 @@ ApplicationWindow {
             ComboBox {
                 id: filterKindCombo
                 Layout.fillWidth: true
-                property var kinds: ["gaussian", "motion", "emboss", "sharpen"]
-                model: [qsTr("Gaussian Blur"), qsTr("Motion Blur"), qsTr("Emboss"), qsTr("Sharpen")]
+                property var kinds: ["gaussian", "motion", "emboss", "sharpen", "noise"]
+                model: [qsTr("Gaussian Blur"), qsTr("Motion Blur"), qsTr("Emboss"), qsTr("Sharpen"), qsTr("Noise")]
                 function currentKind() {
                     return kinds[currentIndex] || "gaussian"
                 }
@@ -4533,7 +4618,8 @@ ApplicationWindow {
                          ? qsTr("Distance")
                          : (filterKindCombo.currentIndex === 2
                             ? qsTr("Strength")
-                            : qsTr("Amount")))
+                            : (filterKindCombo.currentIndex === 4
+                               ? qsTr("Amount") : qsTr("Amount"))))
                 color: Theme.colorOnSurface
                 font.pixelSize: Theme.fontBodySm
             }
@@ -4541,7 +4627,9 @@ ApplicationWindow {
                 id: filterP0Slider
                 Layout.fillWidth: true
                 from: 0
-                to: filterKindCombo.currentIndex === 0 ? 64 : 32
+                to: filterKindCombo.currentIndex === 0
+                    ? 64
+                    : (filterKindCombo.currentIndex === 4 ? 1 : 32)
                 value: AppSession.filterPreviewP0
                 onMoved: AppSession.filterGallerySetParams(
                              value, filterP1Slider.value, 0)

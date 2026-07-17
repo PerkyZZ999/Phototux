@@ -1,7 +1,7 @@
 //! GPU circular dab stamps onto a layer texture.
 
 use bytemuck::{Pod, Zeroable};
-use phototux_engine::{BrushParams, Dab};
+use phototux_engine::{BrushParams, BrushTextureKind, Dab};
 
 use crate::GpuContext;
 
@@ -12,10 +12,15 @@ struct Uniforms {
     hardness: f32,
     color: vec4<f32>,
     eraser: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    texture_kind: u32,
+    texture_strength: f32,
+    _pad0: f32,
 };
+
+fn tip_noise(p: vec2<f32>) -> f32 {
+    let n = sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453;
+    return fract(n);
+}
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -39,7 +44,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // center/radius are in UV space (0..1); hardness softens the edge.
     let dist = distance(in.uv, u.center);
     let inner = u.radius * clamp(u.hardness, 0.0, 0.99);
-    let a = 1.0 - smoothstep(inner, u.radius, dist);
+    var a = 1.0 - smoothstep(inner, u.radius, dist);
+    if (u.texture_kind != 0u && u.texture_strength > 0.001) {
+        let n = tip_noise(in.uv * 1024.0);
+        a = a * (1.0 - u.texture_strength + u.texture_strength * n);
+    }
     if (a <= 0.001) {
         discard;
     }
@@ -59,9 +68,9 @@ struct StampUniforms {
     hardness: f32,
     color: [f32; 4],
     eraser: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    texture_kind: u32,
+    texture_strength: f32,
+    _pad0: f32,
 }
 
 /// Packed stamp parameters for a single dab (avoids `too_many_arguments`).
@@ -218,6 +227,10 @@ impl BrushStamper {
         let radius_uv = req.radius_px / max_dim;
         let mut color = req.params.color;
         color[3] = req.params.stamp_alpha(req.pressure);
+        let texture_kind = match req.params.texture {
+            BrushTextureKind::None => 0u32,
+            BrushTextureKind::Noise => 1u32,
+        };
         StampUniforms {
             center_x: cx,
             center_y: cy,
@@ -225,9 +238,9 @@ impl BrushStamper {
             hardness: req.params.hardness.clamp(0.0, 1.0),
             color,
             eraser: u32::from(req.params.eraser),
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
+            texture_kind,
+            texture_strength: req.params.texture_strength.clamp(0.0, 1.0),
+            _pad0: 0.0,
         }
     }
 

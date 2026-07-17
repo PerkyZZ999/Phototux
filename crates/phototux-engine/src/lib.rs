@@ -98,7 +98,10 @@ pub use shell::{
 pub use snapshot_publish::{
     MAX_SNAPSHOT_BYTES, PixelSnapshot, SnapshotError, SnapshotPublisher, solid_layer_rgba,
 };
-pub use stroke::{BrushParams, Dab, StrokeBuilder, dab_coverage, paint_dabs_rgba, stamp_dab_rgba};
+pub use stroke::{
+    BrushParams, BrushTextureKind, Dab, StrokeBuilder, dab_coverage, paint_dabs_rgba,
+    stamp_dab_rgba,
+};
 pub use stroke_journal::{
     BrushParamsSnapshot, DabSnapshot, JournalStroke, StrokeJournal, StrokeSample,
 };

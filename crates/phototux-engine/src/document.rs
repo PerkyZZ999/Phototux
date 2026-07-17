@@ -559,6 +559,11 @@ impl DocumentGraph {
         self.add_filter_effect(id, |effect_id| FilterEffect::sharpen(effect_id, amount))
     }
 
+    /// Append a Noise effect to a raster layer.
+    pub fn add_noise(&mut self, id: LayerId, amount: f32) -> Option<(Vec<FilterEffect>, u64)> {
+        self.add_filter_effect(id, |effect_id| FilterEffect::noise(effect_id, amount))
+    }
+
     fn add_filter_effect(
         &mut self,
         id: LayerId,

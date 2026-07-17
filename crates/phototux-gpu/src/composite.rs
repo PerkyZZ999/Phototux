@@ -118,6 +118,14 @@ fn apply_levels(rgb: vec3<f32>, black: f32, white: f32, gamma: f32) -> vec3<f32>
     return clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+fn apply_exposure(rgb: vec3<f32>, stops: f32, gamma: f32) -> vec3<f32> {
+    let mul = pow(2.0, clamp(stops, -5.0, 5.0));
+    var t = clamp(rgb * mul, vec3<f32>(0.0), vec3<f32>(1.0));
+    let g = max(gamma, 0.01);
+    t = pow(t, vec3<f32>(1.0 / g));
+    return clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -158,6 +166,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                 adjusted = apply_brightness_contrast(acc.rgb, p.p0, p.p1);
             } else if (p.adj_op == 2u) {
                 adjusted = apply_levels(acc.rgb, p.p0, p.p1, p.p2);
+            } else if (p.adj_op == 3u) {
+                adjusted = apply_exposure(acc.rgb, p.p0, p.p1);
             }
             let rgb = mix(acc.rgb, adjusted, strength);
             acc = vec4<f32>(rgb, acc.a);
@@ -1312,6 +1322,7 @@ fn adjustment_gpu_params(layer: &Layer) -> (u32, u32, f32, f32, f32, f32) {
     let adj_op = match params {
         AdjustmentParams::BrightnessContrast { .. } => 1,
         AdjustmentParams::Levels { .. } => 2,
+        AdjustmentParams::Exposure { .. } => 3,
         _ => 0,
     };
     (

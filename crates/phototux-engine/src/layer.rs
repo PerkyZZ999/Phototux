@@ -318,6 +318,11 @@ pub enum AdjustmentParams {
     Posterize {
         levels: u32,
     },
+    /// EV exposure + optional gamma (DR-028 adjustment spine).
+    Exposure {
+        stops: f32,
+        gamma: f32,
+    },
 }
 
 impl Default for AdjustmentParams {
@@ -369,6 +374,10 @@ impl AdjustmentParams {
             Self::Posterize { levels } => Self::Posterize {
                 levels: levels.clamp(2, 256),
             },
+            Self::Exposure { stops, gamma } => Self::Exposure {
+                stops: stops.clamp(-5.0, 5.0),
+                gamma: gamma.clamp(0.01, 10.0),
+            },
         }
     }
 
@@ -381,6 +390,7 @@ impl AdjustmentParams {
             Self::Invert => "invert",
             Self::Threshold { .. } => "threshold",
             Self::Posterize { .. } => "posterize",
+            Self::Exposure { .. } => "exposure",
         }
     }
 }
@@ -423,6 +433,10 @@ pub enum FilterParams {
         strength: f32,
         angle_deg: f32,
     },
+    /// Monochrome/noise grain (DR-028).
+    Noise {
+        amount: f32,
+    },
 }
 
 /// Maximum Gaussian/box blur radius accepted by the engine.
@@ -456,6 +470,9 @@ impl FilterParams {
             } => Self::Emboss {
                 strength: strength.clamp(0.0, 4.0),
                 angle_deg: angle_deg.rem_euclid(360.0),
+            },
+            Self::Noise { amount } => Self::Noise {
+                amount: amount.clamp(0.0, 1.0),
             },
         }
     }
@@ -517,6 +534,18 @@ impl FilterEffect {
             opacity: 1.0,
             blend: BlendMode::Normal,
             params: FilterParams::Sharpen { amount }.clamped(),
+        }
+    }
+
+    /// Create an enabled Noise effect.
+    pub fn noise(id: u64, amount: f32) -> Self {
+        Self {
+            id,
+            name: "Noise".into(),
+            enabled: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            params: FilterParams::Noise { amount }.clamped(),
         }
     }
 }

@@ -147,6 +147,17 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let t = clamp(u.p0, 0.0, 1.0) * src.a;
         return vec4<f32>(mix(src.rgb, u.color.rgb, t), src.a);
     }
+    // 9 = film-grain noise (matches cpu_noise_rgba hash intent)
+    if (u.mode == 9u) {
+        let amount = clamp(u.p0, 0.0, 1.0);
+        let pix = floor(in.uv * dims);
+        var n = u32(pix.x) * 374761393u + u32(pix.y) * 668265263u;
+        n = (n ^ (n >> 13u)) * 1274126177u;
+        n = n ^ (n >> 16u);
+        let grain = f32(n & 0xFFu) / 255.0;
+        let delta = (grain - 0.5) * 2.0 * amount;
+        return vec4<f32>(clamp(src.rgb + vec3<f32>(delta), vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
     return src;
 }
 "#;
@@ -488,6 +499,31 @@ impl EffectPass {
             use_a = !use_a;
         }
 
+        if let Some(amount) = plan.noise {
+            let (from, to) = if use_a {
+                (&self.scratch_a, &self.scratch_b)
+            } else {
+                (&self.scratch_b, &self.scratch_a)
+            };
+            self.run(
+                ctx,
+                encoder,
+                from,
+                &self.black,
+                to,
+                EffectUniformsGpu {
+                    mode: 9,
+                    p0: amount,
+                    p1: 0.0,
+                    p2: 0.0,
+                    color: [0.0; 4],
+                    offset: [0.0; 2],
+                    _pad: [0.0; 2],
+                },
+            );
+            use_a = !use_a;
+        }
+
         let content = if use_a {
             self.scratch_a.clone()
         } else {
@@ -629,6 +665,8 @@ pub struct LayerPackPlan {
     pub emboss: Option<(f32, f32)>,
     /// Sharpen amount when present (`FilterParams::Sharpen`).
     pub sharpen: Option<f32>,
+    /// Noise amount when present (`FilterParams::Noise`).
+    pub noise: Option<f32>,
     pub drop_shadow: Option<ShadowPlan>,
     pub color_overlay: Option<ColorOverlayPlan>,
     pub stroke: Option<StrokePlan>,
@@ -663,6 +701,7 @@ impl LayerPackPlan {
             motion: None,
             emboss: None,
             sharpen: None,
+            noise: None,
             drop_shadow: None,
             color_overlay: None,
             stroke: None,
@@ -674,6 +713,7 @@ impl LayerPackPlan {
             || self.motion.is_some()
             || self.emboss.is_some()
             || self.sharpen.is_some_and(|a| a > 0.001)
+            || self.noise.is_some_and(|a| a > 0.001)
             || self.drop_shadow.is_some()
             || self.color_overlay.is_some()
             || self.stroke.is_some()
@@ -704,6 +744,9 @@ impl LayerPackPlan {
                 }
                 FilterParams::Sharpen { amount } if amount > 0.001 => {
                     plan.sharpen = Some(plan.sharpen.map_or(amount, |a| a.max(amount)));
+                }
+                FilterParams::Noise { amount } if amount > 0.001 => {
+                    plan.noise = Some(plan.noise.map_or(amount, |a| a.max(amount)));
                 }
                 _ => {}
             }
