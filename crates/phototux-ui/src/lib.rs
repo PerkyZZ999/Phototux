@@ -2867,9 +2867,32 @@ impl AppSession {
         }
         layer.styles.push(LayerStyle::drop_shadow_default());
         let _ = self.engine.bump_document_generation();
+        self.recomposite();
         self.mark_dirty();
         self.sync_from_engine();
-        self.status_text = "Drop Shadow style added (CPU ref; GPU pass TBD)".to_owned();
+        self.status_text = "Drop Shadow style added".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn add_stroke_style(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) else {
+            return;
+        };
+        if layer.kind != LayerKind::Raster {
+            self.status_text = "Stroke style requires a raster layer".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        layer.styles.push(LayerStyle::stroke_default());
+        let _ = self.engine.bump_document_generation();
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.status_text = "Stroke style added".to_owned();
         self.status_text_changed();
     }
 

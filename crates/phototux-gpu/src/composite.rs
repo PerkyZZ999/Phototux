@@ -8,10 +8,11 @@ use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
 use phototux_engine::{
-    AdjustmentParams, BlendMode, DocumentSize, FilterParams, Layer, LayerId, LayerKind, MAX_LAYERS,
+    AdjustmentParams, BlendMode, DocumentSize, Layer, LayerId, LayerKind, MAX_LAYERS,
 };
 
 use crate::blur::SeparableBlur;
+use crate::effect_pass::{EffectPass, LayerPackPlan};
 use crate::filters::adjustment_pass;
 use crate::layer_mask::LayerMaskChannel;
 use crate::transform_bake::inverse_affine_coeffs;
@@ -251,9 +252,10 @@ pub struct LayerCompositeEngine {
     bind_group: Option<wgpu::BindGroup>,
     last_composite_ms: f32,
     stack_order: Vec<LayerId>,
-    /// First enabled Gaussian radius per layer (0 = none).
-    gaussian_radius: HashMap<LayerId, f32>,
+    /// Pre-pack effect/style plan per layer.
+    pack_plans: HashMap<LayerId, LayerPackPlan>,
     blur: SeparableBlur,
+    effects: EffectPass,
 }
 
 impl LayerCompositeEngine {
@@ -422,8 +424,9 @@ impl LayerCompositeEngine {
             bind_group: None,
             last_composite_ms: 0.0,
             stack_order: Vec::new(),
-            gaussian_radius: HashMap::new(),
+            pack_plans: HashMap::new(),
             blur: SeparableBlur::new(ctx, width, height),
+            effects: EffectPass::new(ctx, width, height),
         }
     }
 
@@ -514,7 +517,7 @@ impl LayerCompositeEngine {
             [0.20, 0.70, 0.75, 0.70],
             [0.95, 0.55, 0.30, 0.65],
         ];
-        let mut gaussian_radius = HashMap::new();
+        let mut pack_plans = HashMap::new();
         for (i, layer) in layers.iter().enumerate() {
             match layer.kind {
                 LayerKind::Adjustment => {
@@ -528,16 +531,14 @@ impl LayerCompositeEngine {
             if layer.mask.is_some() {
                 self.ensure_mask(ctx, layer.id);
             }
-            if let Some(radius) = first_gaussian_radius(layer) {
-                gaussian_radius.insert(layer.id, radius);
-            }
+            pack_plans.insert(layer.id, LayerPackPlan::from_layer(layer));
         }
-        if gaussian_radius != self.gaussian_radius {
-            self.gaussian_radius = gaussian_radius;
+        if pack_plans != self.pack_plans {
+            self.pack_plans = pack_plans;
             self.array_dirty = true;
             self.dirty_slices.clear();
         } else {
-            self.gaussian_radius = gaussian_radius;
+            self.pack_plans = pack_plans;
         }
         let new_order: Vec<LayerId> = layers.iter().map(|l| l.id).collect();
         if new_order != self.stack_order {
@@ -561,12 +562,14 @@ impl LayerCompositeEngine {
             return Ok(());
         };
         let src = src.clone();
-        let pack_src = if let Some(&radius) = self.gaussian_radius.get(&id) {
-            if radius > 0.01 {
-                self.blur.blur(ctx, encoder, &src, radius).clone()
-            } else {
-                src
-            }
+        let plan = self
+            .pack_plans
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(LayerPackPlan::identity);
+        let pack_src = if plan.needs_effects() {
+            self.effects
+                .apply_pack(ctx, encoder, &mut self.blur, &src, &plan)
         } else {
             src
         };
@@ -1238,18 +1241,6 @@ fn copy_slice_2d(
             depth_or_array_layers: 1,
         },
     );
-}
-
-fn first_gaussian_radius(layer: &Layer) -> Option<f32> {
-    layer.effects.iter().find_map(|effect| {
-        if !effect.enabled {
-            return None;
-        }
-        match effect.params {
-            FilterParams::GaussianBlur { radius } if radius > 0.01 => Some(radius),
-            _ => None,
-        }
-    })
 }
 
 fn adjustment_gpu_params(layer: &Layer) -> (u32, u32, f32, f32, f32, f32) {

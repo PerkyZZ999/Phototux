@@ -3,6 +3,7 @@
 mod blur;
 mod brush;
 mod composite;
+mod effect_pass;
 mod fill;
 mod filters;
 mod layer_mask;
@@ -13,10 +14,11 @@ mod transform_bake;
 pub use brush::{BrushStamper, StampRequest};
 pub use composite::LayerCompositeEngine;
 pub use composite::benchmark_10x4k_ms;
+pub use effect_pass::LayerPackPlan;
 pub use fill::{fill_rgba, linear_gradient_rgba, mask_has_selection, sample_rgba_at};
 pub use filters::{
-    FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_gaussian_rgba, cpu_invert_rgba,
-    cpu_levels_rgba, filter_pass,
+    FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_emboss_rgba, cpu_gaussian_rgba,
+    cpu_invert_rgba, cpu_levels_rgba, cpu_motion_blur_rgba, filter_pass,
 };
 pub use layer_mask::LayerMaskChannel;
 pub use mask_stamp::MaskStamper;

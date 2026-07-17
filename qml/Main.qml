@@ -393,6 +393,11 @@ ApplicationWindow {
                 onTriggered: AppSession.addDropShadowStyle()
             }
             MenuItem {
+                text: qsTr("Layer Stroke Style")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addStrokeStyle()
+            }
+            MenuItem {
                 text: qsTr("Stroke Path to Layer")
                 enabled: AppSession.hasDocument && !AppSession.ioBusy
                 onTriggered: AppSession.strokeActivePathToLayer()

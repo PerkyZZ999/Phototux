@@ -231,6 +231,92 @@ pub fn cpu_gaussian_rgba(pixels: &mut [u8], width: u32, height: u32, radius: f32
     }
 }
 
+/// CPU reference directional motion blur.
+pub fn cpu_motion_blur_rgba(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    distance: f32,
+    angle_deg: f32,
+) {
+    let distance = distance.clamp(0.0, 64.0);
+    if distance < 0.01 || width == 0 || height == 0 {
+        return;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let angle = angle_deg.to_radians();
+    let dx = angle.cos();
+    let dy = angle.sin();
+    let steps = distance.ceil().clamp(1.0, 32.0) as i32;
+    let src = pixels.to_vec();
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = [0.0_f32; 4];
+            let mut count = 0.0_f32;
+            for i in -steps..=steps {
+                let t = i as f32 / steps as f32;
+                let sx = (x as f32 + dx * t * distance).round() as i32;
+                let sy = (y as f32 + dy * t * distance).round() as i32;
+                if sx < 0 || sy < 0 || sx >= w as i32 || sy >= h as i32 {
+                    continue;
+                }
+                let idx = (sy as usize * w + sx as usize) * 4;
+                for c in 0..4 {
+                    acc[c] += f32::from(src[idx + c]);
+                }
+                count += 1.0;
+            }
+            let out = (y * w + x) * 4;
+            if count > 0.0 {
+                for c in 0..4 {
+                    pixels[out + c] = (acc[c] / count).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+}
+
+/// CPU reference emboss (Sobel-lit grayscale).
+pub fn cpu_emboss_rgba(pixels: &mut [u8], width: u32, height: u32, strength: f32, angle_deg: f32) {
+    let strength = strength.clamp(0.0, 4.0);
+    if width == 0 || height == 0 {
+        return;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let angle = angle_deg.to_radians();
+    let lx = angle.cos();
+    let ly = angle.sin();
+    let src = pixels.to_vec();
+    let lum = |i: usize| {
+        0.299 * f32::from(src[i]) + 0.587 * f32::from(src[i + 1]) + 0.114 * f32::from(src[i + 2])
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let sample = |ox: i32, oy: i32| {
+                let xx = (x as i32 + ox).clamp(0, w as i32 - 1) as usize;
+                let yy = (y as i32 + oy).clamp(0, h as i32 - 1) as usize;
+                lum((yy * w + xx) * 4)
+            };
+            let gx = -sample(-1, -1) - 2.0 * sample(-1, 0) - sample(-1, 1)
+                + sample(1, -1)
+                + 2.0 * sample(1, 0)
+                + sample(1, 1);
+            let gy = -sample(-1, -1) - 2.0 * sample(0, -1) - sample(1, -1)
+                + sample(-1, 1)
+                + 2.0 * sample(0, 1)
+                + sample(1, 1);
+            let lit = (0.5 + (gx * lx + gy * ly) * strength).clamp(0.0, 1.0);
+            let out = (y * w + x) * 4;
+            let v = (lit * 255.0).round() as u8;
+            pixels[out] = v;
+            pixels[out + 1] = v;
+            pixels[out + 2] = v;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
