@@ -31,6 +31,18 @@ ApplicationWindow {
     readonly property bool activeLayerClips: AppSession.activeLayerIndex >= 0
                                             && AppSession.activeLayerIndex < layerClipParts.length
                                             && layerClipParts[AppSession.activeLayerIndex] === "1"
+    readonly property var layerKindParts: AppSession.layerKinds.length > 0
+                                         ? AppSession.layerKinds.split("|") : []
+    readonly property string activeLayerKind: AppSession.activeLayerIndex >= 0
+                                             && AppSession.activeLayerIndex < layerKindParts.length
+                                             ? layerKindParts[AppSession.activeLayerIndex] : ""
+    readonly property var guidesModel: {
+        try {
+            return JSON.parse(AppSession.guidesJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
 
     readonly property int toolStripWidth: Theme.toolStripWidth
     readonly property int dockWidth: Theme.dockWidth
@@ -449,6 +461,40 @@ ApplicationWindow {
                 checked: AppSession.prefShowGuides
                 onTriggered: AppSession.setGuidesVisible(checked)
             }
+            MenuItem {
+                text: qsTr("Show G&rid")
+                checkable: true
+                checked: AppSession.prefShowGrid
+                onTriggered: AppSession.setGridVisible(checked)
+            }
+            MenuItem {
+                text: qsTr("Show &Rulers")
+                checkable: true
+                checked: AppSession.prefShowRulers
+                onTriggered: AppSession.setRulersVisible(checked)
+            }
+            MenuItem {
+                text: qsTr("Sna&p")
+                checkable: true
+                checked: AppSession.prefSnap
+                onTriggered: AppSession.setSnapEnabled(checked)
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("New Vertical Guide")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addGuide("v", AppSession.docWidth / 2)
+            }
+            MenuItem {
+                text: qsTr("New Horizontal Guide")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.addGuide("h", AppSession.docHeight / 2)
+            }
+            MenuItem {
+                text: qsTr("Clear Guides")
+                enabled: AppSession.hasDocument
+                onTriggered: AppSession.clearGuides()
+            }
         }
         Menu {
             title: qsTr("&Window")
@@ -845,6 +891,166 @@ ApplicationWindow {
                 phase: frameClock.phase + AppSession.graphRevision * 0.01
                 selectionAnts: AppSession.selectionActive
                                 && AppSession.selectionShape === "mask"
+            }
+
+            // Document grid overlay
+            Canvas {
+                id: gridOverlay
+                anchors.fill: parent
+                z: 2
+                visible: AppSession.hasDocument && AppSession.prefShowGrid
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    if (!visible)
+                        return
+                    var spacing = Math.max(4, AppSession.gridSpacing)
+                    var zoom = Math.max(0.001, AppSession.zoom)
+                    var step = spacing * zoom
+                    if (step < 4)
+                        return
+                    ctx.strokeStyle = "#40FFFFFF"
+                    ctx.lineWidth = 1
+                    var x0 = root.docToScreenX(0)
+                    var y0 = root.docToScreenY(0)
+                    var x1 = root.docToScreenX(AppSession.docWidth)
+                    var y1 = root.docToScreenY(AppSession.docHeight)
+                    ctx.beginPath()
+                    for (var x = x0; x <= x1 + 0.5; x += step) {
+                        ctx.moveTo(x, y0)
+                        ctx.lineTo(x, y1)
+                    }
+                    for (var y = y0; y <= y1 + 0.5; y += step) {
+                        ctx.moveTo(x0, y)
+                        ctx.lineTo(x1, y)
+                    }
+                    ctx.stroke()
+                }
+                Connections {
+                    target: AppSession
+                    function onZoomChanged() { gridOverlay.requestPaint() }
+                    function onPanXChanged() { gridOverlay.requestPaint() }
+                    function onPanYChanged() { gridOverlay.requestPaint() }
+                    function onPrefShowGridChanged() { gridOverlay.requestPaint() }
+                    function onGridSpacingChanged() { gridOverlay.requestPaint() }
+                    function onDocWidthChanged() { gridOverlay.requestPaint() }
+                    function onDocHeightChanged() { gridOverlay.requestPaint() }
+                }
+            }
+
+            // Guide lines overlay
+            Repeater {
+                model: AppSession.prefShowGuides ? root.guidesModel : []
+                delegate: Rectangle {
+                    required property var modelData
+                    z: 3
+                    color: "#E0FF6A00"
+                    visible: AppSession.hasDocument
+                    x: modelData.o === "v" ? root.docToScreenX(modelData.p) : 0
+                    y: modelData.o === "h" ? root.docToScreenY(modelData.p) : 0
+                    width: modelData.o === "v" ? 1 : canvasHost.width
+                    height: modelData.o === "h" ? 1 : canvasHost.height
+                }
+            }
+
+            // Live text preview (editable text layers before bake)
+            Text {
+                id: textPreview
+                z: 3
+                visible: AppSession.hasDocument && AppSession.textLayerActive
+                x: root.docToScreenX(4)
+                y: root.docToScreenY(4)
+                width: Math.max(8, (AppSession.docWidth - 8) * AppSession.zoom)
+                text: AppSession.textBody
+                color: AppSession.textColorHex
+                font.family: AppSession.textFontFamily
+                font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
+                lineHeight: AppSession.textLineSpacing
+                lineHeightMode: Text.ProportionalHeight
+                horizontalAlignment: AppSession.textAlignment === 1
+                                     ? Text.AlignHCenter
+                                     : (AppSession.textAlignment === 2
+                                        ? Text.AlignRight : Text.AlignLeft)
+                wrapMode: Text.Wrap
+            }
+
+            // Rulers
+            Rectangle {
+                id: rulerTop
+                z: 6
+                visible: AppSession.hasDocument && AppSession.prefShowRulers
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 18
+                color: Theme.surfaceRaised
+                opacity: 0.92
+                Canvas {
+                    id: rulerTopCanvas
+                    anchors.fill: parent
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.fillStyle = Theme.colorOnSurfaceMuted
+                        ctx.font = "10px sans-serif"
+                        var zoom = Math.max(0.001, AppSession.zoom)
+                        var step = 50
+                        while (step * zoom < 40)
+                            step *= 2
+                        for (var d = 0; d <= AppSession.docWidth; d += step) {
+                            var sx = root.docToScreenX(d)
+                            ctx.fillRect(sx, 10, 1, 8)
+                            ctx.fillText(String(d), sx + 2, 10)
+                        }
+                    }
+                    Connections {
+                        target: AppSession
+                        function onZoomChanged() { rulerTopCanvas.requestPaint() }
+                        function onPanXChanged() { rulerTopCanvas.requestPaint() }
+                        function onPrefShowRulersChanged() { rulerTopCanvas.requestPaint() }
+                    }
+                }
+            }
+            Rectangle {
+                id: rulerLeft
+                z: 6
+                visible: AppSession.hasDocument && AppSession.prefShowRulers
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.topMargin: AppSession.prefShowRulers ? 18 : 0
+                width: 18
+                color: Theme.surfaceRaised
+                opacity: 0.92
+                Canvas {
+                    id: rulerLeftCanvas
+                    anchors.fill: parent
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.fillStyle = Theme.colorOnSurfaceMuted
+                        ctx.font = "10px sans-serif"
+                        var zoom = Math.max(0.001, AppSession.zoom)
+                        var step = 50
+                        while (step * zoom < 40)
+                            step *= 2
+                        for (var d = 0; d <= AppSession.docHeight; d += step) {
+                            var sy = root.docToScreenY(d)
+                            ctx.fillRect(10, sy, 8, 1)
+                            ctx.save()
+                            ctx.translate(2, sy + 2)
+                            ctx.rotate(-Math.PI / 2)
+                            ctx.fillText(String(d), 0, 0)
+                            ctx.restore()
+                        }
+                    }
+                    Connections {
+                        target: AppSession
+                        function onZoomChanged() { rulerLeftCanvas.requestPaint() }
+                        function onPanYChanged() { rulerLeftCanvas.requestPaint() }
+                        function onPrefShowRulersChanged() { rulerLeftCanvas.requestPaint() }
+                    }
+                }
             }
 
             // Brush size cursor (visual guide)
@@ -1362,6 +1568,16 @@ ApplicationWindow {
                         var dy = root.screenToDocY(y0)
                         var dw = w / Math.max(0.001, AppSession.zoom)
                         var dh = h / Math.max(0.001, AppSession.zoom)
+                        if (AppSession.prefSnap) {
+                            var sx0 = AppSession.snapDocumentValue(dx, "v")
+                            var sy0 = AppSession.snapDocumentValue(dy, "h")
+                            var sx1 = AppSession.snapDocumentValue(dx + dw, "v")
+                            var sy1 = AppSession.snapDocumentValue(dy + dh, "h")
+                            dx = sx0
+                            dy = sy0
+                            dw = Math.max(1, sx1 - sx0)
+                            dh = Math.max(1, sy1 - sy0)
+                        }
                         var combine = root.selectionCombineFromModifiers(mouse.modifiers)
                         if (AppSession.activeTool === "tool.select.ellipse") {
                             AppSession.selectEllipse(
@@ -1599,6 +1815,165 @@ ApplicationWindow {
                                 font.pixelSize: Theme.fontLabelSm
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
+                            }
+                        }
+
+                        // Character / text layer chrome
+                        ColumnLayout {
+                            id: characterProps
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.textLayerActive
+                                     || AppSession.activeTool === "tool.text"
+                                     || root.activeLayerKind === "text"
+
+                            function pushText() {
+                                AppSession.updateActiveText(
+                                            textBodyField.text,
+                                            fontFamilyCombo.currentText,
+                                            fontSizeSpin.value,
+                                            trackingSpin.value,
+                                            lineSpacingSpin.value / 100.0,
+                                            alignCombo.currentIndex,
+                                            textColorField.text)
+                            }
+
+                            Label {
+                                text: qsTr("Character")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            Label {
+                                visible: !AppSession.textLayerActive
+                                text: qsTr("Click the canvas with the Text tool to create a text layer.")
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                wrapMode: Text.Wrap
+                                Layout.fillWidth: true
+                            }
+                            TextField {
+                                id: textBodyField
+                                Layout.fillWidth: true
+                                enabled: AppSession.textLayerActive
+                                text: AppSession.textBody
+                                placeholderText: qsTr("Text")
+                                onEditingFinished: characterProps.pushText()
+                            }
+                            ComboBox {
+                                id: fontFamilyCombo
+                                Layout.fillWidth: true
+                                enabled: AppSession.textLayerActive
+                                model: ["Noto Sans", "Noto Sans Mono", "DejaVu Sans"]
+                                Component.onCompleted: {
+                                    var i = model.indexOf(AppSession.textFontFamily)
+                                    currentIndex = i >= 0 ? i : 0
+                                }
+                                onActivated: characterProps.pushText()
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Size")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                SpinBox {
+                                    id: fontSizeSpin
+                                    from: 4
+                                    to: 512
+                                    value: Math.round(AppSession.textFontSize)
+                                    enabled: AppSession.textLayerActive
+                                    onValueModified: characterProps.pushText()
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Tracking")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                SpinBox {
+                                    id: trackingSpin
+                                    from: -20
+                                    to: 40
+                                    value: Math.round(AppSession.textTracking)
+                                    enabled: AppSession.textLayerActive
+                                    onValueModified: characterProps.pushText()
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Leading")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                SpinBox {
+                                    id: lineSpacingSpin
+                                    from: 50
+                                    to: 400
+                                    value: Math.round(AppSession.textLineSpacing * 100)
+                                    enabled: AppSession.textLayerActive
+                                    textFromValue: function (v) { return (v / 100).toFixed(2) }
+                                    valueFromText: function (t) { return Math.round(parseFloat(t) * 100) }
+                                    onValueModified: {
+                                        // push uses /100 via custom path
+                                        AppSession.updateActiveText(
+                                                    textBodyField.text,
+                                                    fontFamilyCombo.currentText,
+                                                    fontSizeSpin.value,
+                                                    trackingSpin.value,
+                                                    lineSpacingSpin.value / 100.0,
+                                                    alignCombo.currentIndex,
+                                                    textColorField.text)
+                                    }
+                                }
+                            }
+                            ComboBox {
+                                id: alignCombo
+                                Layout.fillWidth: true
+                                enabled: AppSession.textLayerActive
+                                model: [qsTr("Left"), qsTr("Center"), qsTr("Right")]
+                                currentIndex: AppSession.textAlignment
+                                onActivated: characterProps.pushText()
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Color")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                TextField {
+                                    id: textColorField
+                                    Layout.fillWidth: true
+                                    enabled: AppSession.textLayerActive
+                                    text: AppSession.textColorHex
+                                    onEditingFinished: characterProps.pushText()
+                                }
+                            }
+                            Button {
+                                text: qsTr("Bake Text")
+                                enabled: AppSession.textLayerActive && !AppSession.ioBusy
+                                onClicked: AppSession.bakeTextLayer()
+                            }
+                            Connections {
+                                target: AppSession
+                                function onTextBodyChanged() {
+                                    if (!textBodyField.activeFocus)
+                                        textBodyField.text = AppSession.textBody
+                                }
+                                function onTextFontSizeChanged() {
+                                    fontSizeSpin.value = Math.round(AppSession.textFontSize)
+                                }
+                                function onTextColorHexChanged() {
+                                    if (!textColorField.activeFocus)
+                                        textColorField.text = AppSession.textColorHex
+                                }
+                                function onTextAlignmentChanged() {
+                                    alignCombo.currentIndex = AppSession.textAlignment
+                                }
                             }
                         }
 
@@ -2888,6 +3263,21 @@ ApplicationWindow {
                 text: qsTr("Show guides")
                 checked: AppSession.prefShowGuides
                 onToggled: AppSession.setPrefShowGuides(checked)
+            }
+            CheckBox {
+                text: qsTr("Show grid")
+                checked: AppSession.prefShowGrid
+                onToggled: AppSession.setGridVisible(checked)
+            }
+            CheckBox {
+                text: qsTr("Show rulers")
+                checked: AppSession.prefShowRulers
+                onToggled: AppSession.setRulersVisible(checked)
+            }
+            CheckBox {
+                text: qsTr("Snap to grid / guides")
+                checked: AppSession.prefSnap
+                onToggled: AppSession.setSnapEnabled(checked)
             }
             CheckBox {
                 text: qsTr("Restore last tool on launch")

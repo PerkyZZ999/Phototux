@@ -11,11 +11,11 @@ use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentError,
-    DocumentGraph, DocumentSize, EngineCommand, EngineEvent, FilterParams, HistoryKind,
-    HostHistoryAction, LayerId, LayerKind, LayerStyle, LayerTransform, PathPoint, SelectionCombine,
-    SelectionRect, SelectionShape, SelectionState, SessionState, TextContent, TransformSession,
-    VectorPath, bake_text_rgba8, command_id, contract_mask_r8, expand_mask_r8, feather_mask_r8,
-    stroke_path_rgba8, tool_id, undo_actions,
+    DocumentGraph, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation,
+    HistoryKind, HostHistoryAction, LayerId, LayerKind, LayerStyle, LayerTransform, PathPoint,
+    SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, TextContent,
+    TransformSession, VectorPath, bake_text_rgba8, command_id, contract_mask_r8, expand_mask_r8,
+    feather_mask_r8, stroke_path_rgba8, tool_id, undo_actions,
 };
 use prefs::Preferences;
 
@@ -176,6 +176,19 @@ pub struct AppSession {
     panel_layers_visible: bool,
     panel_history_visible: bool,
     panel_properties_visible: bool,
+    text_layer_active: bool,
+    text_body: String,
+    text_font_family: String,
+    text_font_size: f32,
+    text_tracking: f32,
+    text_line_spacing: f32,
+    text_alignment: i32,
+    text_color_hex: String,
+    pref_show_grid: bool,
+    pref_show_rulers: bool,
+    pref_snap: bool,
+    guides_json: String,
+    grid_spacing: f32,
 }
 
 impl Default for AppSession {
@@ -298,6 +311,19 @@ impl AppSession {
             panel_layers_visible: true,
             panel_history_visible: true,
             panel_properties_visible: true,
+            text_layer_active: false,
+            text_body: String::new(),
+            text_font_family: "Noto Sans".into(),
+            text_font_size: 24.0,
+            text_tracking: 0.0,
+            text_line_spacing: 1.2,
+            text_alignment: 0,
+            text_color_hex: "#000000".into(),
+            pref_show_grid: false,
+            pref_show_rulers: false,
+            pref_snap: true,
+            guides_json: "[]".into(),
+            grid_spacing: 32.0,
         };
         out.apply_loaded_preferences();
         if let Some(error) = out.worker.start_error() {
@@ -386,6 +412,8 @@ impl AppSession {
         self.viewport_width = self.engine.viewport_w;
         self.viewport_height = self.engine.viewport_h;
         self.sync_adjustment_fields();
+        self.sync_text_fields();
+        self.sync_guides_fields();
         self.status_text = self.engine.status_summary();
     }
 
@@ -461,6 +489,56 @@ impl AppSession {
         self.gaussian_radius = gaussian.unwrap_or(0.0);
     }
 
+    fn sync_text_fields(&mut self) {
+        let layer = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)));
+        let Some(layer) = layer.filter(|l| l.kind == LayerKind::Text) else {
+            self.text_layer_active = false;
+            return;
+        };
+        self.text_layer_active = true;
+        let content = layer.text.clone().unwrap_or_default();
+        self.text_body = content.text;
+        self.text_font_family = content.font_family;
+        self.text_font_size = content.font_size_pt;
+        self.text_tracking = content.tracking;
+        self.text_line_spacing = content.line_spacing;
+        self.text_alignment = i32::from(content.alignment);
+        self.text_color_hex = phototux_engine::ColorState::to_hex(content.color_rgba);
+    }
+
+    fn sync_guides_fields(&mut self) {
+        self.pref_show_guides = self.engine.guides.show_guides;
+        self.pref_show_grid = self.engine.guides.show_grid;
+        self.pref_show_rulers = self.engine.guides.show_rulers;
+        self.pref_snap = self.engine.guides.snap;
+        self.grid_spacing = self.engine.guides.grid_spacing;
+        self.guides_json = self.engine.guides.guides_json();
+    }
+
+    fn emit_text_fields(&mut self) {
+        self.text_layer_active_changed();
+        self.text_body_changed();
+        self.text_font_family_changed();
+        self.text_font_size_changed();
+        self.text_tracking_changed();
+        self.text_line_spacing_changed();
+        self.text_alignment_changed();
+        self.text_color_hex_changed();
+    }
+
+    fn emit_guides_fields(&mut self) {
+        self.pref_show_guides_changed();
+        self.pref_show_grid_changed();
+        self.pref_show_rulers_changed();
+        self.pref_snap_changed();
+        self.guides_json_changed();
+        self.grid_spacing_changed();
+    }
+
     fn emit_camera_fields(&mut self) {
         self.zoom_changed();
         self.pan_x_changed();
@@ -507,6 +585,8 @@ impl AppSession {
         self.gaussian_radius_changed();
         self.composite_ms_changed();
         self.status_text_changed();
+        self.emit_text_fields();
+        self.emit_guides_fields();
     }
 
     fn sync_selection_fields(&mut self) {
@@ -663,6 +743,9 @@ impl AppSession {
         self.prefs = Preferences::load();
         self.sync_pref_fields_from_store();
         self.engine.guides.show_guides = self.prefs.show_guides;
+        self.engine.guides.show_grid = self.prefs.show_grid;
+        self.engine.guides.show_rulers = self.prefs.show_rulers;
+        self.engine.guides.snap = self.prefs.snap_enabled;
         if self.prefs.restore_last_tool && !self.prefs.last_tool.is_empty() {
             let _ = self.engine.invoke(
                 command_id::VIEW_SET_TOOL,
@@ -675,22 +758,31 @@ impl AppSession {
 
     fn sync_pref_fields_from_store(&mut self) {
         self.pref_show_guides = self.prefs.show_guides;
+        self.pref_show_grid = self.prefs.show_grid;
+        self.pref_show_rulers = self.prefs.show_rulers;
+        self.pref_snap = self.prefs.snap_enabled;
         self.pref_restore_last_tool = self.prefs.restore_last_tool;
         self.panel_navigator_visible = self.prefs.panel_navigator;
         self.panel_swatches_visible = self.prefs.panel_swatches;
         self.panel_layers_visible = self.prefs.panel_layers;
         self.panel_history_visible = self.prefs.panel_history;
         self.panel_properties_visible = self.prefs.panel_properties;
+        self.sync_guides_fields();
     }
 
     fn emit_pref_fields(&mut self) {
         self.pref_show_guides_changed();
+        self.pref_show_grid_changed();
+        self.pref_show_rulers_changed();
+        self.pref_snap_changed();
         self.pref_restore_last_tool_changed();
         self.panel_navigator_visible_changed();
         self.panel_swatches_visible_changed();
         self.panel_layers_visible_changed();
         self.panel_history_visible_changed();
         self.panel_properties_visible_changed();
+        self.guides_json_changed();
+        self.grid_spacing_changed();
     }
 
     fn persist_prefs(&mut self) {
@@ -1221,6 +1313,63 @@ impl AppSession {
         Notify = pref_show_guides_changed
     );
     qproperty!(
+        "prefShowGrid",
+        Member = pref_show_grid,
+        Notify = pref_show_grid_changed
+    );
+    qproperty!(
+        "prefShowRulers",
+        Member = pref_show_rulers,
+        Notify = pref_show_rulers_changed
+    );
+    qproperty!("prefSnap", Member = pref_snap, Notify = pref_snap_changed);
+    qproperty!(
+        "guidesJson",
+        Member = guides_json,
+        Notify = guides_json_changed
+    );
+    qproperty!(
+        "gridSpacing",
+        Member = grid_spacing,
+        Notify = grid_spacing_changed
+    );
+    qproperty!(
+        "textLayerActive",
+        Member = text_layer_active,
+        Notify = text_layer_active_changed
+    );
+    qproperty!("textBody", Member = text_body, Notify = text_body_changed);
+    qproperty!(
+        "textFontFamily",
+        Member = text_font_family,
+        Notify = text_font_family_changed
+    );
+    qproperty!(
+        "textFontSize",
+        Member = text_font_size,
+        Notify = text_font_size_changed
+    );
+    qproperty!(
+        "textTracking",
+        Member = text_tracking,
+        Notify = text_tracking_changed
+    );
+    qproperty!(
+        "textLineSpacing",
+        Member = text_line_spacing,
+        Notify = text_line_spacing_changed
+    );
+    qproperty!(
+        "textAlignment",
+        Member = text_alignment,
+        Notify = text_alignment_changed
+    );
+    qproperty!(
+        "textColorHex",
+        Member = text_color_hex,
+        Notify = text_color_hex_changed
+    );
+    qproperty!(
         "prefRestoreLastTool",
         Member = pref_restore_last_tool,
         Notify = pref_restore_last_tool_changed
@@ -1405,6 +1554,32 @@ impl AppSession {
     fn preferences_open_changed(&mut self);
     #[qsignal]
     fn pref_show_guides_changed(&mut self);
+    #[qsignal]
+    fn pref_show_grid_changed(&mut self);
+    #[qsignal]
+    fn pref_show_rulers_changed(&mut self);
+    #[qsignal]
+    fn pref_snap_changed(&mut self);
+    #[qsignal]
+    fn guides_json_changed(&mut self);
+    #[qsignal]
+    fn grid_spacing_changed(&mut self);
+    #[qsignal]
+    fn text_layer_active_changed(&mut self);
+    #[qsignal]
+    fn text_body_changed(&mut self);
+    #[qsignal]
+    fn text_font_family_changed(&mut self);
+    #[qsignal]
+    fn text_font_size_changed(&mut self);
+    #[qsignal]
+    fn text_tracking_changed(&mut self);
+    #[qsignal]
+    fn text_line_spacing_changed(&mut self);
+    #[qsignal]
+    fn text_alignment_changed(&mut self);
+    #[qsignal]
+    fn text_color_hex_changed(&mut self);
     #[qsignal]
     fn pref_restore_last_tool_changed(&mut self);
     #[qsignal]
@@ -3198,9 +3373,113 @@ impl AppSession {
         self.prefs.show_guides = visible;
         self.pref_show_guides = visible;
         self.persist_prefs();
-        self.pref_show_guides_changed();
+        self.emit_guides_fields();
         self.status_text = self.engine.status_summary();
         self.status_text_changed();
+    }
+
+    #[qslot]
+    fn set_grid_visible(&mut self, visible: bool) {
+        self.engine.guides.show_grid = visible;
+        self.prefs.show_grid = visible;
+        self.pref_show_grid = visible;
+        self.persist_prefs();
+        self.emit_guides_fields();
+    }
+
+    #[qslot]
+    fn set_rulers_visible(&mut self, visible: bool) {
+        self.engine.guides.show_rulers = visible;
+        self.prefs.show_rulers = visible;
+        self.pref_show_rulers = visible;
+        self.persist_prefs();
+        self.emit_guides_fields();
+    }
+
+    #[qslot]
+    fn set_snap_enabled(&mut self, enabled: bool) {
+        self.engine.guides.snap = enabled;
+        self.prefs.snap_enabled = enabled;
+        self.pref_snap = enabled;
+        self.persist_prefs();
+        self.emit_guides_fields();
+    }
+
+    #[qslot]
+    fn set_grid_spacing(&mut self, spacing: f32) {
+        self.engine.guides.grid_spacing = spacing.clamp(4.0, 512.0);
+        self.grid_spacing = self.engine.guides.grid_spacing;
+        self.grid_spacing_changed();
+    }
+
+    #[qslot]
+    fn add_guide(&mut self, orientation: String, position: f32) {
+        let Some(orient) = GuideOrientation::parse(&orientation) else {
+            self.status_text = format!("Unknown guide orientation: {orientation}");
+            self.status_text_changed();
+            return;
+        };
+        let position = self.engine.guides.snap_value(position, orient);
+        self.engine.guides.add_guide(Guide {
+            orientation: orient,
+            position,
+        });
+        self.sync_guides_fields();
+        self.emit_guides_fields();
+        self.status_text = format!("Guide added at {position:.0}px");
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn clear_guides(&mut self) {
+        self.engine.guides.clear_guides();
+        self.sync_guides_fields();
+        self.emit_guides_fields();
+        self.status_text = "Guides cleared".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn snap_document_value(&mut self, value: f32, orientation: String) -> f32 {
+        let orient = GuideOrientation::parse(&orientation).unwrap_or(GuideOrientation::Vertical);
+        self.engine.guides.snap_value(value, orient)
+    }
+
+    #[qslot]
+    fn update_active_text(
+        &mut self,
+        body: String,
+        font_family: String,
+        font_size: f32,
+        tracking: f32,
+        line_spacing: f32,
+        alignment: i32,
+        color_hex: String,
+    ) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) else {
+            return;
+        };
+        if layer.kind != LayerKind::Text {
+            return;
+        }
+        let rgba =
+            phototux_engine::ColorState::from_hex(&color_hex).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        layer.text = Some(TextContent {
+            text: body,
+            font_family,
+            font_size_pt: font_size.clamp(4.0, 512.0),
+            color_rgba: rgba,
+            alignment: u8::try_from(alignment.clamp(0, 2)).unwrap_or(0),
+            tracking,
+            line_spacing: line_spacing.clamp(0.5, 4.0),
+        });
+        let _ = self.engine.bump_document_generation();
+        self.mark_dirty();
+        self.sync_text_fields();
+        self.emit_text_fields();
     }
 
     #[qslot]

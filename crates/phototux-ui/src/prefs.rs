@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Preferences {
     pub show_guides: bool,
+    pub show_grid: bool,
+    pub show_rulers: bool,
+    pub snap_enabled: bool,
     pub restore_last_tool: bool,
     pub last_tool: String,
     pub panel_navigator: bool,
@@ -24,6 +27,9 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             show_guides: true,
+            show_grid: false,
+            show_rulers: false,
+            snap_enabled: true,
             restore_last_tool: false,
             last_tool: phototux_engine::tool_id::BRUSH.to_owned(),
             panel_navigator: true,
