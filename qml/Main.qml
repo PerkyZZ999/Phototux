@@ -398,6 +398,27 @@ ApplicationWindow {
                 enabled: AppSession.hasDocument && !AppSession.ioBusy
                 onTriggered: AppSession.bakeTextLayer()
             }
+            Menu {
+                title: qsTr("New &Shape")
+                enabled: AppSession.hasDocument
+                MenuItem {
+                    text: qsTr("Rectangle")
+                    onTriggered: AppSession.addShapeLayer("rect")
+                }
+                MenuItem {
+                    text: qsTr("Ellipse")
+                    onTriggered: AppSession.addShapeLayer("ellipse")
+                }
+                MenuItem {
+                    text: qsTr("Line")
+                    onTriggered: AppSession.addShapeLayer("line")
+                }
+            }
+            MenuItem {
+                text: qsTr("Rasterize Shape")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.rasterizeShapeLayer()
+            }
             MenuItem {
                 text: qsTr("Drop &Shadow")
                 enabled: AppSession.hasDocument
@@ -807,6 +828,7 @@ ApplicationWindow {
                         { id: "tool.gradient", stem: "gradient", tip: qsTr("Gradient") },
                         { id: "tool.eyedropper", stem: "eyedropper", tip: qsTr("Eyedropper") },
                         { id: "tool.text", stem: "text-t", tip: qsTr("Text") },
+                        { id: "tool.shape", stem: "shapes", tip: qsTr("Shape") },
                         { id: "tool.pan", stem: "hand", tip: qsTr("Pan") },
                         { id: "tool.zoom", stem: "magnifying-glass", tip: qsTr("Zoom") }
                     ]
@@ -1529,6 +1551,10 @@ ApplicationWindow {
                     }
                     if (AppSession.activeTool === "tool.text") {
                         AppSession.addTextLayer(qsTr("Text"))
+                        return
+                    }
+                    if (AppSession.activeTool === "tool.shape") {
+                        AppSession.addShapeLayer("rect")
                         return
                     }
                     if (AppSession.activeTool === "tool.fill") {

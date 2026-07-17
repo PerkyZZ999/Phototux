@@ -288,6 +288,18 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | Consequences | Handbook “bytes deferred” means future encoding improvements, not “format unset.” |
 | Revisit | Only if `.ptx` cannot meet large-doc/recovery requirements after evolution attempts. |
 
+## DR-027 — Graph kind set includes Shape
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Date | 2026-07-16 |
+| Docs | [10](../10-Document-Model.md), [19](../19-Shape-Engine.md), [DR-020](#dr-020--text-and-shape-are-deterministic-local-engines), archived ADR-017 |
+| Context | ADR-017 closed the typed kind list; DR-020 already requires deterministic shape engines. Phase 4 needs `LayerKind::Shape` without rewriting DR-020. |
+| Decision | Extend the document graph kind set with **`Shape`**. Shape layers own vector geometry (`ShapeContent` / path + fill/stroke) and contribute via explicit rasterization (GPU upload or bake-to-raster). Free document `PathDocument` paths remain separate. Old graphs without Shape continue to deserialize. |
+| Consequences | `GRAPH_SCHEMA_VERSION` may bump for clarity; serde must remain backward-compatible. Full handbook 19 (booleans, parametric primitives) is incremental after v1 rect/ellipse/line. |
+| Revisit | When Shape payload needs a breaking schema change. |
+
 ## Open Deferred Cluster
 
 | Topic | Related DR | Blocking evidence |

@@ -36,10 +36,13 @@ pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
-    LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, TextContent,
+    LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, ShapeContent, TextContent,
 };
 pub use layer_style::{LayerStyle, apply_styles_rgba8};
-pub use paths::{PathDocument, PathPoint, VectorPath, stroke_path_rgba8};
+pub use paths::{
+    PathDocument, PathPoint, VectorPath, ellipse_path, rasterize_shape_rgba8, rect_path,
+    stroke_path_rgba8,
+};
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
     contract_mask_r8, expand_mask_r8, feather_mask_r8,
@@ -143,6 +146,7 @@ pub mod tool_id {
     pub const GRADIENT: &str = "tool.gradient";
     pub const EYEDROPPER: &str = "tool.eyedropper";
     pub const TEXT: &str = "tool.text";
+    pub const SHAPE: &str = "tool.shape";
 }
 
 /// Session state: camera + document graph + unified history.

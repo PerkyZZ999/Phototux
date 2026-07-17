@@ -7,7 +7,7 @@ use crate::color_mgmt::DocumentColorState;
 use crate::error::DocumentError;
 use crate::layer::{
     AdjustmentParams, BlendMode, FilterEffect, FilterParams, Layer, LayerId, LayerKind, LayerMask,
-    MAX_BLUR_RADIUS, TextContent,
+    MAX_BLUR_RADIUS, ShapeContent, TextContent,
 };
 use crate::paths::PathDocument;
 
@@ -15,7 +15,7 @@ use crate::paths::PathDocument;
 pub const MAX_LAYERS: usize = 16;
 
 /// Graph schema version embedded in `.ptx` manifests.
-pub const GRAPH_SCHEMA_VERSION: u32 = 2;
+pub const GRAPH_SCHEMA_VERSION: u32 = 3;
 
 /// Non-destructive ordered stack with typed nodes. Index 0 = bottom (background).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +230,27 @@ impl DocumentGraph {
         let id = LayerId(self.next_id);
         self.next_id += 1;
         let layer = Layer::text_layer(id, name.unwrap_or_else(|| "Text".into()), content);
+        self.layers.push(layer);
+        self.active = Some(id);
+        self.bump();
+        Ok(id)
+    }
+
+    /// Add a shape layer on top (DR-027).
+    ///
+    /// # Errors
+    /// Returns [`DocumentError::LayerLimitReached`] when the layer cap is reached.
+    pub fn add_shape_top(
+        &mut self,
+        name: Option<String>,
+        content: ShapeContent,
+    ) -> Result<LayerId, DocumentError> {
+        if !self.can_add_layer() {
+            return Err(DocumentError::layer_limit(MAX_LAYERS));
+        }
+        let id = LayerId(self.next_id);
+        self.next_id += 1;
+        let layer = Layer::shape_layer(id, name.unwrap_or_else(|| "Shape".into()), content);
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();

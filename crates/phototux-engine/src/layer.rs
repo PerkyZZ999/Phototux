@@ -15,6 +15,8 @@ pub enum LayerKind {
     Group,
     Text,
     Adjustment,
+    /// Vector shape layer (DR-027); rasterized for composite.
+    Shape,
 }
 
 impl LayerKind {
@@ -24,6 +26,31 @@ impl LayerKind {
             Self::Group => "group",
             Self::Text => "text",
             Self::Adjustment => "adjustment",
+            Self::Shape => "shape",
+        }
+    }
+}
+
+/// Editable shape payload on a [`LayerKind::Shape`] layer (DR-027 v1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapeContent {
+    pub path: crate::paths::VectorPath,
+    pub fill_rgba: [f32; 4],
+    pub stroke_rgba: [f32; 4],
+    pub stroke_width: f32,
+    pub filled: bool,
+    pub stroked: bool,
+}
+
+impl Default for ShapeContent {
+    fn default() -> Self {
+        Self {
+            path: crate::paths::VectorPath::polyline("Shape", Vec::new(), true),
+            fill_rgba: [0.2, 0.45, 0.9, 1.0],
+            stroke_rgba: [0.0, 0.0, 0.0, 1.0],
+            stroke_width: 2.0,
+            filled: true,
+            stroked: true,
         }
     }
 }
@@ -465,6 +492,8 @@ pub struct Layer {
     pub label_color: u8,
     pub text: Option<TextContent>,
     pub adjustment: Option<AdjustmentParams>,
+    #[serde(default)]
+    pub shape: Option<ShapeContent>,
     pub effects: Vec<FilterEffect>,
     /// Nondestructive layer styles (shadow / stroke v1).
     #[serde(default)]
@@ -491,6 +520,7 @@ impl Layer {
             label_color: 0,
             text: None,
             adjustment: None,
+            shape: None,
             effects: Vec::new(),
             styles: Vec::new(),
             asset_key: Some(format!("layer-{}", id.0)),
@@ -509,6 +539,13 @@ impl Layer {
         let mut layer = Self::new(id, name);
         layer.kind = LayerKind::Text;
         layer.text = Some(content);
+        layer
+    }
+
+    pub fn shape_layer(id: LayerId, name: impl Into<String>, content: ShapeContent) -> Self {
+        let mut layer = Self::new(id, name);
+        layer.kind = LayerKind::Shape;
+        layer.shape = Some(content);
         layer
     }
 

@@ -13,9 +13,10 @@ use phototux_engine::{
     AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentError,
     DocumentGraph, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation,
     HistoryKind, HostHistoryAction, LayerId, LayerKind, LayerStyle, LayerTransform, PathPoint,
-    SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, TextContent,
-    TransformSession, VectorPath, bake_text_rgba8, command_id, contract_mask_r8, expand_mask_r8,
-    feather_mask_r8, stroke_path_rgba8, tool_id, undo_actions,
+    SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, ShapeContent,
+    TextContent, TransformSession, VectorPath, bake_text_rgba8, command_id, contract_mask_r8,
+    ellipse_path, expand_mask_r8, feather_mask_r8, rasterize_shape_rgba8, rect_path,
+    stroke_path_rgba8, tool_id, undo_actions,
 };
 use prefs::Preferences;
 
@@ -2854,6 +2855,149 @@ impl AppSession {
         self.sync_from_engine();
         self.emit_layer_fields();
         self.status_text = "Text baked to pixels".to_owned();
+        self.status_text_changed();
+    }
+
+    /// Create a shape layer (`kind`: rect|ellipse|line) centered in the document.
+    #[qslot]
+    fn add_shape_layer(&mut self, kind: String) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let w = graph.size.width as f32;
+        let h = graph.size.height as f32;
+        let path = match kind.as_str() {
+            "ellipse" => ellipse_path("Ellipse", w * 0.5, h * 0.5, w * 0.2, h * 0.15),
+            "line" => VectorPath::polyline(
+                "Line",
+                vec![
+                    PathPoint {
+                        x: w * 0.2,
+                        y: h * 0.5,
+                    },
+                    PathPoint {
+                        x: w * 0.8,
+                        y: h * 0.5,
+                    },
+                ],
+                false,
+            ),
+            _ => rect_path("Rectangle", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
+        };
+        let filled = kind != "line";
+        let content = ShapeContent {
+            path,
+            filled,
+            stroked: true,
+            ..ShapeContent::default()
+        };
+        let (doc_w, doc_h) = (graph.size.width, graph.size.height);
+        let pixels = match Self::shape_pixels(&content, doc_w, doc_h) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("shape raster", &error);
+                return;
+            }
+        };
+        let result = (|| {
+            let SessionState { graph, history, .. } = &mut self.engine;
+            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
+            let id = graph.add_shape_top(None, content)?;
+            let index = graph.index_of(id).unwrap_or(0);
+            let layer = graph
+                .get(id)
+                .cloned()
+                .ok_or(DocumentError::LayerMissingAfterAdd)?;
+            history.push_graph_applied(
+                phototux_engine::GraphCommand::AddLayer { id, index, layer },
+                "Add shape layer",
+                {
+                    graph.bump_generation();
+                    graph.generation
+                },
+            );
+            Ok::<_, DocumentError>(id)
+        })();
+        match result {
+            Ok(id) => {
+                if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                    self.report_gpu("shape upload", &error);
+                    return;
+                }
+                self.recomposite();
+                self.mark_dirty();
+                self.sync_from_engine();
+                self.emit_layer_fields();
+            }
+            Err(error) => self.report_gpu("add shape", &error.to_string()),
+        }
+    }
+
+    fn shape_pixels(content: &ShapeContent, w: u32, h: u32) -> Result<Vec<u8>, String> {
+        let fill = content.filled.then(|| {
+            [
+                (content.fill_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (content.fill_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (content.fill_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (content.fill_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+            ]
+        });
+        let stroke = content.stroked.then(|| {
+            [
+                (content.stroke_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (content.stroke_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (content.stroke_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (content.stroke_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+            ]
+        });
+        rasterize_shape_rgba8(w, h, &content.path, fill, stroke, content.stroke_width)
+    }
+
+    /// Bake active shape layer to raster (clears shape payload).
+    #[qslot]
+    fn rasterize_shape_layer(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let Some(layer) = graph.get(id) else {
+            return;
+        };
+        if layer.kind != LayerKind::Shape {
+            self.status_text = "Rasterize Shape requires an active shape layer".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let Some(content) = layer.shape.clone() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let pixels = match Self::shape_pixels(&content, w, h) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("rasterize shape", &error);
+                return;
+            }
+        };
+        if let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) {
+            layer.kind = LayerKind::Raster;
+            layer.shape = None;
+            if layer.asset_key.is_none() {
+                layer.asset_key = Some(format!("layer-{}", id.0));
+            }
+        }
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+            self.report_gpu("rasterize shape upload", &error);
+            return;
+        }
+        let _ = self.engine.bump_document_generation();
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.status_text = "Shape rasterized to pixels".to_owned();
         self.status_text_changed();
     }
 

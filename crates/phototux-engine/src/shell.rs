@@ -152,6 +152,12 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "type".into(),
         },
         ToolDescriptor {
+            id: tool_id::SHAPE.into(),
+            title: "Shape".into(),
+            icon_key: "tool.shape".into(),
+            group: "vector".into(),
+        },
+        ToolDescriptor {
             id: tool_id::PAN.into(),
             title: "Hand".into(),
             icon_key: "tool.pan".into(),
