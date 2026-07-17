@@ -83,6 +83,8 @@ pub mod command_id {
     pub const FILTER_SET_PARAMETERS: &str = "filter.set-parameters";
     pub const FILTER_ADD_EFFECT: &str = "filter.add-effect";
     pub const FILTER_SET_GAUSSIAN_RADIUS: &str = "filter.set-gaussian-radius";
+    pub const EFFECT_REORDER: &str = "effect.reorder";
+    pub const EFFECT_SET_ENABLED: &str = "effect.set-enabled";
 
     pub const STYLE_ADD_DROP_SHADOW: &str = "style.add-drop-shadow";
     pub const STYLE_ADD_STROKE: &str = "style.add-stroke";
@@ -158,6 +160,8 @@ pub mod command_id {
         FILTER_SET_PARAMETERS,
         FILTER_ADD_EFFECT,
         FILTER_SET_GAUSSIAN_RADIUS,
+        EFFECT_REORDER,
+        EFFECT_SET_ENABLED,
         STYLE_ADD_DROP_SHADOW,
         STYLE_ADD_STROKE,
         CLIPBOARD_PASTE_LAYER,
@@ -310,6 +314,14 @@ pub enum CommandArgs {
     },
     FilterGaussianRadius {
         radius: f32,
+    },
+    EffectReorder {
+        effect_id: u64,
+        to_index: i32,
+    },
+    EffectSetEnabled {
+        effect_id: u64,
+        enabled: bool,
     },
     PasteLayer {
         name: String,
@@ -522,6 +534,8 @@ impl SessionState {
             command_id::FILTER_SET_PARAMETERS => self.cmd_filter_set_parameters(args),
             command_id::FILTER_ADD_EFFECT => self.cmd_filter_add_effect(args),
             command_id::FILTER_SET_GAUSSIAN_RADIUS => self.cmd_filter_set_gaussian_radius(args),
+            command_id::EFFECT_REORDER => self.cmd_effect_reorder(args),
+            command_id::EFFECT_SET_ENABLED => self.cmd_effect_set_enabled(args),
             command_id::STYLE_ADD_DROP_SHADOW => self.cmd_style_add_drop_shadow(),
             command_id::STYLE_ADD_STROKE => self.cmd_style_add_stroke(),
             command_id::CLIPBOARD_PASTE_LAYER => self.cmd_clipboard_paste_layer(args),
@@ -2162,6 +2176,81 @@ impl SessionState {
         Ok(CommandEffects::document_edit(generation))
     }
 
+    fn cmd_effect_reorder(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::EffectReorder {
+            effect_id,
+            to_index,
+        } = args
+        else {
+            return Err(CommandError::InvalidArgument("expected EffectReorder"));
+        };
+        let id = self.active_layer_id()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        let prev = layer.effects.clone();
+        let Some(from) = prev.iter().position(|e| e.id == effect_id) else {
+            return Err(CommandError::Rejected("effect missing"));
+        };
+        let mut next = prev.clone();
+        let effect = next.remove(from);
+        let to = (to_index.max(0) as usize).min(next.len());
+        next.insert(to, effect);
+        if next.iter().map(|e| e.id).eq(prev.iter().map(|e| e.id)) {
+            return Err(CommandError::Rejected("effect order unchanged"));
+        }
+        let _ = graph.set_effects(id, next.clone());
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(
+            crate::GraphCommand::SetEffects { id, prev, next },
+            "Reorder effects",
+            generation,
+        );
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    fn cmd_effect_set_enabled(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::EffectSetEnabled { effect_id, enabled } = args else {
+            return Err(CommandError::InvalidArgument("expected EffectSetEnabled"));
+        };
+        let id = self.active_layer_id()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        let prev = layer.effects.clone();
+        let mut next = prev.clone();
+        let Some(effect) = next.iter_mut().find(|e| e.id == effect_id) else {
+            return Err(CommandError::Rejected("effect missing"));
+        };
+        if effect.enabled == enabled {
+            return Err(CommandError::Rejected("effect enable unchanged"));
+        }
+        effect.enabled = enabled;
+        let _ = graph.set_effects(id, next.clone());
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(
+            crate::GraphCommand::SetEffects { id, prev, next },
+            if enabled {
+                "Enable effect"
+            } else {
+                "Disable effect"
+            },
+            generation,
+        );
+        Ok(CommandEffects::document_edit(generation))
+    }
+
     fn cmd_style_add_drop_shadow(&mut self) -> Result<CommandEffects, CommandError> {
         let id = self.active_layer_id()?;
         let Some(graph) = self.graph.as_mut() else {
@@ -2507,6 +2596,48 @@ mod tests {
         for id in &ids {
             assert!(g.get(*id).unwrap().parent.is_none());
         }
+    }
+
+    #[test]
+    fn effect_reorder_preserves_ids() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(
+            command_id::FILTER_ADD_EFFECT,
+            CommandArgs::FilterEffect {
+                kind: "gaussian".into(),
+            },
+        )
+        .expect("blur1");
+        s.invoke(
+            command_id::FILTER_ADD_EFFECT,
+            CommandArgs::FilterEffect {
+                kind: "sharpen".into(),
+            },
+        )
+        .expect("sharpen");
+        s.invoke(
+            command_id::FILTER_ADD_EFFECT,
+            CommandArgs::FilterEffect {
+                kind: "motion".into(),
+            },
+        )
+        .expect("motion");
+        let id = s.graph.as_ref().unwrap().active_id().unwrap();
+        let effects = s.graph.as_ref().unwrap().get(id).unwrap().effects.clone();
+        assert_eq!(effects.len(), 3);
+        let mid = effects[1].id;
+        s.invoke(
+            command_id::EFFECT_REORDER,
+            CommandArgs::EffectReorder {
+                effect_id: mid,
+                to_index: 0,
+            },
+        )
+        .expect("reorder");
+        let next = &s.graph.as_ref().unwrap().get(id).unwrap().effects;
+        assert_eq!(next[0].id, mid);
+        assert_eq!(next.len(), 3);
     }
 
     #[test]

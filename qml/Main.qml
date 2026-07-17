@@ -2737,12 +2737,58 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
                             visible: AppSession.hasGaussianBlur
+                                     || AppSession.effectsJoined.length > 0
                             Label {
-                                text: qsTr("Gaussian Blur")
+                                text: qsTr("Effects")
                                 color: Theme.colorOnSurface
                                 font.pixelSize: Theme.fontBodySm
                             }
+                            Repeater {
+                                id: effectsRepeater
+                                model: AppSession.effectsJoined.length > 0
+                                       ? AppSession.effectsJoined.split("|") : []
+                                delegate: RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    readonly property var parts: modelData.split(":")
+                                    readonly property string effectId: parts.length > 0 ? parts[0] : ""
+                                    readonly property string effectName: parts.length > 1 ? parts[1] : ""
+                                    readonly property bool effectOn: parts.length > 2 && parts[2] === "1"
+                                    CheckBox {
+                                        checked: effectOn
+                                        text: effectName
+                                        Layout.fillWidth: true
+                                        onToggled: AppSession.setActiveEffectEnabled(
+                                                       Number(effectId), checked)
+                                    }
+                                    ToolButton {
+                                        implicitWidth: 22
+                                        implicitHeight: 22
+                                        text: "↑"
+                                        enabled: index > 0
+                                        onClicked: AppSession.reorderActiveEffect(
+                                                       Number(effectId), index - 1)
+                                        Accessible.name: qsTr("Move effect up")
+                                    }
+                                    ToolButton {
+                                        implicitWidth: 22
+                                        implicitHeight: 22
+                                        text: "↓"
+                                        enabled: index < effectsRepeater.count - 1
+                                        onClicked: AppSession.reorderActiveEffect(
+                                                       Number(effectId), index + 1)
+                                        Accessible.name: qsTr("Move effect down")
+                                    }
+                                }
+                            }
+                            Label {
+                                visible: AppSession.hasGaussianBlur
+                                text: qsTr("Gaussian Blur radius")
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabelSm
+                            }
                             RowLayout {
+                                visible: AppSession.hasGaussianBlur
                                 Layout.fillWidth: true
                                 Label {
                                     text: qsTr("Radius")
@@ -2758,6 +2804,7 @@ ApplicationWindow {
                                 }
                             }
                             Slider {
+                                visible: AppSession.hasGaussianBlur
                                 Layout.fillWidth: true
                                 from: 0
                                 to: 64

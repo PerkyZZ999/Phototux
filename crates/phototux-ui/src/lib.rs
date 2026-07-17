@@ -183,6 +183,7 @@ pub struct AppSession {
     adjustment_p2: f32,
     has_gaussian_blur: bool,
     gaussian_radius: f32,
+    effects_joined: String,
     icon_root: String,
     document_name: String,
     dirty: bool,
@@ -348,6 +349,7 @@ impl AppSession {
             adjustment_p2: 1.0,
             has_gaussian_blur: false,
             gaussian_radius: 0.0,
+            effects_joined: String::new(),
             icon_root,
             document_name: "Untitled".to_owned(),
             dirty: false,
@@ -642,6 +644,7 @@ impl AppSession {
         });
         self.has_gaussian_blur = gaussian.is_some();
         self.gaussian_radius = gaussian.unwrap_or(0.0);
+        self.effects_joined = self.engine.active_effects_joined();
     }
 
     fn sync_text_fields(&mut self) {
@@ -749,6 +752,7 @@ impl AppSession {
         self.adjustment_p2_changed();
         self.has_gaussian_blur_changed();
         self.gaussian_radius_changed();
+        self.effects_joined_changed();
         self.composite_ms_changed();
         self.status_text_changed();
         self.emit_text_fields();
@@ -1926,6 +1930,11 @@ impl AppSession {
         Member = gaussian_radius,
         Notify = gaussian_radius_changed
     );
+    qproperty!(
+        "effectsJoined",
+        Member = effects_joined,
+        Notify = effects_joined_changed
+    );
     qproperty!("iconRoot", Member = icon_root, Notify = icon_root_changed);
     qproperty!(
         "documentName",
@@ -2272,6 +2281,8 @@ impl AppSession {
     fn has_gaussian_blur_changed(&mut self);
     #[qsignal]
     fn gaussian_radius_changed(&mut self);
+    #[qsignal]
+    fn effects_joined_changed(&mut self);
     #[qsignal]
     fn icon_root_changed(&mut self);
     #[qsignal]
@@ -4336,6 +4347,34 @@ impl AppSession {
             self.status_text = error.to_string();
             self.status_text_changed();
         }
+    }
+
+    #[qslot]
+    fn reorder_active_effect(&mut self, effect_id: i64, to_index: i32) {
+        if effect_id < 0 {
+            return;
+        }
+        let _ = self.invoke_command(
+            command_id::EFFECT_REORDER,
+            CommandArgs::EffectReorder {
+                effect_id: effect_id as u64,
+                to_index,
+            },
+        );
+    }
+
+    #[qslot]
+    fn set_active_effect_enabled(&mut self, effect_id: i64, enabled: bool) {
+        if effect_id < 0 {
+            return;
+        }
+        let _ = self.invoke_command(
+            command_id::EFFECT_SET_ENABLED,
+            CommandArgs::EffectSetEnabled {
+                effect_id: effect_id as u64,
+                enabled,
+            },
+        );
     }
 
     #[qslot]

@@ -208,6 +208,8 @@ pub const ALL: &[CommandMeta] = &[
     doc_merge(command_id::FILTER_SET_PARAMETERS),
     doc_tx(command_id::FILTER_ADD_EFFECT),
     doc_merge(command_id::FILTER_SET_GAUSSIAN_RADIUS),
+    doc_tx(command_id::EFFECT_REORDER),
+    doc_tx(command_id::EFFECT_SET_ENABLED),
     doc_tx(command_id::STYLE_ADD_DROP_SHADOW),
     doc_tx(command_id::STYLE_ADD_STROKE),
     doc_tx(command_id::CLIPBOARD_PASTE_LAYER),

@@ -511,6 +511,25 @@ impl SessionState {
             .unwrap_or_default()
     }
 
+    /// Active layer effects as `id:name:enabled|…` for Properties UI.
+    pub fn active_effects_joined(&self) -> String {
+        let Some(graph) = self.graph.as_ref() else {
+            return String::new();
+        };
+        let Some(id) = graph.active_id() else {
+            return String::new();
+        };
+        let Some(layer) = graph.get(id) else {
+            return String::new();
+        };
+        layer
+            .effects
+            .iter()
+            .map(|e| format!("{}:{}:{}", e.id, e.name, if e.enabled { "1" } else { "0" }))
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
     /// Object-selection flags as `"1|0|1"` aligned with stack order.
     pub fn layer_selection_joined(&self) -> String {
         let Some(graph) = self.graph.as_ref() else {
