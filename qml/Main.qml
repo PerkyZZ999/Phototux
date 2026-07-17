@@ -272,6 +272,10 @@ ApplicationWindow {
             aboutDialog.open()
             return true
         }
+        if (text === "host:palette.open") {
+            commandPalette.showPalette()
+            return true
+        }
         return false
     }
 
@@ -3598,6 +3602,171 @@ ApplicationWindow {
                     font.pixelSize: Theme.fontBodySm
                     wrapMode: Text.WordWrap
                 }
+            }
+        }
+    }
+
+    Popup {
+        id: commandPalette
+        anchors.centerIn: parent
+        width: Math.min(520, root.width - 48)
+        height: Math.min(420, root.height - 48)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: Theme.spaceMd
+
+        property int selectedIndex: 0
+        property string query: ""
+
+        function filteredActions() {
+            var q = commandPalette.query.trim().toLowerCase()
+            var out = []
+            var all = root.actionDescriptors
+            for (var i = 0; i < all.length; ++i) {
+                var a = all[i]
+                if (a.id === "action.app.command-palette")
+                    continue
+                if (!q) {
+                    out.push(a)
+                    continue
+                }
+                var label = (a.label || "").replace(/&/g, "").toLowerCase()
+                var id = (a.id || "").toLowerCase()
+                var menu = (a.menu || "").toLowerCase()
+                if (label.indexOf(q) >= 0 || id.indexOf(q) >= 0 || menu.indexOf(q) >= 0)
+                    out.push(a)
+            }
+            return out
+        }
+
+        function showPalette() {
+            query = ""
+            selectedIndex = 0
+            open()
+            paletteField.forceActiveFocus()
+            AppSession.setShortcutInputYield(true)
+        }
+
+        function closePalette() {
+            close()
+            AppSession.setShortcutInputYield(false)
+            root.refreshShortcutYield()
+        }
+
+        function runSelected() {
+            var list = commandPalette.filteredActions()
+            if (list.length === 0)
+                return
+            var idx = Math.max(0, Math.min(commandPalette.selectedIndex, list.length - 1))
+            var action = list[idx]
+            if (!root.actionIsEnabled(action.id))
+                return
+            commandPalette.closePalette()
+            root.runAction(action.id)
+        }
+
+        onClosed: {
+            AppSession.setShortcutInputYield(false)
+            root.refreshShortcutYield()
+        }
+
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spaceSm
+            anchors.fill: parent
+
+            Label {
+                text: qsTr("Command palette")
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontLabel
+                font.weight: Font.DemiBold
+            }
+
+            TextField {
+                id: paletteField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Filter commands…")
+                text: commandPalette.query
+                onTextChanged: {
+                    commandPalette.query = text
+                    commandPalette.selectedIndex = 0
+                }
+                Keys.onPressed: function (event) {
+                    var list = commandPalette.filteredActions()
+                    if (event.key === Qt.Key_Down) {
+                        if (list.length > 0)
+                            commandPalette.selectedIndex =
+                                    Math.min(commandPalette.selectedIndex + 1, list.length - 1)
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Up) {
+                        commandPalette.selectedIndex = Math.max(0, commandPalette.selectedIndex - 1)
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        commandPalette.runSelected()
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Escape) {
+                        commandPalette.closePalette()
+                        event.accepted = true
+                    }
+                }
+            }
+
+            ListView {
+                id: paletteList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: commandPalette.filteredActions()
+                currentIndex: commandPalette.selectedIndex
+                delegate: ItemDelegate {
+                    width: paletteList.width
+                    height: Theme.toolHit
+                    highlighted: index === commandPalette.selectedIndex
+                    opacity: root.actionIsEnabled(modelData.id) ? 1.0 : 0.45
+                    contentItem: RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spaceSm
+                        anchors.rightMargin: Theme.spaceSm
+                        spacing: Theme.spaceSm
+                        Label {
+                            Layout.fillWidth: true
+                            text: (modelData.label || "").replace(/&/g, "")
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontBodySm
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            text: modelData.menu || ""
+                            color: Theme.colorOnSurfaceMuted
+                            font.pixelSize: Theme.fontLabelSm
+                        }
+                        Label {
+                            text: root.shortcutForAction(modelData.id)
+                            color: Theme.primary
+                            font.pixelSize: Theme.fontMono
+                            font.family: "Noto Sans Mono"
+                        }
+                    }
+                    onClicked: {
+                        commandPalette.selectedIndex = index
+                        commandPalette.runSelected()
+                    }
+                }
+                ScrollBar.vertical: ScrollBar { }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: paletteList.count === 0
+                text: qsTr("No matching commands")
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontBodySm
             }
         }
     }

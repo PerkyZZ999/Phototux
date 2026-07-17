@@ -69,9 +69,9 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.6 Command search
 
-- [ ] Command palette / search dialog (handbook 26)
-- [ ] Fuzzy match on action labels + IDs
-- [ ] Invoke selected command with typed result / error surface
+- [x] Command palette / search dialog (handbook 26)
+- [~] Fuzzy match on action labels + IDs (substring match on label/id/menu; fuzzy stretch later)
+- [x] Invoke selected command with typed result / error surface
 
 ### P1.7 Command system depth
 

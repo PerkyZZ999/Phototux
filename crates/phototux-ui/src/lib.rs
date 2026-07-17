@@ -964,6 +964,10 @@ impl AppSession {
                 self.status_text_changed();
             }
             "prefs.open" => self.open_preferences(),
+            "palette.open" => {
+                self.status_text = "host:palette.open".into();
+                self.status_text_changed();
+            }
             "clipboard.copy" => self.copy_selection(),
             "clipboard.paste_layer" => self.paste_as_new_layer(),
             "selection.select_all" => self.select_all(),

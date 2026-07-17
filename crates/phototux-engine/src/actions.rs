@@ -738,6 +738,18 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             Some("info"),
         ),
+        // App chrome
+        act(
+            "action.app.command-palette",
+            "Command &Palette…",
+            "edit",
+            "always",
+            None,
+            Some("palette.open"),
+            None,
+            Some("Ctrl+Shift+P"),
+            None,
+        ),
     ];
     // Context-menu contributions (handbook P1.4).
     set_contexts(&mut actions, "action.layer.new-raster", &["layer"]);
