@@ -15,6 +15,7 @@ mod dock;
 mod document;
 mod error;
 mod filter_plan;
+mod filter_preview;
 mod guides;
 mod history;
 mod layer;
@@ -56,6 +57,7 @@ pub use dock::{DockTopology, FloatingPanelPlacement, ScreenRect};
 pub use document::{DocumentGraph, ExtensionBlob, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use error::DocumentError;
 pub use filter_plan::{FilterPlan, FilterPlanNode};
+pub use filter_preview::{FilterPreviewSession, GALLERY_EFFECT_KINDS, kind_is_supported};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
@@ -180,6 +182,7 @@ pub mod tool_id {
     pub const EYEDROPPER: &str = "tool.eyedropper";
     pub const TEXT: &str = "tool.text";
     pub const SHAPE: &str = "tool.shape";
+    pub const PATH_EDIT: &str = "tool.path-edit";
 }
 
 /// Session state: camera + document graph + unified history.
@@ -214,6 +217,10 @@ pub struct SessionState {
     pub document_path: Option<String>,
     /// Generation last successfully persisted (save receipt); `None` if never saved.
     pub last_persisted_generation: Option<u64>,
+    /// Ephemeral filter gallery preview (not document authority until commit).
+    pub filter_preview: Option<FilterPreviewSession>,
+    /// Selected anchor index for path-edit tool.
+    pub path_edit_anchor: Option<usize>,
 }
 
 /// Immutable metadata lease for render/save coordination (handbook Phase 2).
@@ -257,6 +264,8 @@ impl Default for SessionState {
             brush_presets: BrushPresetLibrary::with_defaults(),
             document_path: None,
             last_persisted_generation: None,
+            filter_preview: None,
+            path_edit_anchor: None,
         }
     }
 }

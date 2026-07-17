@@ -84,8 +84,21 @@ pub mod command_id {
     pub const FILTER_SET_PARAMETERS: &str = "filter.set-parameters";
     pub const FILTER_ADD_EFFECT: &str = "filter.add-effect";
     pub const FILTER_SET_GAUSSIAN_RADIUS: &str = "filter.set-gaussian-radius";
+    /// Start / refresh ephemeral filter gallery preview (no document dirty).
+    pub const FILTER_PREVIEW: &str = "filter.preview";
+    /// Update preview parameters while gallery is open.
+    pub const FILTER_SET_PREVIEW_PARAMS: &str = "filter.set-preview-params";
+    /// Commit preview into layer effects + filter plan (undoable).
+    pub const FILTER_COMMIT: &str = "filter.commit";
+    /// Abort preview session without mutating authority.
+    pub const FILTER_CANCEL_PREVIEW: &str = "filter.cancel-preview";
     pub const EFFECT_REORDER: &str = "effect.reorder";
     pub const EFFECT_SET_ENABLED: &str = "effect.set-enabled";
+
+    pub const PATH_SET_CLOSED: &str = "path.set-closed";
+    pub const PATH_MOVE_ANCHOR: &str = "path.move-anchor";
+    pub const PATH_ADD_ANCHOR: &str = "path.add-anchor";
+    pub const PATH_DELETE_ANCHOR: &str = "path.delete-anchor";
 
     pub const STYLE_ADD_DROP_SHADOW: &str = "style.add-drop-shadow";
     pub const STYLE_ADD_STROKE: &str = "style.add-stroke";
@@ -103,6 +116,8 @@ pub mod command_id {
 
     /// Application chrome — host opens preferences dialog.
     pub const APP_SHOW_PREFERENCES: &str = "app.show-preferences";
+    /// Application chrome — host opens filter gallery dialog.
+    pub const APP_SHOW_FILTER_GALLERY: &str = "app.show-filter-gallery";
     /// Workspace chrome — reset panel visibility to Essentials.
     pub const WORKSPACE_RESET: &str = "workspace.reset";
     /// Workspace chrome — toggle a panel by id (`panel.layers`, …).
@@ -164,8 +179,16 @@ pub mod command_id {
         FILTER_SET_PARAMETERS,
         FILTER_ADD_EFFECT,
         FILTER_SET_GAUSSIAN_RADIUS,
+        FILTER_PREVIEW,
+        FILTER_SET_PREVIEW_PARAMS,
+        FILTER_COMMIT,
+        FILTER_CANCEL_PREVIEW,
         EFFECT_REORDER,
         EFFECT_SET_ENABLED,
+        PATH_SET_CLOSED,
+        PATH_MOVE_ANCHOR,
+        PATH_ADD_ANCHOR,
+        PATH_DELETE_ANCHOR,
         STYLE_ADD_DROP_SHADOW,
         STYLE_ADD_STROKE,
         STYLE_ADD_OUTER_GLOW,
@@ -178,6 +201,7 @@ pub mod command_id {
         RASTER_GRADIENT,
         RASTER_PAINT_STROKE,
         APP_SHOW_PREFERENCES,
+        APP_SHOW_FILTER_GALLERY,
         WORKSPACE_RESET,
         WORKSPACE_TOGGLE_PANEL,
         WORKSPACE_APPLY_PRESET,
@@ -222,6 +246,12 @@ pub enum HostFollowUp {
         b: crate::LayerId,
         result: crate::LayerId,
     },
+    /// Re-rasterize a shape layer after path edit (host GPU upload).
+    RasterizeShape {
+        id: crate::LayerId,
+    },
+    /// Open the filter gallery dialog (application chrome).
+    ShowFilterGallery,
 }
 
 /// Parameters for [`SessionState::invoke`].
@@ -323,6 +353,14 @@ pub enum CommandArgs {
     FilterGaussianRadius {
         radius: f32,
     },
+    FilterPreview {
+        kind: String,
+    },
+    FilterPreviewParams {
+        p0: f32,
+        p1: f32,
+        p2: f32,
+    },
     EffectReorder {
         effect_id: u64,
         to_index: i32,
@@ -330,6 +368,22 @@ pub enum CommandArgs {
     EffectSetEnabled {
         effect_id: u64,
         enabled: bool,
+    },
+    PathSetClosed {
+        closed: bool,
+    },
+    PathMoveAnchor {
+        index: usize,
+        x: f32,
+        y: f32,
+    },
+    PathAddAnchor {
+        x: f32,
+        y: f32,
+        index: Option<usize>,
+    },
+    PathDeleteAnchor {
+        index: usize,
     },
     PasteLayer {
         name: String,
@@ -543,8 +597,16 @@ impl SessionState {
             command_id::FILTER_SET_PARAMETERS => self.cmd_filter_set_parameters(args),
             command_id::FILTER_ADD_EFFECT => self.cmd_filter_add_effect(args),
             command_id::FILTER_SET_GAUSSIAN_RADIUS => self.cmd_filter_set_gaussian_radius(args),
+            command_id::FILTER_PREVIEW => self.cmd_filter_preview(args),
+            command_id::FILTER_SET_PREVIEW_PARAMS => self.cmd_filter_set_preview_params(args),
+            command_id::FILTER_COMMIT => self.cmd_filter_commit(),
+            command_id::FILTER_CANCEL_PREVIEW => self.cmd_filter_cancel_preview(),
             command_id::EFFECT_REORDER => self.cmd_effect_reorder(args),
             command_id::EFFECT_SET_ENABLED => self.cmd_effect_set_enabled(args),
+            command_id::PATH_SET_CLOSED => self.cmd_path_set_closed(args),
+            command_id::PATH_MOVE_ANCHOR => self.cmd_path_move_anchor(args),
+            command_id::PATH_ADD_ANCHOR => self.cmd_path_add_anchor(args),
+            command_id::PATH_DELETE_ANCHOR => self.cmd_path_delete_anchor(args),
             command_id::STYLE_ADD_DROP_SHADOW => self.cmd_style_add_drop_shadow(),
             command_id::STYLE_ADD_STROKE => self.cmd_style_add_stroke(),
             command_id::STYLE_ADD_OUTER_GLOW => self.cmd_style_add_outer_glow(),
@@ -558,6 +620,9 @@ impl SessionState {
             command_id::RASTER_PAINT_STROKE => self.cmd_raster_paint_stroke(args),
             command_id::APP_SHOW_PREFERENCES => {
                 Ok(CommandEffects::host_chrome(HostFollowUp::ShowPreferences))
+            }
+            command_id::APP_SHOW_FILTER_GALLERY => {
+                Ok(CommandEffects::host_chrome(HostFollowUp::ShowFilterGallery))
             }
             command_id::WORKSPACE_RESET => {
                 Ok(CommandEffects::host_chrome(HostFollowUp::ResetWorkspace))
@@ -930,10 +995,12 @@ impl SessionState {
             graph.generation
         };
         self.sync_object_selection_to_active();
+        let had_preview = self.filter_preview.is_some();
+        self.invalidate_filter_preview();
         let name = self.object_selection_names_joined();
         self.announce(format!("Object selection: {name}"));
         Ok(CommandEffects {
-            recomposite: false,
+            recomposite: had_preview,
             dirty: false,
             sync_layers: true,
             sync_camera: false,
@@ -1321,11 +1388,24 @@ impl SessionState {
             return Err(CommandError::InvalidArgument("empty tool id"));
         }
         let _ = tool_id::BRUSH;
+        let tool_changed = self.active_tool != tool;
         self.set_active_tool(&tool);
+        if tool_changed {
+            self.invalidate_filter_preview();
+        }
         let mut e = CommandEffects::view_only();
         e.sync_layers = false;
         e.generation = self.document_generation();
+        if tool_changed && self.filter_preview.is_none() {
+            e.recomposite = true;
+        }
         Ok(e)
+    }
+
+    fn invalidate_filter_preview(&mut self) {
+        if let Some(preview) = self.filter_preview.take() {
+            preview.cancel.cancel();
+        }
     }
 
     fn cmd_document_new_preset(
@@ -1342,6 +1422,8 @@ impl SessionState {
             graph.generation = 1;
         }
         self.last_persisted_generation = None;
+        self.invalidate_filter_preview();
+        self.path_edit_anchor = None;
         Ok(CommandEffects {
             recomposite: true,
             dirty: false,
@@ -2250,6 +2332,323 @@ impl SessionState {
         Ok(CommandEffects::document_edit(generation))
     }
 
+    fn cmd_filter_preview(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::FilterPreview { kind } = args else {
+            return Err(CommandError::InvalidArgument("expected FilterPreview"));
+        };
+        if !crate::kind_is_supported(&kind) {
+            return Err(CommandError::InvalidArgument("unsupported gallery kind"));
+        }
+        let id = self.active_layer_id()?;
+        let is_raster = self
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .is_some_and(|l| l.kind == LayerKind::Raster);
+        if !is_raster {
+            return Err(CommandError::Rejected("effect requires raster layer"));
+        }
+        let generation = self.document_generation();
+        self.filter_preview = Some(crate::FilterPreviewSession::new(id, kind, generation));
+        self.announce("Filter preview");
+        Ok(CommandEffects {
+            recomposite: true,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: false,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation,
+        })
+    }
+
+    fn cmd_filter_set_preview_params(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::FilterPreviewParams { p0, p1, p2 } = args else {
+            return Err(CommandError::InvalidArgument("expected preview params"));
+        };
+        let generation = self.document_generation();
+        let Some(preview) = self.filter_preview.as_mut() else {
+            return Err(CommandError::Rejected("no filter preview"));
+        };
+        if preview.is_cancelled() {
+            return Err(CommandError::Rejected("filter preview cancelled"));
+        }
+        if preview.is_stale(generation) {
+            return Err(CommandError::Rejected("filter preview stale"));
+        }
+        preview.set_params(p0, p1, p2);
+        Ok(CommandEffects {
+            recomposite: true,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: false,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation,
+        })
+    }
+
+    fn cmd_filter_cancel_preview(&mut self) -> Result<CommandEffects, CommandError> {
+        let had = self.filter_preview.is_some();
+        self.invalidate_filter_preview();
+        if !had {
+            return Err(CommandError::Rejected("no filter preview"));
+        }
+        self.announce("Filter preview cancelled");
+        Ok(CommandEffects {
+            recomposite: true,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: false,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation: self.document_generation(),
+        })
+    }
+
+    fn cmd_filter_commit(&mut self) -> Result<CommandEffects, CommandError> {
+        let preview = self
+            .filter_preview
+            .take()
+            .ok_or(CommandError::Rejected("no filter preview"))?;
+        if preview.is_cancelled() {
+            return Err(CommandError::Rejected("filter preview cancelled"));
+        }
+        let generation_now = self.document_generation();
+        if preview.is_stale(generation_now) {
+            return Err(CommandError::Rejected("filter preview stale"));
+        }
+        let id = preview.layer_id;
+        let effect = preview
+            .to_effect()
+            .ok_or(CommandError::InvalidArgument("unsupported gallery kind"))?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.kind != LayerKind::Raster {
+            return Err(CommandError::Rejected("effect requires raster layer"));
+        }
+        let prev_effects = layer.effects.clone();
+        let prev_plan = layer.filter_plan.clone();
+        let effect_id = prev_effects
+            .iter()
+            .map(|e| e.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let mut committed = effect;
+        committed.id = effect_id;
+        let mut next_effects = prev_effects.clone();
+        next_effects.push(committed);
+        let mut next_plan = prev_plan.clone();
+        let mut params = serde_json::Map::new();
+        params.insert("p0".into(), serde_json::json!(preview.p0));
+        params.insert("p1".into(), serde_json::json!(preview.p1));
+        params.insert("p2".into(), serde_json::json!(preview.p2));
+        next_plan.push_node(crate::FilterPlanNode {
+            id: format!("fx-{effect_id}"),
+            kind: preview.kind.clone(),
+            enabled: true,
+            params,
+        });
+        let _ = graph.set_effects(id, next_effects.clone());
+        if let Some(layer) = graph.get_mut(id) {
+            layer.filter_plan = next_plan.clone();
+        }
+        let label = preview.label();
+        let generation = self.bump_document_generation();
+        self.history.push_graph_applied(
+            crate::GraphCommand::Batch(vec![
+                crate::GraphCommand::SetEffects {
+                    id,
+                    prev: prev_effects,
+                    next: next_effects,
+                },
+                crate::GraphCommand::SetFilterPlan {
+                    id,
+                    prev: prev_plan,
+                    next: next_plan,
+                },
+            ]),
+            label,
+            generation,
+        );
+        self.announce(format!("{label} applied"));
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    /// Resolve mutable path target: shape layer path when active is Shape, else document paths.
+    fn with_active_path_mut(
+        &mut self,
+        f: impl FnOnce(&mut crate::paths::VectorPath) -> Result<(), CommandError>,
+    ) -> Result<(Option<LayerId>, crate::GraphCommand), CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let active = graph
+            .active_id()
+            .ok_or(CommandError::Rejected("no active layer"))?;
+        let Some(layer) = graph.get(active) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.locked || layer.locks.all || layer.locks.position {
+            return Err(CommandError::Rejected("layer locked"));
+        }
+        if layer.kind == LayerKind::Shape {
+            let prev = layer
+                .shape
+                .clone()
+                .ok_or(CommandError::Rejected("shape missing path"))?;
+            let mut next = prev.clone();
+            f(&mut next.path)?;
+            if let Some(layer) = graph.get_mut(active) {
+                layer.shape = Some(next.clone());
+            }
+            Ok((
+                Some(active),
+                crate::GraphCommand::SetShape {
+                    id: active,
+                    prev: Some(prev),
+                    next: Some(next),
+                },
+            ))
+        } else {
+            let prev = graph.paths.clone();
+            let idx = graph
+                .paths
+                .active
+                .ok_or(CommandError::Rejected("no active path"))?;
+            if idx >= graph.paths.paths.len() {
+                return Err(CommandError::Rejected("no active path"));
+            }
+            f(&mut graph.paths.paths[idx])?;
+            let next = graph.paths.clone();
+            Ok((None, crate::GraphCommand::SetPaths { prev, next }))
+        }
+    }
+
+    fn cmd_path_set_closed(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::PathSetClosed { closed } = args else {
+            return Err(CommandError::InvalidArgument("expected PathSetClosed"));
+        };
+        let (shape_id, cmd) = self.with_active_path_mut(|path| {
+            path.closed = closed;
+            Ok(())
+        })?;
+        let generation = self.bump_document_generation();
+        self.history.push_graph_applied(
+            cmd,
+            if closed { "Close path" } else { "Open path" },
+            generation,
+        );
+        let mut effects = CommandEffects::document_edit(generation);
+        if let Some(id) = shape_id {
+            effects.host_follow_up = HostFollowUp::RasterizeShape { id };
+        }
+        Ok(effects)
+    }
+
+    fn cmd_path_move_anchor(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::PathMoveAnchor { index, x, y } = args else {
+            return Err(CommandError::InvalidArgument("expected PathMoveAnchor"));
+        };
+        let (shape_id, cmd) = self.with_active_path_mut(|path| {
+            let anchor = path
+                .anchors
+                .get_mut(index)
+                .ok_or(CommandError::Rejected("anchor missing"))?;
+            anchor.x = x;
+            anchor.y = y;
+            Ok(())
+        })?;
+        self.path_edit_anchor = Some(index);
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(cmd, "Move path anchor", generation);
+        let mut effects = CommandEffects::document_edit(generation);
+        if let Some(id) = shape_id {
+            effects.host_follow_up = HostFollowUp::RasterizeShape { id };
+        }
+        Ok(effects)
+    }
+
+    fn cmd_path_add_anchor(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::PathAddAnchor { x, y, index } = args else {
+            return Err(CommandError::InvalidArgument("expected PathAddAnchor"));
+        };
+        let mut inserted_at = 0usize;
+        let (shape_id, cmd) = self.with_active_path_mut(|path| {
+            let point = crate::paths::PathPoint { x, y };
+            inserted_at = index.unwrap_or(path.anchors.len()).min(path.anchors.len());
+            path.anchors.insert(inserted_at, point);
+            if !path.controls.is_empty() {
+                path.controls.insert(
+                    inserted_at,
+                    (
+                        crate::paths::PathPoint { x, y },
+                        crate::paths::PathPoint { x, y },
+                    ),
+                );
+            }
+            Ok(())
+        })?;
+        self.path_edit_anchor = Some(inserted_at);
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(cmd, "Add path anchor", generation);
+        let mut effects = CommandEffects::document_edit(generation);
+        if let Some(id) = shape_id {
+            effects.host_follow_up = HostFollowUp::RasterizeShape { id };
+        }
+        Ok(effects)
+    }
+
+    fn cmd_path_delete_anchor(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::PathDeleteAnchor { index } = args else {
+            return Err(CommandError::InvalidArgument("expected PathDeleteAnchor"));
+        };
+        let (shape_id, cmd) = self.with_active_path_mut(|path| {
+            if index >= path.anchors.len() {
+                return Err(CommandError::Rejected("anchor missing"));
+            }
+            if path.anchors.len() <= 2 {
+                return Err(CommandError::Rejected("need at least two anchors"));
+            }
+            path.anchors.remove(index);
+            if index < path.controls.len() {
+                path.controls.remove(index);
+            }
+            Ok(())
+        })?;
+        self.path_edit_anchor = None;
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(cmd, "Delete path anchor", generation);
+        let mut effects = CommandEffects::document_edit(generation);
+        if let Some(id) = shape_id {
+            effects.host_follow_up = HostFollowUp::RasterizeShape { id };
+        }
+        Ok(effects)
+    }
+
     fn cmd_effect_reorder(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
         let CommandArgs::EffectReorder {
             effect_id,
@@ -2847,5 +3246,212 @@ mod tests {
             effects.host_follow_up,
             HostFollowUp::ConvertPixels { .. }
         ));
+    }
+
+    #[test]
+    fn filter_preview_does_not_dirty_until_commit() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.mark_persisted(s.document_generation());
+        assert!(!s.is_dirty_vs_persisted());
+        let generation_before = s.document_generation();
+        let effects = s
+            .invoke(
+                command_id::FILTER_PREVIEW,
+                CommandArgs::FilterPreview {
+                    kind: "gaussian".into(),
+                },
+            )
+            .expect("preview");
+        assert!(!effects.dirty);
+        assert_eq!(s.document_generation(), generation_before);
+        assert!(!s.is_dirty_vs_persisted());
+        let id = s.graph.as_ref().unwrap().active_id().unwrap();
+        assert!(
+            s.graph
+                .as_ref()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .effects
+                .is_empty()
+        );
+        s.invoke(
+            command_id::FILTER_SET_PREVIEW_PARAMS,
+            CommandArgs::FilterPreviewParams {
+                p0: 6.0,
+                p1: 0.0,
+                p2: 0.0,
+            },
+        )
+        .expect("params");
+        assert!(!s.is_dirty_vs_persisted());
+        s.invoke(command_id::FILTER_COMMIT, CommandArgs::None)
+            .expect("commit");
+        assert!(s.is_dirty_vs_persisted());
+        let layer = s.graph.as_ref().unwrap().get(id).unwrap();
+        assert_eq!(layer.effects.len(), 1);
+        assert_eq!(layer.filter_plan.nodes.len(), 1);
+        assert_eq!(layer.filter_plan.nodes[0].kind, "gaussian");
+    }
+
+    #[test]
+    fn filter_cancel_clears_preview_without_effects() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.mark_persisted(s.document_generation());
+        s.invoke(
+            command_id::FILTER_PREVIEW,
+            CommandArgs::FilterPreview {
+                kind: "sharpen".into(),
+            },
+        )
+        .expect("preview");
+        s.invoke(command_id::FILTER_CANCEL_PREVIEW, CommandArgs::None)
+            .expect("cancel");
+        assert!(s.filter_preview.is_none());
+        assert!(!s.is_dirty_vs_persisted());
+        let id = s.graph.as_ref().unwrap().active_id().unwrap();
+        assert!(
+            s.graph
+                .as_ref()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .effects
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn filter_commit_rejects_stale_generation() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(
+            command_id::FILTER_PREVIEW,
+            CommandArgs::FilterPreview {
+                kind: "motion".into(),
+            },
+        )
+        .expect("preview");
+        // Advance authority under the preview.
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("mutate");
+        let err = s
+            .invoke(command_id::FILTER_COMMIT, CommandArgs::None)
+            .expect_err("stale");
+        assert!(matches!(err, CommandError::Rejected(msg) if msg.contains("stale")));
+        assert!(s.filter_preview.is_none());
+    }
+
+    #[test]
+    fn filter_commit_rejects_cancelled_token() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(
+            command_id::FILTER_PREVIEW,
+            CommandArgs::FilterPreview {
+                kind: "emboss".into(),
+            },
+        )
+        .expect("preview");
+        s.filter_preview.as_ref().expect("session").cancel.cancel();
+        let err = s
+            .invoke(command_id::FILTER_COMMIT, CommandArgs::None)
+            .expect_err("cancelled");
+        assert!(matches!(err, CommandError::Rejected(msg) if msg.contains("cancelled")));
+    }
+
+    #[test]
+    fn path_edit_round_trip_on_shape() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let path = crate::paths::rect_path("R", 10.0, 10.0, 40.0, 30.0);
+        s.invoke(
+            command_id::SHAPE_CREATE,
+            CommandArgs::ShapeCreate {
+                content: ShapeContent {
+                    path,
+                    ..ShapeContent::default()
+                },
+            },
+        )
+        .expect("shape");
+        s.invoke(
+            command_id::PATH_MOVE_ANCHOR,
+            CommandArgs::PathMoveAnchor {
+                index: 0,
+                x: 5.0,
+                y: 7.0,
+            },
+        )
+        .expect("move");
+        s.invoke(
+            command_id::PATH_ADD_ANCHOR,
+            CommandArgs::PathAddAnchor {
+                x: 20.0,
+                y: 20.0,
+                index: Some(1),
+            },
+        )
+        .expect("add");
+        s.invoke(
+            command_id::PATH_SET_CLOSED,
+            CommandArgs::PathSetClosed { closed: false },
+        )
+        .expect("open");
+        let id = s.graph.as_ref().unwrap().active_id().unwrap();
+        let shape = s
+            .graph
+            .as_ref()
+            .unwrap()
+            .get(id)
+            .unwrap()
+            .shape
+            .as_ref()
+            .unwrap();
+        assert!(!shape.path.closed);
+        assert_eq!(shape.path.anchors.len(), 5);
+        assert!((shape.path.anchors[0].x - 5.0).abs() < f32::EPSILON);
+        s.invoke(
+            command_id::PATH_DELETE_ANCHOR,
+            CommandArgs::PathDeleteAnchor { index: 1 },
+        )
+        .expect("delete");
+        assert_eq!(
+            s.graph
+                .as_ref()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .shape
+                .as_ref()
+                .unwrap()
+                .path
+                .anchors
+                .len(),
+            4
+        );
+        s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo delete");
+        s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo open");
+        s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo add");
+        s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo move");
+        let restored = &s
+            .graph
+            .as_ref()
+            .unwrap()
+            .get(id)
+            .unwrap()
+            .shape
+            .as_ref()
+            .unwrap()
+            .path;
+        assert!(restored.closed);
+        assert_eq!(restored.anchors.len(), 4);
+        assert!((restored.anchors[0].x - 10.0).abs() < f32::EPSILON);
     }
 }

@@ -1,9 +1,12 @@
 //! Gesture-level undo stack (ADR-013 G16).
 
 use crate::document::DocumentGraph;
+use crate::filter_plan::FilterPlan;
 use crate::layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, Layer, LayerId, LayerMask, LockFlags,
+    ShapeContent,
 };
+use crate::paths::PathDocument;
 
 /// One undoable gesture applied to the document graph (structure only in Phase 3).
 #[derive(Debug, Clone)]
@@ -78,6 +81,20 @@ pub enum GraphCommand {
         prev: Option<FillContent>,
         next: Option<FillContent>,
     },
+    SetShape {
+        id: LayerId,
+        prev: Option<ShapeContent>,
+        next: Option<ShapeContent>,
+    },
+    SetFilterPlan {
+        id: LayerId,
+        prev: FilterPlan,
+        next: FilterPlan,
+    },
+    SetPaths {
+        prev: PathDocument,
+        next: PathDocument,
+    },
     SetParent {
         id: LayerId,
         prev: Option<LayerId>,
@@ -142,6 +159,19 @@ impl GraphCommand {
             }
             Self::SetFill { id, next, .. } => {
                 let _ = graph.set_fill(*id, next.clone());
+            }
+            Self::SetShape { id, next, .. } => {
+                if let Some(layer) = graph.get_mut(*id) {
+                    layer.shape = next.clone();
+                }
+            }
+            Self::SetFilterPlan { id, next, .. } => {
+                if let Some(layer) = graph.get_mut(*id) {
+                    layer.filter_plan = next.clone();
+                }
+            }
+            Self::SetPaths { next, .. } => {
+                graph.paths = next.clone();
             }
             Self::SetParent { id, next, .. } => {
                 let _ = graph.set_parent(*id, *next);
@@ -234,6 +264,20 @@ impl GraphCommand {
             },
             Self::SetFill { id, prev, next } => Self::SetFill {
                 id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetShape { id, prev, next } => Self::SetShape {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetFilterPlan { id, prev, next } => Self::SetFilterPlan {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetPaths { prev, next } => Self::SetPaths {
                 prev: next.clone(),
                 next: prev.clone(),
             },

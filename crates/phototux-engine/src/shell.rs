@@ -158,6 +158,12 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "vector".into(),
         },
         ToolDescriptor {
+            id: tool_id::PATH_EDIT.into(),
+            title: "Path Edit".into(),
+            icon_key: "pen-nib".into(),
+            group: "vector".into(),
+        },
+        ToolDescriptor {
             id: tool_id::PAN.into(),
             title: "Pan".into(),
             icon_key: "hand".into(),

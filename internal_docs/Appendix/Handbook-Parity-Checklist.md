@@ -19,7 +19,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P2 Workspace / docking | **Met** | Split graph / user presets / list virtualization polish |
 | P3 Selection targets | **Met** | Multi-object select polish deferred |
 | P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; path edit + refine contrast/shift stay `[~]` |
-| P5 Creative engines | **Partial / spines Met** | Presets, FilterPlan, CPU dab, stroke journal, sharpen GPU+CPU, shape boolean bake; text/path/gallery depth → DR-028 |
+| P5 Creative engines | **Met** | Gallery preview/commit + cancel/stale; path-edit tool; text frame/wrap + bake policy UX; deferred texture/fonts/on-canvas/vector-boolean/live-vector → DR-028 |
 | P6 Color / render | **Partial** | Soft-proof shipped; ICC bytes + pixel publisher → DR-028 |
 | P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
 | P8 Clipboard / I/O | **Partial** | OS image clipboard + limits; mask copy / integrity UX open |
@@ -197,29 +197,29 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 ### P5.2 Filters
 
 - [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`)
-- [ ] Filter gallery UX (browse + preview + commit)
-- [~] Additional GPU executors — sharpen CPU + GPU pack mode 7 + menu command; noise / more color ops deferred
-- [ ] Cancel / stale-result policy for long filters
-- [~] Adjustment kinds completeness vs handbook 15 — existing subset; gallery → DR-028
+- [x] Filter gallery UX (browse + preview + commit) — `filter.preview` / `filter.commit` / dialog
+- [~] Additional GPU executors — sharpen CPU + GPU pack mode 7 + menu command; noise / more color ops deferred (DR-028)
+- [x] Cancel / stale-result policy for long filters — `CancelToken` + generation reject; `filter.cancel-preview`
+- [~] Adjustment kinds completeness vs handbook 15 — existing subset; more kinds → DR-028
 
 ### P5.3 Text
 
-- [~] Editable text tool (on-canvas) — Character + bake shipped; on-canvas edit → DR-028
-- [ ] Typography: wrapping, bounds, more alignment/metrics
-- [ ] Font resource discovery + fallback
-- [~] Retain editable text vs bake policy UX — bake command exists
+- [~] Editable text tool (on-canvas) — Character + bake shipped; on-canvas caret → DR-028
+- [x] Typography: wrapping + frame bounds (`TextContent.frame_w/h` + `wrap`); more metrics → DR-028
+- [~] Font resource discovery + fallback — deferred (DR-028)
+- [x] Retain editable text vs bake policy UX — Character panel copy + bake announce
 - [~] Text → path / rasterize commands explicit — bake path shipped
 
 ### P5.4 Shape
 
 - [x] Boolean union / intersection / difference / exclusion — coverage bake → new raster (`shape.boolean`)
-- [ ] Path edit tool (add/move/delete points, close)
+- [x] Path edit tool (add/move/delete points, close) — `tool.path-edit` + `path.*` commands
 - [~] Parametric primitives beyond rect/ellipse/line — those three shipped; more → DR-028
-- [ ] Live vector contribution option vs always-raster upload
-- [~] Stroke/fill/gradient style depth — fill/stroke v1; gradient deferred
+- [~] Live vector contribution option vs always-raster upload — deferred (DR-028)
+- [~] Stroke/fill/gradient style depth — fill/stroke v1; gradient deferred (DR-028)
 - [P] Vector-preserving boolean (keep editable paths) — coverage bake is v1; vector result → DR-028
 
-**P5 exit:** **Partial / spines Met.** Presets, FilterPlan, dab CPU, stroke journal, sharpen, boolean bake shipped. Remaining depth → DR-028 / `[P]`.
+**P5 exit:** **Met.** Gallery + cancel/stale, path edit, text wrap/bake policy shipped. Remaining chapter depth → DR-028 / `[P]`.
 
 ---
 
@@ -445,12 +445,12 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P5** — Filter gallery UX; path edit tool; text typography / on-canvas edit  
-2. **P6** — ICC embed foundation; GPU↔CPU parity fixtures; device-loss UX  
-3. **P8** — Mask/selection clipboard payloads; `.ptx` integrity diagnostics UX  
-4. **P9** — Mixed-value inspector; safe-start prefs  
-5. **P10** — AT-SPI host adapter (semantic tree already exists)  
-6. **P13** — Budget fixture harness + promote Provisional ledger rows  
+1. **P6** — ICC embed foundation; GPU↔CPU parity fixtures; device-loss UX  
+2. **P8** — Mask/selection clipboard payloads; `.ptx` integrity diagnostics UX  
+3. **P9** — Mixed-value inspector; safe-start prefs  
+4. **P10** — AT-SPI host adapter (semantic tree already exists)  
+5. **P13** — Budget fixture harness + promote Provisional ledger rows  
+6. **DR-028 depth** — texture tips, on-canvas text/fonts, live vector, noise catalog (as needed)  
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 

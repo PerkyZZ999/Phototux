@@ -219,6 +219,18 @@ pub struct AppSession {
     /// When true, global shortcut resolve yields (text fields / IME).
     shortcut_input_yield: bool,
     preferences_open: bool,
+    filter_gallery_open: bool,
+    filter_preview_kind: String,
+    filter_preview_p0: f32,
+    filter_preview_p1: f32,
+    filter_preview_p2: f32,
+    filter_preview_active: bool,
+    path_closed: bool,
+    path_anchor_count: i32,
+    path_edit_selected: i32,
+    text_frame_w: f32,
+    text_frame_h: f32,
+    text_wrap: bool,
     pref_show_guides: bool,
     pref_restore_last_tool: bool,
     pref_ui_density: String,
@@ -391,6 +403,18 @@ impl AppSession {
             action_shortcuts_json: phototux_engine::action_shortcuts_json(),
             shortcut_input_yield: false,
             preferences_open: false,
+            filter_gallery_open: false,
+            filter_preview_kind: "gaussian".into(),
+            filter_preview_p0: 4.0,
+            filter_preview_p1: 0.0,
+            filter_preview_p2: 0.0,
+            filter_preview_active: false,
+            path_closed: false,
+            path_anchor_count: 0,
+            path_edit_selected: -1,
+            text_frame_w: 0.0,
+            text_frame_h: 0.0,
+            text_wrap: false,
             pref_show_guides: true,
             pref_restore_last_tool: false,
             pref_ui_density: "dense".into(),
@@ -595,6 +619,8 @@ impl AppSession {
         self.viewport_height = self.engine.viewport_h;
         self.sync_adjustment_fields();
         self.sync_text_fields();
+        self.sync_path_edit_fields();
+        self.sync_filter_preview_fields();
         self.sync_guides_fields();
         self.status_text = self.engine.status_summary();
     }
@@ -691,6 +717,60 @@ impl AppSession {
         self.text_line_spacing = content.line_spacing;
         self.text_alignment = i32::from(content.alignment);
         self.text_color_hex = phototux_engine::ColorState::to_hex(content.color_rgba);
+        self.text_frame_w = content.frame_w;
+        self.text_frame_h = content.frame_h;
+        self.text_wrap = content.wrap;
+    }
+
+    fn sync_path_edit_fields(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            self.path_closed = false;
+            self.path_anchor_count = 0;
+            self.path_edit_selected = -1;
+            return;
+        };
+        let path = graph.active_id().and_then(|id| {
+            let layer = graph.get(id)?;
+            if layer.kind == LayerKind::Shape {
+                return layer.shape.as_ref().map(|s| &s.path);
+            }
+            None
+        });
+        let path = path.or_else(|| {
+            let idx = graph.paths.active?;
+            graph.paths.paths.get(idx)
+        });
+        match path {
+            Some(path) => {
+                self.path_closed = path.closed;
+                self.path_anchor_count = i32::try_from(path.anchors.len()).unwrap_or(i32::MAX);
+                self.path_edit_selected = self
+                    .engine
+                    .path_edit_anchor
+                    .and_then(|i| i32::try_from(i).ok())
+                    .unwrap_or(-1);
+            }
+            None => {
+                self.path_closed = false;
+                self.path_anchor_count = 0;
+                self.path_edit_selected = -1;
+            }
+        }
+    }
+
+    fn sync_filter_preview_fields(&mut self) {
+        match &self.engine.filter_preview {
+            Some(preview) => {
+                self.filter_preview_active = true;
+                self.filter_preview_kind = preview.kind.clone();
+                self.filter_preview_p0 = preview.p0;
+                self.filter_preview_p1 = preview.p1;
+                self.filter_preview_p2 = preview.p2;
+            }
+            None => {
+                self.filter_preview_active = false;
+            }
+        }
     }
 
     fn sync_guides_fields(&mut self) {
@@ -711,6 +791,23 @@ impl AppSession {
         self.text_line_spacing_changed();
         self.text_alignment_changed();
         self.text_color_hex_changed();
+        self.text_frame_w_changed();
+        self.text_frame_h_changed();
+        self.text_wrap_changed();
+    }
+
+    fn emit_path_edit_fields(&mut self) {
+        self.path_closed_changed();
+        self.path_anchor_count_changed();
+        self.path_edit_selected_changed();
+    }
+
+    fn emit_filter_preview_fields(&mut self) {
+        self.filter_preview_active_changed();
+        self.filter_preview_kind_changed();
+        self.filter_preview_p0_changed();
+        self.filter_preview_p1_changed();
+        self.filter_preview_p2_changed();
     }
 
     fn emit_guides_fields(&mut self) {
@@ -785,6 +882,8 @@ impl AppSession {
         self.composite_ms_changed();
         self.status_text_changed();
         self.emit_text_fields();
+        self.emit_path_edit_fields();
+        self.emit_filter_preview_fields();
         self.emit_guides_fields();
     }
 
@@ -1146,6 +1245,9 @@ impl AppSession {
             | cid::MASK_APPLY
             | cid::DOCUMENT_ROTATE_90
             | cid::APP_SHOW_PREFERENCES
+            | cid::APP_SHOW_FILTER_GALLERY
+            | cid::FILTER_COMMIT
+            | cid::FILTER_CANCEL_PREVIEW
             | cid::WORKSPACE_RESET
             | cid::MASK_CREATE_VECTOR
             | cid::SELECTION_TO_MASK
@@ -1182,6 +1284,9 @@ impl AppSession {
                 kind: arg.unwrap_or("brightness").to_owned(),
             }),
             cid::FILTER_ADD_EFFECT => Ok(CommandArgs::FilterEffect {
+                kind: arg.unwrap_or("gaussian").to_owned(),
+            }),
+            cid::FILTER_PREVIEW => Ok(CommandArgs::FilterPreview {
                 kind: arg.unwrap_or("gaussian").to_owned(),
             }),
             cid::SHAPE_BOOLEAN => Ok(CommandArgs::ShapeBoolean {
@@ -1379,6 +1484,10 @@ impl AppSession {
             HostFollowUp::ShapeBoolean { op, a, b, result } => {
                 self.apply_shape_boolean_host(op, a, b, result);
             }
+            HostFollowUp::RasterizeShape { id } => {
+                self.rasterize_shape_layer_id(id);
+            }
+            HostFollowUp::ShowFilterGallery => self.open_filter_gallery(),
         }
         if effects.recomposite {
             self.recomposite();
@@ -1526,7 +1635,15 @@ impl AppSession {
         let Some(graph) = self.engine.graph.as_ref() else {
             return;
         };
-        match phototux_canvas::sync_and_composite(graph.layers()) {
+        let mut layers = graph.layers().to_vec();
+        if let Some(preview) = &self.engine.filter_preview {
+            if let Some(effect) = preview.to_effect() {
+                if let Some(layer) = layers.iter_mut().find(|l| l.id == preview.layer_id) {
+                    layer.effects.push(effect);
+                }
+            }
+        }
+        match phototux_canvas::sync_and_composite(&layers) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
             }
@@ -2063,6 +2180,51 @@ impl AppSession {
         Notify = preferences_open_changed
     );
     qproperty!(
+        "filterGalleryOpen",
+        Member = filter_gallery_open,
+        Notify = filter_gallery_open_changed
+    );
+    qproperty!(
+        "filterPreviewActive",
+        Member = filter_preview_active,
+        Notify = filter_preview_active_changed
+    );
+    qproperty!(
+        "filterPreviewKind",
+        Member = filter_preview_kind,
+        Notify = filter_preview_kind_changed
+    );
+    qproperty!(
+        "filterPreviewP0",
+        Member = filter_preview_p0,
+        Notify = filter_preview_p0_changed
+    );
+    qproperty!(
+        "filterPreviewP1",
+        Member = filter_preview_p1,
+        Notify = filter_preview_p1_changed
+    );
+    qproperty!(
+        "filterPreviewP2",
+        Member = filter_preview_p2,
+        Notify = filter_preview_p2_changed
+    );
+    qproperty!(
+        "pathClosed",
+        Member = path_closed,
+        Notify = path_closed_changed
+    );
+    qproperty!(
+        "pathAnchorCount",
+        Member = path_anchor_count,
+        Notify = path_anchor_count_changed
+    );
+    qproperty!(
+        "pathEditSelected",
+        Member = path_edit_selected,
+        Notify = path_edit_selected_changed
+    );
+    qproperty!(
         "prefShowGuides",
         Member = pref_show_guides,
         Notify = pref_show_guides_changed
@@ -2139,6 +2301,17 @@ impl AppSession {
         Member = text_color_hex,
         Notify = text_color_hex_changed
     );
+    qproperty!(
+        "textFrameW",
+        Member = text_frame_w,
+        Notify = text_frame_w_changed
+    );
+    qproperty!(
+        "textFrameH",
+        Member = text_frame_h,
+        Notify = text_frame_h_changed
+    );
+    qproperty!("textWrap", Member = text_wrap, Notify = text_wrap_changed);
     qproperty!(
         "prefRestoreLastTool",
         Member = pref_restore_last_tool,
@@ -2381,6 +2554,24 @@ impl AppSession {
     #[qsignal]
     fn preferences_open_changed(&mut self);
     #[qsignal]
+    fn filter_gallery_open_changed(&mut self);
+    #[qsignal]
+    fn filter_preview_active_changed(&mut self);
+    #[qsignal]
+    fn filter_preview_kind_changed(&mut self);
+    #[qsignal]
+    fn filter_preview_p0_changed(&mut self);
+    #[qsignal]
+    fn filter_preview_p1_changed(&mut self);
+    #[qsignal]
+    fn filter_preview_p2_changed(&mut self);
+    #[qsignal]
+    fn path_closed_changed(&mut self);
+    #[qsignal]
+    fn path_anchor_count_changed(&mut self);
+    #[qsignal]
+    fn path_edit_selected_changed(&mut self);
+    #[qsignal]
     fn pref_show_guides_changed(&mut self);
     #[qsignal]
     fn pref_show_grid_changed(&mut self);
@@ -2414,6 +2605,12 @@ impl AppSession {
     fn text_alignment_changed(&mut self);
     #[qsignal]
     fn text_color_hex_changed(&mut self);
+    #[qsignal]
+    fn text_frame_w_changed(&mut self);
+    #[qsignal]
+    fn text_frame_h_changed(&mut self);
+    #[qsignal]
+    fn text_wrap_changed(&mut self);
     #[qsignal]
     fn pref_restore_last_tool_changed(&mut self);
     #[qsignal]
@@ -2586,6 +2783,65 @@ impl AppSession {
     fn close_preferences(&mut self) {
         self.preferences_open = false;
         self.preferences_open_changed();
+    }
+
+    #[qslot]
+    fn open_filter_gallery(&mut self) {
+        self.filter_gallery_open = true;
+        self.filter_gallery_open_changed();
+    }
+
+    #[qslot]
+    fn close_filter_gallery(&mut self) {
+        if self.engine.filter_preview.is_some() {
+            let _ = self.invoke_command(command_id::FILTER_CANCEL_PREVIEW, CommandArgs::None);
+        }
+        self.filter_gallery_open = false;
+        self.filter_gallery_open_changed();
+    }
+
+    #[qslot]
+    fn filter_gallery_preview(&mut self, kind: String) {
+        if let Err(error) = self.invoke_command(
+            command_id::FILTER_PREVIEW,
+            CommandArgs::FilterPreview { kind },
+        ) {
+            self.status_text = error.to_string();
+            self.status_text_changed();
+        }
+        self.sync_filter_preview_fields();
+        self.emit_filter_preview_fields();
+    }
+
+    #[qslot]
+    fn filter_gallery_set_params(&mut self, p0: f32, p1: f32, p2: f32) {
+        if let Err(error) = self.invoke_command(
+            command_id::FILTER_SET_PREVIEW_PARAMS,
+            CommandArgs::FilterPreviewParams { p0, p1, p2 },
+        ) {
+            self.status_text = error.to_string();
+            self.status_text_changed();
+        }
+        self.sync_filter_preview_fields();
+        self.emit_filter_preview_fields();
+    }
+
+    #[qslot]
+    fn filter_gallery_apply(&mut self) {
+        if let Err(error) = self.invoke_command(command_id::FILTER_COMMIT, CommandArgs::None) {
+            self.status_text = error.to_string();
+            self.status_text_changed();
+            return;
+        }
+        self.filter_gallery_open = false;
+        self.filter_gallery_open_changed();
+        self.sync_filter_preview_fields();
+        self.emit_filter_preview_fields();
+    }
+
+    #[qslot]
+    fn filter_gallery_cancel(&mut self) {
+        self.close_filter_gallery();
     }
 
     #[qslot]
@@ -4067,7 +4323,9 @@ impl AppSession {
             return;
         }
         self.recomposite();
-        self.status_text = "Text baked to pixels".to_owned();
+        self.engine
+            .announce("Text baked to pixels — editable text discarded");
+        self.status_text = "Text baked to pixels — editable text discarded".to_owned();
         self.status_text_changed();
     }
 
@@ -4197,6 +4455,32 @@ impl AppSession {
         self.recomposite();
         self.status_text = format!("Boolean {}", op.as_str());
         self.status_text_changed();
+    }
+
+    /// Re-upload shape layer pixels after path edit (keeps `LayerKind::Shape`).
+    fn rasterize_shape_layer_id(&mut self, id: LayerId) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let Some(layer) = graph.get(id) else {
+            return;
+        };
+        let Some(content) = layer.shape.clone() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let pixels = match Self::shape_pixels(&content, w, h) {
+            Ok(p) => p,
+            Err(error) => {
+                self.report_gpu("shape path upload", &error);
+                return;
+            }
+        };
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+            self.report_gpu("shape path upload", &error);
+            return;
+        }
+        self.recomposite();
     }
 
     /// Bake active shape layer to raster (clears shape payload).
@@ -4816,6 +5100,53 @@ impl AppSession {
         alignment: i32,
         color_hex: String,
     ) {
+        self.push_active_text(
+            body,
+            font_family,
+            font_size,
+            tracking,
+            line_spacing,
+            alignment,
+            color_hex,
+            self.text_frame_w,
+            self.text_frame_h,
+            self.text_wrap,
+        );
+    }
+
+    #[qslot]
+    fn update_active_text_frame(&mut self, frame_w: f32, frame_h: f32, wrap: bool) {
+        self.push_active_text(
+            self.text_body.clone(),
+            self.text_font_family.clone(),
+            self.text_font_size,
+            self.text_tracking,
+            self.text_line_spacing,
+            self.text_alignment,
+            self.text_color_hex.clone(),
+            frame_w,
+            frame_h,
+            wrap,
+        );
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "QML Character panel maps each field; packed struct would fight qtbridge slots"
+    )]
+    fn push_active_text(
+        &mut self,
+        body: String,
+        font_family: String,
+        font_size: f32,
+        tracking: f32,
+        line_spacing: f32,
+        alignment: i32,
+        color_hex: String,
+        frame_w: f32,
+        frame_h: f32,
+        wrap: bool,
+    ) {
         let rgba =
             phototux_engine::ColorState::from_hex(&color_hex).unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let content = TextContent {
@@ -4826,6 +5157,9 @@ impl AppSession {
             alignment: u8::try_from(alignment.clamp(0, 2)).unwrap_or(0),
             tracking,
             line_spacing: line_spacing.clamp(0.5, 4.0),
+            frame_w: frame_w.max(0.0),
+            frame_h: frame_h.max(0.0),
+            wrap,
         };
         if self
             .invoke_command(
@@ -4836,6 +5170,105 @@ impl AppSession {
         {
             self.sync_text_fields();
             self.emit_text_fields();
+        }
+    }
+
+    #[qslot]
+    fn path_set_closed(&mut self, closed: bool) {
+        let _ = self.invoke_command(
+            command_id::PATH_SET_CLOSED,
+            CommandArgs::PathSetClosed { closed },
+        );
+        self.sync_path_edit_fields();
+        self.emit_path_edit_fields();
+    }
+
+    #[qslot]
+    fn path_move_anchor(&mut self, index: i32, x: f32, y: f32) {
+        if index < 0 {
+            return;
+        }
+        let _ = self.invoke_command(
+            command_id::PATH_MOVE_ANCHOR,
+            CommandArgs::PathMoveAnchor {
+                index: index as usize,
+                x,
+                y,
+            },
+        );
+        self.sync_path_edit_fields();
+        self.emit_path_edit_fields();
+    }
+
+    #[qslot]
+    fn path_add_anchor(&mut self, x: f32, y: f32) {
+        let _ = self.invoke_command(
+            command_id::PATH_ADD_ANCHOR,
+            CommandArgs::PathAddAnchor { x, y, index: None },
+        );
+        self.sync_path_edit_fields();
+        self.emit_path_edit_fields();
+    }
+
+    #[qslot]
+    fn path_delete_selected_anchor(&mut self) {
+        let index = self.path_edit_selected;
+        if index < 0 {
+            return;
+        }
+        let _ = self.invoke_command(
+            command_id::PATH_DELETE_ANCHOR,
+            CommandArgs::PathDeleteAnchor {
+                index: index as usize,
+            },
+        );
+        self.sync_path_edit_fields();
+        self.emit_path_edit_fields();
+    }
+
+    /// Hit-test path anchors; returns index or -1.
+    #[qslot]
+    fn path_hit_test(&mut self, doc_x: f32, doc_y: f32) -> i32 {
+        const HIT_RADIUS: f32 = 8.0;
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return -1;
+        };
+        let path = graph
+            .active_id()
+            .and_then(|id| {
+                let layer = graph.get(id)?;
+                if layer.kind == LayerKind::Shape {
+                    return layer.shape.as_ref().map(|s| &s.path);
+                }
+                None
+            })
+            .or_else(|| {
+                let idx = graph.paths.active?;
+                graph.paths.paths.get(idx)
+            });
+        let Some(path) = path else {
+            return -1;
+        };
+        let mut best = None;
+        for (i, anchor) in path.anchors.iter().enumerate() {
+            let dx = anchor.x - doc_x;
+            let dy = anchor.y - doc_y;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= HIT_RADIUS {
+                best = Some(match best {
+                    Some((bi, bd)) if bd <= dist => (bi, bd),
+                    _ => (i, dist),
+                });
+            }
+        }
+        match best {
+            Some((i, _)) => {
+                self.engine.path_edit_anchor = Some(i);
+                self.path_edit_selected = i32::try_from(i).unwrap_or(-1);
+                self.path_edit_selected_changed();
+                self.path_edit_selected
+            }
+            None => -1,
         }
     }
 

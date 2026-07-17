@@ -201,7 +201,8 @@ ApplicationWindow {
             // TextInput covers TextField; TextEdit covers multiline editors.
             yieldKeys = (item instanceof TextInput) || (item instanceof TextEdit)
         }
-        AppSession.setShortcutInputYield(yieldKeys || AppSession.preferencesOpen)
+        AppSession.setShortcutInputYield(
+                    yieldKeys || AppSession.preferencesOpen || AppSession.filterGalleryOpen)
     }
 
     onActiveFocusItemChanged: root.refreshShortcutYield()
@@ -1685,6 +1686,8 @@ ApplicationWindow {
                 property bool cropping: false
                 property bool transforming: false
                 property bool gradienting: false
+                property bool pathEditing: false
+                property int pathDragIndex: -1
                 property real selStartX: 0
                 property real selStartY: 0
                 property real gradStartX: 0
@@ -1728,6 +1731,13 @@ ApplicationWindow {
                             polygoning = false
                             lassoing = false
                             pathDraft = ""
+                            event.accepted = true
+                        }
+                    } else if (event.key === Qt.Key_Delete
+                               || event.key === Qt.Key_Backspace) {
+                        if (AppSession.activeTool === "tool.path-edit"
+                                && AppSession.pathEditSelected >= 0) {
+                            AppSession.pathDeleteSelectedAnchor()
                             event.accepted = true
                         }
                     }
@@ -1839,6 +1849,17 @@ ApplicationWindow {
                         AppSession.addShapeLayer("rect")
                         return
                     }
+                    if (AppSession.activeTool === "tool.path-edit") {
+                        pathEditing = true
+                        var pdx = root.screenToDocX(mouse.x)
+                        var pdy = root.screenToDocY(mouse.y)
+                        pathDragIndex = AppSession.pathHitTest(pdx, pdy)
+                        if (pathDragIndex < 0) {
+                            AppSession.pathAddAnchor(pdx, pdy)
+                            pathDragIndex = AppSession.pathEditSelected
+                        }
+                        return
+                    }
                     if (AppSession.activeTool === "tool.fill") {
                         AppSession.fillActiveLayer()
                         return
@@ -1930,6 +1951,16 @@ ApplicationWindow {
                         AppSession.strokeEnd()
                         painting = false
                     }
+                    if (pathEditing) {
+                        if (pathDragIndex >= 0) {
+                            AppSession.pathMoveAnchor(
+                                        pathDragIndex,
+                                        root.screenToDocX(mouse.x),
+                                        root.screenToDocY(mouse.y))
+                        }
+                        pathEditing = false
+                        pathDragIndex = -1
+                    }
                     dragging = false
                     if (AppSession.activeTool === "tool.pan")
                         cursorShape = Qt.OpenHandCursor
@@ -1937,6 +1968,10 @@ ApplicationWindow {
                 onPositionChanged: function (mouse) {
                     if (!AppSession.hasDocument)
                         return
+                    if (pathEditing && pathDragIndex >= 0 && dragging) {
+                        // Live drag preview via commit on move (undoable per release).
+                        return
+                    }
                     if (polygoning) {
                         pathCursorX = root.screenToDocX(mouse.x)
                         pathCursorY = root.screenToDocY(mouse.y)
@@ -2364,6 +2399,10 @@ ApplicationWindow {
                                             lineSpacingSpin.value / 100.0,
                                             alignCombo.currentIndex,
                                             textColorField.text)
+                                AppSession.updateActiveTextFrame(
+                                            frameWSpin.value,
+                                            frameHSpin.value,
+                                            wrapCheck.checked)
                             }
 
                             Label {
@@ -2445,17 +2484,7 @@ ApplicationWindow {
                                     enabled: AppSession.textLayerActive
                                     textFromValue: function (v) { return (v / 100).toFixed(2) }
                                     valueFromText: function (t) { return Math.round(parseFloat(t) * 100) }
-                                    onValueModified: {
-                                        // push uses /100 via custom path
-                                        AppSession.updateActiveText(
-                                                    textBodyField.text,
-                                                    fontFamilyCombo.currentText,
-                                                    fontSizeSpin.value,
-                                                    trackingSpin.value,
-                                                    lineSpacingSpin.value / 100.0,
-                                                    alignCombo.currentIndex,
-                                                    textColorField.text)
-                                    }
+                                    onValueModified: characterProps.pushText()
                                 }
                             }
                             ComboBox {
@@ -2481,10 +2510,63 @@ ApplicationWindow {
                                     onEditingFinished: characterProps.pushText()
                                 }
                             }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Frame W")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                SpinBox {
+                                    id: frameWSpin
+                                    from: 0
+                                    to: 16384
+                                    value: Math.round(AppSession.textFrameW)
+                                    enabled: AppSession.textLayerActive
+                                    onValueModified: characterProps.pushText()
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Frame H")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                SpinBox {
+                                    id: frameHSpin
+                                    from: 0
+                                    to: 16384
+                                    value: Math.round(AppSession.textFrameH)
+                                    enabled: AppSession.textLayerActive
+                                    onValueModified: characterProps.pushText()
+                                }
+                            }
+                            CheckBox {
+                                id: wrapCheck
+                                text: qsTr("Wrap within frame")
+                                checked: AppSession.textWrap
+                                enabled: AppSession.textLayerActive
+                                onToggled: characterProps.pushText()
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                text: qsTr("Keep editable until you bake. Bake Text converts to pixels and discards the editable text layer.")
+                            }
                             Button {
                                 text: qsTr("Bake Text")
                                 enabled: AppSession.textLayerActive && !AppSession.ioBusy
                                 onClicked: AppSession.bakeTextLayer()
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                text: qsTr("Keep editable: leave this panel; do not bake.")
                             }
                             Connections {
                                 target: AppSession
@@ -2502,6 +2584,58 @@ ApplicationWindow {
                                 function onTextAlignmentChanged() {
                                     alignCombo.currentIndex = AppSession.textAlignment
                                 }
+                                function onTextFrameWChanged() {
+                                    frameWSpin.value = Math.round(AppSession.textFrameW)
+                                }
+                                function onTextFrameHChanged() {
+                                    frameHSpin.value = Math.round(AppSession.textFrameH)
+                                }
+                                function onTextWrapChanged() {
+                                    wrapCheck.checked = AppSession.textWrap
+                                }
+                            }
+                        }
+
+                        // Path edit chrome
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.activeTool === "tool.path-edit"
+                                     || root.activeLayerKind === "shape"
+                            Label {
+                                text: qsTr("Path Edit")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                text: qsTr("Drag anchors to move. Click empty to add. Delete removes selected. Close toggles the path.")
+                            }
+                            CheckBox {
+                                text: qsTr("Closed")
+                                checked: AppSession.pathClosed
+                                enabled: AppSession.pathAnchorCount >= 2
+                                onToggled: AppSession.pathSetClosed(checked)
+                            }
+                            Label {
+                                text: qsTr("Anchors: %1").arg(AppSession.pathAnchorCount)
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            Label {
+                                visible: AppSession.pathEditSelected >= 0
+                                text: qsTr("Selected: %1").arg(AppSession.pathEditSelected)
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+                            Button {
+                                text: qsTr("Delete Anchor")
+                                enabled: AppSession.pathEditSelected >= 0
+                                         && AppSession.pathAnchorCount > 2
+                                onClicked: AppSession.pathDeleteSelectedAnchor()
                             }
                         }
 
@@ -4153,6 +4287,125 @@ ApplicationWindow {
             wrapMode: Text.WordWrap
             color: Theme.colorOnSurface
             font.pixelSize: Theme.fontBody
+        }
+    }
+
+    Dialog {
+        id: filterGalleryDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Filter Gallery")
+        width: 420
+        height: 360
+        visible: AppSession.filterGalleryOpen
+        onRejected: AppSession.filterGalleryCancel()
+        onClosed: {
+            if (AppSession.filterGalleryOpen)
+                AppSession.filterGalleryCancel()
+        }
+
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
+
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.spaceMd
+            spacing: Theme.spaceSm
+
+            Label {
+                text: qsTr("Browse a shipped effect, preview on the canvas, then Apply.")
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontLabelSm
+            }
+            ComboBox {
+                id: filterKindCombo
+                Layout.fillWidth: true
+                property var kinds: ["gaussian", "motion", "emboss", "sharpen"]
+                model: [qsTr("Gaussian Blur"), qsTr("Motion Blur"), qsTr("Emboss"), qsTr("Sharpen")]
+                function currentKind() {
+                    return kinds[currentIndex] || "gaussian"
+                }
+                onActivated: {
+                    AppSession.filterGalleryPreview(currentKind())
+                    filterP0Slider.value = AppSession.filterPreviewP0
+                    filterP1Slider.value = AppSession.filterPreviewP1
+                }
+            }
+            Label {
+                text: filterKindCombo.currentIndex === 0
+                      ? qsTr("Radius")
+                      : (filterKindCombo.currentIndex === 1
+                         ? qsTr("Distance")
+                         : (filterKindCombo.currentIndex === 2
+                            ? qsTr("Strength")
+                            : qsTr("Amount")))
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontBodySm
+            }
+            Slider {
+                id: filterP0Slider
+                Layout.fillWidth: true
+                from: 0
+                to: filterKindCombo.currentIndex === 0 ? 64 : 32
+                value: AppSession.filterPreviewP0
+                onMoved: AppSession.filterGallerySetParams(
+                             value, filterP1Slider.value, 0)
+            }
+            Label {
+                visible: filterKindCombo.currentIndex === 1
+                         || filterKindCombo.currentIndex === 2
+                text: qsTr("Angle")
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontBodySm
+            }
+            Slider {
+                id: filterP1Slider
+                Layout.fillWidth: true
+                visible: filterKindCombo.currentIndex === 1
+                         || filterKindCombo.currentIndex === 2
+                from: 0
+                to: 360
+                value: AppSession.filterPreviewP1
+                onMoved: AppSession.filterGallerySetParams(
+                             filterP0Slider.value, value, 0)
+            }
+            Item { Layout.fillHeight: true }
+        }
+
+        footer: DialogButtonBox {
+            Button {
+                text: qsTr("Preview")
+                DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
+                onClicked: AppSession.filterGalleryPreview(filterKindCombo.currentKind())
+            }
+            Button {
+                text: qsTr("Apply")
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                enabled: AppSession.filterPreviewActive
+                onClicked: AppSession.filterGalleryApply()
+            }
+            Button {
+                text: qsTr("Cancel")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: AppSession.filterGalleryCancel()
+            }
+        }
+
+        Connections {
+            target: AppSession
+            function onFilterGalleryOpenChanged() {
+                if (AppSession.filterGalleryOpen) {
+                    filterKindCombo.currentIndex = 0
+                    AppSession.filterGalleryPreview("gaussian")
+                    filterP0Slider.value = AppSession.filterPreviewP0
+                    filterP1Slider.value = AppSession.filterPreviewP1
+                }
+            }
         }
     }
 

@@ -133,10 +133,53 @@ fn glyph_bits(ch: u8) -> Option<[u8; GLYPH_H]> {
     rows
 }
 
+/// Layout lines for bake: honor `\n` and optional word-wrap within `max_cols`.
+fn layout_lines(text: &str, wrap: bool, max_cols: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        if !wrap || max_cols == 0 {
+            lines.push(paragraph.to_owned());
+            continue;
+        }
+        let mut current = String::new();
+        for word in paragraph.split_whitespace() {
+            if current.is_empty() {
+                if word.chars().count() > max_cols {
+                    let mut buf = String::new();
+                    for ch in word.chars() {
+                        if buf.chars().count() >= max_cols {
+                            lines.push(std::mem::take(&mut buf));
+                        }
+                        buf.push(ch);
+                    }
+                    current = buf;
+                } else {
+                    current = word.to_owned();
+                }
+                continue;
+            }
+            let next_len = current.chars().count() + 1 + word.chars().count();
+            if next_len <= max_cols {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                lines.push(std::mem::take(&mut current));
+                current = word.to_owned();
+            }
+        }
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
 /// Bake `content` into a straight RGBA8 buffer sized `width × height`.
 ///
 /// Glyph scale follows `font_size_pt` (1 pt ≈ 1 px at bake). Origin top-left with
 /// a small margin. Unknown glyphs render as empty cells (advance still applied).
+/// When `wrap` is set, lines break within `frame_w` (or buffer width).
 ///
 /// # Errors
 /// Returns an error when dimensions are zero or buffer size overflows.
@@ -160,48 +203,64 @@ pub fn bake_text_rgba8(content: &TextContent, width: u32, height: u32) -> Result
         (content.color_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
     ];
 
-    let mut pen_x = 4_i32;
-    let mut pen_y = 4_i32;
+    let frame_w = if content.frame_w > 1.0 {
+        content.frame_w.min(width as f32)
+    } else {
+        width as f32
+    };
+    let margin = 4_i32;
+    let usable = (frame_w as i32 - margin * 2).max(cell_w);
+    let max_cols = if content.wrap {
+        (usable / cell_w.max(1)).max(1) as usize
+    } else {
+        0
+    };
+    let lines = layout_lines(&content.text, content.wrap, max_cols);
+
+    let mut pen_y = margin;
     let w = width as i32;
     let h = height as i32;
+    let frame_h = if content.frame_h > 1.0 {
+        content.frame_h.min(height as f32) as i32
+    } else {
+        h
+    };
 
-    for ch in content.text.chars() {
-        if ch == '\n' {
-            pen_x = 4;
-            pen_y += cell_h;
-            continue;
+    for line in lines {
+        if pen_y >= frame_h - margin {
+            break;
         }
-        let byte = if ch.is_ascii() { ch as u8 } else { b'?' };
-        if let Some(rows) = glyph_bits(byte) {
-            for (row_i, row) in rows.iter().enumerate() {
-                for col in 0..GLYPH_W {
-                    let on = (row >> (GLYPH_W - 1 - col)) & 1 == 1;
-                    if !on {
-                        continue;
-                    }
-                    for sy in 0..scale {
-                        for sx in 0..scale {
-                            let x = pen_x + col as i32 * scale + sx;
-                            let y = pen_y + row_i as i32 * scale + sy;
-                            if x < 0 || y < 0 || x >= w || y >= h {
-                                continue;
+        let mut pen_x = margin;
+        for ch in line.chars() {
+            let byte = if ch.is_ascii() { ch as u8 } else { b'?' };
+            if let Some(rows) = glyph_bits(byte) {
+                for (row_i, row) in rows.iter().enumerate() {
+                    for col in 0..GLYPH_W {
+                        let on = (row >> (GLYPH_W - 1 - col)) & 1 == 1;
+                        if !on {
+                            continue;
+                        }
+                        for sy in 0..scale {
+                            for sx in 0..scale {
+                                let x = pen_x + col as i32 * scale + sx;
+                                let y = pen_y + row_i as i32 * scale + sy;
+                                if x < 0 || y < 0 || x >= w || y >= h {
+                                    continue;
+                                }
+                                let o = (y as usize * width as usize + x as usize) * 4;
+                                out[o] = color[0];
+                                out[o + 1] = color[1];
+                                out[o + 2] = color[2];
+                                out[o + 3] = color[3];
                             }
-                            let o = (y as usize * width as usize + x as usize) * 4;
-                            out[o] = color[0];
-                            out[o + 1] = color[1];
-                            out[o + 2] = color[2];
-                            out[o + 3] = color[3];
                         }
                     }
                 }
             }
+            let track = (content.tracking * scale as f32).round() as i32;
+            pen_x += cell_w + track;
         }
-        let track = (content.tracking * scale as f32).round() as i32;
-        pen_x += cell_w + track;
-        if pen_x >= w - 4 {
-            pen_x = 4;
-            pen_y += cell_h;
-        }
+        pen_y += cell_h;
     }
     Ok(out)
 }
@@ -222,5 +281,44 @@ mod tests {
         let opaque = rgba.chunks_exact(4).filter(|px| px[3] > 0).count();
         assert!(opaque > 10, "expected painted glyphs, got {opaque}");
         assert!(rgba.chunks_exact(4).any(|px| px[0] > 200 && px[3] > 200));
+    }
+
+    #[test]
+    fn wrap_changes_line_breaks() {
+        let narrow = TextContent {
+            text: "AAAA BBBB".into(),
+            font_size_pt: 14.0,
+            frame_w: 40.0,
+            wrap: true,
+            color_rgba: [1.0, 1.0, 1.0, 1.0],
+            ..TextContent::default()
+        };
+        let wide = TextContent {
+            wrap: false,
+            ..narrow.clone()
+        };
+        let a = bake_text_rgba8(&narrow, 128, 64).expect("wrap");
+        let b = bake_text_rgba8(&wide, 128, 64).expect("nowrap");
+        let ya: usize = a
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(i, px)| (px[3] > 0).then_some(i / 128))
+            .max()
+            .unwrap_or(0);
+        let yb: usize = b
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(i, px)| (px[3] > 0).then_some(i / 128))
+            .max()
+            .unwrap_or(0);
+        assert!(ya > yb, "wrap should span more rows ({ya} vs {yb})");
+    }
+
+    #[test]
+    fn serde_defaults_old_text_layers() {
+        let json = r#"{"text":"x","font_family":"Noto Sans","font_size_pt":12.0,"color_rgba":[0,0,0,1],"alignment":0,"tracking":0.0,"line_spacing":1.2}"#;
+        let content: TextContent = serde_json::from_str(json).expect("de");
+        assert!(!content.wrap);
+        assert_eq!(content.frame_w, 0.0);
     }
 }

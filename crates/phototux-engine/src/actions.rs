@@ -725,6 +725,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         ),
         // Filter
         act(
+            "action.filter.gallery",
+            "Filter &Gallery…",
+            "filter",
+            "has_document",
+            Some(command_id::APP_SHOW_FILTER_GALLERY),
+            None,
+            None,
+            None,
+            None,
+        ),
+        act(
             "action.filter.gaussian",
             "Gaussian &Blur",
             "filter",

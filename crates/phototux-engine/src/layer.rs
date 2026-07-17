@@ -265,6 +265,15 @@ pub struct TextContent {
     pub alignment: u8,
     pub tracking: f32,
     pub line_spacing: f32,
+    /// Text frame width in document pixels (`0` = use bake buffer width).
+    #[serde(default)]
+    pub frame_w: f32,
+    /// Text frame height in document pixels (`0` = use bake buffer height).
+    #[serde(default)]
+    pub frame_h: f32,
+    /// Word-wrap within the frame when baking.
+    #[serde(default)]
+    pub wrap: bool,
 }
 
 impl Default for TextContent {
@@ -277,6 +286,9 @@ impl Default for TextContent {
             alignment: 0,
             tracking: 0.0,
             line_spacing: 1.2,
+            frame_w: 0.0,
+            frame_h: 0.0,
+            wrap: false,
         }
     }
 }

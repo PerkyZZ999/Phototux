@@ -19,10 +19,10 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 | Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify`, `selection.to-mask` |
 | Mask | `mask.create`, `mask.delete`, `mask.set-enabled`, `mask.set-attributes`, `mask.create-vector`, `mask.apply`, `mask.to-selection` |
 | Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize`, `shape.boolean` |
-| Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `effect.reorder`, `effect.set-enabled`, `style.add-drop-shadow`, `style.add-stroke`, `style.add-outer-glow`, `style.add-color-overlay` |
-| Clipboard / path | `clipboard.paste-layer`, `path.stroke-to-layer` |
+| Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `filter.preview`, `filter.set-preview-params`, `filter.commit`, `filter.cancel-preview`, `effect.reorder`, `effect.set-enabled`, `style.add-drop-shadow`, `style.add-stroke`, `style.add-outer-glow`, `style.add-color-overlay` |
+| Clipboard / path | `clipboard.paste-layer`, `path.stroke-to-layer`, `path.set-closed`, `path.move-anchor`, `path.add-anchor`, `path.delete-anchor` |
 | Raster | `raster.transform-commit`, `raster.flip`, `raster.fill`, `raster.gradient`, `raster.paint-stroke` |
-| App / workspace | `app.show-preferences`, `workspace.reset`, `workspace.toggle-panel` |
+| App / workspace | `app.show-preferences`, `app.show-filter-gallery`, `workspace.reset`, `workspace.toggle-panel`, `workspace.apply-preset` |
 
 ### Host-only exemptions (not document commands)
 
