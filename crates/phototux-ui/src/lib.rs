@@ -45,7 +45,10 @@ struct TransformSnapshot {
 
 const SELECTION_UNDO_LIMIT: usize = 64;
 const TRANSFORM_UNDO_LIMIT: usize = 32;
-use phototux_io::{RasterFormat, format_report, write_stroke_journal};
+use phototux_io::{
+    PtxDocument, RasterFormat, discard_recovery, format_report, list_recoverable, load_recovery,
+    write_stroke_journal,
+};
 use qtbridge::qobject;
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
@@ -133,6 +136,8 @@ pub struct AppSession {
     soft_proof_profile: String,
     soft_proof_active: bool,
     accessibility_tree_json: String,
+    /// JSON array of [`phototux_io::RecoveryEntry`] for the restore chooser.
+    recovery_entries_json: String,
     selection_active: bool,
     selection_x: i32,
     selection_y: i32,
@@ -296,6 +301,7 @@ impl AppSession {
             soft_proof_profile: String::new(),
             soft_proof_active: false,
             accessibility_tree_json: "[]".into(),
+            recovery_entries_json: "[]".into(),
             selection_active: false,
             selection_x: 0,
             selection_y: 0,
@@ -396,6 +402,7 @@ impl AppSession {
             grid_spacing: 32.0,
         };
         out.apply_loaded_preferences();
+        out.refresh_recovery_list();
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
             out.io_error = error.to_owned();
@@ -405,6 +412,45 @@ impl AppSession {
             out.io_error = error.to_owned();
         }
         out
+    }
+
+    fn apply_opened_ptx(&mut self, path: PathBuf, document: PtxDocument) {
+        let (graph, rasters, masks) = document.into_parts();
+        self.clear_selection_stacks();
+        self.clear_transform_stacks();
+        match phototux_canvas::open_document(graph.size, graph.layers()) {
+            Ok(ms) => {
+                for (id, raster) in rasters {
+                    if let Err(error) =
+                        phototux_canvas::write_layer_rgba(LayerId(id), raster.pixels())
+                    {
+                        self.fail_io("Open", &error);
+                        return;
+                    }
+                }
+                for (id, mask) in masks {
+                    let r8: Vec<u8> = mask.pixels().chunks_exact(4).map(|rgba| rgba[0]).collect();
+                    if let Err(error) = phototux_canvas::write_mask_r8(LayerId(id), &r8) {
+                        self.fail_io("Open", &error);
+                        return;
+                    }
+                }
+                self.engine.replace_graph(graph);
+                self.engine.document_path = Some(path.display().to_string());
+                self.engine.set_composite_ms(ms);
+                self.document_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "Document.ptx".into());
+                self.dirty = true;
+                self.io_busy = false;
+                self.compatibility_report.clear();
+                self.sync_from_engine();
+                self.emit_doc_fields();
+                self.compatibility_report_changed();
+            }
+            Err(error) => self.fail_io("Open", &error),
+        }
     }
 
     fn sync_camera_from_engine(&mut self) {
@@ -1630,6 +1676,11 @@ impl AppSession {
         Notify = accessibility_tree_json_changed
     );
     qproperty!(
+        "recoveryEntriesJson",
+        Member = recovery_entries_json,
+        Notify = recovery_entries_json_changed
+    );
+    qproperty!(
         "selectionActive",
         Member = selection_active,
         Notify = selection_active_changed
@@ -2095,6 +2146,8 @@ impl AppSession {
     fn soft_proof_active_changed(&mut self);
     #[qsignal]
     fn accessibility_tree_json_changed(&mut self);
+    #[qsignal]
+    fn recovery_entries_json_changed(&mut self);
     #[qsignal]
     fn selection_active_changed(&mut self);
     #[qsignal]
@@ -2907,44 +2960,9 @@ impl AppSession {
                     }
                 }
                 FileEvent::PtxOpened { path, document } => {
-                    let (graph, rasters, masks) = document.into_parts();
-                    self.clear_selection_stacks();
-                    self.clear_transform_stacks();
-                    match phototux_canvas::open_document(graph.size, graph.layers()) {
-                        Ok(ms) => {
-                            for (id, raster) in rasters {
-                                if let Err(error) =
-                                    phototux_canvas::write_layer_rgba(LayerId(id), raster.pixels())
-                                {
-                                    self.fail_io("Open", &error);
-                                    continue;
-                                }
-                            }
-                            for (id, mask) in masks {
-                                let r8: Vec<u8> =
-                                    mask.pixels().chunks_exact(4).map(|rgba| rgba[0]).collect();
-                                if let Err(error) = phototux_canvas::write_mask_r8(LayerId(id), &r8)
-                                {
-                                    self.fail_io("Open", &error);
-                                    continue;
-                                }
-                            }
-                            self.engine.replace_graph(graph);
-                            self.engine.document_path = Some(path.display().to_string());
-                            self.engine.set_composite_ms(ms);
-                            self.document_name = path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| "Document.ptx".into());
-                            self.dirty = false;
-                            self.io_busy = false;
-                            self.compatibility_report.clear();
-                            self.sync_from_engine();
-                            self.emit_doc_fields();
-                            self.compatibility_report_changed();
-                        }
-                        Err(error) => self.fail_io("Open", &error),
-                    }
+                    self.apply_opened_ptx(path, document);
+                    self.dirty = false;
+                    self.dirty_changed();
                 }
                 FileEvent::PsdOpened {
                     path,
@@ -3250,6 +3268,52 @@ impl AppSession {
         let _ = self
             .file_worker
             .send(FileCommand::Autosave { graph, original });
+    }
+
+    #[qslot]
+    fn refresh_recovery_list(&mut self) {
+        let entries = list_recoverable().unwrap_or_default();
+        self.recovery_entries_json =
+            serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into());
+        self.recovery_entries_json_changed();
+    }
+
+    #[qslot]
+    fn restore_recovery(&mut self, document_id: String) {
+        let Ok(entries) = list_recoverable() else {
+            self.fail_io("Recover", "could not list recovery entries");
+            return;
+        };
+        let Some(entry) = entries.into_iter().find(|e| e.document_id == document_id) else {
+            self.fail_io("Recover", "recovery entry not found");
+            return;
+        };
+        match load_recovery(&entry) {
+            Ok(document) => {
+                let path = entry
+                    .original_path
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(&entry.snapshot_path));
+                self.apply_opened_ptx(path, document);
+                let _ = discard_recovery(&entry);
+                self.refresh_recovery_list();
+                self.status_text = "Recovered unsaved document".to_owned();
+                self.status_text_changed();
+            }
+            Err(error) => self.fail_io("Recover", &error.to_string()),
+        }
+    }
+
+    #[qslot]
+    fn discard_recovery_entry(&mut self, document_id: String) {
+        let Ok(entries) = list_recoverable() else {
+            return;
+        };
+        if let Some(entry) = entries.into_iter().find(|e| e.document_id == document_id) {
+            let _ = discard_recovery(&entry);
+        }
+        self.refresh_recovery_list();
     }
 
     #[qslot]

@@ -238,7 +238,7 @@ Chapters: [02](../02-Application-Lifecycle.md), [20](../20-History-Undo.md)
 ### P7.2 Lifecycle
 
 - [~] Formal lifecycle controller (startup / session / shutdown) — session/prefs/recovery hooks; formal controller deferred
-- [~] Recovery UX (~handbook autosave bound) + restore chooser — recovery module shipped; chooser polish deferred
+- [x] Recovery UX (~handbook autosave bound) + restore chooser — autosave + startup restore/discard dialog
 - [ ] Safe-start (suppress custom chrome on crash loop)
 - [~] Save coordination: staged identity vs generation receipts — generation on graph
 - [ ] GPU/renderer generation orchestration on device loss

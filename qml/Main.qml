@@ -715,8 +715,77 @@ ApplicationWindow {
 
     Component.onCompleted: {
         AppSession.clampFloatingPanels(0, 0, Screen.width, Screen.height)
-        if (!AppSession.hasDocument && !AppSession.ioBusy)
+        AppSession.refreshRecoveryList()
+        var entries = []
+        try { entries = JSON.parse(AppSession.recoveryEntriesJson || "[]") } catch (e) {}
+        if (entries.length > 0)
+            recoveryDialog.open()
+        else if (!AppSession.hasDocument && !AppSession.ioBusy)
             welcomeDialog.open()
+    }
+
+    Dialog {
+        id: recoveryDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Recover unsaved work")
+        width: 440
+        standardButtons: Dialog.Close
+        onClosed: {
+            if (!AppSession.hasDocument && !AppSession.ioBusy)
+                welcomeDialog.open()
+        }
+        background: Rectangle {
+            color: Theme.surface
+            border.color: Theme.border
+            radius: Theme.radiusMd
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spaceSm
+            width: 400
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("PhotoTux found autosaved documents from a previous session.")
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontBody
+            }
+            Repeater {
+                model: {
+                    try {
+                        return JSON.parse(AppSession.recoveryEntriesJson || "[]")
+                    } catch (e) {
+                        return []
+                    }
+                }
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceSm
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideMiddle
+                        text: modelData.original_path && modelData.original_path.length
+                              ? modelData.original_path
+                              : qsTr("Untitled (%1)").arg(modelData.document_id.slice(0, 8))
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontBodySm
+                    }
+                    Button {
+                        text: qsTr("Restore")
+                        onClicked: {
+                            AppSession.restoreRecovery(modelData.document_id)
+                            recoveryDialog.close()
+                        }
+                    }
+                    Button {
+                        text: qsTr("Discard")
+                        flat: true
+                        onClicked: AppSession.discardRecoveryEntry(modelData.document_id)
+                    }
+                }
+            }
+        }
     }
 
     Instantiator {
