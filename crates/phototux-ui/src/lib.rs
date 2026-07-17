@@ -861,6 +861,7 @@ impl AppSession {
             "selection_active" => self.has_document && self.selection_active && !busy,
             "has_mask" => self.has_document && self.active_layer_has_mask() && !busy,
             "no_mask" => self.has_document && !self.active_layer_has_mask() && !busy,
+            "has_multiple_layers" => self.has_document && self.layer_count > 1 && !busy,
             _ => self.has_document && !busy,
         }
     }
@@ -874,6 +875,7 @@ impl AppSession {
             cid::HISTORY_UNDO
             | cid::HISTORY_REDO
             | cid::LAYER_CREATE
+            | cid::LAYER_DELETE
             | cid::LAYER_GROUP
             | cid::VIEW_ZOOM_TO_FIT
             | cid::STYLE_ADD_DROP_SHADOW

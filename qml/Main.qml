@@ -92,6 +92,21 @@ ApplicationWindow {
         return out
     }
 
+    function actionsForContext(ctxName) {
+        var out = []
+        var all = root.actionDescriptors
+        for (var i = 0; i < all.length; ++i) {
+            var ctxs = all[i].contexts || []
+            for (var j = 0; j < ctxs.length; ++j) {
+                if (ctxs[j] === ctxName) {
+                    out.push(all[i])
+                    break
+                }
+            }
+        }
+        return out
+    }
+
     function actionBindingDeps() {
         // Touch session props so MenuItem.enabled bindings refresh.
         return AppSession.canUndo
@@ -99,6 +114,7 @@ ApplicationWindow {
                 + AppSession.hasDocument
                 + AppSession.ioBusy
                 + AppSession.selectionActive
+                + AppSession.layerCount
                 + root.activeLayerHasMask
                 + AppSession.activeLayerIndex
                 + AppSession.prefShowGuides
@@ -391,6 +407,47 @@ ApplicationWindow {
                 else
                     root.runAction(modelData.id)
             }
+        }
+    }
+
+    Menu {
+        id: layerContextMenu
+        property int targetIndex: -1
+        Instantiator {
+            model: root.actionsForContext("layer")
+            delegate: MenuItem {
+                required property var modelData
+                text: modelData.label
+                enabled: root.actionIsEnabled(modelData.id)
+                icon.source: modelData.icon_key ? root.iconUrl(modelData.icon_key) : ""
+                onTriggered: {
+                    if (layerContextMenu.targetIndex >= 0)
+                        AppSession.setActiveLayer(layerContextMenu.targetIndex)
+                    root.runAction(modelData.id)
+                }
+            }
+            onObjectAdded: (index, object) => layerContextMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => layerContextMenu.removeItem(object)
+        }
+    }
+
+    Menu {
+        id: canvasContextMenu
+        Instantiator {
+            model: root.actionsForContext("canvas")
+            delegate: actionMenuItem
+            onObjectAdded: (index, object) => canvasContextMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => canvasContextMenu.removeItem(object)
+        }
+    }
+
+    Menu {
+        id: selectionContextMenu
+        Instantiator {
+            model: root.actionsForContext("selection")
+            delegate: actionMenuItem
+            onObjectAdded: (index, object) => selectionContextMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => selectionContextMenu.removeItem(object)
         }
     }
 
@@ -1107,6 +1164,12 @@ ApplicationWindow {
                 width: Math.max(1, AppSession.selectionW * AppSession.zoom)
                 height: Math.max(1, AppSession.selectionH * AppSession.zoom)
 
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.RightButton
+                    onClicked: selectionContextMenu.popup()
+                }
+
                 Shape {
                     anchors.fill: parent
                     preferredRendererType: Shape.CurveRenderer
@@ -1298,7 +1361,7 @@ ApplicationWindow {
             MouseArea {
                 id: canvasInput
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                 hoverEnabled: true
                 cursorShape: {
                     if (AppSession.activeTool === "tool.pan")
@@ -1376,6 +1439,15 @@ ApplicationWindow {
                     forceActiveFocus()
                     lastX = mouse.x
                     lastY = mouse.y
+                    if (mouse.button === Qt.RightButton) {
+                        dragging = false
+                        painting = false
+                        if (AppSession.selectionActive)
+                            selectionContextMenu.popup()
+                        else
+                            canvasContextMenu.popup()
+                        return
+                    }
                     dragging = true
                     if (mouse.button === Qt.MiddleButton
                             || AppSession.activeTool === "tool.pan") {
@@ -3014,46 +3086,14 @@ ApplicationWindow {
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: function (mouse) {
                                     AppSession.setActiveLayer(stackIndex)
-                                    if (mouse.button === Qt.RightButton)
+                                    if (mouse.button === Qt.RightButton) {
+                                        layerContextMenu.targetIndex = stackIndex
                                         layerContextMenu.popup()
-                                }
-                                onPressAndHold: layerContextMenu.popup()
-                            }
-
-                            Menu {
-                                id: layerContextMenu
-                                MenuItem {
-                                    text: qsTr("Duplicate Layer")
-                                    enabled: AppSession.hasDocument
-                                    onTriggered: {
-                                        AppSession.setActiveLayer(stackIndex)
-                                        AppSession.addLayer()
                                     }
                                 }
-                                MenuItem {
-                                    text: qsTr("Delete Layer")
-                                    enabled: AppSession.hasDocument && AppSession.layerCount > 1
-                                    onTriggered: {
-                                        AppSession.setActiveLayer(stackIndex)
-                                        AppSession.deleteActiveLayer()
-                                    }
-                                }
-                                MenuSeparator {}
-                                MenuItem {
-                                    text: qsTr("Add Mask")
-                                    enabled: AppSession.hasDocument && !hasMask
-                                    onTriggered: {
-                                        AppSession.setActiveLayer(stackIndex)
-                                        AppSession.addMaskToActive()
-                                    }
-                                }
-                                MenuItem {
-                                    text: qsTr("Delete Mask")
-                                    enabled: hasMask
-                                    onTriggered: {
-                                        AppSession.setActiveLayer(stackIndex)
-                                        AppSession.deleteMaskOnActive()
-                                    }
+                                onPressAndHold: {
+                                    layerContextMenu.targetIndex = stackIndex
+                                    layerContextMenu.popup()
                                 }
                             }
                         }

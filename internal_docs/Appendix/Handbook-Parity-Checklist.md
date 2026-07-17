@@ -55,9 +55,9 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.4 Context menus
 
-- [ ] Layer / canvas / selection / mask / path context menus from action registry
-- [ ] Selection preserved across menu open (handbook 07)
-- [ ] Enablement matches command validation
+- [x] Layer / canvas / selection / mask / path context menus from action registry (layer/canvas/selection/mask tagged; path deferred)
+- [~] Selection preserved across menu open (handbook 07) — activate layer before invoke; full DR-011 snapshot later
+- [x] Enablement matches command validation (`actionEnabled` / enablement tags)
 
 ### P1.5 Shortcuts
 

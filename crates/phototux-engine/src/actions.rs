@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::command_id;
 
-/// Menu / toolbar / shortcut contribution.
+/// Menu / toolbar / shortcut / context-menu contribution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionDescriptor {
     pub id: String,
@@ -24,6 +24,9 @@ pub struct ActionDescriptor {
     pub icon_key: Option<String>,
     /// Enablement tag evaluated by the host.
     pub enablement: String,
+    /// Context-menu surfaces: `layer`, `canvas`, `selection`, `mask`. Empty = MenuBar-only.
+    #[serde(default)]
+    pub contexts: Vec<String>,
 }
 
 #[expect(
@@ -51,12 +54,19 @@ fn act(
         shortcut: shortcut.map(str::to_owned),
         icon_key: icon_key.map(str::to_owned),
         enablement: enablement.into(),
+        contexts: Vec::new(),
+    }
+}
+
+fn set_contexts(actions: &mut [ActionDescriptor], id: &str, contexts: &[&str]) {
+    if let Some(action) = actions.iter_mut().find(|a| a.id == id) {
+        action.contexts = contexts.iter().map(|s| (*s).to_owned()).collect();
     }
 }
 
 /// Built-in MenuBar actions shipped with the desktop shell.
 pub fn default_actions() -> Vec<ActionDescriptor> {
-    vec![
+    let mut actions = vec![
         // File
         act(
             "action.file.new",
@@ -346,6 +356,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
             Some("Ctrl+Shift+N"),
+            None,
+        ),
+        act(
+            "action.layer.delete",
+            "&Delete Layer",
+            "layer",
+            "has_multiple_layers",
+            Some(command_id::LAYER_DELETE),
+            None,
+            None,
+            None,
             None,
         ),
         act(
@@ -715,7 +736,26 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             Some("info"),
         ),
-    ]
+    ];
+    // Context-menu contributions (handbook P1.4).
+    set_contexts(&mut actions, "action.layer.new-raster", &["layer"]);
+    set_contexts(&mut actions, "action.layer.delete", &["layer"]);
+    set_contexts(&mut actions, "action.layer.add-mask", &["layer", "mask"]);
+    set_contexts(&mut actions, "action.layer.delete-mask", &["layer", "mask"]);
+    set_contexts(&mut actions, "action.layer.toggle-mask", &["layer", "mask"]);
+    set_contexts(&mut actions, "action.select.all", &["canvas"]);
+    set_contexts(
+        &mut actions,
+        "action.select.deselect",
+        &["canvas", "selection"],
+    );
+    set_contexts(&mut actions, "action.edit.paste-layer", &["canvas"]);
+    set_contexts(&mut actions, "action.view.zoom-fit", &["canvas"]);
+    set_contexts(&mut actions, "action.select.feather", &["selection"]);
+    set_contexts(&mut actions, "action.select.expand", &["selection"]);
+    set_contexts(&mut actions, "action.select.contract", &["selection"]);
+    set_contexts(&mut actions, "action.edit.copy", &["selection"]);
+    actions
 }
 
 /// Look up a built-in action by id.
@@ -723,9 +763,22 @@ pub fn action_by_id(id: &str) -> Option<ActionDescriptor> {
     default_actions().into_iter().find(|a| a.id == id)
 }
 
+/// Actions that contribute to a context-menu surface.
+pub fn actions_for_context(ctx: &str) -> Vec<ActionDescriptor> {
+    default_actions()
+        .into_iter()
+        .filter(|a| a.contexts.iter().any(|c| c == ctx))
+        .collect()
+}
+
 /// JSON for QML consumption.
 pub fn actions_json() -> String {
     serde_json::to_string(&default_actions()).unwrap_or_else(|_| "[]".into())
+}
+
+/// JSON for a single context-menu surface.
+pub fn context_actions_json(ctx: &str) -> String {
+    serde_json::to_string(&actions_for_context(ctx)).unwrap_or_else(|_| "[]".into())
 }
 
 #[cfg(test)]
@@ -771,5 +824,27 @@ mod tests {
                 a.id
             );
         }
+    }
+
+    #[test]
+    fn context_tags_reference_known_actions() {
+        let known: HashSet<_> = default_actions().into_iter().map(|a| a.id).collect();
+        for a in default_actions() {
+            for ctx in &a.contexts {
+                assert!(
+                    matches!(ctx.as_str(), "layer" | "canvas" | "selection" | "mask"),
+                    "unknown context {ctx} on {}",
+                    a.id
+                );
+            }
+            assert!(known.contains(&a.id));
+        }
+        assert!(
+            actions_for_context("layer")
+                .iter()
+                .any(|a| a.id == "action.layer.delete")
+        );
+        assert!(!actions_for_context("canvas").is_empty());
+        assert!(!actions_for_context("selection").is_empty());
     }
 }
