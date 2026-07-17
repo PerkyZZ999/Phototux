@@ -64,7 +64,7 @@ Do not re-plan these; extend them.
 | Commands | `SessionState::invoke` + `CommandMeta` + taxonomy IDs |
 | Snapshots v1 | Generation + metadata leases ([DR-005](Decision-Register.md#dr-005--immutable-render-snapshots)) |
 | Shell | Panel/tool/action descriptors; prefs schema 4; workspace presets; tear-off / auto-hide docks |
-| Engines | Layers (incl. Shape), masks/locks, selection modify + mask bridge, text bake, paths, filter plan + sharpen, shape boolean bake, brush presets/dynamics, stroke journal |
+| Engines | Layers (incl. Shape/Fill), masks/locks/apply, multi-select structure ops, effect reorder, OuterGlow/ColorOverlay, selection↔mask, text bake, paths, filter plan + sharpen, shape boolean bake, brush presets/dynamics, stroke journal |
 | Color | Assign/convert sRGB ↔ Display-P3; soft-proof tags |
 | History / recovery | Unified timeline + `history.jump`; autosave + restore chooser |
 | Clipboard | In-app RGBA + OS image (`arboard`); 64 MiB bound |
