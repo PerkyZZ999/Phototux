@@ -328,6 +328,80 @@ pub fn load_ptx(path: &Path) -> Result<PtxDocument, PtxError> {
     decode_ptx(&bytes)
 }
 
+/// Load `.ptx` or return a multi-line integrity diagnostic suitable for UI.
+///
+/// # Errors
+/// I/O failures or decode failures (message includes CRC/magic/version detail).
+pub fn load_ptx_with_diagnostics(path: &Path) -> Result<PtxDocument, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!(".ptx open failed\npath: {}\nI/O: {e}", path.display()))?;
+    match decode_ptx(&bytes) {
+        Ok(doc) => Ok(doc),
+        Err(error) => Err(ptx_integrity_report(path, &bytes, &error)),
+    }
+}
+
+/// Multi-line integrity diagnostic for a failed `.ptx` decode.
+pub fn ptx_integrity_report(path: &Path, bytes: &[u8], error: &PtxError) -> String {
+    let mut lines = vec![
+        ".ptx integrity check failed".to_owned(),
+        format!("path: {}", path.display()),
+        format!("size: {} bytes", bytes.len()),
+        format!("error: {error}"),
+    ];
+    if bytes.len() >= 8 {
+        let magic = &bytes[..8];
+        let magic_txt = String::from_utf8_lossy(magic);
+        let ok = magic == MAGIC;
+        lines.push(format!(
+            "magic: {magic_txt:?} ({})",
+            if ok { "ok" } else { "expected PHOTOTUX" }
+        ));
+    } else {
+        lines.push("magic: unavailable (file shorter than 8 bytes)".into());
+    }
+    if bytes.len() >= 12 {
+        let version = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+        lines.push(format!(
+            "container version field: {version} (reader supports v{PTX_FORMAT_VERSION_V1} and v{PTX_FORMAT_VERSION})"
+        ));
+    }
+    if bytes.len() >= 16 {
+        let crc_offset = bytes.len() - 4;
+        let stored = u32::from_le_bytes([
+            bytes[crc_offset],
+            bytes[crc_offset + 1],
+            bytes[crc_offset + 2],
+            bytes[crc_offset + 3],
+        ]);
+        let body = &bytes[12..crc_offset];
+        let computed = crc32fast::hash(body);
+        lines.push(format!("CRC32 stored:   0x{stored:08x}"));
+        lines.push(format!("CRC32 computed: 0x{computed:08x}"));
+        if matches!(error, PtxError::ChecksumMismatch) {
+            lines.push("hint: file may be truncated, edited, or transferred incorrectly".into());
+        }
+    }
+    match error {
+        PtxError::UnsupportedVersion(v) => {
+            lines.push(format!(
+                "hint: this build cannot read container version {v}; re-save from a newer PhotoTux or export PNG/PSD"
+            ));
+        }
+        PtxError::BadMagic => {
+            lines.push(
+                "hint: not a PhotoTux project — try Open as PNG/JPEG/PSD if this is an image"
+                    .into(),
+            );
+        }
+        PtxError::Corrupt(detail) => {
+            lines.push(format!("corrupt detail: {detail}"));
+        }
+        _ => {}
+    }
+    lines.join("\n")
+}
+
 fn inflate(data: &[u8]) -> Result<Vec<u8>, PtxError> {
     let mut dec = DeflateDecoder::new(data);
     let mut out = Vec::new();
@@ -565,6 +639,31 @@ mod tests {
         let v1 = wrap_container(1, &body).expect("wrap v1");
         let legacy = decode_ptx(&v1).expect("decode v1");
         assert_eq!(legacy.rasters.get(&id), Some(&raster));
+    }
+
+    #[test]
+    fn integrity_report_includes_crc_mismatch_detail() {
+        let graph = DocumentGraph::new(DocumentSize::new(1, 1));
+        let id = graph.layers()[0].id.0;
+        let raster = Raster::new(1, 1, vec![1, 2, 3, 255].into_boxed_slice()).expect("raster");
+        let doc = PtxDocument::from_graph(graph, HashMap::from([(id, raster)]));
+        let mut bytes = encode_ptx(&doc).expect("encode");
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        let err = decode_ptx(&bytes).expect_err("tampered");
+        assert!(matches!(err, PtxError::ChecksumMismatch));
+        let report = ptx_integrity_report(Path::new("/tmp/broken.ptx"), &bytes, &err);
+        assert!(report.contains("CRC32 stored"));
+        assert!(report.contains("CRC32 computed"));
+        assert!(report.contains("checksum mismatch"));
+    }
+
+    #[test]
+    fn integrity_report_flags_bad_magic() {
+        let bytes = b"NOTAPHOTO\0\0\0\0xxxx".as_slice();
+        let err = decode_ptx(bytes).expect_err("bad magic");
+        let report = ptx_integrity_report(Path::new("x.ptx"), bytes, &err);
+        assert!(report.contains("expected PHOTOTUX"));
     }
 
     #[test]

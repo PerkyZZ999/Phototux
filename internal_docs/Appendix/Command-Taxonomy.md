@@ -437,6 +437,7 @@ Operations that MUST NOT go through document-authoritative `SessionState::invoke
 | Telemetry | UI | FPS, status text, startup ms | Non-authoritative |
 | `HostFollowUp::ConvertPixels` | UI GPU path | After `document.convert-profile` | Pixel rewrite after command commits metadata |
 | GPU recover chrome | `action.app.recover-gpu` → `app.recover_gpu` | Rebuild GPU resources from engine graph; does not mutate document generation | Device/surface loss UX (P6) |
+| Clipboard mask/selection | `clipboard.copy_selection_mask`, `clipboard.copy_layer_mask`, `clipboard.paste_selection`, `clipboard.paste_mask` | App-local R8 payloads (+ OS grayscale preview); paste restores selection or layer mask | Handbook §21 Met spine |
 | Remaining `host_op` | `actions.rs` → `dispatch_host_op` | Selection modify GPU path, shape create wrappers, guides toggles, clipboard copy, mask paint helpers | Bridge until fully routed; still must not bypass history for document pixels without a command |
 
 ## Cross References

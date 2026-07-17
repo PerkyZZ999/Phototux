@@ -22,7 +22,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P5 Creative engines | **Met** | Gallery preview/commit + cancel/stale; path-edit tool; text frame/wrap + bake policy UX; deferred texture/fonts/on-canvas/vector-boolean/live-vector → DR-028 |
 | P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; display discovery + pixel publisher → DR-028 |
 | P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
-| P8 Clipboard / I/O | **Partial** | OS image clipboard + limits; mask copy / integrity UX open |
+| P8 Clipboard / I/O | **Met** | Mask/selection clipboard + `.ptx` integrity diagnostics UX; SVG MIME / sparse → deferred/P11 |
 | P9 Prefs / themes | **Partial** | Schema 4 + Theme packs; mixed-value inspector open |
 | P10 Accessibility | **Partial** | Semantic JSON spine; AT-SPI adapter → DR-028 |
 | P11 Scale / multi-doc | **Gated** | Gates recorded only (DR-029) — no impl |
@@ -281,7 +281,7 @@ Chapters: [21](../21-Clipboard.md), [22](../22-Import-Export.md), [27](../27-Fil
 
 - [x] Capability-scoped host clipboard bridge — in-app RGBA + OS image via `arboard`
 - [~] Multi-format negotiation — pixels image MIME; SVG / layer MIME deferred
-- [ ] Mask / selection payload copy
+- [x] Mask / selection payload copy — selection R8 + layer-mask R8 app payloads; paste as selection/mask
 - [x] Security / size bounds (64 MiB refuse on copy)
 
 ### P8.2 Import / export
@@ -295,12 +295,12 @@ Chapters: [21](../21-Clipboard.md), [22](../22-Import-Export.md), [27](../27-Fil
 ### P8.3 Native `.ptx` (non-sparse)
 
 - [~] Migration / schema evolution tests for v2 chunks — v1 read / v2 write tests
-- [ ] Stronger integrity diagnostics UX
+- [x] Stronger integrity diagnostics UX — `load_ptx_with_diagnostics` / CRC+magic report in open error dialog
 - [x] Unknown optional chunk skip / round-trip tests
 - [x] Opaque extension object placeholders — `DocumentGraph::extension_data`
 - [!] Sparse tiles / incremental save → **P11**
 
-**P8 exit:** **Partial Met.** OS clipboard + hostile-input bounds + `.ptx` integrity basics shipped; mask clipboard / integrity UX open.
+**P8 exit:** **Met.** OS + mask/selection clipboard, hostile bounds, `.ptx` integrity diagnostics UX. SVG/layer MIME + sparse → deferred/P11.
 
 ---
 
@@ -445,11 +445,10 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P8** — Mask/selection clipboard payloads; `.ptx` integrity diagnostics UX  
-2. **P9** — Mixed-value inspector; safe-start prefs  
-3. **P10** — AT-SPI host adapter (semantic tree already exists)  
-4. **P13** — Budget fixture harness + promote Provisional ledger rows  
-5. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
+1. **P9** — Mixed-value inspector; safe-start prefs  
+2. **P10** — AT-SPI host adapter (semantic tree already exists)  
+3. **P13** — Budget fixture harness + promote Provisional ledger rows  
+4. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 

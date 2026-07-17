@@ -20,7 +20,7 @@ This roadmap is the plan to bring the **shipping editor** to **full parity** wit
 | --- | --- | --- |
 | **Chrome / IA spines** | P1–P3 | **Met** — action chrome, docking, selection concepts |
 | **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
-| **Engines / color / session** | P5–P10 | **P5–P6 Met**; P7–P10 Partial — open depth tracked under DR-028 |
+| **Engines / color / session** | P5–P10 | **P5–P6/P8 Met**; P7/P9/P10 Partial — open depth tracked under DR-028 |
 | **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
 | **Verification** | P13 | **Partial** — command conformance green; budgets still Provisional (DR-017) |
 
@@ -109,7 +109,7 @@ flowchart TB
 | **P5** | Creative engines depth | 14, 15, 18, 19 | None | **Met** |
 | **P6** | Color & rendering contracts | 16, 17, DR-005/006 | Tiling → P11 | **Met** |
 | **P7** | History & lifecycle | 02, 20 | Spill → P11 | **Partial** |
-| **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Partial** |
+| **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Met** |
 | **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None | **Partial** |
 | **P10** | Accessibility projection | 29, DR-016 | None | **Partial** |
 | **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** §4 | **Gated** (DR-029) |
@@ -197,13 +197,13 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 **Still todo:** Retention budget UI; safe-start; formal lifecycle controller; device-loss orchestration. Spill / multi-doc → P11.
 
-### P8 — Clipboard & interchange I/O — **Partial**
+### P8 — Clipboard & interchange I/O — **Met**
 
 **Goal:** Capability-scoped clipboard; hostile-input limits; adapter disclosure.
 
-**Shipped:** In-app + OS image clipboard (`arboard`); 64 MiB bound; adapter dimension/alloc limits; `.ptx` unknown-chunk skip; `extension_data`.
+**Shipped:** In-app + OS image clipboard (`arboard`); selection/layer-mask R8 payloads + paste; 64 MiB bound; adapter dimension/alloc limits; `.ptx` unknown-chunk skip; integrity diagnostics UX; `extension_data`.
 
-**Still todo:** Mask/selection clipboard payloads; SVG-ish MIME; stronger integrity UX; fuller loss reports / progress UX. Sparse `.ptx` → P11.
+**Still todo (deferred):** SVG/layer MIME; fuller progress UX. Sparse `.ptx` → P11.
 
 ### P9 — Preferences, themes, UX — **Partial**
 
@@ -262,11 +262,10 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
 
-1. **P8** — Mask/selection clipboard; `.ptx` integrity diagnostics UX  
-2. **P9** — Mixed-value inspector; safe-start prefs  
-3. **P10** — AT-SPI host adapter (tree JSON already exists)  
-4. **P13** — Budget fixture harness + promote Provisional ledger rows  
-5. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
+1. **P9** — Mixed-value inspector; safe-start prefs  
+2. **P10** — AT-SPI host adapter (tree JSON already exists)  
+3. **P13** — Budget fixture harness + promote Provisional ledger rows  
+4. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
 
 Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 

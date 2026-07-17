@@ -282,6 +282,28 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
         ),
         act(
+            "action.edit.copy-selection-mask",
+            "Copy &Selection Mask",
+            "edit",
+            "selection_active",
+            None,
+            Some("clipboard.copy_selection_mask"),
+            None,
+            None,
+            Some("selection-background"),
+        ),
+        act(
+            "action.edit.copy-layer-mask",
+            "Copy Layer &Mask",
+            "edit",
+            "has_document",
+            None,
+            Some("clipboard.copy_layer_mask"),
+            None,
+            None,
+            Some("circle-half"),
+        ),
+        act(
             "action.edit.paste-layer",
             "Paste as New Layer",
             "edit",
@@ -291,6 +313,28 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             Some("Ctrl+V"),
             None,
+        ),
+        act(
+            "action.edit.paste-selection",
+            "Paste as &Selection",
+            "edit",
+            "has_document",
+            None,
+            Some("clipboard.paste_selection"),
+            None,
+            None,
+            Some("selection-foreground"),
+        ),
+        act(
+            "action.edit.paste-mask",
+            "Paste as Layer M&ask",
+            "edit",
+            "has_document",
+            None,
+            Some("clipboard.paste_mask"),
+            None,
+            None,
+            Some("circle-half-tilt"),
         ),
         // Image
         act(
@@ -1077,6 +1121,22 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     set_contexts(&mut actions, "action.select.expand", &["selection"]);
     set_contexts(&mut actions, "action.select.contract", &["selection"]);
     set_contexts(&mut actions, "action.edit.copy", &["selection"]);
+    set_contexts(
+        &mut actions,
+        "action.edit.copy-selection-mask",
+        &["selection"],
+    );
+    set_contexts(
+        &mut actions,
+        "action.edit.copy-layer-mask",
+        &["layer", "mask"],
+    );
+    set_contexts(
+        &mut actions,
+        "action.edit.paste-selection",
+        &["canvas", "selection"],
+    );
+    set_contexts(&mut actions, "action.edit.paste-mask", &["layer", "mask"]);
     actions
 }
 

@@ -4320,7 +4320,7 @@ ApplicationWindow {
         modal: true
         title: qsTr("File operation failed")
         standardButtons: Dialog.Ok
-        width: 440
+        width: Math.min(560, parent ? parent.width - 48 : 560)
 
         background: Rectangle {
             color: Theme.surface
@@ -4328,12 +4328,19 @@ ApplicationWindow {
             radius: Theme.radiusMd
         }
 
-        contentItem: Label {
-            width: parent ? parent.width - 32 : 400
-            text: AppSession.ioError
-            wrapMode: Text.WordWrap
-            color: Theme.colorOnSurface
-            font.pixelSize: Theme.fontBody
+        contentItem: ScrollView {
+            clip: true
+            implicitHeight: Math.min(320, ioErrorLabel.implicitHeight + 16)
+            Label {
+                id: ioErrorLabel
+                width: ioErrorDialog.availableWidth
+                text: AppSession.ioError
+                wrapMode: Text.WordWrap
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontMono
+                font.family: "Noto Sans Mono"
+                Accessible.name: qsTr("File error details")
+            }
         }
     }
 

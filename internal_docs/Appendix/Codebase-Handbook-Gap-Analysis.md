@@ -85,7 +85,7 @@ These are assets. Alignment must **not** discard zero-copy present, working brus
 | D5 | Selection concepts distinct: object vs pixel vs focus vs edit target (DR-011, 12) | Pixel selection + active layer; concepts collapsed in UI | **A** / **F** |
 | D6 | Mask system with vector masks, refine, apply semantics (13) | Raster layer masks + clipping; no vector mask / refine | **F** |
 | D7 | History = transaction records with retention budgets / spill (20) | Mixed: graph undo commands + GPU pixel snapshots for strokes/transforms | **A** |
-| D8 | Native container: chunked, integrity, sparse/incremental (27, DR-013/026) | **Shipped:** `.ptx` **v2 write / v1 read** (typed chunks + CRC). Tile-sparse / incremental save **Phase 5 Provisional** | **A** (Phase 5) |
+| D8 | Native container: chunked, integrity, sparse/incremental (27, DR-013/026) | **Shipped:** `.ptx` **v2 write / v1 read** + integrity diagnostics UX. Tile-sparse / incremental → P11 | **A** (sparse) |
 
 ### 3.3 Shell / UX systems — **F**
 
@@ -105,7 +105,7 @@ These are assets. Alignment must **not** discard zero-copy present, working brus
 | # | Handbook says | Code has | Severity |
 | --- | --- | --- | --- |
 | I1 | Format adapters with hard allocation limits, loss disclosure (22) | Rasters + PSD subset + report; limits uneven | **F** |
-| I2 | Clipboard as capability-scoped host bridge (21) | Selection copy/paste-as-layer; no full handbook model | **F** |
+| I2 | Clipboard as capability-scoped host bridge (21) | **Shipped spine:** RGBA + selection/mask R8 payloads + OS image; SVG/rich layer MIME **Deferred** | **F** (depth) |
 | I3 | Recovery bound (~60s) + lifecycle restore (02, 00) | Recovery helpers exist; UX incomplete | **F** |
 
 ### 3.5 Performance / testing / process — **C** / **P**

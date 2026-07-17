@@ -10,7 +10,7 @@ pub use psd::{
 };
 pub use ptx::{
     PTX_FORMAT_VERSION, PtxDocument, PtxError, PtxManifest, decode_ptx, encode_ptx, load_ptx,
-    save_ptx_atomic,
+    load_ptx_with_diagnostics, ptx_integrity_report, save_ptx_atomic,
 };
 pub use recovery::{
     RecoveryEntry, RecoveryError, discard_recovery, list_recoverable, load_recovery, recovery_dir,

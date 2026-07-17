@@ -8,7 +8,7 @@ use std::thread::{self, JoinHandle};
 use phototux_engine::{CancelToken, DocumentGraph, LayerId};
 use phototux_io::{
     CompatibilityIssue, PtxDocument, Raster, RasterFormat, export_psd_path, import_psd_path,
-    load_ptx, save_ptx_atomic, write_autosave,
+    load_ptx_with_diagnostics, save_ptx_atomic, write_autosave,
 };
 
 pub(crate) enum FileCommand {
@@ -150,11 +150,11 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
                     message: error.to_string(),
                 },
             },
-            FileCommand::OpenPtx(path) => match load_ptx(&path) {
+            FileCommand::OpenPtx(path) => match load_ptx_with_diagnostics(&path) {
                 Ok(document) => FileEvent::PtxOpened { path, document },
-                Err(error) => FileEvent::Failed {
+                Err(message) => FileEvent::Failed {
                     operation: "Open",
-                    message: error.to_string(),
+                    message,
                 },
             },
             FileCommand::OpenPsd(path) => match import_psd_path(&path) {

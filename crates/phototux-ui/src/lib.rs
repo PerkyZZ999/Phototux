@@ -91,6 +91,14 @@ fn local_path(value: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn r8_to_gray_rgba(r8: &[u8]) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity(r8.len().saturating_mul(4));
+    for &v in r8 {
+        rgba.extend_from_slice(&[v, v, v, 255]);
+    }
+    rgba
+}
+
 /// Application session singleton for the desktop shell.
 pub struct AppSession {
     doc_width: i32,
@@ -200,7 +208,12 @@ pub struct AppSession {
     engine: SessionState,
     worker: PaintWorker,
     file_worker: FileWorker,
+    /// RGBA image clipboard (app-local; may also push OS image).
     clipboard_rgba: Option<(u32, u32, Vec<u8>)>,
+    /// Selection coverage clipboard (R8, document-sized).
+    clipboard_selection_r8: Option<(u32, u32, Vec<u8>)>,
+    /// Layer mask clipboard (R8, document-sized).
+    clipboard_mask_r8: Option<(u32, u32, Vec<u8>)>,
     selection_undo: Vec<SelectionSnapshot>,
     selection_redo: Vec<SelectionSnapshot>,
     transform_undo: Vec<TransformSnapshot>,
@@ -385,6 +398,8 @@ impl AppSession {
             worker: PaintWorker::start(),
             file_worker: FileWorker::start(),
             clipboard_rgba: None,
+            clipboard_selection_r8: None,
+            clipboard_mask_r8: None,
             selection_undo: Vec::new(),
             selection_redo: Vec::new(),
             transform_undo: Vec::new(),
@@ -1412,7 +1427,11 @@ impl AppSession {
                 self.status_text_changed();
             }
             "clipboard.copy" => self.copy_selection(),
+            "clipboard.copy_selection_mask" => self.copy_selection_mask(),
+            "clipboard.copy_layer_mask" => self.copy_layer_mask(),
             "clipboard.paste_layer" => self.paste_as_new_layer(),
+            "clipboard.paste_selection" => self.paste_selection_mask(),
+            "clipboard.paste_mask" => self.paste_layer_mask(),
             "selection.select_all" => self.select_all(),
             "selection.deselect" => self.select_none(),
             "selection.invert" => self.invert_selection(),
@@ -1670,9 +1689,18 @@ impl AppSession {
 
     fn fail_io(&mut self, operation: &str, message: &str) {
         self.io_busy = false;
-        self.io_error = format!("{operation} failed: {message}");
+        // Multi-line integrity diagnostics (e.g. .ptx CRC) go straight into the dialog.
+        self.io_error = if message.contains('\n') {
+            format!("{operation} failed:\n{message}")
+        } else {
+            format!("{operation} failed: {message}")
+        };
         self.io_busy_changed();
         self.io_error_changed();
+        if message.contains(".ptx integrity") || message.contains("CRC32") {
+            self.compatibility_report = message.to_owned();
+            self.compatibility_report_changed();
+        }
     }
 
     fn recomposite(&mut self) {
@@ -4233,6 +4261,11 @@ impl AppSession {
 
     #[qslot]
     fn copy_selection(&mut self) {
+        // Prefer selection coverage when a pixel selection is active (handbook §21).
+        if self.engine.selection.active {
+            self.copy_selection_mask();
+            return;
+        }
         let Ok((width, height, pixels)) = phototux_canvas::read_composite_rgba() else {
             return;
         };
@@ -4251,6 +4284,174 @@ impl AppSession {
             "Copied (app clipboard only)".to_owned()
         };
         self.status_text_changed();
+    }
+
+    #[qslot]
+    fn copy_selection_mask(&mut self) {
+        let Ok(r8) = phototux_canvas::selection_snapshot() else {
+            self.status_text = "Copy selection failed: no mask".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let width = graph.size.width;
+        let height = graph.size.height;
+        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+        if r8.len() > MAX_CLIPBOARD_BYTES {
+            self.status_text = "Copy refused: clipboard size limit".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        if r8.len() != (width as usize) * (height as usize) {
+            self.status_text = "Copy selection failed: size mismatch".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        // OS preview: grayscale RGBA so external apps see coverage.
+        let rgba = r8_to_gray_rgba(&r8);
+        let os_ok = Self::push_os_clipboard_rgba(width, height, &rgba).is_ok();
+        self.clipboard_selection_r8 = Some((width, height, r8));
+        self.engine.announce("Selection copied");
+        self.status_text = if os_ok {
+            "Copied selection (app + system grayscale)".to_owned()
+        } else {
+            "Copied selection (app clipboard)".to_owned()
+        };
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+    }
+
+    #[qslot]
+    fn copy_layer_mask(&mut self) {
+        let Some(id) = self.active_id() else {
+            self.status_text = "Copy mask failed: no active layer".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        if !graph
+            .layers()
+            .iter()
+            .any(|l| l.id == id && l.mask.is_some())
+        {
+            self.status_text = "Copy mask failed: layer has no mask".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let width = graph.size.width;
+        let height = graph.size.height;
+        let Ok(r8) = phototux_canvas::read_mask_r8(id) else {
+            self.status_text = "Copy mask failed: layer has no mask".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+        if r8.len() > MAX_CLIPBOARD_BYTES {
+            self.status_text = "Copy refused: clipboard size limit".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let rgba = r8_to_gray_rgba(&r8);
+        let os_ok = Self::push_os_clipboard_rgba(width, height, &rgba).is_ok();
+        self.clipboard_mask_r8 = Some((width, height, r8));
+        self.engine.announce("Layer mask copied");
+        self.status_text = if os_ok {
+            "Copied layer mask (app + system grayscale)".to_owned()
+        } else {
+            "Copied layer mask (app clipboard)".to_owned()
+        };
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+    }
+
+    #[qslot]
+    fn paste_selection_mask(&mut self) {
+        let Some((width, height, r8)) = self
+            .clipboard_selection_r8
+            .clone()
+            .or_else(|| self.clipboard_mask_r8.clone())
+        else {
+            self.fail_io("Paste selection", "clipboard has no selection/mask payload");
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        if width != graph.size.width || height != graph.size.height {
+            self.fail_io(
+                "Paste selection",
+                "clipboard mask size does not match document",
+            );
+            return;
+        }
+        if let Err(error) = phototux_canvas::selection_restore(&r8) {
+            self.report_gpu("paste selection", &error);
+            return;
+        }
+        self.engine.selection.active = true;
+        self.sync_from_engine();
+        self.emit_doc_fields();
+        self.engine.announce("Selection pasted");
+        self.status_text = "Pasted selection from clipboard".to_owned();
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+    }
+
+    #[qslot]
+    fn paste_layer_mask(&mut self) {
+        let Some((width, height, r8)) = self
+            .clipboard_mask_r8
+            .clone()
+            .or_else(|| self.clipboard_selection_r8.clone())
+        else {
+            self.fail_io("Paste mask", "clipboard has no mask/selection payload");
+            return;
+        };
+        let Some(id) = self.active_id() else {
+            self.fail_io("Paste mask", "no active layer");
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        if width != graph.size.width || height != graph.size.height {
+            self.fail_io("Paste mask", "clipboard mask size does not match document");
+            return;
+        }
+        let needs_mask = graph
+            .layers()
+            .iter()
+            .find(|l| l.id == id)
+            .is_some_and(|l| l.mask.is_none());
+        if needs_mask {
+            if let Err(error) = self.invoke_command(command_id::MASK_CREATE, CommandArgs::None) {
+                self.report_gpu("paste mask create", &error.to_string());
+                return;
+            }
+        }
+        if let Err(error) = phototux_canvas::ensure_mask(id) {
+            self.report_gpu("paste mask ensure", &error);
+            return;
+        }
+        if let Err(error) = phototux_canvas::write_mask_r8(id, &r8) {
+            self.report_gpu("paste mask upload", &error);
+            return;
+        }
+        self.recomposite();
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.engine.announce("Mask pasted onto active layer");
+        self.status_text = "Pasted mask onto active layer".to_owned();
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
     }
 
     fn push_os_clipboard_rgba(width: u32, height: u32, pixels: &[u8]) -> Result<(), String> {
