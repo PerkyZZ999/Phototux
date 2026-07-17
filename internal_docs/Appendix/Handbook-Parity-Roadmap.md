@@ -2,14 +2,31 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **Accepted** (post-alignment product plan, 2026-07-16) |
+| Status | **Active** (spine pass complete 2026-07-17; depth + verification ongoing) |
 | Prerequisite | [Alignment Roadmap](Alignment-Roadmap.md) **Complete** (handbook-ready contracts) |
 | Living tracker | [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) |
 | Gap inventory | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) |
-| Decisions | [Decision-Register.md](Decision-Register.md) |
-| Stack | Frozen ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)) — no toolkit/GPU/shell rewrite |
+| Decisions | [Decision-Register.md](Decision-Register.md) — esp. [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase), [DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices), [DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl) |
+| Stack | Frozen (DR-023) — no toolkit/GPU/shell rewrite |
+| Journals | `archive/docs/04-journal/*handbook-parity*` |
 
 This roadmap is the plan to bring the **shipping editor** to **full parity** with the Engineering Handbook (`internal_docs/` chapters 00–32 + appendices). Alignment already made the handbook a trustworthy build guide; this plan is the remaining **product and systems work**.
+
+---
+
+## 0. Progress (2026-07-17)
+
+| Band | Phases | State |
+| --- | --- | --- |
+| **Chrome / IA spines** | P1–P3 | **Met** — action chrome, docking, selection concepts |
+| **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
+| **Engines / color / session** | P5–P10 | **Spine Met / Partial depth** — see checklist; open depth tracked under DR-028 |
+| **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
+| **Verification** | P13 | **Partial** — command conformance green; budgets still Provisional (DR-017) |
+
+**Spine parity** means shipped product surfaces resolve through handbook contracts (commands, workspace model, selection concepts, soft-proof, history jump, recovery chooser, OS clipboard, a11y JSON, etc.). It does **not** mean every handbook chapter feature is complete — remaining MUST depth is either `[ ]`/`[~]` on the checklist or Deferred via DR-028/029.
+
+Full `handbook-parity-complete` waits on: DR-028 depth closures (or further Deferred DRs), DR-017 budget promotion where claimed, and gap-analysis silence.
 
 ---
 
@@ -44,13 +61,17 @@ Do not re-plan these; extend them.
 | Area | Shipped |
 | --- | --- |
 | Stack | Qt 6 + qtbridge, wgpu Vulkan, zero-copy present, coarse crates, `.ptx` |
-| Commands | `SessionState::invoke` document spine + taxonomy IDs |
+| Commands | `SessionState::invoke` + `CommandMeta` + taxonomy IDs |
 | Snapshots v1 | Generation + metadata leases ([DR-005](Decision-Register.md#dr-005--immutable-render-snapshots)) |
-| Shell v1 | Panel/tool descriptors, prefs, Essentials reset; QML chrome |
-| Engines v1 | Layers (incl. Shape), masks/clip, selection modify, text bake, paths, filters/styles subset, guides |
-| Color v1 | Assign/convert sRGB ↔ Display-P3 |
-| I/O v1 | `.ptx` v2 write / v1 read; raster + PSD subset |
-| CPU ref | Composite subset for tests |
+| Shell | Panel/tool/action descriptors; prefs schema 4; workspace presets; tear-off / auto-hide docks |
+| Engines | Layers (incl. Shape), masks/locks, selection modify + mask bridge, text bake, paths, filter plan + sharpen, shape boolean bake, brush presets/dynamics, stroke journal |
+| Color | Assign/convert sRGB ↔ Display-P3; soft-proof tags |
+| History / recovery | Unified timeline + `history.jump`; autosave + restore chooser |
+| Clipboard | In-app RGBA + OS image (`arboard`); 64 MiB bound |
+| I/O | `.ptx` v2 write / v1 read; raster + PSD subset; limits; `extension_data` |
+| A11y | Semantic `accessibilityTreeJson` spine |
+| CPU / GPU ref | Composite subset; dab stamp CPU; sharpen CPU + GPU pack |
+| Verification | Headless `command_conformance` suite |
 
 ---
 
@@ -79,120 +100,148 @@ flowchart TB
   P12 --> P13
 ```
 
-| Phase | Name | Handbook chapters | Gate |
-| --- | --- | --- | --- |
-| **P1** | Action & command chrome | 06, 07, 08, 09, 26 (search) | None |
-| **P2** | Workspace & docking | 03, 04, 05 | None for topology model; tear-off UX after model |
-| **P3** | Selection & edit targets | 01, 12, DR-011 | None |
-| **P4** | Masks & layer semantics | 11, 13 | None |
-| **P5** | Creative engines depth | 14, 15, 18, 19 | None |
-| **P6** | Color & rendering contracts | 16, 17, DR-005/006 | Full pixel snapshots incremental; tiling → P11 |
-| **P7** | History & lifecycle | 02, 20 | Spill → memory evidence (P11) |
-| **P8** | Clipboard & interchange I/O | 21, 22, 27 (non-sparse) | Sparse/incremental → P11 |
-| **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None |
-| **P10** | Accessibility projection | 29, DR-016 | None |
-| **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** (see §4) |
-| **P12** | Extension capability seams | 23, DR-009 | **Product need** + P1 solid |
-| **P13** | Verification & budget promotion | 30, 31, 32, DR-017/022 | Continuous; exit pack at end |
+| Phase | Name | Handbook chapters | Gate | Status |
+| --- | --- | --- | --- | --- |
+| **P1** | Action & command chrome | 06, 07, 08, 09, 26 | None | **Met** |
+| **P2** | Workspace & docking | 03, 04, 05 | None | **Met** |
+| **P3** | Selection & edit targets | 01, 12, DR-011 | None | **Met** |
+| **P4** | Masks & layer semantics | 11, 13 | None | **Met** |
+| **P5** | Creative engines depth | 14, 15, 18, 19 | None | **Partial** (spines Met) |
+| **P6** | Color & rendering contracts | 16, 17, DR-005/006 | Tiling → P11 | **Partial** |
+| **P7** | History & lifecycle | 02, 20 | Spill → P11 | **Partial** |
+| **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Partial** |
+| **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None | **Partial** |
+| **P10** | Accessibility projection | 29, DR-016 | None | **Partial** |
+| **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** §4 | **Gated** (DR-029) |
+| **P12** | Extension capability seams | 23, DR-009 | Product need | **Partial** (seam only) |
+| **P13** | Verification & budget promotion | 30, 31, 32, DR-017/022 | Continuous | **Partial** |
 
-Phases may overlap when independent (e.g. P9 themes while P5 engines run). Do not start P11/P12 without gates.
+Phases may overlap when independent. Do not start P11/P12 without gates.
 
 ---
 
 ## 4. Hard gates (Decision Register)
 
-| Gate | Required before | Evidence / amend |
-| --- | --- | --- |
-| Large-doc / tiling | P11 tiling & pyramid | Benchmark: interactive path fails budgets without residency ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) |
-| Multi-document | P11 multi-doc tabs/registry | Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) |
-| History spill | P11 spill-to-disk | Memory-pressure scenarios ([DR-004](Decision-Register.md)) |
-| `.ptx` sparse / incremental | P11 format evolution | Large sparse + recovery spikes ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) |
-| Plugin seams | P12 | Real product need after command chrome; ABI still deferred |
-| Budget promotion | P13 exit claims | Fixtures + ledger rows ([DR-017](Decision-Register.md#dr-017--performance-budgets-provisional)) |
+| Gate | Required before | Evidence / amend | State |
+| --- | --- | --- | --- |
+| Large-doc / tiling | P11 tiling & pyramid | Benchmark: interactive path fails budgets without residency ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) | **Open** — recorded DR-029 |
+| Multi-document | P11 multi-doc tabs/registry | Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) | **Open** — recorded DR-029 |
+| History spill | P11 spill-to-disk | Memory-pressure scenarios ([DR-004](Decision-Register.md)) | **Open** — recorded DR-029 |
+| `.ptx` sparse / incremental | P11 format evolution | Large sparse + recovery spikes ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) | **Open** — recorded DR-029 |
+| Plugin seams / ABI | P12 beyond opaque data | Real product need; ABI still deferred ([DR-009](Decision-Register.md#dr-009--plugin-abi-deferred-capability-seams-now)) | Seam `[x]`; ABI Deferred |
+| Budget promotion | P13 exit claims | Fixtures + ledger rows ([DR-017](Decision-Register.md#dr-017--performance-budgets-provisional)) | **Open** — conformance started |
 
 ---
 
 ## 5. Phase summaries
 
-### P1 — Action & command chrome
+### P1 — Action & command chrome — **Met**
 
 **Goal:** Menus, toolbars, shortcuts, and context menus resolve through stable action/command IDs; command search exists.
 
 **Exit:** Every primary menu operation maps to a registered command or documented host-only exemption; customize shortcuts for shipped actions; tool strip driven by descriptors.
 
-**Avoid:** Rewriting docking or multi-doc.
+**Shipped:** Action registry, MenuBar Instantiator, context menus, keymap prefs, command palette, `CommandMeta`.
 
-### P2 — Workspace & docking
+**Still todo (polish):** Overflow toolbar; fuzzy palette; path context menu; menu completeness vs IA.
+
+### P2 — Workspace & docking — **Met**
 
 **Goal:** Semantic workspace topology + docking model; Qt presents it.
 
-**Exit:** Tear-off / split / persist layout without polluting document history; workspace presets; panels consume descriptors for lifecycle.
+**Exit:** Tear-off / persist layout without polluting document history; workspace presets; panels consume descriptors.
 
-### P3 — Selection & edit targets
+**Shipped:** `WorkspaceState` / `DockTopology`, tear-off, auto-hide, built-in presets, `panels_json`.
 
-**Goal:** Object selection, pixel selection, focus, context target, and active edit target are distinct in UI and commands ([DR-011](Decision-Register.md#dr-011--selection-concepts-are-distinct)).
+**Still todo (polish):** Split graph; user-named presets; list virtualization; follow-context panels.
 
-**Exit:** Tools and Properties never overload “whatever was last clicked”; announcements/enablement use correct concept.
+### P3 — Selection & edit targets — **Met**
 
-### P4 — Masks & layer semantics
+**Goal:** Object / pixel / focus / context / edit target distinct ([DR-011](Decision-Register.md#dr-011--selection-concepts-are-distinct)).
 
-**Goal:** Handbook mask apply/disable/refine + vector masks path; layer locks and nondestructive stack breadth.
+**Exit:** Tools and Properties never overload “whatever was last clicked.”
 
-**Exit:** Vector mask + refine; apply semantics clear; lock flags enforced on paint/transform.
+**Shipped:** Distinct chrome fields; selection↔mask commands; status/announce.
 
-### P5 — Creative engines depth
+**Still todo (polish):** Multi-object ops; fuller announce flood-control; ants SLO evidence → P13.
 
-**Goal:** Brush, filter, text, and shape engines approach handbook feature sets on the frozen stack.
+### P4 — Masks & layer semantics — **Met**
 
-**Exit:** Declarative filter plans; richer brush dynamics; text layout depth; Shape booleans + path edit; CPU/GPU parity where claimed.
+**Goal:** Mask apply/disable/refine + vector masks; layer locks and nondestructive stack breadth.
 
-### P6 — Color & rendering contracts
+**Shipped:** Locks; mask attrs UI + density in composite; `mask.apply`; vector mask metadata; multi-select delete/reorder/group/ungroup; `LayerKind::Fill`; effect reorder/enable UI; clip break-on-delete; OuterGlow + ColorOverlay.
 
-**Goal:** Soft-proof / ICC foundation; snapshot publisher beyond metadata leases; device-loss UX.
+**Still todo (deferred):** Vector mask path edit; refine contrast/edge shift (DR-028).
 
-**Exit:** Assign/convert remain; soft-proof + profile embed on I/O; immutable snapshot/delta path for workers; interactive present stays zero-copy.
+### P5 — Creative engines depth — **Partial** (spines Met)
 
-### P7 — History & lifecycle
+**Goal:** Brush, filter, text, and shape engines approach handbook feature sets.
 
-**Goal:** Unified transaction timeline; formal lifecycle/recovery orchestration.
+**Shipped:** Brush presets + dynamics fields; CPU dab reference; stroke journal; `FilterPlan`; sharpen CPU+GPU; shape boolean coverage bake; rect/ellipse/line + fill/stroke.
 
-**Exit:** One undo stack model (coalescing preserved); recovery UX meets handbook bound; surface/device loss coordinated.
+**Still todo:** Filter gallery; path edit; vector-preserving boolean; text typography / on-canvas edit; font discovery; texture tips; filter cancel policy. Track under DR-028 / checklist `[P]`.
 
-### P8 — Clipboard & interchange I/O
+### P6 — Color & rendering contracts — **Partial**
 
-**Goal:** Capability-scoped clipboard; hostile-input limits; adapter loss disclosure completeness.
+**Goal:** Soft-proof / ICC foundation; snapshot publisher; device-loss UX.
 
-**Exit:** Multi-format clipboard bridge; import/export cancel/progress; PSD/raster limits enforced; `.ptx` non-sparse integrity/migration polish.
+**Shipped:** Soft-proof command + UI; assign/convert sRGB↔Display-P3; generation leases.
 
-### P9 — Preferences, themes, UX
+**Still todo:** ICC load/embed; display profile discovery; pixel snapshot/delta publisher; device-loss UX; broader GPU↔CPU fixtures. Tiling → P11.
 
-**Goal:** Handbook preference schema coverage; Themes as token source; UX patterns for inspectors/progress.
+### P7 — History & lifecycle — **Partial**
 
-**Exit:** Prefs migrations; high-contrast/density; every command discoverable via menu or search; mixed-value inspector patterns.
+**Goal:** Unified timeline; formal lifecycle/recovery.
 
-### P10 — Accessibility
+**Shipped:** Unified history kinds; panel jump; autosave + restore/discard chooser; stroke journal files.
 
-**Goal:** Semantic descriptor projection to AT-SPI ([DR-016](Decision-Register.md#dr-016--accessibility-is-semantic-not-pixel-inference)).
+**Still todo:** Retention budget UI; safe-start; formal lifecycle controller; device-loss orchestration. Spill / multi-doc → P11.
 
-**Exit:** Canvas summary/explorer; keyboard parity for non-gesture ops; contrast/scale/reduced-motion checks.
+### P8 — Clipboard & interchange I/O — **Partial**
 
-### P11 — Scale & multi-document (gated)
+**Goal:** Capability-scoped clipboard; hostile-input limits; adapter disclosure.
 
-**Goal:** Sparse tiles/pyramid; multi-doc session; history spill; `.ptx` sparse/incremental — **only after gates**.
+**Shipped:** In-app + OS image clipboard (`arboard`); 64 MiB bound; adapter dimension/alloc limits; `.ptx` unknown-chunk skip; `extension_data`.
 
-**Exit:** Large docs within budgets; multi-doc after DR-024 amend; spill under pressure; incremental save optional strategy validated.
+**Still todo:** Mask/selection clipboard payloads; SVG-ish MIME; stronger integrity UX; fuller loss reports / progress UX. Sparse `.ptx` → P11.
 
-### P12 — Extension capability seams
+### P9 — Preferences, themes, UX — **Partial**
 
-**Goal:** Manifests, capabilities, budgets, failure isolation — **no ABI freeze**.
+**Goal:** Prefs schema coverage; Themes as token source; UX patterns.
 
-**Exit:** Opaque extension data round-trip in `.ptx`; contribution registration; host mediation stubs.
+**Shipped:** Prefs schema 4; high-contrast + density packs; Theme bindings.
 
-### P13 — Verification & budget promotion
+**Still todo:** Mixed-value inspector; safe-start prefs; progressive disclosure; full reduced-motion / 200% audit.
 
-**Goal:** Command conformance suite; hostile I/O fuzz; promote Provisional performance rows with fixtures.
+### P10 — Accessibility — **Partial**
 
-**Exit:** DR-017 rows Accepted where claimed; DR-022 command suite green; device-loss and a11y evidence packs documented.
+**Goal:** Semantic projection to AT-SPI ([DR-016](Decision-Register.md#dr-016--accessibility-is-semantic-not-pixel-inference)).
+
+**Shipped:** `accessibilityTreeJson` from descriptors/canvas/panels.
+
+**Still todo:** AT-SPI host adapter; fuller keyboard parity; a11y evidence pack → P13.
+
+### P11 — Scale & multi-document — **Gated**
+
+**Goal:** Tiles/pyramid; multi-doc; history spill; sparse `.ptx` — **only after gates**.
+
+**State:** Gates recorded in DR-029 / checklist. **No implementation** until evidence + amends.
+
+### P12 — Extension capability seams — **Partial**
+
+**Goal:** Manifests, capabilities, budgets — **no ABI freeze**.
+
+**Shipped:** Opaque `extension_data` round-trip.
+
+**Still todo:** Contribution manifests; budgets/isolation; host mediation — only with product need. ABI stays Deferred.
+
+### P13 — Verification & budget promotion — **Partial**
+
+**Goal:** Conformance suite; hostile I/O fuzz; promote Provisional performance rows.
+
+**Shipped:** Headless command-router conformance module.
+
+**Still todo:** Fixture harness; promote DR-017 ledger rows; device-loss suite; CI budget gates; large-doc suite (feeds P11).
 
 ---
 
@@ -201,19 +250,26 @@ Phases may overlap when independent (e.g. P9 themes while P5 engines run). Do no
 1. **Handbook-first:** Read the chapter + Decision Register before coding.
 2. **Commands:** New document-authoritative mutations get a `command_id` + taxonomy row.
 3. **No stack reopen:** Qt / wgpu / Wayland / zero-copy / coarse crates stay.
-4. **Gates are real:** Do not “just start” multi-doc or tiling.
+4. **Gates are real:** Do not “just start” multi-doc or tiling (DR-029).
 5. **Update checklist** when starting/finishing a slice; close gap-analysis rows in the same change set.
 6. **Quality:** `./scripts/check-rust.sh` green; no paragraph-long workaround comments.
-7. **Journal:** Phase exits → `archive/docs/04-journal/` (or handbook journal if created).
+7. **Journal:** Phase exits → `archive/docs/04-journal/`.
+8. **Depth deferral:** Prefer vertical spines; mark unfinished MUST depth `[~]`/`[P]` or amend DR-028 — never silent gaps.
 
 ---
 
-## 7. Suggested start sequence (first four slices)
+## 7. Recommended next slices (ungated)
 
-1. **P1.1** — Action registry + bind File/Edit/Select menus to command IDs  
-2. **P1.2** — Tool strip consumes `tools_json`; options bar from active tool  
-3. **P3.1** — Separate pixel selection vs active layer vs mask-edit target in Properties/status  
-4. **P5.1** or **P6.1** — Pick engine or soft-proof based on product priority (either is valid)
+Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
+
+1. **P5** — Filter gallery UX; path edit; text typography / on-canvas edit  
+2. **P6** — ICC embed foundation; GPU↔CPU parity fixtures; device-loss UX  
+3. **P8** — Mask/selection clipboard; `.ptx` integrity diagnostics UX  
+4. **P9** — Mixed-value inspector; safe-start prefs  
+5. **P10** — AT-SPI host adapter (tree JSON already exists)  
+6. **P13** — Budget fixture harness + promote Provisional ledger rows  
+
+Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 
 ---
 
@@ -223,5 +279,6 @@ Phases may overlap when independent (e.g. P9 themes while P5 engines run). Do no
 - [Alignment-Roadmap.md](Alignment-Roadmap.md) (complete)
 - [Implementation-Checklist.md](Implementation-Checklist.md) (alignment history)
 - [Command-Taxonomy.md](Command-Taxonomy.md)
+- [Decision-Register.md](Decision-Register.md)
 - [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md)
 - [32 — Developer Guide](../32-Developer-Guide.md)

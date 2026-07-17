@@ -13,13 +13,13 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 | Family | IDs |
 | --- | --- |
 | History | `history.undo`, `history.redo`, `history.jump` |
-| Layer | `layer.create`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.set-clip` |
+| Layer | `layer.create`, `layer.create-fill`, `layer.set-fill-color`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.ungroup`, `layer.set-clip`, `layer.set-locks` |
 | View | `view.zoom-to`, `view.zoom-to-fit`, `view.pan-to`, `view.pan-by`, `view.zoom-at`, `view.set-tool` |
 | Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.set-soft-proof`, `document.crop`, `document.rotate-90` |
 | Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify`, `selection.to-mask` |
-| Mask | `mask.create`, `mask.delete`, `mask.set-enabled`, `mask.to-selection` |
+| Mask | `mask.create`, `mask.delete`, `mask.set-enabled`, `mask.set-attributes`, `mask.create-vector`, `mask.apply`, `mask.to-selection` |
 | Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize`, `shape.boolean` |
-| Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `style.add-drop-shadow`, `style.add-stroke` |
+| Filter / style | `filter.add-adjustment`, `filter.set-parameters`, `filter.add-effect`, `filter.set-gaussian-radius`, `effect.reorder`, `effect.set-enabled`, `style.add-drop-shadow`, `style.add-stroke`, `style.add-outer-glow`, `style.add-color-overlay` |
 | Clipboard / path | `clipboard.paste-layer`, `path.stroke-to-layer` |
 | Raster | `raster.transform-commit`, `raster.flip`, `raster.fill`, `raster.gradient`, `raster.paint-stroke` |
 | App / workspace | `app.show-preferences`, `workspace.reset`, `workspace.toggle-panel` |

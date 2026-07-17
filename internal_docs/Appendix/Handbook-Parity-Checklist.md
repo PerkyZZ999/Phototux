@@ -5,18 +5,42 @@ Prerequisite: [Alignment Roadmap](Alignment-Roadmap.md) complete; [Implementatio
 
 Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]` post-gate / optional depth · `[N]` never (out of product)
 
-**Stack frozen:** [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase).
+**Stack frozen:** [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase).  
+**Depth deferral:** [DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices).  
+**Scale/plugin gates:** [DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl).
+
+---
+
+## Status snapshot (2026-07-17)
+
+| Phase | Exit | Notes |
+| --- | --- | --- |
+| P1 Action chrome | **Met** | Remaining `[~]` = polish |
+| P2 Workspace / docking | **Met** | Split graph / user presets / list virtualization polish |
+| P3 Selection targets | **Met** | Multi-object select polish deferred |
+| P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; path edit + refine contrast/shift stay `[~]` |
+| P5 Creative engines | **Partial / spines Met** | Presets, FilterPlan, CPU dab, stroke journal, sharpen GPU+CPU, shape boolean bake; text/path/gallery depth → DR-028 |
+| P6 Color / render | **Partial** | Soft-proof shipped; ICC bytes + pixel publisher → DR-028 |
+| P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
+| P8 Clipboard / I/O | **Partial** | OS image clipboard + limits; mask copy / integrity UX open |
+| P9 Prefs / themes | **Partial** | Schema 4 + Theme packs; mixed-value inspector open |
+| P10 Accessibility | **Partial** | Semantic JSON spine; AT-SPI adapter → DR-028 |
+| P11 Scale / multi-doc | **Gated** | Gates recorded only (DR-029) — no impl |
+| P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred |
+| P13 Verification | **Partial** | Conformance suite green; budget promotion still Provisional |
+
+**Spine parity** for P1–P10 shipped concepts is in place. Full handbook chapter-depth and DR-017 budget promotion remain open. Journals: `archive/docs/04-journal/*handbook-parity*`.
 
 ---
 
 ## Standing rules
 
-- [ ] Update this file when starting/finishing a slice
-- [ ] Add/update `command_id` + [Command-Taxonomy.md](Command-Taxonomy.md) for document commits
-- [ ] Close matching rows in [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md)
-- [ ] `./scripts/check-rust.sh` green
-- [ ] No paragraph-long workaround comments
-- [ ] Journal phase exits under `archive/docs/04-journal/`
+- [x] Update this file when starting/finishing a slice (living practice)
+- [x] Add/update `command_id` + [Command-Taxonomy.md](Command-Taxonomy.md) for document commits
+- [~] Close matching rows in [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) — keep in sync on each slice
+- [x] `./scripts/check-rust.sh` green (gate on every commit)
+- [x] No paragraph-long workaround comments
+- [x] Journal phase exits under `archive/docs/04-journal/`
 
 ---
 
@@ -42,14 +66,14 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.2 Menus
 
-- [x] File / Edit / Select / View / Image / Layer / Filters / Tools / Window / Help driven by action IDs (MenuBar; Tools menu N/A v1; context menus still hardcoded — P1.4)
+- [x] File / Edit / Select / View / Image / Layer / Filters / Tools / Window / Help driven by action IDs (MenuBar; Tools menu N/A v1; context menus — P1.4)
 - [~] Menu completeness vs IA ([01](../01-Information-Architecture.md)) for shipped commands
 - [x] No document mutation from menu slots that bypass invoke (MenuBar → `invokeAction`)
 
 ### P1.3 Toolbars & tools
 
 - [x] Tool strip consumes `tools_json` / tool descriptors
-- [~] Tool-options bar bound to active tool + edit target (active tool yes; edit-target chrome in P3.1)
+- [~] Tool-options bar bound to active tool + edit target (active tool yes; edit-target chrome in P3)
 - [ ] Overflow / compact layout for narrow windows
 - [~] Cancel-in-progress policy on tool switch (handbook 06) — transform/crop cancel on switch already
 
@@ -75,11 +99,11 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.7 Command system depth
 
-- [x] Descriptor metadata: scope, mutation class, undo policy, conflict policy (taxonomy axes) — `CommandMeta` / `COMMAND_META_ALL`
-- [x] Application/workspace-scope command IDs where chrome needs them (`app.show-preferences`, workspace toggles)
-- [x] Keep host-only exemptions documented (previews, paint stream, I/O adapters) — taxonomy catalog
+- [x] Descriptor metadata: scope, mutation class, undo policy, conflict policy — `CommandMeta` / `COMMAND_META_ALL`
+- [x] Application/workspace-scope command IDs (`app.show-preferences`, workspace toggles)
+- [x] Keep host-only exemptions documented — taxonomy catalog
 
-**P1 exit:** chrome is action/command driven for shipped surfaces; palette works; shortcuts customizable. **Met** (remaining `[~]` polish elsewhere does not block).
+**P1 exit:** **Met.** Remaining `[~]` polish does not block.
 
 ---
 
@@ -111,7 +135,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 - [x] Placeholder / contribution slots for future panels
 - [~] Paths / Character / Navigator parity with descriptor catalog (Navigator body + Paths/Character placeholders)
 
-**P2 exit:** layout is model-driven; tear-off + presets work; document dirty unaffected by layout. **Met** (split graph / user presets / list virtualization remain polish).
+**P2 exit:** **Met.** Split graph / user presets / list virtualization remain polish.
 
 ---
 
@@ -119,17 +143,17 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 Chapters: [01](../01-Information-Architecture.md), [12](../12-Selection-System.md), DR-011
 
-### P3.1 Chrome (this batch)
+### P3.1 Chrome
 
-- [x] Distinct: object selection vs pixel selection vs focus vs context target vs active edit target (`objectSelectionLabel`, `pixelSelectionActive`, `editTarget`, workspace focus)
-- [x] UI chrome never collapses these into one “selection” (status + Properties separate clauses)
+- [x] Distinct: object selection vs pixel selection vs focus vs context target vs active edit target
+- [x] UI chrome never collapses these into one “selection”
 - [~] Commands/announce for each concept (`lastAnnounce` + status; full a11y flood-control later)
-- [x] Mask-edit target vs layer pixels clearly indicated (Properties Edit target row + status)
+- [x] Mask-edit target vs layer pixels clearly indicated
 - [~] Selection channel ops (replace/add/subtract/intersect) complete in chrome (tool options present)
 - [~] Marching-ants / overlay performance within interactive budgets (GPU ants shipped; SLO evidence → P13)
 - [x] Select → mask / mask → selection flows (`selection.to-mask`, `mask.to-selection`)
 
-**P3 exit:** DR-011 concepts visible and enforced in tools + Properties + status. **Met** for shipped concepts (multi-object select polish deferred).
+**P3 exit:** **Met** for shipped concepts. Multi-object select polish deferred.
 
 ---
 
@@ -139,22 +163,22 @@ Chapters: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 ### P4.1 Masks
 
-- [~] Vector masks (path-based) on layers — metadata + `mask.create-vector`; path edit deferred
-- [~] Refine edge (feather/contrast/shift) with preview + commit commands — feather/density/invert via `mask.set-attributes`; contrast/shift deferred
-- [x] Apply mask / disable / delete semantics complete + history
-- [~] Mask density / invert / link flags in UI (commands + Properties toggles)
+- [~] Vector masks (path-based) — metadata + `mask.create-vector`; path edit deferred (DR-028)
+- [~] Refine edge — density/feather/invert via `mask.set-attributes` + Properties; contrast/shift deferred
+- [x] Apply mask / disable / delete semantics — `mask.apply` (host bake) + disable/delete + history
+- [x] Mask density / invert / link flags in UI (Properties + GPU density equation)
 - [x] Paint-on-mask vs layer clarity (edit target)
 
 ### P4.2 Layers
 
 - [x] Lock flags enforced (pixels / position / all) on tools
-- [ ] Multi-select layer ops (delete/reorder/group) atomic where handbook requires
-- [ ] Fill / solid-color layer kind or equivalent
-- [ ] Layer styles depth beyond Drop Shadow + Stroke (as handbook 11/15)
-- [~] Clipping groups UX polish
-- [ ] Nondestructive effect stack ordering UI
+- [x] Multi-select layer ops (delete/reorder/group/ungroup) atomic + Ctrl/Shift Layers panel
+- [x] Fill / solid-color layer — `LayerKind::Fill` + `layer.create-fill` / `layer.set-fill-color`
+- [x] Layer styles beyond Drop Shadow + Stroke — OuterGlow + ColorOverlay (further styles `[P]`)
+- [x] Clipping groups UX — clip toggle + break-on-delete-base + Layers ↳ tooltip
+- [x] Nondestructive effect stack ordering UI — `effect.reorder` / `effect.set-enabled` + Properties
 
-**P4 exit:** vector + refine masks; locks real; layer stack matches handbook mental model for shipped kinds. **Partial** — locks + mask attrs + vector metadata shipped; remaining polish deferred.
+**P4 exit:** **Met.** Remaining: vector path edit + refine contrast/shift `[~]` under DR-028.
 
 ---
 
@@ -164,23 +188,23 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### P5.1 Brush
 
-- [~] Dynamics: size/opacity/flow pressure curves, scatter, texture (handbook subset prioritized) — opacity/flow/scatter/spacing + size/opacity pressure on `BrushParams`; texture deferred ([DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices))
-- [x] Brush preset library persistence + UI (prefs schema 4 JSON + Properties apply/save)
-- [x] Stroke journal / recovery hooks (`StrokeJournal` → recovery/strokes/*.json)
-- [x] CPU dab reference path for tests (`stamp_dab_rgba` / `paint_dabs_rgba`)
+- [~] Dynamics: opacity/flow/scatter/spacing + size/opacity pressure on `BrushParams`; texture / full curves → DR-028
+- [x] Brush preset library persistence + UI (prefs schema 4 + Properties apply/save)
+- [x] Stroke journal / recovery hooks (`StrokeJournal` → `recovery/strokes/*.json`)
+- [x] CPU dab reference path (`stamp_dab_rgba` / `paint_dabs_rgba`)
 - [P] Tile-aware stroke planner (after P11 tiling)
 
 ### P5.2 Filters
 
-- [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`; JSON round-trip)
+- [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`)
 - [ ] Filter gallery UX (browse + preview + commit)
-- [~] Additional GPU executors (sharpen, noise, color ops…) with CPU reference — `cpu_sharpen_rgba` + GPU pack mode 7 + Sharpen command; noise deferred
+- [~] Additional GPU executors — sharpen CPU + GPU pack mode 7 + menu command; noise / more color ops deferred
 - [ ] Cancel / stale-result policy for long filters
-- [~] Adjustment kinds completeness vs handbook 15 — existing subset; gallery deferred (DR-028)
+- [~] Adjustment kinds completeness vs handbook 15 — existing subset; gallery → DR-028
 
 ### P5.3 Text
 
-- [~] Editable text tool (on-canvas) beyond Character fields — Character + bake shipped; on-canvas edit deferred (DR-028)
+- [~] Editable text tool (on-canvas) — Character + bake shipped; on-canvas edit → DR-028
 - [ ] Typography: wrapping, bounds, more alignment/metrics
 - [ ] Font resource discovery + fallback
 - [~] Retain editable text vs bake policy UX — bake command exists
@@ -188,13 +212,14 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### P5.4 Shape
 
-- [x] Boolean union / intersection / difference / exclusion — coverage bake → new raster layer (`shape.boolean`)
+- [x] Boolean union / intersection / difference / exclusion — coverage bake → new raster (`shape.boolean`)
 - [ ] Path edit tool (add/move/delete points, close)
-- [~] Parametric primitives beyond rect/ellipse/line — rect/ellipse/line shipped; more deferred (DR-028)
+- [~] Parametric primitives beyond rect/ellipse/line — those three shipped; more → DR-028
 - [ ] Live vector contribution option vs always-raster upload
 - [~] Stroke/fill/gradient style depth — fill/stroke v1; gradient deferred
+- [P] Vector-preserving boolean (keep editable paths) — coverage bake is v1; vector result → DR-028
 
-**P5 exit:** engines cover handbook feature sets claimed for v1 product; remaining items marked `[P]` only with DR note. **Met for shipped spines** (presets + `FilterPlan`); depth → DR-028.
+**P5 exit:** **Partial / spines Met.** Presets, FilterPlan, dab CPU, stroke journal, sharpen, boolean bake shipped. Remaining depth → DR-028 / `[P]`.
 
 ---
 
@@ -204,22 +229,22 @@ Chapters: [16](../16-Color-Management.md), [17](../17-Rendering-Engine.md), DR-0
 
 ### P6.1 Color
 
-- [x] Soft-proof mode + proof intent UI (`document.set-soft-proof`; Image menu; Properties status)
+- [x] Soft-proof mode + proof intent UI (`document.set-soft-proof`; Image menu; Properties)
 - [ ] ICC profile load/embed (document + export)
-- [~] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags; ICC bytes deferred (DR-028)
+- [~] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags; ICC bytes → DR-028
 - [ ] Display profile discovery (Linux host adapter)
-- [~] Assign ≠ convert disclosures everywhere (Image menu + dialogs) — menu actions present
+- [~] Assign ≠ convert disclosures — Image menu actions present
 
 ### P6.2 Rendering
 
-- [~] Immutable pixel snapshot / bounded delta publisher (beyond metadata leases) — generation leases shipped; pixel publisher deferred (DR-028)
-- [~] Workers consume leases only (no mutable graph across async) — I/O worker path; full contract deferred
+- [~] Immutable pixel snapshot / bounded delta publisher — generation leases shipped; pixel publisher → DR-028
+- [~] Workers consume leases only — I/O worker path; full contract deferred
 - [ ] Broader GPU↔CPU blend/filter parity fixtures
 - [ ] Device-loss / surface-loss UX (reconstruct or controlled fail)
 - [ ] Dirty-region / overlay separation polish
 - [!] Tiling / pyramid → **P11** (gated)
 
-**P6 exit:** soft-proof + ICC foundation; snapshot publisher for workers; interactive present remains zero-copy. **Partial Met** — soft-proof spine shipped; ICC/publisher depth → DR-028.
+**P6 exit:** **Partial Met.** Soft-proof spine shipped; ICC/publisher depth → DR-028.
 
 ---
 
@@ -237,14 +262,14 @@ Chapters: [02](../02-Application-Lifecycle.md), [20](../20-History-Undo.md)
 
 ### P7.2 Lifecycle
 
-- [~] Formal lifecycle controller (startup / session / shutdown) — session/prefs/recovery hooks; formal controller deferred
-- [x] Recovery UX (~handbook autosave bound) + restore chooser — autosave + startup restore/discard dialog
+- [~] Formal lifecycle controller — session/prefs/recovery hooks; formal controller deferred
+- [x] Recovery UX + restore chooser — autosave + startup restore/discard dialog
 - [ ] Safe-start (suppress custom chrome on crash loop)
 - [~] Save coordination: staged identity vs generation receipts — generation on graph
 - [ ] GPU/renderer generation orchestration on device loss
 - [!] Multi-window / multi-doc → **P11** (DR-024 amend)
 
-**P7 exit:** one history model; recovery usable; lifecycle explicit. **Partial Met** — timeline + jump shipped; spill/multi-doc gated.
+**P7 exit:** **Partial Met.** Timeline + jump + recovery chooser shipped; spill/multi-doc gated.
 
 ---
 
@@ -255,27 +280,27 @@ Chapters: [21](../21-Clipboard.md), [22](../22-Import-Export.md), [27](../27-Fil
 ### P8.1 Clipboard
 
 - [x] Capability-scoped host clipboard bridge — in-app RGBA + OS image via `arboard`
-- [~] Multi-format negotiation (pixels / layer / SVG-ish paths as available) — pixels image MIME; SVG deferred
+- [~] Multi-format negotiation — pixels image MIME; SVG / layer MIME deferred
 - [ ] Mask / selection payload copy
 - [x] Security / size bounds (64 MiB refuse on copy)
 
 ### P8.2 Import / export
 
-- [x] Hard allocation / dimension / decompression limits on all adapters (`MAX_DIMENSION` / `MAX_RASTER_BYTES`)
-- [~] Structured loss / compatibility reports for every adapter — PSD truncation messages; broaden deferred
-- [~] Cancel + progress contracts for long jobs — cancel token + I/O busy; full progress UX deferred
-- [~] Expand raster codec coverage as needed (still adapters) — PNG/JPEG/WebP/TIFF/BMP/GIF
+- [x] Hard allocation / dimension / decompression limits (`MAX_DIMENSION` / `MAX_RASTER_BYTES`)
+- [~] Structured loss / compatibility reports — PSD truncation messages; broaden deferred
+- [~] Cancel + progress contracts — cancel token + I/O busy; full progress UX deferred
+- [~] Expand raster codec coverage — PNG/JPEG/WebP/TIFF/BMP/GIF
 - [~] PSD subset deepen (layers/masks) with disclosure — subset + limits shipped
 
 ### P8.3 Native `.ptx` (non-sparse)
 
 - [~] Migration / schema evolution tests for v2 chunks — v1 read / v2 write tests
 - [ ] Stronger integrity diagnostics UX
-- [x] Unknown optional chunk preserve round-trip tests (`skips_unknown_optional_chunk`)
-- [x] Opaque extension object placeholders (prep for P12) — `DocumentGraph::extension_data`
+- [x] Unknown optional chunk skip / round-trip tests
+- [x] Opaque extension object placeholders — `DocumentGraph::extension_data`
 - [!] Sparse tiles / incremental save → **P11**
 
-**P8 exit:** clipboard + adapters meet handbook hostile-input and disclosure bar; `.ptx` solid without sparse. **Partial Met** — bounds + limits + extension placeholders; OS clipboard/MIME later.
+**P8 exit:** **Partial Met.** OS clipboard + hostile-input bounds + `.ptx` integrity basics shipped; mask clipboard / integrity UX open.
 
 ---
 
@@ -285,7 +310,7 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 ### P9.1 Preferences
 
-- [~] Handbook preference schema coverage (view/tool/perf/a11y keys) — schema 4: brush presets, density, contrast, motion
+- [~] Handbook preference schema coverage — schema 4: brush presets, density, contrast, motion
 - [x] Versioned migrations (schema → 4 on load)
 - [ ] Effective-value precedence where document vs user differs
 - [~] Reset field / domain / all — workspace Essentials/factory; full domain reset deferred
@@ -293,7 +318,7 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 ### P9.2 Themes
 
-- [x] Migrate archived `DESIGN.md` tokens → handbook Themes + QML single source (`Theme.qml`)
+- [x] Tokens → QML single source (`Theme.qml`)
 - [x] High-contrast pack (`prefHighContrast` → `Theme.highContrast`)
 - [x] Density / UI scale packs (`prefUiDensity` → `Theme.densityScale`)
 - [~] No ad-hoc colors outside tokens — chrome uses Theme; audit stretch
@@ -306,7 +331,7 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 - [~] Reduced-motion + 200% scale audit — prefs flag; full audit deferred
 - [ ] Progressive disclosure for advanced Properties
 
-**P9 exit:** tokens unified; prefs migrations; UX guidelines satisfied for shipped chrome. **Partial Met** — schema 4 + Theme packs shipped.
+**P9 exit:** **Partial Met.** Schema 4 + Theme packs shipped.
 
 ---
 
@@ -314,15 +339,15 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 Chapter: [29](../29-Accessibility.md), DR-016
 
-- [x] Semantic accessibility tree from descriptors/commands (not pixel inference) — `accessibilityTreeJson`
+- [x] Semantic accessibility tree from descriptors/commands — `accessibilityTreeJson`
 - [ ] AT-SPI host adapter mapping
 - [~] Canvas structured summary / explorer — canvas node in tree JSON
 - [~] Keyboard-complete workflows (non-gesture) — shortcuts + palette; full parity deferred
-- [~] Name/role/state/value on tools, panels, dialogs — QML Accessible.name on shipped controls
+- [~] Name/role/state/value on tools, panels, dialogs — QML `Accessible.name` on shipped controls
 - [~] Flood control for announcements — `lastAnnounce` single channel
-- [~] Contrast / focus / scale gates in checklist evidence — high-contrast pref; evidence pack → P13
+- [~] Contrast / focus / scale gates — high-contrast pref; evidence pack → P13
 
-**P10 exit:** assistive tech sees handbook semantic projection for primary workflows. **Partial Met** — semantic JSON spine; AT-SPI adapter deferred (DR-028).
+**P10 exit:** **Partial Met.** Semantic JSON spine; AT-SPI adapter → DR-028.
 
 ---
 
@@ -332,10 +357,10 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 
 ### Gates (must check before coding)
 
-- [!] Large-doc benchmark proves tiling needed ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) — **recorded; no impl** ([DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl))
-- [!] Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) before multi-doc — **recorded; no impl** (DR-029)
-- [!] Memory-pressure evidence before history spill — **recorded; no impl** (DR-029)
-- [!] Sparse/incremental `.ptx` spike before freezing strategy ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) — **recorded; no impl** (DR-029)
+- [!] Large-doc benchmark proves tiling needed ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) — recorded; no impl ([DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl))
+- [!] Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) before multi-doc — recorded; no impl (DR-029)
+- [!] Memory-pressure evidence before history spill — recorded; no impl (DR-029)
+- [!] Sparse/incremental `.ptx` spike before freezing strategy ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) — recorded; no impl (DR-029)
 
 ### P11.1 Tiling / pyramid
 
@@ -357,7 +382,7 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 - [!] Tile-addressable resources in `.ptx`
 - [!] Incremental / append save strategy (optional, validated)
 
-**P11 exit:** gated items implemented only after gates; budgets held on large docs. **Exit for this pass:** gates recorded; **no ungated implementation** (DR-029).
+**P11 exit:** **Gated — no ungated implementation** (DR-029). Do not start without evidence.
 
 ---
 
@@ -365,14 +390,14 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 
 Chapter: [23](../23-Plugin-SDK.md), DR-009
 
-- [!] Product need recorded (do not build “because handbook mentions plugins”) — **no product need; seams only** (DR-029 / DR-009)
+- [!] Product need recorded — **no product need; seams only** (DR-029 / DR-009)
 - [ ] Contribution manifests (panels/commands/filters) behind capabilities
 - [ ] Budgets + failure isolation
-- [x] Opaque extension data in document + `.ptx` round-trip — `extension_data` JSON round-trip
-- [~] Host mediation; no mutable document refs to extensions — opaque store only; no extension host yet
+- [x] Opaque extension data in document + `.ptx` round-trip — `extension_data`
+- [~] Host mediation — opaque store only; no extension host yet
 - [N] Stable native ABI / marketplace / cloud plugin store
 
-**P12 exit:** seams exist; ABI remains Deferred unless new DR. **Partial Met** — opaque blob seam; ABI still Deferred.
+**P12 exit:** **Partial Met.** Opaque blob seam; ABI remains Deferred.
 
 ---
 
@@ -382,11 +407,11 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 ### P13.1 Testing
 
-- [x] Command-router conformance suite (all shipped IDs, headless) — `command_conformance` module
-- [~] Hostile I/O fuzz / limit tests per adapter — dimension/alloc limit unit tests; fuzz deferred
+- [x] Command-router conformance suite — `command_conformance` (known IDs + meta, soft-proof dirty isolation, lock paint reject)
+- [~] Hostile I/O fuzz / limit tests — dimension/alloc unit tests; fuzz deferred
 - [ ] GPU device-loss suite (or documented skip matrix)
 - [ ] CPU vs GPU tolerance fixtures for claimed ops
-- [~] A11y evidence pack (manual + automated where possible) — semantic tree JSON; AT-SPI pack deferred
+- [~] A11y evidence pack — semantic tree JSON; AT-SPI pack deferred
 
 ### P13.2 Performance
 
@@ -397,22 +422,37 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 ### P13.3 Developer guide practice
 
-- [~] Contrib checklist: new command + taxonomy + tests — taxonomy updated for soft-proof/jump
+- [~] Contrib checklist: new command + taxonomy + tests — taxonomy kept current for new IDs
 - [x] Crate boundary lint/culture (engine no Qt; UI no wgpu)
 - [ ] Thread/ownership map kept current
 - [N] 18-crate rename (DR-025)
 
-**P13 exit:** claimed quality attributes have fixtures; handbook 30/31 no longer Provisional where product claims them. **Partial Met** — conformance suite green; budget promotion still Provisional (DR-017).
+**P13 exit:** **Partial Met.** Conformance suite green; budget promotion still Provisional (DR-017).
 
 ---
 
 ## Full parity exit criteria
 
-- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred in Decision Register with reason — spines Met; depth Deferred via DR-028
-- [x] All P11/P12 items either `[x]` after gates **or** `[P]`/`[N]` with DR amend — gated/`[!]` + DR-029; P12 opaque seam `[x]`
-- [~] Gap analysis has no silent MUST contradictions — remaining open rows tracked in checklist
-- [~] Roadmap §1 “full parity” definition satisfied — **spine parity**; chapter-depth still open under DR-028
-- [x] Journal: phase exits under `archive/docs/04-journal/` (P2–P13); full `handbook-parity-complete` when DR-028 depth closed
+- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred (DR-028) — **spines Met**; chapter-depth open
+- [x] All P11/P12 items either `[x]` after gates **or** `[!]`/`[P]`/`[N]` with DR — gated via DR-029; P12 opaque seam `[x]`
+- [~] Gap analysis has no silent MUST contradictions — keep closing rows with slices
+- [~] Roadmap §1 “full parity” — **spine parity** reached; full depth + budget promotion open
+- [x] Phase journals under `archive/docs/04-journal/` — full `handbook-parity-complete` when DR-028 depth + DR-017 promotion close
+
+---
+
+## Recommended next slices (ungated)
+
+Priority order for agents (see also Roadmap §7):
+
+1. **P5** — Filter gallery UX; path edit tool; text typography / on-canvas edit  
+2. **P6** — ICC embed foundation; GPU↔CPU parity fixtures; device-loss UX  
+3. **P8** — Mask/selection clipboard payloads; `.ptx` integrity diagnostics UX  
+4. **P9** — Mixed-value inspector; safe-start prefs  
+5. **P10** — AT-SPI host adapter (semantic tree already exists)  
+6. **P13** — Budget fixture harness + promote Provisional ledger rows  
+
+**Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 
 ---
 
