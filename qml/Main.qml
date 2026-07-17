@@ -190,6 +190,47 @@ ApplicationWindow {
         return root.toolIconStemMap[iconKey] || iconKey
     }
 
+    /// How many tool strip rows fit above the overflow control.
+    function toolStripCapacity(stripHeight) {
+        var row = Theme.toolHit + Theme.spaceXs
+        var reserve = Theme.toolHit + Theme.spaceSm * 2
+        return Math.max(1, Math.floor((stripHeight - reserve - Theme.spaceXs) / row))
+    }
+
+    /// Split tools into visible strip vs overflow menu; keep active tool on-strip.
+    function toolStripPartitions(capacity) {
+        var all = root.toolDescriptors
+        var cap = Math.max(1, capacity)
+        if (all.length <= cap)
+            return ({ visible: all, overflow: [] })
+        var visible = all.slice(0, cap)
+        var overflow = all.slice(cap)
+        var active = AppSession.activeTool
+        var oi = -1
+        for (var i = 0; i < overflow.length; ++i) {
+            if (overflow[i].id === active) {
+                oi = i
+                break
+            }
+        }
+        if (oi >= 0) {
+            var swapped = visible[visible.length - 1]
+            visible[visible.length - 1] = overflow[oi]
+            overflow[oi] = swapped
+        }
+        return ({ visible: visible, overflow: overflow })
+    }
+
+    function activateToolFromStrip(toolId) {
+        if (AppSession.transformActive && toolId !== "tool.transform")
+            AppSession.cancelTransform()
+        if (AppSession.cropPreviewActive && toolId !== "tool.crop")
+            AppSession.cancelCrop()
+        AppSession.setActiveTool(toolId)
+        if (toolId === "tool.transform")
+            AppSession.beginTransform()
+    }
+
     function shortcutForAction(actionId) {
         return root.actionShortcutMap[actionId] || ""
     }
@@ -1074,11 +1115,24 @@ ApplicationWindow {
         spacing: 0
         enabled: !AppSession.ioBusy
 
-        // Left tool strip
+        // Left tool strip (overflow menu when strip height is tight)
         Rectangle {
+            id: toolStrip
             Layout.preferredWidth: root.toolStripWidth
             Layout.fillHeight: true
             color: Theme.surface
+
+            readonly property int stripCapacity: root.toolStripCapacity(height)
+            // Bind active tool so overflow partition refreshes when selection changes.
+            readonly property string activeToolBind: AppSession.activeTool
+            readonly property int toolCountBind: root.toolDescriptors.length
+            readonly property var stripParts: {
+                var _ = activeToolBind
+                var __ = toolCountBind
+                return root.toolStripPartitions(stripCapacity)
+            }
+            readonly property var stripVisible: stripParts.visible || []
+            readonly property var stripOverflow: stripParts.overflow || []
 
             Rectangle {
                 anchors.right: parent.right
@@ -1096,14 +1150,14 @@ ApplicationWindow {
                 width: parent.width - Theme.spaceXs * 2
 
                 Repeater {
-                    model: root.toolDescriptors
+                    model: toolStrip.stripVisible
                     delegate: Item {
                         width: toolColumn.width
                         height: Theme.toolHit
                         readonly property string toolId: modelData.id
                         readonly property string toolGroup: modelData.group || ""
                         readonly property string prevGroup: index > 0
-                                                           ? root.toolDescriptors[index - 1].group
+                                                           ? toolStrip.stripVisible[index - 1].group
                                                            : ""
 
                         Rectangle {
@@ -1145,17 +1199,7 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (AppSession.transformActive
-                                            && toolId !== "tool.transform")
-                                        AppSession.cancelTransform()
-                                    if (AppSession.cropPreviewActive
-                                            && toolId !== "tool.crop")
-                                        AppSession.cancelCrop()
-                                    AppSession.setActiveTool(toolId)
-                                    if (toolId === "tool.transform")
-                                        AppSession.beginTransform()
-                                }
+                                onClicked: root.activateToolFromStrip(toolId)
                                 ToolTip.visible: containsMouse
                                 ToolTip.text: modelData.title
                                 ToolTip.delay: 400
@@ -1167,17 +1211,35 @@ ApplicationWindow {
             }
 
             ToolButton {
+                id: toolOverflowBtn
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: Theme.spaceSm
                 implicitWidth: 36
                 implicitHeight: 36
-                icon.source: root.iconUrl("gear")
+                visible: toolStrip.stripOverflow.length > 0
+                Accessible.name: qsTr("More tools")
+                icon.source: root.iconUrl("dots-three")
                 icon.width: 18
                 icon.height: 18
-                enabled: false
                 ToolTip.visible: hovered
-                ToolTip.text: qsTr("Settings (coming later)")
+                ToolTip.text: qsTr("More tools")
+                onClicked: toolOverflowMenu.open()
+
+                Menu {
+                    id: toolOverflowMenu
+                    y: toolOverflowBtn.y - height
+                    Repeater {
+                        model: toolStrip.stripOverflow
+                        delegate: MenuItem {
+                            text: modelData.title
+                            icon.source: root.iconUrl(root.toolIconStem(modelData.icon_key))
+                            checked: AppSession.activeTool === modelData.id
+                            checkable: true
+                            onTriggered: root.activateToolFromStrip(modelData.id)
+                        }
+                    }
+                }
             }
         }
 
@@ -4881,9 +4943,42 @@ ApplicationWindow {
         property int selectedIndex: 0
         property string query: ""
 
+        /// Subsequence fuzzy score; higher is better. -1 = no match.
+        function fuzzyScore(hay, needle) {
+            if (!needle)
+                return 0
+            if (!hay)
+                return -1
+            var hi = 0
+            var score = 0
+            var streak = 0
+            for (var ni = 0; ni < needle.length; ++ni) {
+                var ch = needle.charAt(ni)
+                var found = -1
+                for (var j = hi; j < hay.length; ++j) {
+                    if (hay.charAt(j) === ch) {
+                        found = j
+                        break
+                    }
+                }
+                if (found < 0)
+                    return -1
+                if (found === hi)
+                    streak++
+                else
+                    streak = 0
+                score += 10 + streak * 5 - (found - hi)
+                hi = found + 1
+            }
+            // Prefer shorter labels and early matches.
+            score += Math.max(0, 40 - hay.length)
+            return score
+        }
+
         function filteredActions() {
             var q = commandPalette.query.trim().toLowerCase()
             var out = []
+            var scored = []
             var all = root.actionDescriptors
             for (var i = 0; i < all.length; ++i) {
                 var a = all[i]
@@ -4896,9 +4991,31 @@ ApplicationWindow {
                 var label = (a.label || "").replace(/&/g, "").toLowerCase()
                 var id = (a.id || "").toLowerCase()
                 var menu = (a.menu || "").toLowerCase()
-                if (label.indexOf(q) >= 0 || id.indexOf(q) >= 0 || menu.indexOf(q) >= 0)
-                    out.push(a)
+                var best = -1
+                var sLabel = commandPalette.fuzzyScore(label, q)
+                var sId = commandPalette.fuzzyScore(id, q)
+                var sMenu = commandPalette.fuzzyScore(menu, q)
+                if (sLabel > best)
+                    best = sLabel
+                if (sId > best)
+                    best = sId
+                if (sMenu > best)
+                    best = sMenu
+                // Substring boost for exact contiguous hits.
+                if (label.indexOf(q) >= 0)
+                    best = Math.max(best, 1000 - label.indexOf(q))
+                if (id.indexOf(q) >= 0)
+                    best = Math.max(best, 900 - id.indexOf(q))
+                if (best >= 0)
+                    scored.push({ action: a, score: best })
             }
+            if (!q)
+                return out
+            scored.sort(function (x, y) {
+                return y.score - x.score
+            })
+            for (var k = 0; k < scored.length; ++k)
+                out.push(scored[k].action)
             return out
         }
 

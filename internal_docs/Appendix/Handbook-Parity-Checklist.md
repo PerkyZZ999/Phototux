@@ -21,15 +21,15 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; path edit + refine contrast/shift stay `[~]` |
 | P5 Creative engines | **Met** | Gallery preview/commit + cancel/stale; path-edit tool; text frame/wrap + bake policy UX; deferred texture/fonts/on-canvas/vector-boolean/live-vector → DR-028 |
 | P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; display discovery + pixel publisher → DR-028 |
-| P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
+| P7 History / lifecycle | **Met** | Retention UI + safe-start; spill/multi-doc gated |
 | P8 Clipboard / I/O | **Met** | Mask/selection clipboard + `.ptx` integrity diagnostics UX; SVG MIME / sparse → deferred/P11 |
 | P9 Prefs / themes | **Met** | Mixed inspector + safe-start + effective-source spine; full schema/audit → deferred |
 | P10 Accessibility | **Met** | Semantic JSON + AT-SPI role projection; full D-Bus provider / evidence → DR-028/P13 |
 | P11 Scale / multi-doc | **Gated** | Gates recorded only (DR-029) — no impl |
 | P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred |
-| P13 Verification | **Partial** | Conformance suite green; budget promotion still Provisional |
+| P13 Verification | **Met** | Soft CI harness; interactive budgets Provisional (DR-017) |
 
-**Spine parity** for P1–P10 shipped concepts is in place. Full handbook chapter-depth and DR-017 budget promotion remain open. Journals: `archive/docs/04-journal/*handbook-parity*`.
+**Spine parity** for P1–P10/P13 shipped concepts is in place. DR-028 chapter-depth and DR-017 device evidence remain open. Journals: `archive/docs/04-journal/*handbook-parity*`.
 
 ---
 
@@ -74,7 +74,7 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 - [x] Tool strip consumes `tools_json` / tool descriptors
 - [~] Tool-options bar bound to active tool + edit target (active tool yes; edit-target chrome in P3)
-- [ ] Overflow / compact layout for narrow windows
+- [x] Overflow / compact layout for narrow windows — tool strip capacity + `dots-three` overflow menu
 - [~] Cancel-in-progress policy on tool switch (handbook 06) — transform/crop cancel on switch already
 
 ### P1.4 Context menus
@@ -94,7 +94,7 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 ### P1.6 Command search
 
 - [x] Command palette / search dialog (handbook 26)
-- [~] Fuzzy match on action labels + IDs (substring match on label/id/menu; fuzzy stretch later)
+- [x] Fuzzy match on action labels + IDs — subsequence score + substring boost in command palette
 - [x] Invoke selected command with typed result / error surface
 
 ### P1.7 Command system depth
