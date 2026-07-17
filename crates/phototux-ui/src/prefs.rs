@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use phototux_engine::WorkspaceState;
+use phototux_engine::{DockTopology, WorkspaceState};
 
 /// User preferences persisted under `$XDG_CONFIG_HOME/phototux/preferences.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +32,9 @@ pub struct Preferences {
     /// Panel descriptor id → visible (schema 3+).
     #[serde(default)]
     pub panel_visibility: BTreeMap<String, bool>,
+    /// Serialized [`DockTopology`] JSON (schema 3+).
+    #[serde(default)]
+    pub dock_topology_json: String,
     /// Action id → shortcut chord overrides (empty map = defaults only).
     pub keymap: BTreeMap<String, String>,
     pub schema_version: u32,
@@ -53,6 +56,7 @@ impl Default for Preferences {
             panel_history: ws.is_visible("panel.history"),
             panel_properties: ws.is_visible("panel.properties"),
             panel_visibility: ws.panel_visibility.clone(),
+            dock_topology_json: ws.dock.to_json().unwrap_or_default(),
             keymap: BTreeMap::new(),
             schema_version: 3,
         }
@@ -112,7 +116,16 @@ impl Preferences {
 
     pub fn apply_workspace(&mut self, workspace: &WorkspaceState) {
         self.panel_visibility = workspace.panel_visibility.clone();
+        self.dock_topology_json = workspace.dock.to_json().unwrap_or_default();
         self.sync_legacy_bools_from_map();
+    }
+
+    pub fn load_dock_topology(&self) -> DockTopology {
+        if self.dock_topology_json.is_empty() {
+            return DockTopology::essentials();
+        }
+        DockTopology::from_json(&self.dock_topology_json)
+            .unwrap_or_else(|_| DockTopology::essentials())
     }
 
     /// Write preferences atomically when possible.

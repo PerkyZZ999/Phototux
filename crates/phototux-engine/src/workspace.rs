@@ -4,14 +4,17 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::dock::DockTopology;
 use crate::shell::{default_panels, essentials_panel_visibility};
 
-/// Panel visibility and workspace revision. Layout edits MUST NOT dirty the document.
+/// Panel visibility, dock topology, and workspace revision.
+/// Layout edits MUST NOT dirty the document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceState {
     pub revision: u64,
     /// Panel descriptor id → visible.
     pub panel_visibility: BTreeMap<String, bool>,
+    pub dock: DockTopology,
 }
 
 impl Default for WorkspaceState {
@@ -30,6 +33,7 @@ impl WorkspaceState {
         Self {
             revision: 0,
             panel_visibility,
+            dock: DockTopology::essentials(),
         }
     }
 
@@ -65,10 +69,20 @@ impl WorkspaceState {
 
     pub fn reset_essentials(&mut self) {
         let next = Self::essentials();
-        if self.panel_visibility != next.panel_visibility {
+        if self.panel_visibility != next.panel_visibility || self.dock != next.dock {
             self.panel_visibility = next.panel_visibility;
+            self.dock = next.dock;
             self.revision = self.revision.saturating_add(1);
         }
+    }
+
+    pub fn set_dock(&mut self, dock: DockTopology) -> Result<(), &'static str> {
+        dock.validate()?;
+        if self.dock != dock {
+            self.dock = dock;
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// JSON object for prefs / QML: `{ "panel.layers": true, … }`.

@@ -185,6 +185,8 @@ pub struct AppSession {
     prefs: Preferences,
     workspace: WorkspaceState,
     panel_descriptors_json: String,
+    dock_topology_json: String,
+    panel_visibility_json: String,
     tool_descriptors_json: String,
     actions_json: String,
     shortcuts_json: String,
@@ -330,6 +332,10 @@ impl AppSession {
             prefs: Preferences::default(),
             workspace: WorkspaceState::essentials(),
             panel_descriptors_json: phototux_engine::panels_json(),
+            dock_topology_json: phototux_engine::DockTopology::essentials()
+                .to_json()
+                .unwrap_or_else(|_| "{}".into()),
+            panel_visibility_json: WorkspaceState::essentials().visibility_json(),
             tool_descriptors_json: phototux_engine::tools_json(),
             actions_json: phototux_engine::actions_json(),
             shortcuts_json: phototux_engine::shortcuts_json(),
@@ -791,6 +797,7 @@ impl AppSession {
     fn apply_loaded_preferences(&mut self) {
         self.prefs = Preferences::load();
         self.workspace = WorkspaceState::from_visibility_map(self.prefs.panel_visibility.clone());
+        let _ = self.workspace.set_dock(self.prefs.load_dock_topology());
         self.sync_pref_fields_from_store();
         self.refresh_shortcut_maps();
         self.engine.guides.show_guides = self.prefs.show_guides;
@@ -831,6 +838,12 @@ impl AppSession {
         self.panel_layers_visible = self.workspace.is_visible("panel.layers");
         self.panel_history_visible = self.workspace.is_visible("panel.history");
         self.panel_properties_visible = self.workspace.is_visible("panel.properties");
+        self.panel_visibility_json = self.workspace.visibility_json();
+        self.dock_topology_json = self
+            .workspace
+            .dock
+            .to_json()
+            .unwrap_or_else(|_| "{}".into());
     }
 
     fn persist_workspace_visibility(&mut self) {
@@ -842,6 +855,8 @@ impl AppSession {
         self.panel_layers_visible_changed();
         self.panel_history_visible_changed();
         self.panel_properties_visible_changed();
+        self.panel_visibility_json_changed();
+        self.dock_topology_json_changed();
     }
 
     fn emit_pref_fields(&mut self) {
@@ -1643,6 +1658,16 @@ impl AppSession {
         Notify = panel_descriptors_json_changed
     );
     qproperty!(
+        "dockTopologyJson",
+        Member = dock_topology_json,
+        Notify = dock_topology_json_changed
+    );
+    qproperty!(
+        "panelVisibilityJson",
+        Member = panel_visibility_json,
+        Notify = panel_visibility_json_changed
+    );
+    qproperty!(
         "toolDescriptorsJson",
         Member = tool_descriptors_json,
         Notify = tool_descriptors_json_changed
@@ -1921,6 +1946,10 @@ impl AppSession {
     fn startup_ms_changed(&mut self);
     #[qsignal]
     fn panel_descriptors_json_changed(&mut self);
+    #[qsignal]
+    fn dock_topology_json_changed(&mut self);
+    #[qsignal]
+    fn panel_visibility_json_changed(&mut self);
     #[qsignal]
     fn tool_descriptors_json_changed(&mut self);
     #[qsignal]

@@ -10,6 +10,7 @@ mod command;
 mod command_meta;
 mod commands;
 mod cpu_composite;
+mod dock;
 mod document;
 mod error;
 mod guides;
@@ -46,6 +47,7 @@ pub use commands::{
     CommandArgs, CommandEffects, CommandError, HostFollowUp, HostHistoryAction, command_id,
 };
 pub use cpu_composite::{CpuLayerRef, composite_rgba8};
+pub use dock::DockTopology;
 pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use error::DocumentError;
 pub use guides::{Guide, GuideOrientation, ViewGuides};
