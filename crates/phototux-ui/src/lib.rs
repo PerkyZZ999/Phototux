@@ -152,6 +152,8 @@ pub struct AppSession {
     /// Runtime GPU device/surface loss; document graph remains authoritative.
     gpu_lost: bool,
     accessibility_tree_json: String,
+    /// AT-SPI host projection of the semantic tree (role/state mapping).
+    atspi_projection_json: String,
     /// JSON array of [`phototux_io::RecoveryEntry`] for the restore chooser.
     recovery_entries_json: String,
     selection_active: bool,
@@ -352,6 +354,7 @@ impl AppSession {
             has_embedded_icc: false,
             gpu_lost: false,
             accessibility_tree_json: "[]".into(),
+            atspi_projection_json: "[]".into(),
             recovery_entries_json: "[]".into(),
             selection_active: false,
             selection_x: 0,
@@ -655,6 +658,8 @@ impl AppSession {
             self.has_embedded_icc = false;
         }
         self.accessibility_tree_json = self.build_accessibility_tree_json();
+        self.atspi_projection_json =
+            phototux_engine::project_semantic_tree_json(&self.accessibility_tree_json);
         self.sync_selection_fields();
         self.sync_transform_fields();
         self.document_path = self.engine.document_path.clone().unwrap_or_default();
@@ -975,6 +980,7 @@ impl AppSession {
         self.soft_proof_active_changed();
         self.has_embedded_icc_changed();
         self.accessibility_tree_json_changed();
+        self.atspi_projection_json_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
         self.document_path_changed();
@@ -2032,6 +2038,11 @@ impl AppSession {
         Notify = accessibility_tree_json_changed
     );
     qproperty!(
+        "atspiProjectionJson",
+        Member = atspi_projection_json,
+        Notify = atspi_projection_json_changed
+    );
+    qproperty!(
         "recoveryEntriesJson",
         Member = recovery_entries_json,
         Notify = recovery_entries_json_changed
@@ -2607,6 +2618,8 @@ impl AppSession {
     fn gpu_lost_changed(&mut self);
     #[qsignal]
     fn accessibility_tree_json_changed(&mut self);
+    #[qsignal]
+    fn atspi_projection_json_changed(&mut self);
     #[qsignal]
     fn recovery_entries_json_changed(&mut self);
     #[qsignal]

@@ -20,7 +20,7 @@ This roadmap is the plan to bring the **shipping editor** to **full parity** wit
 | --- | --- | --- |
 | **Chrome / IA spines** | P1–P3 | **Met** — action chrome, docking, selection concepts |
 | **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
-| **Engines / color / session** | P5–P10 | **P5–P6/P8–P9 Met**; P7/P10 Partial — open depth tracked under DR-028 |
+| **Engines / color / session** | P5–P10 | **P5–P6/P8–P10 Met**; P7 Partial — open depth tracked under DR-028 |
 | **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
 | **Verification** | P13 | **Partial** — command conformance green; budgets still Provisional (DR-017) |
 
@@ -111,7 +111,7 @@ flowchart TB
 | **P7** | History & lifecycle | 02, 20 | Spill → P11 | **Partial** |
 | **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Met** |
 | **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None | **Met** |
-| **P10** | Accessibility projection | 29, DR-016 | None | **Partial** |
+| **P10** | Accessibility projection | 29, DR-016 | None | **Met** |
 | **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** §4 | **Gated** (DR-029) |
 | **P12** | Extension capability seams | 23, DR-009 | Product need | **Partial** (seam only) |
 | **P13** | Verification & budget promotion | 30, 31, 32, DR-017/022 | Continuous | **Partial** |
@@ -213,13 +213,13 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 **Still todo (deferred):** Full preference engine; 200% scale evidence audit.
 
-### P10 — Accessibility — **Partial**
+### P10 — Accessibility — **Met**
 
 **Goal:** Semantic projection to AT-SPI ([DR-016](Decision-Register.md#dr-016--accessibility-is-semantic-not-pixel-inference)).
 
-**Shipped:** `accessibilityTreeJson` from descriptors/canvas/panels.
+**Shipped:** `accessibilityTreeJson` from descriptors/canvas/panels; `atspiProjectionJson` role/state mapping (`atspi_map`).
 
-**Still todo:** AT-SPI host adapter; fuller keyboard parity; a11y evidence pack → P13.
+**Still todo (deferred):** Full custom AT-SPI D-Bus provider (DR-028); fuller keyboard parity; a11y evidence pack → P13.
 
 ### P11 — Scale & multi-document — **Gated**
 
@@ -262,9 +262,9 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
 
-1. **P10** — AT-SPI host adapter (tree JSON already exists)  
-2. **P13** — Budget fixture harness + promote Provisional ledger rows  
-3. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
+1. **P13** — Budget fixture harness + promote Provisional ledger rows  
+2. **P7** — Retention / formal lifecycle polish (spill gated)  
+3. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
 
 Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 

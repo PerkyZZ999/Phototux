@@ -1,6 +1,7 @@
 //! Pure document/session types — no Qt (ADR-006, ADR-011, ADR-017).
 
 mod actions;
+mod atspi_map;
 mod brush_preset;
 mod camera;
 mod cancel;
@@ -38,6 +39,9 @@ pub use actions::{
     chord_map_from_action_shortcuts, context_actions_json, default_action_shortcuts,
     default_actions, default_shortcut_map, effective_action_shortcuts, effective_shortcuts_json,
     normalize_shortcut, resolve_shortcut, shortcut_conflict, shortcuts_json,
+};
+pub use atspi_map::{
+    AtspiProjectionNode, SemanticRole, project_semantic_tree, project_semantic_tree_json,
 };
 pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};

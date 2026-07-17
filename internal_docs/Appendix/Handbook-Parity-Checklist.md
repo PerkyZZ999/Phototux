@@ -24,7 +24,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
 | P8 Clipboard / I/O | **Met** | Mask/selection clipboard + `.ptx` integrity diagnostics UX; SVG MIME / sparse → deferred/P11 |
 | P9 Prefs / themes | **Met** | Mixed inspector + safe-start + effective-source spine; full schema/audit → deferred |
-| P10 Accessibility | **Partial** | Semantic JSON spine; AT-SPI adapter → DR-028 |
+| P10 Accessibility | **Met** | Semantic JSON + AT-SPI role projection; full D-Bus provider / evidence → DR-028/P13 |
 | P11 Scale / multi-doc | **Gated** | Gates recorded only (DR-029) — no impl |
 | P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred |
 | P13 Verification | **Partial** | Conformance suite green; budget promotion still Provisional |
@@ -340,14 +340,14 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 Chapter: [29](../29-Accessibility.md), DR-016
 
 - [x] Semantic accessibility tree from descriptors/commands — `accessibilityTreeJson`
-- [ ] AT-SPI host adapter mapping
+- [x] AT-SPI host adapter mapping — `project_semantic_tree` → `atspiProjectionJson` (role/state); Qt Accessible + mapping spine; full custom D-Bus provider → DR-028
 - [~] Canvas structured summary / explorer — canvas node in tree JSON
 - [~] Keyboard-complete workflows (non-gesture) — shortcuts + palette; full parity deferred
 - [~] Name/role/state/value on tools, panels, dialogs — QML `Accessible.name` on shipped controls
 - [~] Flood control for announcements — `lastAnnounce` single channel
 - [~] Contrast / focus / scale gates — high-contrast pref; evidence pack → P13
 
-**P10 exit:** **Partial Met.** Semantic JSON spine; AT-SPI adapter → DR-028.
+**P10 exit:** **Met.** Semantic JSON + AT-SPI projection mapping. Full AT-SPI bus provider / a11y evidence pack → DR-028 / P13.
 
 ---
 
@@ -445,9 +445,9 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P10** — AT-SPI host adapter (semantic tree already exists)  
-2. **P13** — Budget fixture harness + promote Provisional ledger rows  
-3. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
+1. **P13** — Budget fixture harness + promote Provisional ledger rows  
+2. **P7** — Retention budget UI / safe-start lifecycle polish (optional; spill gated)  
+3. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 
