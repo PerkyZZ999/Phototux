@@ -42,7 +42,10 @@ pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};
 pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
-pub use color_mgmt::{ConvertPlan, DocumentColorState, convert_rgba8_profile};
+pub use color_mgmt::{
+    ConvertPlan, DocumentColorState, MAX_ICC_BYTES, convert_rgba8_profile, minimal_icc_fixture,
+    validate_icc_profile,
+};
 pub use command::{EngineCommand, EngineEvent};
 pub use command_meta::ALL as COMMAND_META_ALL;
 pub use command_meta::{

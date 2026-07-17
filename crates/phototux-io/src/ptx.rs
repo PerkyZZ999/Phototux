@@ -473,6 +473,22 @@ mod tests {
     }
 
     #[test]
+    fn ptx_roundtrip_preserves_embedded_icc() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(1, 1));
+        let icc = phototux_engine::minimal_icc_fixture();
+        graph
+            .color
+            .set_embedded_icc(Some(icc.clone()))
+            .expect("set icc");
+        let id = graph.layers()[0].id.0;
+        let raster = Raster::new(1, 1, vec![1, 2, 3, 255].into_boxed_slice()).expect("raster");
+        let doc = PtxDocument::from_graph(graph, HashMap::from([(id, raster)]));
+        let bytes = encode_ptx(&doc).expect("encode");
+        let back = decode_ptx(&bytes).expect("decode");
+        assert_eq!(back.graph().color.embedded_icc.as_ref(), Some(&icc));
+    }
+
+    #[test]
     fn ptx_mask_roundtrip_preserves_layered_pixels() {
         let mut graph = DocumentGraph::new(DocumentSize::new(2, 1));
         let background_id = graph.layers()[0].id.0;

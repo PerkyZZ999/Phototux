@@ -22,6 +22,8 @@ pub(crate) enum FileCommand {
     Export {
         path: PathBuf,
         format: RasterFormat,
+        /// Optional validated ICC bytes to embed (PNG).
+        icc: Option<Vec<u8>>,
     },
     ExportPsd {
         path: PathBuf,
@@ -172,7 +174,9 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
             FileCommand::Autosave { graph, original } => {
                 autosave_document(graph, original, &cancel)
             }
-            FileCommand::Export { path, format } => export_document(path, format, &cancel),
+            FileCommand::Export { path, format, icc } => {
+                export_document(path, format, icc, &cancel)
+            }
             FileCommand::ExportPsd { path, graph } => export_psd_document(path, graph, &cancel),
             FileCommand::Shutdown => break,
         };
@@ -272,7 +276,12 @@ fn collect_mask_rasters(width: u32, height: u32) -> Result<HashMap<u64, Raster>,
     Ok(out)
 }
 
-fn export_document(path: PathBuf, format: RasterFormat, cancel: &CancelToken) -> FileEvent {
+fn export_document(
+    path: PathBuf,
+    format: RasterFormat,
+    icc: Option<Vec<u8>>,
+    cancel: &CancelToken,
+) -> FileEvent {
     if cancel.is_cancelled() {
         return FileEvent::Cancelled {
             operation: "Export",
@@ -283,7 +292,8 @@ fn export_document(path: PathBuf, format: RasterFormat, cancel: &CancelToken) ->
             phototux_canvas::read_composite_rgba().map_err(|error| error.to_string())?;
         let raster = Raster::new(width, height, pixels.into_boxed_slice())
             .map_err(|error| error.to_string())?;
-        phototux_io::encode_path_atomic(&path, &raster, format).map_err(|error| error.to_string())
+        phototux_io::encode_path_atomic_with_icc(&path, &raster, format, icc.as_deref())
+            .map_err(|error| error.to_string())
     })();
 
     match result {

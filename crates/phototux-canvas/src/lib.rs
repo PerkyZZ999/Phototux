@@ -148,6 +148,16 @@ pub fn initialize_gpu() -> Result<String, String> {
 }
 
 pub(crate) fn gpu_context() -> Result<Arc<GpuContext>, String> {
+    let ctx = GPU_CONTEXT
+        .get()
+        .cloned()
+        .ok_or_else(|| "wgpu context is not initialized".to_owned())?;
+    ctx.ensure_usable().map_err(|e| e.to_string())?;
+    Ok(ctx)
+}
+
+/// Process-wide GPU context without the usable check (loss inspect / recover).
+pub(crate) fn gpu_context_raw() -> Result<Arc<GpuContext>, String> {
     GPU_CONTEXT
         .get()
         .cloned()
@@ -161,6 +171,86 @@ pub fn gpu_status_text() -> String {
         .unwrap_or_else(|_| "gpu status lock poisoned".into())
 }
 
+/// Whether the host GPU context is marked device/surface lost.
+pub fn gpu_is_lost() -> bool {
+    GPU_CONTEXT.get().is_some_and(|ctx| ctx.is_lost())
+}
+
+pub fn renderer_generation() -> u64 {
+    GPU_CONTEXT
+        .get()
+        .map(|ctx| ctx.renderer_generation())
+        .unwrap_or(0)
+}
+
+/// Test / host hook: mark device lost without wiping the document graph.
+pub fn simulate_device_lost() -> Result<(), String> {
+    let ctx = gpu_context_raw()?;
+    ctx.note_device_lost();
+    if let Ok(mut g) = GPU_STATUS.lock() {
+        *g = "wgpu DEVICE LOST — document preserved".into();
+    }
+    Ok(())
+}
+
+/// Clear loss, bump renderer generation, reopen GPU document and re-upload layer pixels.
+///
+/// Document graph authority lives in the engine; this only rebuilds GPU resources.
+///
+/// # Errors
+/// When GPU is uninitialized, reopen fails, or an upload fails.
+pub fn recover_gpu_document(
+    size: phototux_engine::DocumentSize,
+    layers: &[phototux_engine::Layer],
+    layer_pixels: &[(phototux_engine::LayerId, Vec<u8>)],
+) -> Result<f32, String> {
+    let ctx = gpu_context_raw()?;
+    let _gen = ctx.begin_recover();
+    document_gpu::close_document();
+    document_gpu::open_document(size, layers)?;
+    for (id, pixels) in layer_pixels {
+        document_gpu::write_layer_rgba(*id, pixels)?;
+    }
+    let ms = document_gpu::sync_and_composite(layers)?;
+    if let Ok(mut g) = GPU_STATUS.lock() {
+        *g = format!(
+            "wgpu recovered | gen {} | {}",
+            ctx.renderer_generation(),
+            ctx.info.adapter_name
+        );
+    }
+    Ok(ms)
+}
+
 pub fn take_wgpu_export() -> Option<WgpuExport> {
     WGPU_HANDLE.lock().ok().and_then(|g| *g)
+}
+
+#[cfg(test)]
+mod loss_tests {
+    use phototux_engine::{DocumentGraph, DocumentSize};
+
+    #[test]
+    fn simulate_device_loss_recover_restores_composite() {
+        crate::initialize_gpu().expect("gpu init");
+        let size = DocumentSize::new(8, 8);
+        let graph = DocumentGraph::new(size);
+        crate::open_document(size, graph.layers()).expect("open");
+        let gen0 = crate::renderer_generation();
+        crate::simulate_device_lost().expect("simulate");
+        assert!(crate::gpu_is_lost());
+        assert!(
+            crate::sync_and_composite(graph.layers()).is_err(),
+            "composite must reject while lost"
+        );
+        let pixels = crate::read_all_layer_rgba()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(id, _w, _h, px)| (id, px))
+            .collect::<Vec<_>>();
+        crate::recover_gpu_document(size, graph.layers(), &pixels).expect("recover");
+        assert!(!crate::gpu_is_lost());
+        assert!(crate::renderer_generation() > gen0);
+        crate::sync_and_composite(graph.layers()).expect("recomposite");
+    }
 }

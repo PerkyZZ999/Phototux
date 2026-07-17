@@ -28,6 +28,7 @@ use image::codecs::png::PngEncoder;
 use image::{
     DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageFormat, ImageReader, Limits,
 };
+use phototux_engine::validate_icc_profile;
 use thiserror::Error;
 
 /// Largest accepted width or height. Pixel allocation limits reject oversized area separately.
@@ -194,17 +195,53 @@ pub fn decode_path(path: &Path) -> Result<Raster, RasterIoError> {
 /// # Errors
 ///
 /// Returns [`RasterIoError`] when encoding or writing fails.
-pub fn encode<W>(mut writer: W, raster: &Raster, format: RasterFormat) -> Result<(), RasterIoError>
+pub fn encode<W>(writer: W, raster: &Raster, format: RasterFormat) -> Result<(), RasterIoError>
 where
     W: Write,
 {
+    encode_with_icc(writer, raster, format, None)
+}
+
+/// Encode a raster, optionally embedding a validated ICC profile (PNG only).
+///
+/// JPEG and other formats ignore `icc` (no error). Callers should prefer PNG when
+/// profile embedding is required.
+///
+/// # Errors
+///
+/// Returns [`RasterIoError`] when ICC validation or encoding fails.
+pub fn encode_with_icc<W>(
+    mut writer: W,
+    raster: &Raster,
+    format: RasterFormat,
+    icc: Option<&[u8]>,
+) -> Result<(), RasterIoError>
+where
+    W: Write,
+{
+    if let Some(bytes) = icc {
+        validate_icc_profile(bytes).map_err(|reason| {
+            RasterIoError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                reason,
+            ))
+        })?;
+    }
     match format {
-        RasterFormat::Png => PngEncoder::new(writer).write_image(
-            raster.pixels(),
-            raster.width(),
-            raster.height(),
-            ExtendedColorType::Rgba8,
-        )?,
+        RasterFormat::Png => {
+            let mut encoder = PngEncoder::new(&mut writer);
+            if let Some(bytes) = icc {
+                encoder
+                    .set_icc_profile(bytes.to_vec())
+                    .map_err(|error| RasterIoError::Codec(image::ImageError::Unsupported(error)))?;
+            }
+            encoder.write_image(
+                raster.pixels(),
+                raster.width(),
+                raster.height(),
+                ExtendedColorType::Rgba8,
+            )?;
+        }
         RasterFormat::Jpeg => {
             let rgb = flatten_rgba_over_white(raster);
             JpegEncoder::new_with_quality(writer, JPEG_QUALITY).write_image(
@@ -250,6 +287,20 @@ pub fn encode_path_atomic(
     raster: &Raster,
     format: RasterFormat,
 ) -> Result<(), RasterIoError> {
+    encode_path_atomic_with_icc(path, raster, format, None)
+}
+
+/// Atomic path encode with optional ICC embed (PNG).
+///
+/// # Errors
+///
+/// Returns [`RasterIoError`] when temporary creation, encode, sync, or rename fails.
+pub fn encode_path_atomic_with_icc(
+    path: &Path,
+    raster: &Raster,
+    format: RasterFormat,
+    icc: Option<&[u8]>,
+) -> Result<(), RasterIoError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = path
         .file_name()
@@ -257,7 +308,7 @@ pub fn encode_path_atomic(
     let (temporary_path, file) = create_temporary_sibling(parent, file_name)?;
     let result = (|| {
         let mut writer = BufWriter::new(&file);
-        encode(&mut writer, raster, format)?;
+        encode_with_icc(&mut writer, raster, format, icc)?;
         writer.flush()?;
         drop(writer);
         file.sync_all()?;
@@ -333,6 +384,25 @@ fn flatten_rgba_over_white(raster: &Raster) -> Vec<u8> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn png_embeds_icc_profile() {
+        let raster = Raster::new(
+            2,
+            1,
+            vec![10, 20, 30, 255, 200, 150, 100, 255].into_boxed_slice(),
+        )
+        .expect("valid raster");
+        let icc = phototux_engine::minimal_icc_fixture();
+        let mut encoded = Vec::new();
+        encode_with_icc(&mut encoded, &raster, RasterFormat::Png, Some(&icc))
+            .expect("encode PNG+ICC");
+        // iCCP chunk marker appears after PNG signature / IHDR.
+        assert!(
+            encoded.windows(4).any(|w| w == b"iCCP"),
+            "expected iCCP chunk in PNG"
+        );
+    }
 
     #[test]
     fn png_round_trip_preserves_rgba() {

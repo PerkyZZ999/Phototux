@@ -15,7 +15,7 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 | History | `history.undo`, `history.redo`, `history.jump` |
 | Layer | `layer.create`, `layer.create-fill`, `layer.set-fill-color`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.ungroup`, `layer.set-clip`, `layer.set-locks` |
 | View | `view.zoom-to`, `view.zoom-to-fit`, `view.pan-to`, `view.pan-by`, `view.zoom-at`, `view.set-tool` |
-| Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.set-soft-proof`, `document.crop`, `document.rotate-90` |
+| Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.set-icc`, `document.set-soft-proof`, `document.crop`, `document.rotate-90` |
 | Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify`, `selection.to-mask` |
 | Mask | `mask.create`, `mask.delete`, `mask.set-enabled`, `mask.set-attributes`, `mask.create-vector`, `mask.apply`, `mask.to-selection` |
 | Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize`, `shape.boolean` |
@@ -95,7 +95,7 @@ Sub-families:
 
 | Sub-family | Examples | Notes |
 | --- | --- | --- |
-| Document properties | `document.set-size`, `document.assign-profile`, `document.convert-profile` | Assign ≠ convert ([16](../16-Color-Management.md)) |
+| Document properties | `document.set-size`, `document.assign-profile`, `document.convert-profile`, `document.set-icc` | Assign ≠ convert; optional ICC bytes ([16](../16-Color-Management.md)) |
 | Persistence | `document.save`, `document.save-as`, `document.revert` | Staged writes ([27](../27-File-Formats.md)) |
 | Layer structure | `layer.create`, `layer.delete`, `layer.reorder`, `layer.group`, `layer.ungroup` | Stable object IDs |
 | Layer attributes | `layer.set-opacity`, `layer.set-blend`, `layer.set-visibility`, `layer.set-lock` | Compositing inputs |
@@ -313,6 +313,9 @@ The following catalog is normative for naming patterns and taxonomy placement. E
 | `color.assign-profile` | Interpretation only |
 | `color.convert-profile` | Pixel mutation |
 | `color.set-proofing` | View or document policy per descriptor |
+| `document.assign-profile` | Tag-only; shipped |
+| `document.convert-profile` | Approx pixel path for named tags |
+| `document.set-icc` | Embed/clear validated ICC bytes on `DocumentColorState`; history label; `.ptx` via graph JSON |
 | `document.set-soft-proof` | View-like; no dirty / no generation bump |
 
 ### History
@@ -433,6 +436,7 @@ Operations that MUST NOT go through document-authoritative `SessionState::invoke
 | Dialog chrome | QML | About, save-as, export, command palette open | Presentation; palette invokes actions by id |
 | Telemetry | UI | FPS, status text, startup ms | Non-authoritative |
 | `HostFollowUp::ConvertPixels` | UI GPU path | After `document.convert-profile` | Pixel rewrite after command commits metadata |
+| GPU recover chrome | `action.app.recover-gpu` → `app.recover_gpu` | Rebuild GPU resources from engine graph; does not mutate document generation | Device/surface loss UX (P6) |
 | Remaining `host_op` | `actions.rs` → `dispatch_host_op` | Selection modify GPU path, shape create wrappers, guides toggles, clipboard copy, mask paint helpers | Bridge until fully routed; still must not bypass history for document pixels without a command |
 
 ## Cross References

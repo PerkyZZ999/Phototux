@@ -184,6 +184,7 @@ pub const ALL: &[CommandMeta] = &[
         UndoPolicy::None,
         ConflictPolicy::LatestWinsView,
     ),
+    doc_tx(command_id::DOCUMENT_SET_ICC),
     doc_tx(command_id::DOCUMENT_CROP),
     doc_tx(command_id::DOCUMENT_ROTATE_90),
     sel_tx(command_id::SELECTION_REPLACE),

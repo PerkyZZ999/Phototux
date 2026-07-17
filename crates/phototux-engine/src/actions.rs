@@ -392,6 +392,28 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
         ),
+        act(
+            "action.image.embed-icc",
+            "Embed &ICC Profile…",
+            "image",
+            "has_document_io_idle",
+            None,
+            Some("document.embed_icc"),
+            None,
+            None,
+            None,
+        ),
+        act(
+            "action.image.clear-icc",
+            "Clear Embedded ICC",
+            "image",
+            "has_document",
+            Some(command_id::DOCUMENT_SET_ICC),
+            None,
+            Some("clear"),
+            None,
+            None,
+        ),
         // Layer
         act(
             "action.layer.new-raster",
@@ -1024,6 +1046,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             Some("Ctrl+Shift+P"),
             None,
+        ),
+        act(
+            "action.app.recover-gpu",
+            "&Recover graphics…",
+            "view",
+            "document",
+            None,
+            Some("app.recover_gpu"),
+            None,
+            None,
+            Some("arrows-clockwise"),
         ),
     ];
     // Context-menu contributions (handbook P1.4).

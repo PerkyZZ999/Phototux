@@ -140,6 +140,9 @@ pub struct AppSession {
     brush_preset_names: String,
     soft_proof_profile: String,
     soft_proof_active: bool,
+    has_embedded_icc: bool,
+    /// Runtime GPU device/surface loss; document graph remains authoritative.
+    gpu_lost: bool,
     accessibility_tree_json: String,
     /// JSON array of [`phototux_io::RecoveryEntry`] for the restore chooser.
     recovery_entries_json: String,
@@ -324,6 +327,8 @@ impl AppSession {
             brush_preset_names: String::new(),
             soft_proof_profile: String::new(),
             soft_proof_active: false,
+            has_embedded_icc: false,
+            gpu_lost: false,
             accessibility_tree_json: "[]".into(),
             recovery_entries_json: "[]".into(),
             selection_active: false,
@@ -505,9 +510,31 @@ impl AppSession {
     }
 
     fn report_gpu(&mut self, operation: &str, error: &str) {
+        let lower = error.to_ascii_lowercase();
+        if lower.contains("device lost")
+            || lower.contains("surface lost")
+            || phototux_canvas::gpu_is_lost()
+        {
+            self.enter_gpu_lost();
+            return;
+        }
         self.status_text = format!("{operation} failed: {error}");
         self.status_text_changed();
         eprintln!("[phototux] {operation}: {error}");
+    }
+
+    fn enter_gpu_lost(&mut self) {
+        if !self.gpu_lost {
+            self.gpu_lost = true;
+            self.gpu_lost_changed();
+        }
+        self.engine
+            .announce("Graphics device lost — document preserved");
+        self.status_text = "Graphics device lost — document preserved".into();
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+        eprintln!("[phototux] GPU lost — document authority preserved");
     }
 
     fn sync_from_engine(&mut self) {
@@ -592,9 +619,11 @@ impl AppSession {
         if let Some(graph) = self.engine.graph.as_ref() {
             self.soft_proof_profile = graph.color.soft_proof_profile.clone();
             self.soft_proof_active = graph.color.soft_proof_active();
+            self.has_embedded_icc = graph.color.has_embedded_icc();
         } else {
             self.soft_proof_profile.clear();
             self.soft_proof_active = false;
+            self.has_embedded_icc = false;
         }
         self.accessibility_tree_json = self.build_accessibility_tree_json();
         self.sync_selection_fields();
@@ -858,6 +887,7 @@ impl AppSession {
         self.brush_preset_names_changed();
         self.soft_proof_profile_changed();
         self.soft_proof_active_changed();
+        self.has_embedded_icc_changed();
         self.accessibility_tree_json_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
@@ -1280,6 +1310,15 @@ impl AppSession {
                 };
                 Ok(CommandArgs::SoftProof { profile, intent })
             }
+            cid::DOCUMENT_SET_ICC => {
+                if arg == Some("clear") {
+                    Ok(CommandArgs::SetIcc { bytes: None })
+                } else {
+                    Err(CommandError::InvalidArgument(
+                        "document.set-icc requires clear or host embed",
+                    ))
+                }
+            }
             cid::FILTER_ADD_ADJUSTMENT => Ok(CommandArgs::FilterAdjustment {
                 kind: arg.unwrap_or("brightness").to_owned(),
             }),
@@ -1363,6 +1402,11 @@ impl AppSession {
                 self.status_text_changed();
             }
             "prefs.open" => self.open_preferences(),
+            "document.embed_icc" => {
+                self.status_text = "host:document.embed_icc".into();
+                self.status_text_changed();
+            }
+            "app.recover_gpu" => self.recover_gpu(),
             "palette.open" => {
                 self.status_text = "host:palette.open".into();
                 self.status_text_changed();
@@ -1875,6 +1919,12 @@ impl AppSession {
         Member = soft_proof_active,
         Notify = soft_proof_active_changed
     );
+    qproperty!(
+        "hasEmbeddedIcc",
+        Member = has_embedded_icc,
+        Notify = has_embedded_icc_changed
+    );
+    qproperty!("gpuLost", Member = gpu_lost, Notify = gpu_lost_changed);
     qproperty!(
         "accessibilityTreeJson",
         Member = accessibility_tree_json,
@@ -2426,6 +2476,10 @@ impl AppSession {
     #[qsignal]
     fn soft_proof_active_changed(&mut self);
     #[qsignal]
+    fn has_embedded_icc_changed(&mut self);
+    #[qsignal]
+    fn gpu_lost_changed(&mut self);
+    #[qsignal]
     fn accessibility_tree_json_changed(&mut self);
     #[qsignal]
     fn recovery_entries_json_changed(&mut self);
@@ -2652,6 +2706,89 @@ impl AppSession {
             CommandArgs::ConvertProfile { profile },
         ) {
             self.report_gpu("convert profile", &error.to_string());
+        }
+    }
+
+    /// Rebuild GPU document resources after device/surface loss (engine graph unchanged).
+    #[qslot]
+    fn recover_gpu(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            self.status_text = "Recover failed: no document".into();
+            self.status_text_changed();
+            return;
+        };
+        let doc_gen = graph.generation;
+        let size = graph.size;
+        let layers = graph.layers().to_vec();
+        // Best-effort pixel snapshot before teardown; soft loss may still allow readback.
+        let layer_pixels: Vec<_> = phototux_canvas::read_all_layer_rgba()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(id, _w, _h, pixels)| (id, pixels))
+            .collect();
+        match phototux_canvas::recover_gpu_document(size, &layers, &layer_pixels) {
+            Ok(ms) => {
+                self.gpu_lost = false;
+                self.gpu_lost_changed();
+                self.engine.set_composite_ms(ms);
+                let gen_after = self
+                    .engine
+                    .graph
+                    .as_ref()
+                    .map(|g| g.generation)
+                    .unwrap_or(0);
+                debug_assert_eq!(
+                    doc_gen, gen_after,
+                    "loss/recover must not bump document generation"
+                );
+                self.engine.announce("Graphics recovered — canvas restored");
+                self.status_text = "Graphics recovered — canvas restored".into();
+                self.status_text_changed();
+                self.last_announce = self.engine.last_announce.clone();
+                self.last_announce_changed();
+            }
+            Err(error) => {
+                self.report_gpu("recover GPU", &error);
+            }
+        }
+    }
+
+    /// Load an ICC/ICM file and embed it on the document.
+    #[qslot]
+    fn embed_icc_from_file(&mut self, file_url: String) {
+        let path = match local_path(&file_url) {
+            Ok(path) => path,
+            Err(error) => {
+                self.status_text = format!("Embed ICC failed: {error}");
+                self.status_text_changed();
+                return;
+            }
+        };
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(error) => {
+                self.status_text = format!("Embed ICC failed: {error}");
+                self.status_text_changed();
+                return;
+            }
+        };
+        if let Err(error) = self.invoke_command(
+            command_id::DOCUMENT_SET_ICC,
+            CommandArgs::SetIcc { bytes: Some(bytes) },
+        ) {
+            self.status_text = format!("Embed ICC failed: {error}");
+            self.status_text_changed();
+        }
+    }
+
+    #[qslot]
+    fn clear_embedded_icc(&mut self) {
+        if let Err(error) = self.invoke_command(
+            command_id::DOCUMENT_SET_ICC,
+            CommandArgs::SetIcc { bytes: None },
+        ) {
+            self.status_text = format!("Clear ICC failed: {error}");
+            self.status_text_changed();
         }
     }
 
@@ -3720,7 +3857,13 @@ impl AppSession {
                     return;
                 }
             };
-            self.file_worker.send(FileCommand::Export { path, format })
+            let icc = self
+                .engine
+                .graph
+                .as_ref()
+                .and_then(|g| g.color.embedded_icc.clone());
+            self.file_worker
+                .send(FileCommand::Export { path, format, icc })
         };
         if let Err(error) = send_result {
             self.fail_io("Export", &error);

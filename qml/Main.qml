@@ -370,6 +370,10 @@ ApplicationWindow {
             commandPalette.showPalette()
             return true
         }
+        if (text === "host:document.embed_icc") {
+            embedIccFileDialog.open()
+            return true
+        }
         return false
     }
 
@@ -995,11 +999,19 @@ ApplicationWindow {
 
             Label {
                 text: AppSession.statusText
-                color: Theme.colorOnSurfaceMuted
+                color: AppSession.gpuLost ? Theme.warning : Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontMono
                 font.family: "Noto Sans Mono"
                 elide: Text.ElideRight
                 Layout.fillWidth: true
+            }
+
+            Button {
+                visible: AppSession.gpuLost
+                text: qsTr("Recover")
+                flat: true
+                Accessible.name: qsTr("Recover graphics after device loss")
+                onClicked: AppSession.recoverGpu()
             }
 
             RowLayout {
@@ -3053,6 +3065,29 @@ ApplicationWindow {
                                 color: Theme.colorOnSurfaceVariant
                                 font.pixelSize: Theme.fontBodySm
                             }
+                            Label {
+                                text: AppSession.hasEmbeddedIcc
+                                      ? qsTr("ICC: embedded")
+                                      : qsTr("ICC: tag-only")
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Button {
+                                    text: qsTr("Embed ICC…")
+                                    flat: true
+                                    enabled: !AppSession.ioBusy
+                                    onClicked: embedIccFileDialog.open()
+                                }
+                                Button {
+                                    text: qsTr("Clear ICC")
+                                    flat: true
+                                    enabled: AppSession.hasEmbeddedIcc && !AppSession.ioBusy
+                                    onClicked: AppSession.clearEmbeddedIcc()
+                                }
+                            }
                         }
 
                         ColumnLayout {
@@ -4170,6 +4205,18 @@ ApplicationWindow {
             qsTr("Photoshop (*.psd)")
         ]
         onAccepted: AppSession.openRasterFile(selectedFile.toString())
+    }
+
+    FileDialog {
+        id: embedIccFileDialog
+        title: qsTr("Embed ICC Profile")
+        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+        fileMode: FileDialog.OpenFile
+        nameFilters: [
+            qsTr("ICC profiles (*.icc *.icm)"),
+            qsTr("All files (*)")
+        ]
+        onAccepted: AppSession.embedIccFromFile(selectedFile.toString())
     }
 
     FileDialog {

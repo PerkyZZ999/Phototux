@@ -20,7 +20,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P3 Selection targets | **Met** | Multi-object select polish deferred |
 | P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; path edit + refine contrast/shift stay `[~]` |
 | P5 Creative engines | **Met** | Gallery preview/commit + cancel/stale; path-edit tool; text frame/wrap + bake policy UX; deferred texture/fonts/on-canvas/vector-boolean/live-vector → DR-028 |
-| P6 Color / render | **Partial** | Soft-proof shipped; ICC bytes + pixel publisher → DR-028 |
+| P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; display discovery + pixel publisher → DR-028 |
 | P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
 | P8 Clipboard / I/O | **Partial** | OS image clipboard + limits; mask copy / integrity UX open |
 | P9 Prefs / themes | **Partial** | Schema 4 + Theme packs; mixed-value inspector open |
@@ -230,21 +230,21 @@ Chapters: [16](../16-Color-Management.md), [17](../17-Rendering-Engine.md), DR-0
 ### P6.1 Color
 
 - [x] Soft-proof mode + proof intent UI (`document.set-soft-proof`; Image menu; Properties)
-- [ ] ICC profile load/embed (document + export)
-- [~] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags; ICC bytes → DR-028
-- [ ] Display profile discovery (Linux host adapter)
+- [x] ICC profile load/embed (document + export) — `document.set-icc`; `.ptx` graph field; PNG `iCCP` on export
+- [~] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags + optional embed; full CMS / lcms2 → DR-028
+- [~] Display profile discovery (Linux host adapter) — Deferred DR-028
 - [~] Assign ≠ convert disclosures — Image menu actions present
 
 ### P6.2 Rendering
 
 - [~] Immutable pixel snapshot / bounded delta publisher — generation leases shipped; pixel publisher → DR-028
 - [~] Workers consume leases only — I/O worker path; full contract deferred
-- [ ] Broader GPU↔CPU blend/filter parity fixtures
-- [ ] Device-loss / surface-loss UX (reconstruct or controlled fail)
-- [ ] Dirty-region / overlay separation polish
+- [x] Broader GPU↔CPU blend/filter parity fixtures — `phototux_gpu::parity` (+ `gpu-tests` device path)
+- [x] Device-loss / surface-loss UX (reconstruct or controlled fail) — `GpuError::DeviceLost`/`SurfaceLost`; status + Recover; `renderer_generation`
+- [~] Dirty-region / overlay separation polish — Deferred DR-028
 - [!] Tiling / pyramid → **P11** (gated)
 
-**P6 exit:** **Partial Met.** Soft-proof spine shipped; ICC/publisher depth → DR-028.
+**P6 exit:** **Met.** Soft-proof + ICC embed foundation + blend/filter parity fixtures + device-loss UX. Display ICC discovery + dense pixel publisher remain `[~]`/`[P]` under DR-028; tiling → P11.
 
 ---
 
@@ -266,7 +266,7 @@ Chapters: [02](../02-Application-Lifecycle.md), [20](../20-History-Undo.md)
 - [x] Recovery UX + restore chooser — autosave + startup restore/discard dialog
 - [ ] Safe-start (suppress custom chrome on crash loop)
 - [~] Save coordination: staged identity vs generation receipts — generation on graph
-- [ ] GPU/renderer generation orchestration on device loss
+- [~] GPU/renderer generation orchestration on device loss — `renderer_generation` + recover shipped; full Event-Catalog lifecycle → later P7 depth
 - [!] Multi-window / multi-doc → **P11** (DR-024 amend)
 
 **P7 exit:** **Partial Met.** Timeline + jump + recovery chooser shipped; spill/multi-doc gated.
@@ -445,12 +445,11 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P6** — ICC embed foundation; GPU↔CPU parity fixtures; device-loss UX  
-2. **P8** — Mask/selection clipboard payloads; `.ptx` integrity diagnostics UX  
-3. **P9** — Mixed-value inspector; safe-start prefs  
-4. **P10** — AT-SPI host adapter (semantic tree already exists)  
-5. **P13** — Budget fixture harness + promote Provisional ledger rows  
-6. **DR-028 depth** — texture tips, on-canvas text/fonts, live vector, noise catalog (as needed)  
+1. **P8** — Mask/selection clipboard payloads; `.ptx` integrity diagnostics UX  
+2. **P9** — Mixed-value inspector; safe-start prefs  
+3. **P10** — AT-SPI host adapter (semantic tree already exists)  
+4. **P13** — Budget fixture harness + promote Provisional ledger rows  
+5. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 

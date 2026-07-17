@@ -20,7 +20,7 @@ This roadmap is the plan to bring the **shipping editor** to **full parity** wit
 | --- | --- | --- |
 | **Chrome / IA spines** | P1–P3 | **Met** — action chrome, docking, selection concepts |
 | **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
-| **Engines / color / session** | P5–P10 | **P5 Met**; P6–P10 Partial — open depth tracked under DR-028 |
+| **Engines / color / session** | P5–P10 | **P5–P6 Met**; P7–P10 Partial — open depth tracked under DR-028 |
 | **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
 | **Verification** | P13 | **Partial** — command conformance green; budgets still Provisional (DR-017) |
 
@@ -107,7 +107,7 @@ flowchart TB
 | **P3** | Selection & edit targets | 01, 12, DR-011 | None | **Met** |
 | **P4** | Masks & layer semantics | 11, 13 | None | **Met** |
 | **P5** | Creative engines depth | 14, 15, 18, 19 | None | **Met** |
-| **P6** | Color & rendering contracts | 16, 17, DR-005/006 | Tiling → P11 | **Partial** |
+| **P6** | Color & rendering contracts | 16, 17, DR-005/006 | Tiling → P11 | **Met** |
 | **P7** | History & lifecycle | 02, 20 | Spill → P11 | **Partial** |
 | **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Partial** |
 | **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None | **Partial** |
@@ -181,13 +181,13 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 **Still todo (deferred):** Texture tips; GPU noise / full filter catalog; on-canvas text + font discovery; vector-preserving boolean; live vector present; shape gradients. Track under DR-028 / checklist `[P]`.
 
-### P6 — Color & rendering contracts — **Partial**
+### P6 — Color & rendering contracts — **Met**
 
 **Goal:** Soft-proof / ICC foundation; snapshot publisher; device-loss UX.
 
-**Shipped:** Soft-proof command + UI; assign/convert sRGB↔Display-P3; generation leases.
+**Shipped:** Soft-proof command + UI; assign/convert sRGB↔Display-P3; generation leases; `document.set-icc` + `.ptx`/PNG embed; GPU↔CPU blend/filter parity fixtures; device/surface-loss UX + Recover + `renderer_generation`.
 
-**Still todo:** ICC load/embed; display profile discovery; pixel snapshot/delta publisher; device-loss UX; broader GPU↔CPU fixtures. Tiling → P11.
+**Still todo (deferred):** Display profile discovery (colord); dense pixel snapshot/delta publisher; dirty-region polish → DR-028. Tiling → P11.
 
 ### P7 — History & lifecycle — **Partial**
 
@@ -262,12 +262,11 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
 
-1. **P6** — ICC embed foundation; GPU↔CPU parity fixtures; device-loss UX  
-2. **P8** — Mask/selection clipboard; `.ptx` integrity diagnostics UX  
-3. **P9** — Mixed-value inspector; safe-start prefs  
-4. **P10** — AT-SPI host adapter (tree JSON already exists)  
-5. **P13** — Budget fixture harness + promote Provisional ledger rows  
-6. **DR-028 depth** — texture tips, on-canvas text/fonts, live vector, noise catalog (as needed)  
+1. **P8** — Mask/selection clipboard; `.ptx` integrity diagnostics UX  
+2. **P9** — Mixed-value inspector; safe-start prefs  
+3. **P10** — AT-SPI host adapter (tree JSON already exists)  
+4. **P13** — Budget fixture harness + promote Provisional ledger rows  
+5. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
 
 Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 

@@ -51,6 +51,8 @@ pub mod command_id {
     pub const DOCUMENT_ASSIGN_PROFILE: &str = "document.assign-profile";
     pub const DOCUMENT_CONVERT_PROFILE: &str = "document.convert-profile";
     pub const DOCUMENT_SET_SOFT_PROOF: &str = "document.set-soft-proof";
+    /// Embed or clear validated ICC profile bytes on the document.
+    pub const DOCUMENT_SET_ICC: &str = "document.set-icc";
     pub const DOCUMENT_CROP: &str = "document.crop";
     pub const DOCUMENT_ROTATE_90: &str = "document.rotate-90";
     pub const HISTORY_JUMP: &str = "history.jump";
@@ -154,6 +156,7 @@ pub mod command_id {
         DOCUMENT_ASSIGN_PROFILE,
         DOCUMENT_CONVERT_PROFILE,
         DOCUMENT_SET_SOFT_PROOF,
+        DOCUMENT_SET_ICC,
         DOCUMENT_CROP,
         DOCUMENT_ROTATE_90,
         SELECTION_REPLACE,
@@ -424,6 +427,10 @@ pub enum CommandArgs {
         profile: String,
         intent: String,
     },
+    /// `None` clears embedded ICC; `Some` validates and embeds.
+    SetIcc {
+        bytes: Option<Vec<u8>>,
+    },
     HistoryJump {
         entry_id: u64,
     },
@@ -572,6 +579,7 @@ impl SessionState {
             command_id::DOCUMENT_ASSIGN_PROFILE => self.cmd_document_assign_profile(args),
             command_id::DOCUMENT_CONVERT_PROFILE => self.cmd_document_convert_profile(args),
             command_id::DOCUMENT_SET_SOFT_PROOF => self.cmd_document_set_soft_proof(args),
+            command_id::DOCUMENT_SET_ICC => self.cmd_document_set_icc(args),
             command_id::DOCUMENT_CROP => self.cmd_document_crop(args),
             command_id::DOCUMENT_ROTATE_90 => self.cmd_document_rotate_90(),
             command_id::SELECTION_REPLACE => self.cmd_selection_replace(args),
@@ -1525,6 +1533,43 @@ impl SessionState {
             effects.host_follow_up = HostFollowUp::ConvertPixels { from, to: profile };
         }
         Ok(effects)
+    }
+
+    fn cmd_document_set_icc(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SetIcc { bytes } = args else {
+            return Err(CommandError::InvalidArgument("expected SetIcc"));
+        };
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let prev = graph.color.embedded_icc.clone();
+        if prev == bytes {
+            return Err(CommandError::Rejected("ICC unchanged"));
+        }
+        if let Err(reason) = graph.color.set_embedded_icc(bytes) {
+            return Err(CommandError::Rejected(reason));
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        let label = if graph.color.has_embedded_icc() {
+            "Embed ICC"
+        } else {
+            "Clear ICC"
+        };
+        self.history.push_transform(label, generation);
+        self.announce(label);
+        Ok(CommandEffects {
+            recomposite: false,
+            dirty: true,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: true,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation,
+        })
     }
 
     fn cmd_document_set_soft_proof(
@@ -3246,6 +3291,39 @@ mod tests {
             effects.host_follow_up,
             HostFollowUp::ConvertPixels { .. }
         ));
+    }
+
+    #[test]
+    fn document_set_icc_embeds_and_clears() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let icc = crate::minimal_icc_fixture();
+        s.invoke(
+            command_id::DOCUMENT_SET_ICC,
+            CommandArgs::SetIcc {
+                bytes: Some(icc.clone()),
+            },
+        )
+        .expect("embed");
+        assert_eq!(
+            s.graph.as_ref().unwrap().color.embedded_icc.as_ref(),
+            Some(&icc)
+        );
+        let err = s
+            .invoke(
+                command_id::DOCUMENT_SET_ICC,
+                CommandArgs::SetIcc {
+                    bytes: Some(vec![1, 2, 3]),
+                },
+            )
+            .expect_err("bad");
+        assert!(matches!(err, CommandError::Rejected(_)));
+        s.invoke(
+            command_id::DOCUMENT_SET_ICC,
+            CommandArgs::SetIcc { bytes: None },
+        )
+        .expect("clear");
+        assert!(s.graph.as_ref().unwrap().color.embedded_icc.is_none());
     }
 
     #[test]

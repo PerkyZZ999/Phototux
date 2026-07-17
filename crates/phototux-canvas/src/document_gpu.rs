@@ -274,6 +274,7 @@ pub fn write_layer_rgba(id: LayerId, pixels: &[u8]) -> Result<(), String> {
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.ctx.ensure_usable().map_err(|error| error.to_string())?;
     doc.engine
         .write_layer_rgba(&doc.ctx, id, pixels)
         .map_err(|error| error.to_string())?;
@@ -317,6 +318,7 @@ pub fn sync_and_composite(layers: &[Layer]) -> Result<f32, String> {
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
     doc.layers_meta = layers.to_vec();
     doc.engine.sync_layers_from_graph(&doc.ctx, layers)?;
     let ms = doc.engine.composite(&doc.ctx, layers)?;
@@ -782,6 +784,7 @@ pub fn begin_stroke(layer: LayerId, target: PaintTarget) -> Result<(), String> {
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
     let bak = match target {
         PaintTarget::LayerPixels => doc
             .engine
@@ -819,6 +822,7 @@ pub fn stamp_dabs(
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
+    doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
 
     if !dabs.is_empty() {
         let requests: Vec<StampRequest> = dabs

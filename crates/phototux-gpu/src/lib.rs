@@ -8,6 +8,7 @@ mod fill;
 mod filters;
 mod layer_mask;
 mod mask_stamp;
+mod parity;
 mod selection;
 mod transform_bake;
 
@@ -22,6 +23,10 @@ pub use filters::{
 };
 pub use layer_mask::LayerMaskChannel;
 pub use mask_stamp::MaskStamper;
+pub use parity::{
+    ChannelError, PARITY_BLEND_MODES, assert_rgba8_within, checker_rgba, cpu_blend_fixture,
+    cpu_gaussian_fixture, cpu_sharpen_fixture, rgba8_channel_errors, solid_rgba,
+};
 pub use phototux_engine::MAX_LAYERS;
 pub use selection::SelectionMask;
 pub use transform_bake::{
@@ -29,6 +34,7 @@ pub use transform_bake::{
 };
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use thiserror::Error;
 
@@ -40,6 +46,10 @@ pub enum GpuError {
     RequestDevice(#[from] wgpu::RequestDeviceError),
     #[error("request adapter failed")]
     RequestAdapter,
+    #[error("graphics device lost")]
+    DeviceLost,
+    #[error("graphics surface lost")]
+    SurfaceLost,
 }
 
 #[derive(Debug, Error)]
@@ -81,6 +91,10 @@ pub struct GpuContext {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
     pub info: GpuInfo,
+    /// Bumped when recovering from device/surface loss so stale GPU resources are abandoned.
+    renderer_generation: Arc<AtomicU64>,
+    device_lost: Arc<AtomicBool>,
+    surface_lost: Arc<AtomicBool>,
 }
 
 impl GpuContext {
@@ -118,13 +132,81 @@ impl GpuContext {
                 trace: Default::default(),
             }))?;
 
+        let device_lost = Arc::new(AtomicBool::new(false));
+        let surface_lost = Arc::new(AtomicBool::new(false));
+        let renderer_generation = Arc::new(AtomicU64::new(1));
+        {
+            let flag = Arc::clone(&device_lost);
+            device.set_device_lost_callback(move |_reason, message| {
+                eprintln!("[phototux_gpu] device lost: {message}");
+                flag.store(true, Ordering::SeqCst);
+            });
+        }
+        {
+            let flag = Arc::clone(&device_lost);
+            device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
+                let text = error.to_string();
+                eprintln!("[phototux_gpu] uncaptured error: {text}");
+                if text.to_ascii_lowercase().contains("lost") {
+                    flag.store(true, Ordering::SeqCst);
+                }
+            }));
+        }
+
         Ok(Self {
             instance,
             adapter,
             device: Arc::new(device),
             queue: Arc::new(queue),
             info,
+            renderer_generation,
+            device_lost,
+            surface_lost,
         })
+    }
+
+    /// Host renderer generation; bumps on [`Self::begin_recover`].
+    pub fn renderer_generation(&self) -> u64 {
+        self.renderer_generation.load(Ordering::SeqCst)
+    }
+
+    pub fn is_lost(&self) -> bool {
+        self.device_lost.load(Ordering::SeqCst) || self.surface_lost.load(Ordering::SeqCst)
+    }
+
+    /// Typed loss, if any.
+    pub fn loss_error(&self) -> Option<GpuError> {
+        if self.device_lost.load(Ordering::SeqCst) {
+            Some(GpuError::DeviceLost)
+        } else if self.surface_lost.load(Ordering::SeqCst) {
+            Some(GpuError::SurfaceLost)
+        } else {
+            None
+        }
+    }
+
+    /// # Errors
+    /// When the device or surface has been marked lost.
+    pub fn ensure_usable(&self) -> Result<(), GpuError> {
+        match self.loss_error() {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
+
+    pub fn note_device_lost(&self) {
+        self.device_lost.store(true, Ordering::SeqCst);
+    }
+
+    pub fn note_surface_lost(&self) {
+        self.surface_lost.store(true, Ordering::SeqCst);
+    }
+
+    /// Clear loss flags and bump `renderer_generation`. Returns the new generation.
+    pub fn begin_recover(&self) -> u64 {
+        self.device_lost.store(false, Ordering::SeqCst);
+        self.surface_lost.store(false, Ordering::SeqCst);
+        self.renderer_generation.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     /// Create an RGBA8 texture and clear it on the GPU via a render pass (no CPU pixel loop).
@@ -239,5 +321,29 @@ mod tests {
         assert_eq!(tex.height(), 64);
         // Handle export is best-effort
         let _ = GpuContext::texture_vk_image_handle(&tex);
+    }
+
+    #[test]
+    fn device_loss_flag_recover_bumps_renderer_generation() {
+        let ctx = GpuContext::new().expect("gpu");
+        let gen0 = ctx.renderer_generation();
+        assert!(!ctx.is_lost());
+        ctx.note_device_lost();
+        assert!(matches!(ctx.loss_error(), Some(GpuError::DeviceLost)));
+        assert!(ctx.ensure_usable().is_err());
+        let gen1 = ctx.begin_recover();
+        assert!(!ctx.is_lost());
+        assert!(gen1 > gen0);
+        assert_eq!(ctx.renderer_generation(), gen1);
+        assert!(ctx.ensure_usable().is_ok());
+    }
+
+    #[test]
+    fn surface_loss_is_distinct_from_device_loss() {
+        let ctx = GpuContext::new().expect("gpu");
+        ctx.note_surface_lost();
+        assert!(matches!(ctx.loss_error(), Some(GpuError::SurfaceLost)));
+        let _ = ctx.begin_recover();
+        assert!(!ctx.is_lost());
     }
 }

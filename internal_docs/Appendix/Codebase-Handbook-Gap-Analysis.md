@@ -78,9 +78,9 @@ These are assets. Alignment must **not** discard zero-copy present, working brus
 
 | # | Handbook says | Code has | Severity |
 | --- | --- | --- | --- |
-| D1 | Rich document aggregate: resources, profiles, version vectors, opaque extension objects (10, 27) | `DocumentGraph` + size + layers; limited metadata; no ICC pipeline | **F** |
+| D1 | Rich document aggregate: resources, profiles, version vectors, opaque extension objects (10, 27) | `DocumentGraph` + color + `embedded_icc` + `extension_data`; full resource registry depth **Deferred** | **F** (depth) |
 | D2 | Shape engine + Shape layers; text bake (18, 19, DR-020/027) | **Shipped v1:** `LayerKind::Shape` (rect/ellipse/line), path stroke, text bake + Character chrome; full boolean Shape **Deferred** | **F** (depth) |
-| D3 | Color management: assign ≠ convert; soft-proof (16, DR-012) | **Shipped foundation:** assign/convert sRGB↔Display-P3; soft-proof / full ICC **Deferred** | **F** (depth) |
+| D3 | Color management: assign ≠ convert; soft-proof (16, DR-012) | **Shipped:** assign/convert tags; soft-proof; ICC embed/validate/persist/PNG export; display discovery + lcms2 **Deferred** (DR-028) | **F** (depth) |
 | D4 | Filter engine as declarative plans + CPU/GPU executors (15) | Adjustments + Gaussian/Motion/Emboss + EffectPass styles; full filter graph **target** | **F** (depth) |
 | D5 | Selection concepts distinct: object vs pixel vs focus vs edit target (DR-011, 12) | Pixel selection + active layer; concepts collapsed in UI | **A** / **F** |
 | D6 | Mask system with vector masks, refine, apply semantics (13) | Raster layer masks + clipping; no vector mask / refine | **F** |
