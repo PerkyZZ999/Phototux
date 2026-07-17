@@ -1378,14 +1378,75 @@ ApplicationWindow {
                 }
             }
 
-            // Live text preview (editable text layers before bake)
+            // Live on-canvas text editor (presentation until bake/commit)
+            TextEdit {
+                id: textCanvasEditor
+                z: 3
+                visible: AppSession.hasDocument && AppSession.textLayerActive
+                         && AppSession.activeTool === "tool.text"
+                x: root.docToScreenX(AppSession.textOriginX + 4)
+                y: root.docToScreenY(AppSession.textOriginY + 4)
+                width: Math.max(
+                    48,
+                    (AppSession.textFrameW > 0
+                     ? AppSession.textFrameW
+                     : Math.max(64, AppSession.docWidth - AppSession.textOriginX - 8))
+                    * AppSession.zoom)
+                height: Math.max(
+                    28,
+                    (AppSession.textFrameH > 0
+                     ? AppSession.textFrameH
+                     : Math.max(AppSession.textFontSize * 2, 48))
+                    * AppSession.zoom)
+                text: AppSession.textBody
+                color: AppSession.textColorHex
+                selectedTextColor: Theme.colorOnPrimary
+                selectionColor: Theme.primary
+                font.family: AppSession.textFontFamily
+                font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
+                wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
+                horizontalAlignment: AppSession.textAlignment === 1
+                                     ? TextEdit.AlignHCenter
+                                     : (AppSession.textAlignment === 2
+                                        ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                background: Rectangle {
+                    color: "#22000000"
+                    border.color: Theme.primary
+                    border.width: 1
+                    radius: 2
+                }
+                Accessible.name: qsTr("On-canvas text editor")
+                onTextChanged: {
+                    if (activeFocus && text !== AppSession.textBody) {
+                        AppSession.updateActiveText(
+                                    text,
+                                    AppSession.textFontFamily,
+                                    AppSession.textFontSize,
+                                    AppSession.textTracking,
+                                    AppSession.textLineSpacing,
+                                    AppSession.textAlignment,
+                                    AppSession.textColorHex)
+                    }
+                }
+                Connections {
+                    target: AppSession
+                    function onTextBodyChanged() {
+                        if (!textCanvasEditor.activeFocus)
+                            textCanvasEditor.text = AppSession.textBody
+                    }
+                }
+            }
+            // Read-only preview when text layer active but Text tool not selected
             Text {
                 id: textPreview
                 z: 3
                 visible: AppSession.hasDocument && AppSession.textLayerActive
-                x: root.docToScreenX(4)
-                y: root.docToScreenY(4)
-                width: Math.max(8, (AppSession.docWidth - 8) * AppSession.zoom)
+                         && AppSession.activeTool !== "tool.text"
+                x: root.docToScreenX(AppSession.textOriginX + 4)
+                y: root.docToScreenY(AppSession.textOriginY + 4)
+                width: Math.max(8, (AppSession.textFrameW > 0
+                                    ? AppSession.textFrameW
+                                    : AppSession.docWidth - 8) * AppSession.zoom)
                 text: AppSession.textBody
                 color: AppSession.textColorHex
                 font.family: AppSession.textFontFamily
@@ -2549,10 +2610,25 @@ ApplicationWindow {
                                 id: fontFamilyCombo
                                 Layout.fillWidth: true
                                 enabled: AppSession.textLayerActive
-                                model: ["Noto Sans", "Noto Sans Mono", "DejaVu Sans"]
+                                model: {
+                                    try {
+                                        return JSON.parse(AppSession.availableFontsJson)
+                                    } catch (e) {
+                                        return ["Noto Sans", "DejaVu Sans"]
+                                    }
+                                }
                                 Component.onCompleted: {
                                     var i = model.indexOf(AppSession.textFontFamily)
                                     currentIndex = i >= 0 ? i : 0
+                                }
+                                Connections {
+                                    target: AppSession
+                                    function onTextFontFamilyChanged() {
+                                        var i = fontFamilyCombo.model.indexOf(
+                                                    AppSession.textFontFamily)
+                                        if (i >= 0)
+                                            fontFamilyCombo.currentIndex = i
+                                    }
                                 }
                                 onActivated: characterProps.pushText()
                             }

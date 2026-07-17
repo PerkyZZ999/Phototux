@@ -1,6 +1,7 @@
 //! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
 
 mod file_worker;
+mod fonts;
 mod prefs;
 
 use std::path::PathBuf;
@@ -277,6 +278,11 @@ pub struct AppSession {
     text_layer_active: bool,
     text_body: String,
     text_font_family: String,
+    /// JSON array of discovered font family names (`fc-list`).
+    available_fonts_json: String,
+    /// Active text layer origin in document pixels (from layer transform).
+    text_origin_x: f32,
+    text_origin_y: f32,
     text_font_size: f32,
     text_tracking: f32,
     text_line_spacing: f32,
@@ -476,6 +482,9 @@ impl AppSession {
             text_layer_active: false,
             text_body: String::new(),
             text_font_family: "Noto Sans".into(),
+            available_fonts_json: fonts::discover_font_families_json(),
+            text_origin_x: 0.0,
+            text_origin_y: 0.0,
             text_font_size: 24.0,
             text_tracking: 0.0,
             text_line_spacing: 1.2,
@@ -806,9 +815,13 @@ impl AppSession {
             .and_then(|g| g.active_id().and_then(|id| g.get(id)));
         let Some(layer) = layer.filter(|l| l.kind == LayerKind::Text) else {
             self.text_layer_active = false;
+            self.text_origin_x = 0.0;
+            self.text_origin_y = 0.0;
             return;
         };
         self.text_layer_active = true;
+        self.text_origin_x = layer.transform.translate_x;
+        self.text_origin_y = layer.transform.translate_y;
         let content = layer.text.clone().unwrap_or_default();
         self.text_body = content.text;
         self.text_font_family = content.font_family;
@@ -894,6 +907,8 @@ impl AppSession {
         self.text_frame_w_changed();
         self.text_frame_h_changed();
         self.text_wrap_changed();
+        self.text_origin_x_changed();
+        self.text_origin_y_changed();
     }
 
     fn emit_path_edit_fields(&mut self) {
@@ -2616,6 +2631,21 @@ impl AppSession {
         Notify = text_font_family_changed
     );
     qproperty!(
+        "availableFontsJson",
+        Member = available_fonts_json,
+        Notify = available_fonts_json_changed
+    );
+    qproperty!(
+        "textOriginX",
+        Member = text_origin_x,
+        Notify = text_origin_x_changed
+    );
+    qproperty!(
+        "textOriginY",
+        Member = text_origin_y,
+        Notify = text_origin_y_changed
+    );
+    qproperty!(
         "textFontSize",
         Member = text_font_size,
         Notify = text_font_size_changed
@@ -2956,6 +2986,12 @@ impl AppSession {
     fn text_body_changed(&mut self);
     #[qsignal]
     fn text_font_family_changed(&mut self);
+    #[qsignal]
+    fn available_fonts_json_changed(&mut self);
+    #[qsignal]
+    fn text_origin_x_changed(&mut self);
+    #[qsignal]
+    fn text_origin_y_changed(&mut self);
     #[qsignal]
     fn text_font_size_changed(&mut self);
     #[qsignal]
