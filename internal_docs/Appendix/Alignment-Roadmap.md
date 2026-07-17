@@ -228,16 +228,19 @@ Alignment for **handbook-ready development** is **Complete**. A release is “al
 
 ## 7. Near-term (post-alignment)
 
-Alignment sequence finished. Next work is **handbook-driven product slices**, not more contract bootstrapping. Prefer:
+Alignment sequence finished. **Product work** is tracked in:
 
-1. Features as new `command_id` + graph/GPU/I/O changes.
-2. Phase 5 only when a listed gate fires.
-3. Optional hardening: QML consume `*DescriptorsJson`; action-driven menus (target, not alignment).
+- [Handbook-Parity-Roadmap.md](Handbook-Parity-Roadmap.md) — phases P1–P13 to full handbook parity  
+- [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) — living checkboxes  
+
+Former “alignment Phase 5” gates (tiling, multi-doc, plugins, history spill) live there as **Parity P11/P12**.
 
 ---
 
 ## 8. Cross references
 
+- [Handbook-Parity-Roadmap.md](Handbook-Parity-Roadmap.md)
+- [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md)
 - [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md)
 - [Decision-Register.md](Decision-Register.md)
 - [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md)

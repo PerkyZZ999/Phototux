@@ -319,6 +319,8 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 
 - [00 — Introduction](../00-Introduction.md)
 - [Alignment Roadmap](Alignment-Roadmap.md)
+- [Handbook Parity Roadmap](Handbook-Parity-Roadmap.md)
+- [Handbook Parity Checklist](Handbook-Parity-Checklist.md)
 - [Codebase-Handbook Gap Analysis](Codebase-Handbook-Gap-Analysis.md)
 - [Subsystem Dependency Matrix](Subsystem-Dependency-Matrix.md)
 - [Document Format Versioning](Document-Format-Versioning.md)

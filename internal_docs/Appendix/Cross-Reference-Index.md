@@ -232,8 +232,11 @@ All status values are **Present**.
 | Accessibility Checklist | [Accessibility-Checklist.md](Accessibility-Checklist.md) | Conformance checklist |
 | Decision Register | [Decision-Register.md](Decision-Register.md) | Architectural decisions |
 | Codebase–Handbook Gap Analysis | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) | Live crates vs handbook |
-| Alignment Roadmap | [Alignment-Roadmap.md](Alignment-Roadmap.md) | Locked decisions + phases |
-| Implementation Checklist | [Implementation-Checklist.md](Implementation-Checklist.md) | Living slice tracker |
+| Alignment Roadmap | [Alignment-Roadmap.md](Alignment-Roadmap.md) | Alignment complete (contracts) |
+| Handbook Parity Roadmap | [Handbook-Parity-Roadmap.md](Handbook-Parity-Roadmap.md) | Product phases to full handbook parity |
+| Handbook Parity Checklist | [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) | Living product slice tracker |
+| Implementation Checklist | [Implementation-Checklist.md](Implementation-Checklist.md) | Alignment history |
+| Archived ADR → DR Map | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) | Archived ADRs evidence only |
 
 ## Dependency Overview
 

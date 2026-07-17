@@ -4,9 +4,11 @@ Agent-facing constitution for **PhotoTux**.
 
 **Authoritative engineering docs:** [`internal_docs/`](internal_docs/README.md) (Engineering Handbook).  
 **Historical docs:** [`archive/docs/`](archive/docs/README.md) (former `/docs/` — ADRs, journals, checklists).  
-**Alignment plan:** [`internal_docs/Appendix/Alignment-Roadmap.md`](internal_docs/Appendix/Alignment-Roadmap.md) (tech stack frozen to codebase — [DR-023](internal_docs/Appendix/Decision-Register.md)).  
+**Alignment (complete):** [`internal_docs/Appendix/Alignment-Roadmap.md`](internal_docs/Appendix/Alignment-Roadmap.md) (stack frozen — [DR-023](internal_docs/Appendix/Decision-Register.md)).  
+**Product roadmap (handbook parity):** [`internal_docs/Appendix/Handbook-Parity-Roadmap.md`](internal_docs/Appendix/Handbook-Parity-Roadmap.md).  
+**Product checklist:** [`internal_docs/Appendix/Handbook-Parity-Checklist.md`](internal_docs/Appendix/Handbook-Parity-Checklist.md).  
 **Gap inventory:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).  
-**Slice tracker:** [`internal_docs/Appendix/Implementation-Checklist.md`](internal_docs/Appendix/Implementation-Checklist.md).
+**Alignment checklist (history):** [`internal_docs/Appendix/Implementation-Checklist.md`](internal_docs/Appendix/Implementation-Checklist.md).
 
 If handbook Decision Register conflicts with archived ADRs or code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` are **non-normative bridges** → handbook + Decision Register. Archived ADR map: [`internal_docs/Appendix/Archived-ADR-to-DR-Map.md`](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
 
@@ -61,8 +63,8 @@ CHECK_RUST_FULL=1 ./scripts/check-rust.sh   # + rust-doctor
 
 ## Development workflow
 
-1. Read relevant handbook chapters + Decision Register before coding; check gap analysis for known deltas.
-2. Prefer vertical slices that move code toward handbook contracts without big-bang rewrites.
+1. Read relevant handbook chapters + Decision Register before coding; pick slices from [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
+2. Prefer vertical slices toward handbook parity; respect P11/P12 gates (tiling evidence, DR-024, plugin need).
 3. Do not invent a second doc tree under `/docs/` — handbook only; archive is read-only history.
 4. Commit only after `./scripts/check-rust.sh` passes (or pre-commit does).
 
@@ -247,8 +249,10 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 |------|-----|
 | `internal_docs/` | **Engineering Handbook** (authoritative) |
 | `internal_docs/Appendix/Decision-Register.md` | Architectural decisions index |
-| `internal_docs/Appendix/Alignment-Roadmap.md` | Locked decisions + phased alignment |
-| `internal_docs/Appendix/Implementation-Checklist.md` | Living slice tracker |
+| `internal_docs/Appendix/Alignment-Roadmap.md` | Alignment complete (contracts) |
+| `internal_docs/Appendix/Handbook-Parity-Roadmap.md` | Product phases to full handbook parity |
+| `internal_docs/Appendix/Handbook-Parity-Checklist.md` | Living product slice tracker |
+| `internal_docs/Appendix/Implementation-Checklist.md` | Alignment history (Phases 0–4) |
 | `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
 | `archive/docs/` | Archived former `/docs/` (ADRs, journals, old IA) |
 | `SPEC.md` / `CONSTRAINTS.md` | Non-normative bridges → handbook + Decision Register |

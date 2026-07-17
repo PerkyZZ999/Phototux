@@ -1,6 +1,10 @@
-# Implementation Checklist (alignment)
+# Implementation Checklist (alignment — historical)
 
-Living tracker for [Alignment Roadmap](Alignment-Roadmap.md).  
+**Status:** Alignment Phases 0–4 **complete**. Do not add new product work here.
+
+**Living product tracker:** [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) · [Handbook-Parity-Roadmap.md](Handbook-Parity-Roadmap.md).
+
+Former tracker for [Alignment Roadmap](Alignment-Roadmap.md).  
 Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post-v1
 
 **Tech stack:** frozen ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)) — do not track toolkit swaps here.

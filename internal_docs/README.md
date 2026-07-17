@@ -16,7 +16,9 @@ Start with [00 — Introduction and System Charter](00-Introduction.md).
 
 **Excluded:** cloud sync/collaboration; accounts and entitlements; AI or generative tools; proprietary vendor workflows as product identity; network requirements for normal editing; stable third-party plugin ABI / marketplace before validation.
 
-**Tech stack (frozen to codebase):** Rust + Qt 6 QML/`qtbridge` + wgpu Vulkan + zero-copy present + current Cargo crates + `.ptx` — [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase). Alignment plan: [Appendix/Alignment-Roadmap.md](Appendix/Alignment-Roadmap.md).
+**Tech stack (frozen to codebase):** Rust + Qt 6 QML/`qtbridge` + wgpu Vulkan + zero-copy present + current Cargo crates + `.ptx` — [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase).  
+**Alignment (complete):** [Appendix/Alignment-Roadmap.md](Appendix/Alignment-Roadmap.md).  
+**Product build plan (full handbook parity):** [Appendix/Handbook-Parity-Roadmap.md](Appendix/Handbook-Parity-Roadmap.md) · [Appendix/Handbook-Parity-Checklist.md](Appendix/Handbook-Parity-Checklist.md).
 
 ## System Principles (Summary)
 
@@ -69,6 +71,8 @@ internal_docs/
     ├── Codebase-Handbook-Gap-Analysis.md
     ├── Alignment-Roadmap.md
     ├── Implementation-Checklist.md
+    ├── Handbook-Parity-Roadmap.md
+    ├── Handbook-Parity-Checklist.md
     └── Archived-ADR-to-DR-Map.md
 ```
 
@@ -112,8 +116,11 @@ Exact filenames are listed in [Appendix/Cross-Reference-Index.md](Appendix/Cross
 | [Accessibility Checklist](Appendix/Accessibility-Checklist.md) | A11y review and release evidence |
 | [Decision Register](Appendix/Decision-Register.md) | Architectural decision index |
 | [Codebase–Handbook Gap Analysis](Appendix/Codebase-Handbook-Gap-Analysis.md) | Diff vs live crates |
-| [Alignment Roadmap](Appendix/Alignment-Roadmap.md) | Locked decisions + phased alignment plan |
-| [Implementation Checklist](Appendix/Implementation-Checklist.md) | Living slice tracker |
+| [Alignment Roadmap](Appendix/Alignment-Roadmap.md) | Alignment complete (contracts) |
+| [Handbook Parity Roadmap](Appendix/Handbook-Parity-Roadmap.md) | Product phases to full handbook parity |
+| [Handbook Parity Checklist](Appendix/Handbook-Parity-Checklist.md) | Living product slice tracker |
+| [Implementation Checklist](Appendix/Implementation-Checklist.md) | Alignment history (Phases 0–4) |
+| [Archived ADR → DR Map](Appendix/Archived-ADR-to-DR-Map.md) | Archived ADRs are evidence only |
 
 ## Related Starting Points by Role
 
