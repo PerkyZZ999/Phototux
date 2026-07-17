@@ -118,6 +118,7 @@ pub struct AppSession {
     layer_kinds: String,
     layer_mask_flags: String,
     layer_clips: String,
+    layer_selection: String,
     mask_edit_active: bool,
     /// Distinct from focus/object selection: pixel selection channel active.
     pixel_selection_active: bool,
@@ -287,6 +288,7 @@ impl AppSession {
             layer_kinds: String::new(),
             layer_mask_flags: String::new(),
             layer_clips: String::new(),
+            layer_selection: String::new(),
             mask_edit_active: false,
             pixel_selection_active: false,
             object_selection_label: String::new(),
@@ -497,6 +499,7 @@ impl AppSession {
         self.layer_kinds = self.engine.layer_kinds_joined();
         self.layer_mask_flags = self.engine.layer_mask_flags_joined();
         self.layer_clips = self.engine.layer_clips_joined();
+        self.layer_selection = self.engine.layer_selection_joined();
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
                 .graph
@@ -709,6 +712,7 @@ impl AppSession {
         self.layer_kinds_changed();
         self.layer_mask_flags_changed();
         self.layer_clips_changed();
+        self.layer_selection_changed();
         self.mask_edit_active_changed();
         self.edit_target_changed();
         self.edit_target_label_changed();
@@ -1612,6 +1616,11 @@ impl AppSession {
         Notify = layer_clips_changed
     );
     qproperty!(
+        "layerSelection",
+        Member = layer_selection,
+        Notify = layer_selection_changed
+    );
+    qproperty!(
         "maskEditActive",
         Member = mask_edit_active,
         Notify = mask_edit_active_changed
@@ -2124,6 +2133,8 @@ impl AppSession {
     fn layer_mask_flags_changed(&mut self);
     #[qsignal]
     fn layer_clips_changed(&mut self);
+    #[qsignal]
+    fn layer_selection_changed(&mut self);
     #[qsignal]
     fn mask_edit_active_changed(&mut self);
     #[qsignal]
@@ -3439,6 +3450,19 @@ impl AppSession {
     #[qslot]
     fn set_active_layer(&mut self, index: i32) {
         let _ = self.invoke_command(command_id::LAYER_SET_ACTIVE, CommandArgs::LayerIndex(index));
+    }
+
+    /// Layers panel click with modifiers (`ctrl` toggle, `shift` range).
+    #[qslot]
+    fn select_layer_click(&mut self, index: i32, ctrl: bool, shift: bool) {
+        if index < 0 {
+            return;
+        }
+        self.engine.select_layer_click(index as usize, ctrl, shift);
+        self.sync_from_engine();
+        self.emit_layer_fields();
+        self.sync_selection_fields();
+        self.emit_selection_fields();
     }
 
     #[qslot]

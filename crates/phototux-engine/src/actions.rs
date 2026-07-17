@@ -427,6 +427,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
         ),
         act(
+            "action.layer.ungroup",
+            "&Ungroup",
+            "layer",
+            "has_document",
+            Some(command_id::LAYER_UNGROUP),
+            None,
+            None,
+            None,
+            None,
+        ),
+        act(
             "action.layer.bake-text",
             "Bake &Text",
             "layer",

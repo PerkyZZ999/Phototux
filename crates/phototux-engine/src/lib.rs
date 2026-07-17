@@ -510,6 +510,75 @@ impl SessionState {
             .unwrap_or_default()
     }
 
+    /// Object-selection flags as `"1|0|1"` aligned with stack order.
+    pub fn layer_selection_joined(&self) -> String {
+        let Some(graph) = self.graph.as_ref() else {
+            return String::new();
+        };
+        graph
+            .layers()
+            .iter()
+            .map(|l| {
+                if self.selected_layer_ids.contains(&l.id) {
+                    "1"
+                } else {
+                    "0"
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
+    /// Update object selection from a layers-panel click.
+    ///
+    /// - `ctrl`: toggle `index` in the selection
+    /// - `shift`: select inclusive range from active to `index`
+    /// - else: single-select `index` (and make it active)
+    pub fn select_layer_click(&mut self, index: usize, ctrl: bool, shift: bool) {
+        {
+            let Some(graph) = self.graph.as_mut() else {
+                return;
+            };
+            let Some(clicked_id) = graph.layers().get(index).map(|l| l.id) else {
+                return;
+            };
+            if shift {
+                let anchor = graph
+                    .active_id()
+                    .and_then(|id| graph.index_of(id))
+                    .unwrap_or(index);
+                let lo = anchor.min(index);
+                let hi = anchor.max(index);
+                let ids: Vec<LayerId> = graph.layers()[lo..=hi].iter().map(|l| l.id).collect();
+                let _ = graph.set_active(clicked_id);
+                self.selected_layer_ids = ids;
+            } else if ctrl {
+                if let Some(pos) = self
+                    .selected_layer_ids
+                    .iter()
+                    .position(|id| *id == clicked_id)
+                {
+                    self.selected_layer_ids.remove(pos);
+                    if self.selected_layer_ids.is_empty() {
+                        let _ = graph.set_active(clicked_id);
+                        self.selected_layer_ids = vec![clicked_id];
+                    } else if graph.active_id() == Some(clicked_id) {
+                        let keep = self.selected_layer_ids[self.selected_layer_ids.len() - 1];
+                        let _ = graph.set_active(keep);
+                    }
+                } else {
+                    self.selected_layer_ids.push(clicked_id);
+                    let _ = graph.set_active(clicked_id);
+                }
+            } else {
+                let _ = graph.set_active(clicked_id);
+                self.selected_layer_ids = vec![clicked_id];
+            }
+        }
+        let name = self.object_selection_names_joined();
+        self.announce(format!("Object selection: {name}"));
+    }
+
     pub fn paint_target(&self) -> PaintTarget {
         let active = self.graph.as_ref().and_then(|g| g.active_id());
         match self.mask_edit_layer {

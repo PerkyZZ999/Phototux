@@ -33,6 +33,7 @@ pub mod command_id {
     pub const LAYER_SET_BLEND: &str = "layer.set-blend";
     pub const LAYER_REORDER: &str = "layer.reorder";
     pub const LAYER_GROUP: &str = "layer.group";
+    pub const LAYER_UNGROUP: &str = "layer.ungroup";
     pub const LAYER_SET_CLIP: &str = "layer.set-clip";
     pub const LAYER_SET_LOCKS: &str = "layer.set-locks";
 
@@ -115,6 +116,7 @@ pub mod command_id {
         LAYER_SET_BLEND,
         LAYER_REORDER,
         LAYER_GROUP,
+        LAYER_UNGROUP,
         LAYER_SET_CLIP,
         LAYER_SET_LOCKS,
         VIEW_ZOOM_TO,
@@ -465,6 +467,7 @@ impl SessionState {
             command_id::LAYER_SET_BLEND => self.cmd_layer_set_blend(args),
             command_id::LAYER_REORDER => self.cmd_layer_reorder(args),
             command_id::LAYER_GROUP => self.cmd_layer_group(),
+            command_id::LAYER_UNGROUP => self.cmd_layer_ungroup(),
             command_id::LAYER_SET_CLIP => self.cmd_layer_set_clip(args),
             command_id::LAYER_SET_LOCKS => self.cmd_layer_set_locks(args),
             command_id::VIEW_ZOOM_TO => self.cmd_view_zoom(args),
@@ -682,16 +685,81 @@ impl SessionState {
         Ok(CommandEffects::document_edit(graph.generation))
     }
 
+    /// Targets for multi-select structural ops (selection when non-empty, else active).
+    fn structural_target_ids(&self) -> Result<Vec<LayerId>, CommandError> {
+        let graph = self
+            .graph
+            .as_ref()
+            .ok_or(CommandError::Document(DocumentError::NoDocument))?;
+        let mut ids = if self.selected_layer_ids.is_empty() {
+            match graph.active_id() {
+                Some(id) => vec![id],
+                None => return Err(CommandError::Rejected("no active layer")),
+            }
+        } else {
+            self.selected_layer_ids.clone()
+        };
+        ids.retain(|id| graph.get(*id).is_some());
+        if ids.is_empty() {
+            return Err(CommandError::Rejected("no target layers"));
+        }
+        // Stable stack order (bottom → top).
+        ids.sort_by_key(|id| graph.index_of(*id).unwrap_or(usize::MAX));
+        ids.dedup();
+        Ok(ids)
+    }
+
     fn cmd_layer_delete(&mut self) -> Result<CommandEffects, CommandError> {
-        let id = self.active_layer_id()?;
-        let SessionState { graph, history, .. } = self;
-        let Some(graph) = graph.as_mut() else {
+        let targets = self.structural_target_ids()?;
+        let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        if !undo_actions::delete_layer(graph, history, id) {
-            return Err(CommandError::Rejected("delete layer failed"));
+        if targets.len() >= graph.layer_count() {
+            return Err(CommandError::Rejected("cannot delete all layers"));
         }
-        Ok(CommandEffects::document_edit(graph.generation))
+        for id in &targets {
+            let Some(layer) = graph.get(*id) else {
+                return Err(CommandError::Rejected("layer missing"));
+            };
+            if layer.locks.all {
+                return Err(CommandError::Rejected("layer is locked"));
+            }
+        }
+
+        let prev_active = graph.active_id();
+        // Delete top→bottom so recorded indices match removal order.
+        let mut deletes = Vec::with_capacity(targets.len());
+        for id in targets.iter().rev() {
+            let Some((index, layer)) = graph.remove_layer(*id) else {
+                for cmd in deletes.iter().rev() {
+                    if let crate::GraphCommand::DeleteLayer { index, layer, .. } = cmd {
+                        graph.insert_layer_at(*index, layer.clone());
+                    }
+                }
+                return Err(CommandError::Rejected("delete layer failed"));
+            };
+            deletes.push(crate::GraphCommand::DeleteLayer {
+                id: *id,
+                index,
+                layer,
+                prev_active,
+            });
+        }
+        // Store bottom→top (apply order for redo of Batch).
+        deletes.reverse();
+        graph.bump_generation();
+        let generation = graph.generation;
+        let label = if deletes.len() == 1 {
+            "Delete layer".to_owned()
+        } else {
+            format!("Delete {} layers", deletes.len())
+        };
+        self.history
+            .push_graph_applied(crate::GraphCommand::Batch(deletes), label, generation);
+        self.sync_object_selection_to_active();
+        let name = self.object_selection_names_joined();
+        self.announce(format!("Object selection: {name}"));
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_layer_set_active(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
@@ -782,37 +850,193 @@ impl SessionState {
         let CommandArgs::Reorder { to_index } = args else {
             return Err(CommandError::InvalidArgument("expected reorder index"));
         };
-        let id = self.active_layer_id()?;
+        let targets = self.structural_target_ids()?;
         let SessionState { graph, history, .. } = self;
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        if !undo_actions::move_layer(graph, history, id, to_index.max(0) as usize) {
+        for id in &targets {
+            let Some(layer) = graph.get(*id) else {
+                return Err(CommandError::Rejected("layer missing"));
+            };
+            if layer.locks.all || layer.locks.position {
+                return Err(CommandError::Rejected("layer position locked"));
+            }
+        }
+        let prev = graph.stack_order();
+        let mut moving: Vec<LayerId> = Vec::new();
+        let mut rest: Vec<LayerId> = Vec::new();
+        for id in &prev {
+            if targets.contains(id) {
+                moving.push(*id);
+            } else {
+                rest.push(*id);
+            }
+        }
+        if moving.is_empty() {
+            return Err(CommandError::Rejected("no layers to reorder"));
+        }
+        let insert_at = (to_index.max(0) as usize).min(rest.len());
+        let mut next = rest;
+        next.splice(insert_at..insert_at, moving);
+        if next == prev {
+            return Err(CommandError::Rejected("reorder unchanged"));
+        }
+        if !graph.reorder_stack(&next) {
             return Err(CommandError::Rejected("reorder failed"));
         }
-        Ok(CommandEffects::document_edit(graph.generation))
+        graph.bump_generation();
+        let generation = graph.generation;
+        history.push_graph_applied(
+            crate::GraphCommand::SetStackOrder { prev, next },
+            if targets.len() == 1 {
+                "Reorder layer"
+            } else {
+                "Reorder layers"
+            },
+            generation,
+        );
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_layer_group(&mut self) -> Result<CommandEffects, CommandError> {
-        let SessionState { graph, history, .. } = self;
-        let Some(graph) = graph.as_mut() else {
+        let targets = self.structural_target_ids()?;
+        let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let id = graph.add_group_top(None)?;
-        let index = graph.index_of(id).unwrap_or(0);
-        let layer = graph
-            .get(id)
-            .cloned()
-            .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?;
-        history.push_graph_applied(
-            crate::GraphCommand::AddLayer { id, index, layer },
-            "Add group",
-            {
-                graph.bump_generation();
-                graph.generation
-            },
+        for id in &targets {
+            let Some(layer) = graph.get(*id) else {
+                return Err(CommandError::Rejected("layer missing"));
+            };
+            if layer.locks.all {
+                return Err(CommandError::Rejected("layer is locked"));
+            }
+            if layer.kind == LayerKind::Group {
+                for other in &targets {
+                    if *other != *id && graph.get(*other).is_some_and(|l| l.parent == Some(*id)) {
+                        return Err(CommandError::Rejected(
+                            "cannot group a group with its children",
+                        ));
+                    }
+                }
+            }
+        }
+        if graph.layer_count() >= MAX_LAYERS {
+            return Err(CommandError::Document(DocumentError::layer_limit(
+                MAX_LAYERS,
+            )));
+        }
+
+        let insert_at = graph
+            .index_of(targets[targets.len() - 1])
+            .map(|i| i + 1)
+            .unwrap_or(graph.layer_count())
+            .min(graph.layer_count());
+
+        let group_id = graph.add_group_top(Some("Group".into()))?;
+        let _ = graph.move_layer(group_id, insert_at);
+        let group_index = graph.index_of(group_id).unwrap_or(0);
+
+        let mut parent_cmds = Vec::new();
+        for id in &targets {
+            let Some(prev) = graph.set_parent(*id, Some(group_id)) else {
+                for cmd in parent_cmds.iter().rev() {
+                    if let crate::GraphCommand::SetParent { id, prev, .. } = cmd {
+                        let _ = graph.set_parent(*id, *prev);
+                    }
+                }
+                let _ = graph.remove_layer(group_id);
+                return Err(CommandError::Rejected("set parent failed"));
+            };
+            parent_cmds.push(crate::GraphCommand::SetParent {
+                id: *id,
+                prev,
+                next: Some(group_id),
+            });
+        }
+
+        let mut batch = vec![crate::GraphCommand::AddLayer {
+            id: group_id,
+            index: group_index,
+            layer: graph
+                .get(group_id)
+                .cloned()
+                .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?,
+        }];
+        batch.extend(parent_cmds);
+
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(
+            crate::GraphCommand::Batch(batch),
+            "Group layers",
+            generation,
         );
-        Ok(CommandEffects::document_edit(graph.generation))
+        let _ = graph.set_active(group_id);
+        self.selected_layer_ids = vec![group_id];
+        self.announce("Grouped layers");
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    fn cmd_layer_ungroup(&mut self) -> Result<CommandEffects, CommandError> {
+        let targets = self.structural_target_ids()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let groups: Vec<LayerId> = targets
+            .iter()
+            .copied()
+            .filter(|id| graph.get(*id).is_some_and(|l| l.kind == LayerKind::Group))
+            .collect();
+        if groups.is_empty() {
+            return Err(CommandError::Rejected("no group selected"));
+        }
+        for id in &groups {
+            if graph.get(*id).is_some_and(|l| l.locks.all) {
+                return Err(CommandError::Rejected("group is locked"));
+            }
+        }
+
+        let prev_active = graph.active_id();
+        let mut batch = Vec::new();
+        for group_id in &groups {
+            let children: Vec<LayerId> = graph
+                .layers()
+                .iter()
+                .filter(|l| l.parent == Some(*group_id))
+                .map(|l| l.id)
+                .collect();
+            let group_parent = graph.get(*group_id).and_then(|l| l.parent);
+            for child in children {
+                let Some(prev) = graph.set_parent(child, group_parent) else {
+                    return Err(CommandError::Rejected("ungroup parent failed"));
+                };
+                batch.push(crate::GraphCommand::SetParent {
+                    id: child,
+                    prev,
+                    next: group_parent,
+                });
+            }
+            let Some((index, layer)) = graph.remove_layer(*group_id) else {
+                return Err(CommandError::Rejected("ungroup delete failed"));
+            };
+            batch.push(crate::GraphCommand::DeleteLayer {
+                id: *group_id,
+                index,
+                layer,
+                prev_active,
+            });
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(
+            crate::GraphCommand::Batch(batch),
+            "Ungroup layers",
+            generation,
+        );
+        self.sync_object_selection_to_active();
+        self.announce("Ungrouped layers");
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_layer_set_clip(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
@@ -2105,6 +2329,115 @@ mod tests {
         s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
             .expect("group");
         assert_eq!(s.layer_count(), n + 1);
+    }
+
+    #[test]
+    fn multi_delete_is_atomic_one_undo() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("l1");
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("l2");
+        let ids: Vec<_> = s
+            .graph
+            .as_ref()
+            .unwrap()
+            .layers()
+            .iter()
+            .map(|l| l.id)
+            .collect();
+        // Keep bottom layer; delete the two above.
+        s.set_object_selection(vec![ids[1], ids[2]]);
+        let n = s.layer_count();
+        s.invoke(command_id::LAYER_DELETE, CommandArgs::None)
+            .expect("delete");
+        assert_eq!(s.layer_count(), n - 2);
+        s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        assert_eq!(s.layer_count(), n);
+    }
+
+    #[test]
+    fn multi_delete_rejects_locked() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("l1");
+        let n = s.layer_count();
+        let ids: Vec<_> = s
+            .graph
+            .as_ref()
+            .unwrap()
+            .layers()
+            .iter()
+            .map(|l| l.id)
+            .collect();
+        s.set_object_selection(vec![ids[0], ids[1]]);
+        let _ = s.graph.as_mut().unwrap().get_mut(ids[1]).map(|l| {
+            l.locks.all = true;
+            l.locked = true;
+        });
+        let err = s
+            .invoke(command_id::LAYER_DELETE, CommandArgs::None)
+            .expect_err("locked");
+        assert!(matches!(err, CommandError::Rejected(_)));
+        assert_eq!(s.layer_count(), n);
+    }
+
+    #[test]
+    fn group_selection_reparents() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("l1");
+        let ids: Vec<_> = s
+            .graph
+            .as_ref()
+            .unwrap()
+            .layers()
+            .iter()
+            .map(|l| l.id)
+            .collect();
+        s.set_object_selection(ids.clone());
+        s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+            .expect("group");
+        let g = s.graph.as_ref().unwrap();
+        let group_id = g.active_id().unwrap();
+        assert_eq!(g.get(group_id).unwrap().kind, LayerKind::Group);
+        for id in &ids {
+            assert_eq!(g.get(*id).unwrap().parent, Some(group_id));
+        }
+        s.invoke(command_id::LAYER_UNGROUP, CommandArgs::None)
+            .expect("ungroup");
+        let g = s.graph.as_ref().unwrap();
+        assert!(g.get(group_id).is_none());
+        for id in &ids {
+            assert!(g.get(*id).unwrap().parent.is_none());
+        }
+    }
+
+    #[test]
+    fn multi_reorder_atomic() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("a");
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("b");
+        let ids: Vec<_> = s.graph.as_ref().unwrap().stack_order();
+        assert!(ids.len() >= 3);
+        // Select bottom two; move above the remaining top layer.
+        s.set_object_selection(vec![ids[0], ids[1]]);
+        s.invoke(
+            command_id::LAYER_REORDER,
+            CommandArgs::Reorder { to_index: 1 },
+        )
+        .expect("reorder");
+        let next = s.graph.as_ref().unwrap().stack_order();
+        assert_eq!(next.len(), ids.len());
+        assert_eq!(next[1], ids[0]);
+        assert_eq!(next[2], ids[1]);
     }
 
     #[test]

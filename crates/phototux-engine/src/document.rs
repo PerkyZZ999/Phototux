@@ -384,6 +384,34 @@ impl DocumentGraph {
         Some((from, to))
     }
 
+    /// Reorder the stack to match `order` (must be a permutation of current layer ids).
+    pub fn reorder_stack(&mut self, order: &[LayerId]) -> bool {
+        if order.len() != self.layers.len() {
+            return false;
+        }
+        let mut next = Vec::with_capacity(order.len());
+        for id in order {
+            let Some(layer) = self.layers.iter().find(|l| l.id == *id).cloned() else {
+                return false;
+            };
+            next.push(layer);
+        }
+        if next
+            .iter()
+            .map(|l| l.id)
+            .eq(self.layers.iter().map(|l| l.id))
+        {
+            return true;
+        }
+        self.layers = next;
+        self.bump();
+        true
+    }
+
+    pub fn stack_order(&self) -> Vec<LayerId> {
+        self.layers.iter().map(|l| l.id).collect()
+    }
+
     pub fn set_visibility(&mut self, id: LayerId, visible: bool) -> Option<bool> {
         let layer = self.get_mut(id)?;
         let prev = layer.visible;

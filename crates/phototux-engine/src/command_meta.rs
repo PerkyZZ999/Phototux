@@ -150,6 +150,7 @@ pub const ALL: &[CommandMeta] = &[
     doc_tx(command_id::LAYER_SET_BLEND),
     doc_tx(command_id::LAYER_REORDER),
     doc_tx(command_id::LAYER_GROUP),
+    doc_tx(command_id::LAYER_UNGROUP),
     doc_tx(command_id::LAYER_SET_CLIP),
     doc_tx(command_id::LAYER_SET_LOCKS),
     view_ephemeral(command_id::VIEW_ZOOM_TO),

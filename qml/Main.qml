@@ -3591,11 +3591,15 @@ ApplicationWindow {
                             readonly property bool maskEnabled: maskFlag === 1
                             readonly property bool clipsToBelow: stackIndex >= 0 && stackIndex < clipParts.length
                                 ? clipParts[stackIndex] === "1" : false
+                            readonly property var selParts: AppSession.layerSelection.split("|")
+                            readonly property bool isSelected: stackIndex >= 0 && stackIndex < selParts.length
+                                ? selParts[stackIndex] === "1" : false
                             readonly property bool isActive: AppSession.activeLayerIndex === stackIndex
-                            color: isActive ? Theme.surfaceRaised
+                            color: isActive || isSelected ? Theme.surfaceRaised
                                    : (layerHover.hovered ? Theme.surfaceContainer : "transparent")
-                            border.color: isActive ? Theme.primary : "transparent"
-                            border.width: isActive ? 1 : 0
+                            border.color: isActive ? Theme.primary
+                                          : (isSelected ? Theme.primaryHover : "transparent")
+                            border.width: (isActive || isSelected) ? 1 : 0
 
                             RowLayout {
                                 anchors.fill: parent
@@ -3706,7 +3710,10 @@ ApplicationWindow {
                                 anchors.leftMargin: 28
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: function (mouse) {
-                                    AppSession.setActiveLayer(stackIndex)
+                                    var ctrl = (mouse.modifiers & Qt.ControlModifier)
+                                               || (mouse.modifiers & Qt.MetaModifier)
+                                    var shift = !!(mouse.modifiers & Qt.ShiftModifier)
+                                    AppSession.selectLayerClick(stackIndex, ctrl, shift)
                                     if (mouse.button === Qt.RightButton) {
                                         layerContextMenu.targetIndex = stackIndex
                                         layerContextMenu.popup()

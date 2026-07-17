@@ -73,6 +73,18 @@ pub enum GraphCommand {
         prev: Vec<FilterEffect>,
         next: Vec<FilterEffect>,
     },
+    SetParent {
+        id: LayerId,
+        prev: Option<LayerId>,
+        next: Option<LayerId>,
+    },
+    /// Replace stack order (same layer set, new sibling order).
+    SetStackOrder {
+        prev: Vec<LayerId>,
+        next: Vec<LayerId>,
+    },
+    /// Atomic multi-step graph mutation (one undo entry).
+    Batch(Vec<GraphCommand>),
 }
 
 impl GraphCommand {
@@ -122,6 +134,17 @@ impl GraphCommand {
             }
             Self::SetEffects { id, next, .. } => {
                 let _ = graph.set_effects(*id, next.clone());
+            }
+            Self::SetParent { id, next, .. } => {
+                let _ = graph.set_parent(*id, *next);
+            }
+            Self::SetStackOrder { next, .. } => {
+                let _ = graph.reorder_stack(next);
+            }
+            Self::Batch(cmds) => {
+                for cmd in cmds {
+                    cmd.apply(graph);
+                }
             }
         }
     }
@@ -201,6 +224,16 @@ impl GraphCommand {
                 prev: next.clone(),
                 next: prev.clone(),
             },
+            Self::SetParent { id, prev, next } => Self::SetParent {
+                id: *id,
+                prev: *next,
+                next: *prev,
+            },
+            Self::SetStackOrder { prev, next } => Self::SetStackOrder {
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::Batch(cmds) => Self::Batch(cmds.iter().rev().map(GraphCommand::invert).collect()),
         }
     }
 }
@@ -259,13 +292,7 @@ impl UndoStack {
         let inv = cmd.invert();
         inv.apply(graph);
         // Restore active after delete invert special-case
-        if let GraphCommand::DeleteLayer {
-            prev_active: Some(id),
-            ..
-        } = &cmd
-        {
-            let _ = graph.set_active(*id);
-        }
+        restore_prev_active_after_delete_undo(graph, &cmd);
         self.redo.push(cmd);
         true
     }
@@ -277,6 +304,30 @@ impl UndoStack {
         cmd.apply(graph);
         self.undo.push(cmd);
         true
+    }
+}
+
+fn restore_prev_active_after_delete_undo(graph: &mut DocumentGraph, cmd: &GraphCommand) {
+    match cmd {
+        GraphCommand::DeleteLayer {
+            prev_active: Some(id),
+            ..
+        } => {
+            let _ = graph.set_active(*id);
+        }
+        GraphCommand::Batch(cmds) => {
+            for nested in cmds.iter().rev() {
+                if let GraphCommand::DeleteLayer {
+                    prev_active: Some(id),
+                    ..
+                } = nested
+                {
+                    let _ = graph.set_active(*id);
+                    break;
+                }
+            }
+        }
+        _ => {}
     }
 }
 
