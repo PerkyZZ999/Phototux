@@ -91,9 +91,9 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 - [x] Semantic workspace state separate from document (DR-015)
 - [x] Workspace transaction / undo policy (layout changes ≠ document dirty)
-- [~] Named workspace presets (built-in Essentials only; user presets deferred)
-- [~] Reset scopes: Essentials shipped; last saved / factory deferred
-- [ ] Active view / focus / panel context as distinct fields
+- [x] Named workspace presets (built-in Essentials/Compact/Painting/Factory; user presets deferred)
+- [x] Reset scopes: Essentials / last saved / factory
+- [x] Active view / focus / panel context as distinct fields
 
 ### P2.2 Docking topology
 

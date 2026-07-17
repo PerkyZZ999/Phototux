@@ -89,6 +89,8 @@ pub mod command_id {
     pub const WORKSPACE_RESET: &str = "workspace.reset";
     /// Workspace chrome — toggle a panel by id (`panel.layers`, …).
     pub const WORKSPACE_TOGGLE_PANEL: &str = "workspace.toggle-panel";
+    /// Workspace chrome — apply a built-in layout preset by id.
+    pub const WORKSPACE_APPLY_PRESET: &str = "workspace.apply-preset";
 
     /// Built-in commands registered for discovery / headless tests.
     pub const ALL: &[&str] = &[
@@ -144,6 +146,7 @@ pub mod command_id {
         APP_SHOW_PREFERENCES,
         WORKSPACE_RESET,
         WORKSPACE_TOGGLE_PANEL,
+        WORKSPACE_APPLY_PRESET,
     ];
 }
 
@@ -163,6 +166,10 @@ pub enum HostFollowUp {
     /// Toggle visibility of a dock panel by descriptor id.
     TogglePanel {
         panel_id: String,
+    },
+    /// Apply a built-in workspace layout preset.
+    ApplyWorkspacePreset {
+        preset_id: String,
     },
 }
 
@@ -274,6 +281,9 @@ pub enum CommandArgs {
     },
     TogglePanel {
         panel_id: String,
+    },
+    ApplyWorkspacePreset {
+        preset_id: String,
     },
 }
 
@@ -449,6 +459,7 @@ impl SessionState {
                 Ok(CommandEffects::host_chrome(HostFollowUp::ResetWorkspace))
             }
             command_id::WORKSPACE_TOGGLE_PANEL => self.cmd_workspace_toggle_panel(args),
+            command_id::WORKSPACE_APPLY_PRESET => self.cmd_workspace_apply_preset(args),
             other => Err(CommandError::Unknown(other.to_owned())),
         }
     }
@@ -470,6 +481,23 @@ impl SessionState {
         Ok(CommandEffects::host_chrome(HostFollowUp::TogglePanel {
             panel_id,
         }))
+    }
+
+    fn cmd_workspace_apply_preset(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::ApplyWorkspacePreset { preset_id } = args else {
+            return Err(CommandError::InvalidArgument(
+                "workspace.apply-preset requires ApplyWorkspacePreset args",
+            ));
+        };
+        if crate::workspace_preset_by_id(&preset_id).is_none() {
+            return Err(CommandError::InvalidArgument("unknown workspace preset"));
+        }
+        Ok(CommandEffects::host_chrome(
+            HostFollowUp::ApplyWorkspacePreset { preset_id },
+        ))
     }
 
     pub fn document_generation(&self) -> u64 {

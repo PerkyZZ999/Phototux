@@ -1998,6 +1998,14 @@ ApplicationWindow {
                             Accessible.name: qsTr("Tear off panel")
                         }
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        onClicked: {
+                            AppSession.setWorkspaceFocusPath("panel.properties")
+                            AppSession.setWorkspacePanelContext("panel.properties")
+                        }
+                    }
                 }
 
                 Flickable {
@@ -3884,6 +3892,33 @@ ApplicationWindow {
                     }
                 }
 
+                Label {
+                    Layout.topMargin: Theme.spaceXs
+                    text: qsTr("Workspace presets")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontLabel
+                    font.weight: Font.DemiBold
+                }
+                Repeater {
+                    model: {
+                        try {
+                            return JSON.parse(AppSession.workspacePresetsJson || "[]")
+                        } catch (e) {
+                            return []
+                        }
+                    }
+                    delegate: Button {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        text: qsTr(modelData.title || modelData.id)
+                        highlighted: AppSession.activeWorkspacePresetId === modelData.id
+                        onClicked: AppSession.applyWorkspacePreset(modelData.id)
+                    }
+                }
+                Button {
+                    text: qsTr("Restore last saved layout")
+                    onClicked: AppSession.restoreLastSavedWorkspace()
+                }
                 Button {
                     text: qsTr("Reset Workspace to Essentials")
                     onClicked: AppSession.resetWorkspace()

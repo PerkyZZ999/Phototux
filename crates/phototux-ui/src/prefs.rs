@@ -35,6 +35,9 @@ pub struct Preferences {
     /// Serialized [`DockTopology`] JSON (schema 3+).
     #[serde(default)]
     pub dock_topology_json: String,
+    /// Last explicitly saved layout snapshot (visibility + dock JSON object).
+    #[serde(default)]
+    pub last_saved_workspace_json: String,
     /// Action id → shortcut chord overrides (empty map = defaults only).
     pub keymap: BTreeMap<String, String>,
     pub schema_version: u32,
@@ -57,6 +60,7 @@ impl Default for Preferences {
             panel_properties: ws.is_visible("panel.properties"),
             panel_visibility: ws.panel_visibility.clone(),
             dock_topology_json: ws.dock.to_json().unwrap_or_default(),
+            last_saved_workspace_json: String::new(),
             keymap: BTreeMap::new(),
             schema_version: 3,
         }
@@ -118,6 +122,36 @@ impl Preferences {
         self.panel_visibility = workspace.panel_visibility.clone();
         self.dock_topology_json = workspace.dock.to_json().unwrap_or_default();
         self.sync_legacy_bools_from_map();
+        self.capture_last_saved_workspace(workspace);
+    }
+
+    fn capture_last_saved_workspace(&mut self, workspace: &WorkspaceState) {
+        let snapshot = serde_json::json!({
+            "panel_visibility": workspace.panel_visibility,
+            "dock": workspace.dock,
+            "active_preset_id": workspace.active_preset_id,
+        });
+        self.last_saved_workspace_json = snapshot.to_string();
+    }
+
+    /// Restore layout from the last captured snapshot, if any.
+    pub fn load_last_saved_workspace(&self) -> Option<WorkspaceState> {
+        if self.last_saved_workspace_json.is_empty() {
+            return None;
+        }
+        #[derive(Deserialize)]
+        struct Snap {
+            panel_visibility: BTreeMap<String, bool>,
+            dock: DockTopology,
+            #[serde(default)]
+            active_preset_id: String,
+        }
+        let snap: Snap = serde_json::from_str(&self.last_saved_workspace_json).ok()?;
+        let mut ws = WorkspaceState::from_visibility_map(snap.panel_visibility);
+        let _ = ws.set_dock(snap.dock);
+        ws.active_preset_id = snap.active_preset_id;
+        ws.revision = 0;
+        Some(ws)
     }
 
     pub fn load_dock_topology(&self) -> DockTopology {

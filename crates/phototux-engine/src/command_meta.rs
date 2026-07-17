@@ -221,6 +221,13 @@ pub const ALL: &[CommandMeta] = &[
         UndoPolicy::None,
         ConflictPolicy::LatestWinsView,
     ),
+    meta(
+        command_id::WORKSPACE_APPLY_PRESET,
+        CommandScope::Workspace,
+        MutationClass::Workspace,
+        UndoPolicy::None,
+        ConflictPolicy::LatestWinsView,
+    ),
 ];
 
 /// Look up taxonomy metadata for a registered command id.

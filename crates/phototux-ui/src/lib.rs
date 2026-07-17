@@ -185,6 +185,9 @@ pub struct AppSession {
     prefs: Preferences,
     workspace: WorkspaceState,
     panel_descriptors_json: String,
+    workspace_presets_json: String,
+    workspace_focus_json: String,
+    active_workspace_preset_id: String,
     dock_topology_json: String,
     panel_visibility_json: String,
     tool_descriptors_json: String,
@@ -332,6 +335,11 @@ impl AppSession {
             prefs: Preferences::default(),
             workspace: WorkspaceState::essentials(),
             panel_descriptors_json: phototux_engine::panels_json(),
+            workspace_presets_json: phototux_engine::workspace_presets_json(),
+            workspace_focus_json:
+                serde_json::to_string(&phototux_engine::WorkspaceFocus::default())
+                    .unwrap_or_else(|_| "{}".into()),
+            active_workspace_preset_id: "workspace.preset.essentials".into(),
             dock_topology_json: phototux_engine::DockTopology::essentials()
                 .to_json()
                 .unwrap_or_else(|_| "{}".into()),
@@ -844,6 +852,9 @@ impl AppSession {
             .dock
             .to_json()
             .unwrap_or_else(|_| "{}".into());
+        self.workspace_focus_json =
+            serde_json::to_string(&self.workspace.focus).unwrap_or_else(|_| "{}".into());
+        self.active_workspace_preset_id = self.workspace.active_preset_id.clone();
     }
 
     fn persist_workspace_visibility(&mut self) {
@@ -857,6 +868,8 @@ impl AppSession {
         self.panel_properties_visible_changed();
         self.panel_visibility_json_changed();
         self.dock_topology_json_changed();
+        self.workspace_focus_json_changed();
+        self.active_workspace_preset_id_changed();
     }
 
     fn emit_pref_fields(&mut self) {
@@ -934,6 +947,9 @@ impl AppSession {
             | cid::WORKSPACE_RESET => Ok(CommandArgs::None),
             cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
                 panel_id: arg.unwrap_or("panel.layers").to_owned(),
+            }),
+            cid::WORKSPACE_APPLY_PRESET => Ok(CommandArgs::ApplyWorkspacePreset {
+                preset_id: arg.unwrap_or("workspace.preset.essentials").to_owned(),
             }),
             cid::DOCUMENT_ASSIGN_PROFILE => Ok(CommandArgs::AssignProfile {
                 profile: arg.unwrap_or("sRGB").to_owned(),
@@ -1109,6 +1125,9 @@ impl AppSession {
             HostFollowUp::ShowPreferences => self.open_preferences(),
             HostFollowUp::ResetWorkspace => self.reset_workspace(),
             HostFollowUp::TogglePanel { panel_id } => self.toggle_panel_by_id(&panel_id),
+            HostFollowUp::ApplyWorkspacePreset { preset_id } => {
+                self.apply_workspace_preset(preset_id);
+            }
         }
         if effects.recomposite {
             self.recomposite();
@@ -1658,6 +1677,21 @@ impl AppSession {
         Notify = panel_descriptors_json_changed
     );
     qproperty!(
+        "workspacePresetsJson",
+        Member = workspace_presets_json,
+        Notify = workspace_presets_json_changed
+    );
+    qproperty!(
+        "workspaceFocusJson",
+        Member = workspace_focus_json,
+        Notify = workspace_focus_json_changed
+    );
+    qproperty!(
+        "activeWorkspacePresetId",
+        Member = active_workspace_preset_id,
+        Notify = active_workspace_preset_id_changed
+    );
+    qproperty!(
         "dockTopologyJson",
         Member = dock_topology_json,
         Notify = dock_topology_json_changed
@@ -1946,6 +1980,12 @@ impl AppSession {
     fn startup_ms_changed(&mut self);
     #[qsignal]
     fn panel_descriptors_json_changed(&mut self);
+    #[qsignal]
+    fn workspace_presets_json_changed(&mut self);
+    #[qsignal]
+    fn workspace_focus_json_changed(&mut self);
+    #[qsignal]
+    fn active_workspace_preset_id_changed(&mut self);
     #[qsignal]
     fn dock_topology_json_changed(&mut self);
     #[qsignal]
@@ -2346,6 +2386,46 @@ impl AppSession {
         self.emit_pref_fields();
         self.status_text = "Workspace reset to Essentials".to_owned();
         self.status_text_changed();
+    }
+
+    #[qslot]
+    fn apply_workspace_preset(&mut self, preset_id: String) {
+        let Some(preset) = phototux_engine::workspace_preset_by_id(&preset_id) else {
+            self.status_text = format!("Unknown workspace preset: {preset_id}");
+            self.status_text_changed();
+            return;
+        };
+        self.workspace.apply_preset(&preset);
+        self.persist_workspace_visibility();
+        self.status_text = format!("Workspace: {}", preset.title);
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn restore_last_saved_workspace(&mut self) {
+        let Some(ws) = self.prefs.load_last_saved_workspace() else {
+            self.status_text = "No last-saved workspace layout".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        self.workspace = ws;
+        self.persist_workspace_visibility();
+        self.status_text = "Workspace restored from last saved".to_owned();
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn set_workspace_focus_path(&mut self, path: String) {
+        self.workspace.set_focus_path(path);
+        self.sync_panel_visibility_from_workspace();
+        self.workspace_focus_json_changed();
+    }
+
+    #[qslot]
+    fn set_workspace_panel_context(&mut self, panel_id: String) {
+        self.workspace.set_panel_context(panel_id);
+        self.sync_panel_visibility_from_workspace();
+        self.workspace_focus_json_changed();
     }
 
     #[qslot]

@@ -6,6 +6,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::dock::DockTopology;
 use crate::shell::{default_panels, essentials_panel_visibility};
+use crate::workspace_preset::WorkspacePreset;
+
+/// Focus / view / panel context — distinct from document selection (handbook 03).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceFocus {
+    /// Active view id (`canvas` for the single-doc shell).
+    pub active_view: String,
+    /// Semantic focus path (`canvas`, `panel.layers`, …).
+    pub focus_path: String,
+    /// Panel that owns contextual chrome (may differ from keyboard focus).
+    pub panel_context: String,
+}
+
+impl Default for WorkspaceFocus {
+    fn default() -> Self {
+        Self {
+            active_view: "canvas".into(),
+            focus_path: "canvas".into(),
+            panel_context: String::new(),
+        }
+    }
+}
 
 /// Panel visibility, dock topology, and workspace revision.
 /// Layout edits MUST NOT dirty the document.
@@ -15,6 +37,11 @@ pub struct WorkspaceState {
     /// Panel descriptor id → visible.
     pub panel_visibility: BTreeMap<String, bool>,
     pub dock: DockTopology,
+    #[serde(default)]
+    pub focus: WorkspaceFocus,
+    /// Last applied built-in / user preset id (empty = none).
+    #[serde(default)]
+    pub active_preset_id: String,
 }
 
 impl Default for WorkspaceState {
@@ -34,6 +61,8 @@ impl WorkspaceState {
             revision: 0,
             panel_visibility,
             dock: DockTopology::essentials(),
+            focus: WorkspaceFocus::default(),
+            active_preset_id: "workspace.preset.essentials".into(),
         }
     }
 
@@ -69,9 +98,51 @@ impl WorkspaceState {
 
     pub fn reset_essentials(&mut self) {
         let next = Self::essentials();
-        if self.panel_visibility != next.panel_visibility || self.dock != next.dock {
+        if self.panel_visibility != next.panel_visibility
+            || self.dock != next.dock
+            || self.active_preset_id != next.active_preset_id
+        {
             self.panel_visibility = next.panel_visibility;
             self.dock = next.dock;
+            self.active_preset_id = next.active_preset_id;
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    /// Apply a named layout preset (visibility + dock). Preserves focus fields.
+    pub fn apply_preset(&mut self, preset: &WorkspacePreset) {
+        let changed = self.panel_visibility != preset.panel_visibility
+            || self.dock != preset.dock
+            || self.active_preset_id != preset.id;
+        if !changed {
+            return;
+        }
+        self.panel_visibility = preset.panel_visibility.clone();
+        self.dock = preset.dock.clone();
+        self.active_preset_id = preset.id.clone();
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    pub fn set_focus_path(&mut self, path: impl Into<String>) {
+        let path = path.into();
+        if self.focus.focus_path != path {
+            self.focus.focus_path = path;
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    pub fn set_panel_context(&mut self, panel_id: impl Into<String>) {
+        let panel_id = panel_id.into();
+        if self.focus.panel_context != panel_id {
+            self.focus.panel_context = panel_id;
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    pub fn set_active_view(&mut self, view_id: impl Into<String>) {
+        let view_id = view_id.into();
+        if self.focus.active_view != view_id {
+            self.focus.active_view = view_id;
             self.revision = self.revision.saturating_add(1);
         }
     }

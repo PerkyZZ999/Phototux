@@ -25,6 +25,7 @@ mod text_bake;
 mod transform;
 mod undo;
 mod workspace;
+mod workspace_preset;
 
 pub use actions::{
     ActionDescriptor, action_by_id, action_shortcuts_json, actions_for_context, actions_json,
@@ -73,7 +74,10 @@ pub use stroke::{BrushParams, Dab, StrokeBuilder};
 pub use text_bake::bake_text_rgba8;
 pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
-pub use workspace::WorkspaceState;
+pub use workspace::{WorkspaceFocus, WorkspaceState};
+pub use workspace_preset::{
+    WorkspacePreset, builtin_workspace_presets, workspace_preset_by_id, workspace_presets_json,
+};
 
 use serde::{Deserialize, Serialize};
 
