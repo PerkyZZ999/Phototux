@@ -938,7 +938,15 @@ impl AppSession {
         }
     }
 
+    fn active_lock_flags(&self) -> phototux_engine::LockFlags {
+        self.active_id()
+            .and_then(|id| self.engine.graph.as_ref()?.get(id))
+            .map(|layer| layer.locks)
+            .unwrap_or_default()
+    }
+
     fn command_args_for_action(
+        &self,
         command_id: &str,
         arg: Option<&str>,
     ) -> Result<CommandArgs, CommandError> {
@@ -954,7 +962,10 @@ impl AppSession {
             | cid::STYLE_ADD_STROKE
             | cid::DOCUMENT_ROTATE_90
             | cid::APP_SHOW_PREFERENCES
-            | cid::WORKSPACE_RESET => Ok(CommandArgs::None),
+            | cid::WORKSPACE_RESET
+            | cid::MASK_CREATE_VECTOR
+            | cid::SELECTION_TO_MASK
+            | cid::MASK_TO_SELECTION => Ok(CommandArgs::None),
             cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
                 panel_id: arg.unwrap_or("panel.layers").to_owned(),
             }),
@@ -976,6 +987,22 @@ impl AppSession {
             cid::RASTER_FLIP => Ok(CommandArgs::RasterFlip {
                 horizontal: arg != Some("v"),
             }),
+            cid::LAYER_SET_LOCKS => {
+                let mut locks = self.active_lock_flags();
+                match arg {
+                    Some("pixels") => locks.pixels = !locks.pixels,
+                    Some("position") => locks.position = !locks.position,
+                    Some("all") => locks.all = !locks.all,
+                    Some("alpha") => locks.alpha = !locks.alpha,
+                    _ => locks.all = !locks.all,
+                }
+                Ok(CommandArgs::SetLocks {
+                    pixels: locks.pixels || locks.all,
+                    position: locks.position || locks.all,
+                    all: locks.all,
+                    alpha: locks.alpha || locks.all,
+                })
+            }
             _ => {
                 if arg.is_none() {
                     Ok(CommandArgs::None)
@@ -2115,7 +2142,7 @@ impl AppSession {
             return;
         }
         if let Some(cid) = action.command_id.as_deref() {
-            match Self::command_args_for_action(cid, action.arg.as_deref()) {
+            match self.command_args_for_action(cid, action.arg.as_deref()) {
                 Ok(args) => {
                     if let Err(error) = self.invoke_command(cid, args) {
                         self.report_gpu("action", &error.to_string());

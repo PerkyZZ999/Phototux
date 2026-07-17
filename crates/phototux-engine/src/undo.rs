@@ -1,7 +1,9 @@
 //! Gesture-level undo stack (ADR-013 G16).
 
 use crate::document::DocumentGraph;
-use crate::layer::{AdjustmentParams, BlendMode, FilterEffect, Layer, LayerId, LayerMask};
+use crate::layer::{
+    AdjustmentParams, BlendMode, FilterEffect, Layer, LayerId, LayerMask, LockFlags,
+};
 
 /// One undoable gesture applied to the document graph (structure only in Phase 3).
 #[derive(Debug, Clone)]
@@ -50,6 +52,11 @@ pub enum GraphCommand {
         id: LayerId,
         prev: Option<LayerMask>,
         next: Option<LayerMask>,
+    },
+    SetLocks {
+        id: LayerId,
+        prev: LockFlags,
+        next: LockFlags,
     },
     SetClipsToBelow {
         id: LayerId,
@@ -100,6 +107,12 @@ impl GraphCommand {
             },
             Self::SetMask { id, next, .. } => {
                 let _ = graph.set_mask(*id, next.clone());
+            }
+            Self::SetLocks { id, next, .. } => {
+                if let Some(layer) = graph.get_mut(*id) {
+                    layer.locks = *next;
+                    layer.locked = next.all;
+                }
             }
             Self::SetClipsToBelow { id, next, .. } => {
                 let _ = graph.set_clips_to_below(*id, *next);
@@ -167,6 +180,11 @@ impl GraphCommand {
                 id: *id,
                 prev: next.clone(),
                 next: prev.clone(),
+            },
+            Self::SetLocks { id, prev, next } => Self::SetLocks {
+                id: *id,
+                prev: *next,
+                next: *prev,
             },
             Self::SetClipsToBelow { id, prev, next } => Self::SetClipsToBelow {
                 id: *id,

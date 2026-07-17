@@ -108,6 +108,22 @@ pub struct LockFlags {
     pub alpha: bool,
 }
 
+/// Path-based vector mask metadata (pixels/path body filled by host later).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VectorMask {
+    pub enabled: bool,
+    pub linked: bool,
+}
+
+impl Default for VectorMask {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            linked: true,
+        }
+    }
+}
+
 /// Blend modes for GPU composite (expanded set; unknown modes reject at IO).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -486,6 +502,9 @@ pub struct Layer {
     pub parent: Option<LayerId>,
     pub transform: LayerTransform,
     pub mask: Option<LayerMask>,
+    /// Optional vector mask (path-based); coverage rasterized by host when present.
+    #[serde(default)]
+    pub vector_mask: Option<VectorMask>,
     /// Photoshop-style clip to the nearest non-clipping layer below.
     #[serde(default)]
     pub clips_to_below: bool,
@@ -516,6 +535,7 @@ impl Layer {
             parent: None,
             transform: LayerTransform::default(),
             mask: None,
+            vector_mask: None,
             clips_to_below: false,
             label_color: 0,
             text: None,
@@ -574,6 +594,10 @@ impl Layer {
         self.locked || self.locks.all || self.locks.pixels || self.kind != LayerKind::Raster
     }
 
+    pub fn position_blocked(&self) -> bool {
+        self.locked || self.locks.all || self.locks.position
+    }
+
     /// `0` = no mask, `1` = mask enabled, `2` = mask disabled.
     pub fn mask_flag(&self) -> u8 {
         match &self.mask {
@@ -608,5 +632,17 @@ mod tests {
     fn paint_blocked_on_group() {
         let g = Layer::group(LayerId(2), "G");
         assert!(g.paint_blocked());
+    }
+
+    #[test]
+    fn position_blocked_respects_flags() {
+        let mut layer = Layer::new(LayerId(1), "A");
+        assert!(!layer.position_blocked());
+        layer.locks.position = true;
+        assert!(layer.position_blocked());
+        layer.locks.position = false;
+        layer.locks.all = true;
+        assert!(layer.position_blocked());
+        assert!(layer.paint_blocked());
     }
 }

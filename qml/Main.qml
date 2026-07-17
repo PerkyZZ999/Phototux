@@ -2166,6 +2166,26 @@ ApplicationWindow {
                                     onClicked: AppSession.setMaskEditTarget(true)
                                 }
                             }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                visible: AppSession.hasDocument
+                                Button {
+                                    text: qsTr("Lock px")
+                                    Layout.fillWidth: true
+                                    onClicked: root.runAction("action.layer.lock-pixels")
+                                }
+                                Button {
+                                    text: qsTr("Lock pos")
+                                    Layout.fillWidth: true
+                                    onClicked: root.runAction("action.layer.lock-position")
+                                }
+                                Button {
+                                    text: qsTr("Lock all")
+                                    Layout.fillWidth: true
+                                    onClicked: root.runAction("action.layer.lock-all")
+                                }
+                            }
                         }
 
                         // Selection combine modes

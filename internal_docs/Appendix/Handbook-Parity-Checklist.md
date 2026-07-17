@@ -139,22 +139,22 @@ Chapters: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 ### P4.1 Masks
 
-- [ ] Vector masks (path-based) on layers
-- [ ] Refine edge (feather/contrast/shift) with preview + commit commands
-- [ ] Apply mask / disable / delete semantics complete + history
-- [ ] Mask density / invert / link flags in UI
-- [ ] Paint-on-mask vs layer clarity (edit target)
+- [~] Vector masks (path-based) on layers — metadata + `mask.create-vector`; path edit deferred
+- [~] Refine edge (feather/contrast/shift) with preview + commit commands — feather/density/invert via `mask.set-attributes`; contrast/shift deferred
+- [x] Apply mask / disable / delete semantics complete + history
+- [~] Mask density / invert / link flags in UI (commands + Properties toggles)
+- [x] Paint-on-mask vs layer clarity (edit target)
 
 ### P4.2 Layers
 
-- [ ] Lock flags enforced (pixels / position / all) on tools
+- [x] Lock flags enforced (pixels / position / all) on tools
 - [ ] Multi-select layer ops (delete/reorder/group) atomic where handbook requires
 - [ ] Fill / solid-color layer kind or equivalent
 - [ ] Layer styles depth beyond Drop Shadow + Stroke (as handbook 11/15)
-- [ ] Clipping groups UX polish
+- [~] Clipping groups UX polish
 - [ ] Nondestructive effect stack ordering UI
 
-**P4 exit:** vector + refine masks; locks real; layer stack matches handbook mental model for shipped kinds.
+**P4 exit:** vector + refine masks; locks real; layer stack matches handbook mental model for shipped kinds. **Partial** — locks + mask attrs + vector metadata shipped; remaining polish deferred.
 
 ---
 

@@ -12,8 +12,8 @@ use crate::document::MAX_LAYERS;
 use crate::error::DocumentError;
 use crate::history::HistoryKind;
 use crate::layer::{
-    AdjustmentParams, BlendMode, LayerId, LayerKind, LayerMask, LayerTransform, ShapeContent,
-    TextContent,
+    AdjustmentParams, BlendMode, LayerId, LayerKind, LayerMask, LayerTransform, PaintTarget,
+    ShapeContent, TextContent,
 };
 use crate::layer_style::LayerStyle;
 use crate::selection::{SelectionCombine, SelectionRect, SelectionShape};
@@ -34,6 +34,7 @@ pub mod command_id {
     pub const LAYER_REORDER: &str = "layer.reorder";
     pub const LAYER_GROUP: &str = "layer.group";
     pub const LAYER_SET_CLIP: &str = "layer.set-clip";
+    pub const LAYER_SET_LOCKS: &str = "layer.set-locks";
 
     pub const VIEW_ZOOM_TO: &str = "view.zoom-to";
     pub const VIEW_ZOOM_TO_FIT: &str = "view.zoom-to-fit";
@@ -62,6 +63,8 @@ pub mod command_id {
     pub const MASK_CREATE: &str = "mask.create";
     pub const MASK_DELETE: &str = "mask.delete";
     pub const MASK_SET_ENABLED: &str = "mask.set-enabled";
+    pub const MASK_SET_ATTRIBUTES: &str = "mask.set-attributes";
+    pub const MASK_CREATE_VECTOR: &str = "mask.create-vector";
 
     pub const TEXT_CREATE: &str = "text.create";
     pub const TEXT_SET_CONTENT: &str = "text.set-content";
@@ -109,6 +112,7 @@ pub mod command_id {
         LAYER_REORDER,
         LAYER_GROUP,
         LAYER_SET_CLIP,
+        LAYER_SET_LOCKS,
         VIEW_ZOOM_TO,
         VIEW_ZOOM_TO_FIT,
         VIEW_PAN_TO,
@@ -131,6 +135,8 @@ pub mod command_id {
         MASK_CREATE,
         MASK_DELETE,
         MASK_SET_ENABLED,
+        MASK_SET_ATTRIBUTES,
+        MASK_CREATE_VECTOR,
         TEXT_CREATE,
         TEXT_SET_CONTENT,
         TEXT_BAKE,
@@ -295,6 +301,19 @@ pub enum CommandArgs {
     ApplyWorkspacePreset {
         preset_id: String,
     },
+    SetLocks {
+        pixels: bool,
+        position: bool,
+        all: bool,
+        alpha: bool,
+    },
+    MaskAttributes {
+        enabled: bool,
+        linked: bool,
+        density: f32,
+        feather: f32,
+        inverted: bool,
+    },
 }
 
 /// Host-side follow-up for undo/redo entries that own GPU or selection stacks.
@@ -419,6 +438,7 @@ impl SessionState {
             command_id::LAYER_REORDER => self.cmd_layer_reorder(args),
             command_id::LAYER_GROUP => self.cmd_layer_group(),
             command_id::LAYER_SET_CLIP => self.cmd_layer_set_clip(args),
+            command_id::LAYER_SET_LOCKS => self.cmd_layer_set_locks(args),
             command_id::VIEW_ZOOM_TO => self.cmd_view_zoom(args),
             command_id::VIEW_ZOOM_TO_FIT => {
                 self.zoom_to_fit();
@@ -446,6 +466,8 @@ impl SessionState {
             command_id::MASK_CREATE => self.cmd_mask_create(),
             command_id::MASK_DELETE => self.cmd_mask_delete(),
             command_id::MASK_SET_ENABLED => self.cmd_mask_set_enabled(args),
+            command_id::MASK_SET_ATTRIBUTES => self.cmd_mask_set_attributes(args),
+            command_id::MASK_CREATE_VECTOR => self.cmd_mask_create_vector(),
             command_id::TEXT_CREATE => self.cmd_text_create(args),
             command_id::TEXT_SET_CONTENT => self.cmd_text_set_content(args),
             command_id::TEXT_BAKE => self.cmd_text_bake(),
@@ -527,6 +549,32 @@ impl SessionState {
             .as_ref()
             .and_then(|g| g.active_id())
             .ok_or(CommandError::Rejected("no active layer"))
+    }
+
+    fn assert_active_paintable(&self) -> Result<LayerId, CommandError> {
+        let id = self.active_layer_id()?;
+        let layer = self
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .ok_or(CommandError::Rejected("no active layer"))?;
+        if layer.paint_blocked() {
+            return Err(CommandError::Rejected("layer pixels locked"));
+        }
+        Ok(id)
+    }
+
+    fn assert_active_movable(&self) -> Result<LayerId, CommandError> {
+        let id = self.active_layer_id()?;
+        let layer = self
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .ok_or(CommandError::Rejected("no active layer"))?;
+        if layer.position_blocked() {
+            return Err(CommandError::Rejected("layer position locked"));
+        }
+        Ok(id)
     }
 
     fn cmd_history_undo(&mut self) -> Result<CommandEffects, CommandError> {
@@ -746,6 +794,47 @@ impl SessionState {
             } else {
                 "Release clipping mask"
             },
+            {
+                graph.bump_generation();
+                graph.generation
+            },
+        );
+        Ok(CommandEffects::document_edit(graph.generation))
+    }
+
+    fn cmd_layer_set_locks(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SetLocks {
+            pixels,
+            position,
+            all,
+            alpha,
+        } = args
+        else {
+            return Err(CommandError::InvalidArgument("expected SetLocks"));
+        };
+        let id = self.active_layer_id()?;
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get_mut(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        let prev = layer.locks;
+        let next = crate::LockFlags {
+            pixels,
+            position,
+            all,
+            alpha,
+        };
+        if prev == next {
+            return Err(CommandError::Rejected("locks unchanged"));
+        }
+        layer.locks = next;
+        layer.locked = all;
+        history.push_graph_applied(
+            crate::GraphCommand::SetLocks { id, prev, next },
+            "Set layer locks",
             {
                 graph.bump_generation();
                 graph.generation
@@ -1201,6 +1290,75 @@ impl SessionState {
         Ok(CommandEffects::document_edit(graph.generation))
     }
 
+    fn cmd_mask_set_attributes(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::MaskAttributes {
+            enabled,
+            linked,
+            density,
+            feather,
+            inverted,
+        } = args
+        else {
+            return Err(CommandError::InvalidArgument("expected MaskAttributes"));
+        };
+        let id = self.active_layer_id()?;
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(prev) = graph.get(id).and_then(|layer| layer.mask.clone()) else {
+            return Err(CommandError::Rejected("no mask"));
+        };
+        let next = crate::LayerMask {
+            enabled,
+            linked,
+            density: density.clamp(0.0, 1.0),
+            feather: feather.max(0.0),
+            inverted,
+        };
+        if prev == next {
+            return Err(CommandError::Rejected("mask attributes unchanged"));
+        }
+        if graph.set_mask(id, Some(next.clone())).is_none() {
+            return Err(CommandError::Rejected("set mask failed"));
+        }
+        history.push_graph_applied(
+            crate::GraphCommand::SetMask {
+                id,
+                prev: Some(prev),
+                next: Some(next),
+            },
+            "Set mask attributes",
+            {
+                graph.bump_generation();
+                graph.generation
+            },
+        );
+        Ok(CommandEffects::document_edit(graph.generation))
+    }
+
+    fn cmd_mask_create_vector(&mut self) -> Result<CommandEffects, CommandError> {
+        let id = self.active_layer_id()?;
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get_mut(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.vector_mask.is_some() {
+            return Err(CommandError::Rejected("vector mask already present"));
+        }
+        layer.vector_mask = Some(crate::VectorMask::default());
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_transform("Add vector mask", generation);
+        self.announce("Vector mask added (path edit deferred)");
+        Ok(CommandEffects::document_edit(generation))
+    }
+
     fn cmd_text_create(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
         let CommandArgs::TextCreate { text } = args else {
             return Err(CommandError::InvalidArgument("expected text"));
@@ -1593,6 +1751,14 @@ impl SessionState {
         let Some(session) = self.transform_session.take() else {
             return Err(CommandError::Rejected("no transform session"));
         };
+        if let Some(graph) = self.graph.as_ref() {
+            if let Some(layer) = graph.get(session.layer_id) {
+                if layer.position_blocked() {
+                    self.transform_session = Some(session);
+                    return Err(CommandError::Rejected("layer position locked"));
+                }
+            }
+        }
         if let Some(graph) = self.graph.as_mut() {
             if let Some(layer) = graph.get_mut(session.layer_id) {
                 layer.transform = LayerTransform::identity();
@@ -1608,6 +1774,7 @@ impl SessionState {
         let CommandArgs::RasterFlip { horizontal } = args else {
             return Err(CommandError::InvalidArgument("expected flip"));
         };
+        self.assert_active_movable()?;
         let generation = self.bump_document_generation();
         self.history.push_transform(
             if horizontal {
@@ -1624,6 +1791,7 @@ impl SessionState {
         if !self.has_document {
             return Err(CommandError::Document(DocumentError::NoDocument));
         }
+        self.assert_active_paintable()?;
         let generation = self.bump_document_generation();
         self.history.push_transform(label, generation);
         Ok(CommandEffects::document_edit(generation))
@@ -1638,6 +1806,9 @@ impl SessionState {
             CommandArgs::None => "Brush stroke".into(),
             _ => return Err(CommandError::InvalidArgument("expected stroke label")),
         };
+        if self.paint_target() == PaintTarget::LayerPixels {
+            self.assert_active_paintable()?;
+        }
         let generation = self.bump_document_generation();
         self.history.push_stroke(label, generation);
         Ok(CommandEffects {
