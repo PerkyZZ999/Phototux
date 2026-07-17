@@ -1166,6 +1166,8 @@ ApplicationWindow {
             Layout.preferredWidth: root.toolStripWidth
             Layout.fillHeight: true
             color: Theme.surface
+            Accessible.role: Accessible.ToolBar
+            Accessible.name: qsTr("Tools")
 
             readonly property int stripCapacity: root.toolStripCapacity(height)
             // Bind active tool so overflow partition refreshes when selection changes.
@@ -1316,14 +1318,20 @@ ApplicationWindow {
                 phase: frameClock.phase + AppSession.graphRevision * 0.01
                 selectionAnts: AppSession.selectionActive
                                 && AppSession.selectionShape === "mask"
+                Accessible.role: Accessible.Canvas
+                Accessible.name: AppSession.hasDocument
+                                 ? qsTr("Canvas %1×%2").arg(AppSession.docWidth).arg(AppSession.docHeight)
+                                 : qsTr("Empty canvas")
+                Accessible.description: qsTr("Document viewport")
             }
 
-            // Document grid overlay
+            // Document grid overlay (clips to dirty rect when present; full redraw on view bump)
             Canvas {
                 id: gridOverlay
                 anchors.fill: parent
                 z: 2
                 visible: AppSession.hasDocument && AppSession.prefShowGrid
+                property int lastViewGen: -1
                 onPaint: {
                     var ctx = getContext("2d")
                     ctx.reset()
@@ -1340,6 +1348,23 @@ ApplicationWindow {
                     var y0 = root.docToScreenY(0)
                     var x1 = root.docToScreenX(AppSession.docWidth)
                     var y1 = root.docToScreenY(AppSession.docHeight)
+                    var viewBump = AppSession.overlayViewGeneration !== gridOverlay.lastViewGen
+                    gridOverlay.lastViewGen = AppSession.overlayViewGeneration
+                    if (!viewBump && AppSession.dirtyRectJson.length > 2) {
+                        try {
+                            var d = JSON.parse(AppSession.dirtyRectJson)
+                            if (d.length === 4) {
+                                var dx0 = root.docToScreenX(d[0])
+                                var dy0 = root.docToScreenY(d[1])
+                                var dx1 = root.docToScreenX(d[0] + d[2])
+                                var dy1 = root.docToScreenY(d[1] + d[3])
+                                ctx.beginPath()
+                                ctx.rect(Math.min(dx0, dx1) - 1, Math.min(dy0, dy1) - 1,
+                                         Math.abs(dx1 - dx0) + 2, Math.abs(dy1 - dy0) + 2)
+                                ctx.clip()
+                            }
+                        } catch (e) { /* full grid */ }
+                    }
                     ctx.beginPath()
                     for (var x = x0; x <= x1 + 0.5; x += step) {
                         ctx.moveTo(x, y0)
@@ -1360,6 +1385,8 @@ ApplicationWindow {
                     function onGridSpacingChanged() { gridOverlay.requestPaint() }
                     function onDocWidthChanged() { gridOverlay.requestPaint() }
                     function onDocHeightChanged() { gridOverlay.requestPaint() }
+                    function onDirtyRectJsonChanged() { gridOverlay.requestPaint() }
+                    function onOverlayViewGenerationChanged() { gridOverlay.requestPaint() }
                 }
             }
 
@@ -3354,9 +3381,23 @@ ApplicationWindow {
                                     color: Theme.colorOnSurfaceVariant
                                     font.pixelSize: Theme.fontBodySm
                                 }
+                                Label {
+                                    text: qsTr("Display: %1").arg(AppSession.displayProfileName)
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: Theme.spaceXs
+                                    Button {
+                                        text: qsTr("Use display profile")
+                                        flat: true
+                                        enabled: AppSession.hasDocument && !AppSession.ioBusy
+                                        onClicked: AppSession.useDisplaySoftProof()
+                                        Accessible.name: qsTr("Soft-proof with display ICC")
+                                    }
                                     Button {
                                         text: qsTr("Embed ICC…")
                                         flat: true
@@ -3409,14 +3450,16 @@ ApplicationWindow {
                                 checked: AppSession.maskInverted
                                 onToggled: AppSession.setMaskAttributesOnActive(
                                                AppSession.maskDensity, AppSession.maskFeather,
-                                               checked, AppSession.maskLinked)
+                                               checked, AppSession.maskLinked,
+                                               AppSession.maskContrast, AppSession.maskShift)
                             }
                             CheckBox {
                                 text: qsTr("Link mask")
                                 checked: AppSession.maskLinked
                                 onToggled: AppSession.setMaskAttributesOnActive(
                                                AppSession.maskDensity, AppSession.maskFeather,
-                                               AppSession.maskInverted, checked)
+                                               AppSession.maskInverted, checked,
+                                               AppSession.maskContrast, AppSession.maskShift)
                             }
                             Label {
                                 text: qsTr("Density %1%").arg(Math.round(AppSession.maskDensity * 100))
@@ -3430,7 +3473,8 @@ ApplicationWindow {
                                 value: AppSession.maskDensity
                                 onMoved: AppSession.setMaskAttributesOnActive(
                                              value, AppSession.maskFeather,
-                                             AppSession.maskInverted, AppSession.maskLinked)
+                                             AppSession.maskInverted, AppSession.maskLinked,
+                                             AppSession.maskContrast, AppSession.maskShift)
                             }
                             Label {
                                 text: qsTr("Feather %1 px").arg(AppSession.maskFeather.toFixed(1))
@@ -3444,7 +3488,38 @@ ApplicationWindow {
                                 value: AppSession.maskFeather
                                 onMoved: AppSession.setMaskAttributesOnActive(
                                              AppSession.maskDensity, value,
-                                             AppSession.maskInverted, AppSession.maskLinked)
+                                             AppSession.maskInverted, AppSession.maskLinked,
+                                             AppSession.maskContrast, AppSession.maskShift)
+                            }
+                            Label {
+                                text: qsTr("Contrast %1").arg(AppSession.maskContrast.toFixed(2))
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: -1
+                                to: 1
+                                value: AppSession.maskContrast
+                                onMoved: AppSession.setMaskAttributesOnActive(
+                                             AppSession.maskDensity, AppSession.maskFeather,
+                                             AppSession.maskInverted, AppSession.maskLinked,
+                                             value, AppSession.maskShift)
+                            }
+                            Label {
+                                text: qsTr("Shift %1").arg(AppSession.maskShift.toFixed(2))
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: -1
+                                to: 1
+                                value: AppSession.maskShift
+                                onMoved: AppSession.setMaskAttributesOnActive(
+                                             AppSession.maskDensity, AppSession.maskFeather,
+                                             AppSession.maskInverted, AppSession.maskLinked,
+                                             AppSession.maskContrast, value)
                             }
                             Button {
                                 text: qsTr("Apply Mask")

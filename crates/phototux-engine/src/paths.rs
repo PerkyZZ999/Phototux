@@ -228,6 +228,89 @@ pub fn ellipse_path(name: impl Into<String>, cx: f32, cy: f32, rx: f32, ry: f32)
     VectorPath::polyline(name, anchors, true)
 }
 
+/// Regular N-gon centered at `(cx, cy)` with outer radius `r`.
+pub fn polygon_path(name: impl Into<String>, cx: f32, cy: f32, r: f32, sides: u32) -> VectorPath {
+    let n = sides.clamp(3, 64) as usize;
+    let mut anchors = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = (i as f32 / n as f32) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+        anchors.push(PathPoint {
+            x: cx + r * t.cos(),
+            y: cy + r * t.sin(),
+        });
+    }
+    VectorPath::polyline(name, anchors, true)
+}
+
+/// Fill a closed path with a linear gradient (coverage from even-odd, color lerped).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "CPU fill helper mirrors rasterize_shape_rgba8 arity; packing would hide hot params"
+)]
+pub fn fill_gradient_even_odd(
+    out: &mut [u8],
+    width: u32,
+    height: u32,
+    path: &VectorPath,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    c0: [u8; 4],
+    c1: [u8; 4],
+) {
+    if path.anchors.len() < 3 || width == 0 || height == 0 {
+        return;
+    }
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let len2 = dx * dx + dy * dy;
+    if len2 < 1e-6 {
+        fill_even_odd(out, width, height, path, c0);
+        return;
+    }
+    let w = width as i32;
+    let h = height as i32;
+    let pts = &path.anchors;
+    let n = pts.len();
+    for y in 0..h {
+        for x in 0..w {
+            let mut inside = false;
+            let mut j = n - 1;
+            for i in 0..n {
+                let pi = pts[i];
+                let pj = pts[j];
+                let yi = pi.y;
+                let yj = pj.y;
+                if (yi > y as f32) != (yj > y as f32)
+                    && (x as f32)
+                        < (pj.x - pi.x) * (y as f32 - yi) / (yj - yi + f32::EPSILON) + pi.x
+                {
+                    inside = !inside;
+                }
+                j = i;
+            }
+            if !inside {
+                continue;
+            }
+            let t = ((x as f32 - x0) * dx + (y as f32 - y0) * dy) / len2;
+            let t = t.clamp(0.0, 1.0);
+            let o = (y as usize * w as usize + x as usize) * 4;
+            for c in 0..4 {
+                let v = f32::from(c0[c]) * (1.0 - t) + f32::from(c1[c]) * t;
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "gradient lerp clamped to byte"
+                )]
+                {
+                    out[o + c] = v.round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

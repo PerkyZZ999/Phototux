@@ -78,13 +78,13 @@ pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
-    LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget, ShapeContent,
-    TextContent, VectorMask,
+    LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget,
+    ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent, VectorMask,
 };
 pub use layer_style::{LayerStyle, apply_styles_rgba8};
 pub use paths::{
-    PathDocument, PathPoint, VectorPath, ellipse_path, rasterize_shape_rgba8, rect_path,
-    stroke_path_rgba8,
+    PathDocument, PathPoint, VectorPath, ellipse_path, fill_gradient_even_odd, polygon_path,
+    rasterize_shape_rgba8, rect_path, stroke_path_rgba8,
 };
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
@@ -245,6 +245,10 @@ pub struct SessionState {
     pub path_edit_anchor: Option<usize>,
     /// Latest bounded CPU pixel snapshot for workers (DR-005 / DR-028 E).
     pub pixel_publisher: SnapshotPublisher,
+    /// Document-space dirty rect `[x, y, w, h]` for overlay/composite polish (DR-028 A7).
+    pub dirty_rect: Option<[i32; 4]>,
+    /// Bumped on pan/zoom so overlays know the full view is invalidated.
+    pub overlay_view_generation: u64,
 }
 
 /// Immutable metadata lease for render/save coordination (handbook Phase 2).
@@ -289,6 +293,8 @@ impl Default for SessionState {
             document_path: None,
             last_persisted_generation: None,
             filter_preview: None,
+            dirty_rect: None,
+            overlay_view_generation: 0,
             path_edit_anchor: None,
             pixel_publisher: SnapshotPublisher::new(),
         }
@@ -296,8 +302,37 @@ impl Default for SessionState {
 }
 
 impl SessionState {
+    /// Mark a document-space dirty rectangle (union with existing).
+    pub fn mark_dirty_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        self.dirty_rect = Some(match self.dirty_rect {
+            None => [x, y, w, h],
+            Some([ox, oy, ow, oh]) => {
+                let x0 = x.min(ox);
+                let y0 = y.min(oy);
+                let x1 = (x + w).max(ox + ow);
+                let y1 = (y + h).max(oy + oh);
+                [x0, y0, x1 - x0, y1 - y0]
+            }
+        });
+    }
+
+    /// Clear dirty rect after a full present/sync.
+    pub fn clear_dirty_rect(&mut self) {
+        self.dirty_rect = None;
+    }
+
+    /// Invalidate overlays for camera changes.
+    pub fn bump_overlay_view(&mut self) {
+        self.overlay_view_generation = self.overlay_view_generation.saturating_add(1);
+        self.dirty_rect = None;
+    }
+
     pub fn set_zoom(&mut self, zoom: f32) {
         self.camera.set_zoom(zoom);
+        self.bump_overlay_view();
     }
 
     pub fn set_brush_size(&mut self, size: f32) {
@@ -335,17 +370,20 @@ impl SessionState {
 
     pub fn pan_by(&mut self, dx: f32, dy: f32) {
         self.camera.pan_by_screen(dx, dy);
+        self.bump_overlay_view();
     }
 
     /// Set the world-space point shown at the viewport center.
     pub fn set_pan(&mut self, world_x: f32, world_y: f32) {
         self.camera.pan_x = world_x;
         self.camera.pan_y = world_y;
+        self.bump_overlay_view();
     }
 
     pub fn zoom_at(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
         self.camera
             .zoom_at(factor, anchor_x, anchor_y, self.viewport_w, self.viewport_h);
+        self.bump_overlay_view();
     }
 
     pub fn zoom_to_fit(&mut self) {

@@ -1,5 +1,6 @@
 //! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
 
+mod display_icc;
 mod file_worker;
 mod fonts;
 mod prefs;
@@ -15,9 +16,10 @@ use phototux_engine::{
     DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide,
     GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, LayerId, LayerKind,
     LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionRect, SelectionShape,
-    SelectionState, SessionState, ShapeContent, TextContent, TransformSession, VectorPath,
-    WorkspaceState, bake_text_rgba8, command_id, contract_mask_r8, ellipse_path, expand_mask_r8,
-    feather_mask_r8, rasterize_shape_rgba8, rect_path, stroke_path_rgba8, tool_id,
+    SelectionState, SessionState, ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent,
+    TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id, contract_mask_r8,
+    ellipse_path, expand_mask_r8, feather_mask_r8, fill_gradient_even_odd, polygon_path,
+    rasterize_shape_rgba8, rect_path, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
 
@@ -134,6 +136,11 @@ pub struct AppSession {
     mask_feather: f32,
     mask_inverted: bool,
     mask_linked: bool,
+    mask_contrast: f32,
+    mask_shift: f32,
+    /// JSON `[x,y,w,h]` doc-space dirty rect, or empty when view-invalidated / none.
+    dirty_rect_json: String,
+    overlay_view_generation: i32,
     /// Distinct from focus/object selection: pixel selection channel active.
     pixel_selection_active: bool,
     /// Object-selection labels (layer names), distinct from pixel selection (DR-011).
@@ -151,6 +158,10 @@ pub struct AppSession {
     soft_proof_profile: String,
     soft_proof_active: bool,
     has_embedded_icc: bool,
+    /// Host display ICC name (colord / env / xdg / sRGB tag).
+    display_profile_name: String,
+    /// Soft-proof tag for "use display profile" (`display:…`).
+    display_profile_tag: String,
     /// Runtime GPU device/surface loss; document graph remains authoritative.
     gpu_lost: bool,
     accessibility_tree_json: String,
@@ -352,6 +363,10 @@ impl AppSession {
             mask_feather: 0.0,
             mask_inverted: false,
             mask_linked: true,
+            mask_contrast: 0.0,
+            mask_shift: 0.0,
+            dirty_rect_json: String::new(),
+            overlay_view_generation: 0,
             pixel_selection_active: false,
             object_selection_label: String::new(),
             last_announce: String::new(),
@@ -365,6 +380,8 @@ impl AppSession {
             soft_proof_profile: String::new(),
             soft_proof_active: false,
             has_embedded_icc: false,
+            display_profile_name: String::new(),
+            display_profile_tag: String::new(),
             gpu_lost: false,
             accessibility_tree_json: "[]".into(),
             atspi_projection_json: "[]".into(),
@@ -498,6 +515,9 @@ impl AppSession {
         };
         out.apply_loaded_preferences();
         out.refresh_recovery_list();
+        let display = display_icc::discover_display_profile();
+        out.display_profile_tag = display.soft_proof_tag();
+        out.display_profile_name = display.name;
         if let Some(error) = out.worker.start_error() {
             out.status_text = error.to_owned();
             out.io_error = error.to_owned();
@@ -611,6 +631,12 @@ impl AppSession {
         self.fps = self.engine.fps;
         self.composite_ms = self.engine.composite_ms;
         self.stroke_latency_ms = self.engine.stroke_latency_ms;
+        self.dirty_rect_json = match self.engine.dirty_rect {
+            Some([x, y, w, h]) => format!("[{x},{y},{w},{h}]"),
+            None => String::new(),
+        };
+        self.overlay_view_generation =
+            i32::try_from(self.engine.overlay_view_generation.min(i32::MAX as u64)).unwrap_or(0);
         self.active_tool = self.engine.active_tool.clone();
         self.has_document = self.engine.has_document;
         self.layer_count = self.engine.layer_count();
@@ -647,11 +673,15 @@ impl AppSession {
             self.mask_feather = m.feather;
             self.mask_inverted = m.inverted;
             self.mask_linked = m.linked;
+            self.mask_contrast = m.contrast;
+            self.mask_shift = m.shift;
         } else {
             self.mask_density = 1.0;
             self.mask_feather = 0.0;
             self.mask_inverted = false;
             self.mask_linked = true;
+            self.mask_contrast = 0.0;
+            self.mask_shift = 0.0;
         }
         self.edit_target = self.engine.edit_target_id().to_owned();
         self.edit_target_label = self.engine.edit_target_label().to_owned();
@@ -1015,6 +1045,8 @@ impl AppSession {
         self.mask_edit_active_changed();
         self.mask_density_changed();
         self.mask_feather_changed();
+        self.mask_contrast_changed();
+        self.mask_shift_changed();
         self.mask_inverted_changed();
         self.mask_linked_changed();
         self.edit_target_changed();
@@ -1057,6 +1089,8 @@ impl AppSession {
         self.emit_path_edit_fields();
         self.emit_filter_preview_fields();
         self.emit_guides_fields();
+        self.dirty_rect_json_changed();
+        self.overlay_view_generation_changed();
     }
 
     fn build_accessibility_tree_json(&self) -> String {
@@ -1108,6 +1142,8 @@ impl AppSession {
             self.selection_y = b.y;
             self.selection_w = i32::try_from(b.width).unwrap_or(i32::MAX);
             self.selection_h = i32::try_from(b.height).unwrap_or(i32::MAX);
+            self.engine
+                .mark_dirty_rect(b.x, b.y, self.selection_w, self.selection_h);
         } else {
             self.selection_x = 0;
             self.selection_y = 0;
@@ -1856,6 +1892,7 @@ impl AppSession {
         match phototux_canvas::sync_and_composite(&layers) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
+                self.engine.clear_dirty_rect();
             }
             Err(e) => {
                 self.report_gpu("composite", &e);
@@ -2114,6 +2151,26 @@ impl AppSession {
         Notify = mask_feather_changed
     );
     qproperty!(
+        "maskContrast",
+        Member = mask_contrast,
+        Notify = mask_contrast_changed
+    );
+    qproperty!(
+        "maskShift",
+        Member = mask_shift,
+        Notify = mask_shift_changed
+    );
+    qproperty!(
+        "dirtyRectJson",
+        Member = dirty_rect_json,
+        Notify = dirty_rect_json_changed
+    );
+    qproperty!(
+        "overlayViewGeneration",
+        Member = overlay_view_generation,
+        Notify = overlay_view_generation_changed
+    );
+    qproperty!(
         "maskInverted",
         Member = mask_inverted,
         Notify = mask_inverted_changed
@@ -2187,6 +2244,16 @@ impl AppSession {
         "hasEmbeddedIcc",
         Member = has_embedded_icc,
         Notify = has_embedded_icc_changed
+    );
+    qproperty!(
+        "displayProfileName",
+        Member = display_profile_name,
+        Notify = display_profile_name_changed
+    );
+    qproperty!(
+        "displayProfileTag",
+        Member = display_profile_tag,
+        Notify = display_profile_tag_changed
     );
     qproperty!("gpuLost", Member = gpu_lost, Notify = gpu_lost_changed);
     qproperty!(
@@ -2769,6 +2836,14 @@ impl AppSession {
     #[qsignal]
     fn mask_feather_changed(&mut self);
     #[qsignal]
+    fn mask_contrast_changed(&mut self);
+    #[qsignal]
+    fn mask_shift_changed(&mut self);
+    #[qsignal]
+    fn dirty_rect_json_changed(&mut self);
+    #[qsignal]
+    fn overlay_view_generation_changed(&mut self);
+    #[qsignal]
     fn mask_inverted_changed(&mut self);
     #[qsignal]
     fn mask_linked_changed(&mut self);
@@ -2798,6 +2873,10 @@ impl AppSession {
     fn soft_proof_active_changed(&mut self);
     #[qsignal]
     fn has_embedded_icc_changed(&mut self);
+    #[qsignal]
+    fn display_profile_name_changed(&mut self);
+    #[qsignal]
+    fn display_profile_tag_changed(&mut self);
     #[qsignal]
     fn gpu_lost_changed(&mut self);
     #[qsignal]
@@ -4929,6 +5008,25 @@ impl AppSession {
         );
     }
 
+    /// Soft-proof using the discovered host display profile tag.
+    #[qslot]
+    fn use_display_soft_proof(&mut self) {
+        if self.display_profile_tag.is_empty() {
+            let display = display_icc::discover_display_profile();
+            self.display_profile_name = display.name.clone();
+            self.display_profile_tag = display.soft_proof_tag();
+            self.display_profile_name_changed();
+            self.display_profile_tag_changed();
+        }
+        let tag = self.display_profile_tag.clone();
+        self.set_soft_proof(tag, "relative".into());
+        self.status_text = format!(
+            "Soft-proof: display profile ({})",
+            self.display_profile_name
+        );
+        self.status_text_changed();
+    }
+
     #[qslot]
     fn apply_brush_preset(&mut self, index: i32) {
         let Some(preset) = self
@@ -5110,7 +5208,7 @@ impl AppSession {
         self.status_text_changed();
     }
 
-    /// Create a shape layer (`kind`: rect|ellipse|line) centered in the document.
+    /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
     #[qslot]
     fn add_shape_layer(&mut self, kind: String) {
         let Some(graph) = self.engine.graph.as_ref() else {
@@ -5118,50 +5216,91 @@ impl AppSession {
         };
         let w = graph.size.width as f32;
         let h = graph.size.height as f32;
-        let path = match kind.as_str() {
-            "ellipse" => ellipse_path("Ellipse", w * 0.5, h * 0.5, w * 0.2, h * 0.15),
-            "line" => VectorPath::polyline(
-                "Line",
-                vec![
-                    PathPoint {
-                        x: w * 0.2,
-                        y: h * 0.5,
-                    },
-                    PathPoint {
-                        x: w * 0.8,
-                        y: h * 0.5,
-                    },
-                ],
-                false,
+        let doc_w = graph.size.width;
+        let doc_h = graph.size.height;
+        let (path, kind_key, filled, gradient) = match kind.as_str() {
+            "ellipse" => (
+                ellipse_path("Ellipse", w * 0.5, h * 0.5, w * 0.2, h * 0.15),
+                "ellipse",
+                true,
+                None,
             ),
-            _ => rect_path("Rectangle", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
+            "polygon" => (
+                polygon_path("Polygon", w * 0.5, h * 0.5, w.min(h) * 0.22, 6),
+                "polygon",
+                true,
+                None,
+            ),
+            "gradient" => (
+                rect_path("Gradient", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
+                "rect",
+                true,
+                Some(ShapeGradient {
+                    x0: w * 0.25,
+                    y0: h * 0.25,
+                    x1: w * 0.75,
+                    y1: h * 0.65,
+                    c0_rgba: [0.2, 0.45, 0.9, 1.0],
+                    c1_rgba: [0.95, 0.35, 0.2, 1.0],
+                }),
+            ),
+            "line" => (
+                VectorPath::polyline(
+                    "Line",
+                    vec![
+                        PathPoint {
+                            x: w * 0.2,
+                            y: h * 0.5,
+                        },
+                        PathPoint {
+                            x: w * 0.8,
+                            y: h * 0.5,
+                        },
+                    ],
+                    false,
+                ),
+                "line",
+                false,
+                None,
+            ),
+            _ => (
+                rect_path("Rectangle", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
+                "rect",
+                true,
+                None,
+            ),
         };
-        let filled = kind != "line";
+        let live_vector = matches!(kind.as_str(), "live" | "polygon" | "gradient");
         let content = ShapeContent {
             path,
             filled,
             stroked: true,
+            kind: kind_key.into(),
+            live_vector,
+            gradient,
             ..ShapeContent::default()
-        };
-        let (doc_w, doc_h) = (graph.size.width, graph.size.height);
-        let pixels = match Self::shape_pixels(&content, doc_w, doc_h) {
-            Ok(p) => p,
-            Err(error) => {
-                self.report_gpu("shape raster", &error);
-                return;
-            }
         };
         match self.invoke_command(
             command_id::SHAPE_CREATE,
-            CommandArgs::ShapeCreate { content },
+            CommandArgs::ShapeCreate {
+                content: Box::new(content.clone()),
+            },
         ) {
             Ok(()) => {
                 let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) else {
                     return;
                 };
-                if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
-                    self.report_gpu("shape upload", &error);
-                    return;
+                match Self::shape_pixels(&content, doc_w, doc_h) {
+                    Ok(pixels) => {
+                        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                            self.report_gpu("shape upload", &error);
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        self.report_gpu("shape raster", &error);
+                        return;
+                    }
                 }
                 self.recomposite();
             }
@@ -5170,14 +5309,6 @@ impl AppSession {
     }
 
     fn shape_pixels(content: &ShapeContent, w: u32, h: u32) -> Result<Vec<u8>, String> {
-        let fill = content.filled.then(|| {
-            [
-                (content.fill_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (content.fill_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (content.fill_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (content.fill_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-            ]
-        });
         let stroke = content.stroked.then(|| {
             [
                 (content.stroke_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -5186,7 +5317,71 @@ impl AppSession {
                 (content.stroke_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
             ]
         });
-        rasterize_shape_rgba8(w, h, &content.path, fill, stroke, content.stroke_width)
+        let mut base = if let Some(grad) = content.gradient.as_ref() {
+            let pixels = (w as usize)
+                .checked_mul(h as usize)
+                .and_then(|n| n.checked_mul(4))
+                .ok_or_else(|| "dimensions overflow".to_owned())?;
+            let mut out = vec![0_u8; pixels];
+            if content.filled {
+                let c0 = [
+                    (grad.c0_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (grad.c0_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (grad.c0_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (grad.c0_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                ];
+                let c1 = [
+                    (grad.c1_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (grad.c1_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (grad.c1_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (grad.c1_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                ];
+                fill_gradient_even_odd(
+                    &mut out,
+                    w,
+                    h,
+                    &content.path,
+                    grad.x0,
+                    grad.y0,
+                    grad.x1,
+                    grad.y1,
+                    c0,
+                    c1,
+                );
+            }
+            if let Some(stroke) = stroke {
+                let stroked = stroke_path_rgba8(w, h, &content.path, stroke, content.stroke_width)?;
+                for (d, s) in out.chunks_exact_mut(4).zip(stroked.chunks_exact(4)) {
+                    if s[3] > 0 {
+                        d.copy_from_slice(s);
+                    }
+                }
+            }
+            out
+        } else {
+            let fill = content.filled.then(|| {
+                [
+                    (content.fill_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (content.fill_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (content.fill_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (content.fill_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                ]
+            });
+            rasterize_shape_rgba8(w, h, &content.path, fill, stroke, content.stroke_width)?
+        };
+        if let Some(partner) = content.boolean_partner.as_ref() {
+            let op = phototux_engine::BooleanOp::parse(&partner.op)
+                .unwrap_or(phototux_engine::BooleanOp::Union);
+            let fill_b = [
+                (partner.fill_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (partner.fill_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (partner.fill_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (partner.fill_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+            ];
+            let b = rasterize_shape_rgba8(w, h, &partner.path, Some(fill_b), None, 0.0)?;
+            base = phototux_engine::boolean_rgba8(&base, &b, op)?;
+        }
+        Ok(base)
     }
 
     fn apply_shape_boolean_host(
@@ -5208,25 +5403,52 @@ impl AppSession {
             self.report_gpu("shape boolean", "shape B missing");
             return;
         };
-        let pixels_a = match Self::shape_pixels(&content_a, w, h) {
-            Ok(p) => p,
-            Err(error) => {
-                self.report_gpu("shape boolean", &error);
-                return;
+        // Vector-preserving spine: keep ShapeContent with boolean partner when both are shapes.
+        let mut preserved = content_a.clone();
+        preserved.live_vector = true;
+        preserved.boolean_partner = Some(ShapeBooleanPartner {
+            op: op.as_str().to_owned(),
+            path: content_b.path.clone(),
+            fill_rgba: content_b.fill_rgba,
+        });
+        if let Some(graph) = self.engine.graph.as_mut() {
+            if let Some(layer) = graph.get_mut(result) {
+                layer.kind = LayerKind::Shape;
+                layer.shape = Some(preserved.clone());
             }
-        };
-        let pixels_b = match Self::shape_pixels(&content_b, w, h) {
+        }
+        let combined = match Self::shape_pixels(&preserved, w, h) {
             Ok(p) => p,
-            Err(error) => {
-                self.report_gpu("shape boolean", &error);
-                return;
-            }
-        };
-        let combined = match phototux_engine::boolean_rgba8(&pixels_a, &pixels_b, op) {
-            Ok(p) => p,
-            Err(error) => {
-                self.report_gpu("shape boolean", &error);
-                return;
+            Err(_error) => {
+                // Fallback: pure raster boolean bake.
+                let pixels_a = match Self::shape_pixels(&content_a, w, h) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.report_gpu("shape boolean", &e);
+                        return;
+                    }
+                };
+                let pixels_b = match Self::shape_pixels(&content_b, w, h) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.report_gpu("shape boolean", &e);
+                        return;
+                    }
+                };
+                match phototux_engine::boolean_rgba8(&pixels_a, &pixels_b, op) {
+                    Ok(p) => {
+                        self.status_text = format!(
+                            "Boolean {} (raster bake; vector path unavailable)",
+                            op.as_str()
+                        );
+                        self.status_text_changed();
+                        p
+                    }
+                    Err(e) => {
+                        self.report_gpu("shape boolean", &e);
+                        return;
+                    }
+                }
             }
         };
         if let Err(error) = phototux_canvas::write_layer_rgba(result, &combined) {
@@ -5234,8 +5456,10 @@ impl AppSession {
             return;
         }
         self.recomposite();
-        self.status_text = format!("Boolean {}", op.as_str());
-        self.status_text_changed();
+        if !self.status_text.contains("raster bake") {
+            self.status_text = format!("Boolean {} (vector-preserving)", op.as_str());
+            self.status_text_changed();
+        }
     }
 
     /// Re-upload shape layer pixels after path edit (keeps `LayerKind::Shape`).
@@ -5728,6 +5952,8 @@ impl AppSession {
         feather: f32,
         inverted: bool,
         linked: bool,
+        contrast: f32,
+        shift: f32,
     ) {
         let enabled = self
             .engine
@@ -5745,6 +5971,8 @@ impl AppSession {
                 density,
                 feather,
                 inverted,
+                contrast,
+                shift,
             },
         );
     }
@@ -5777,6 +6005,8 @@ impl AppSession {
         self.mask_edit_active_changed();
         self.mask_density_changed();
         self.mask_feather_changed();
+        self.mask_contrast_changed();
+        self.mask_shift_changed();
         self.mask_inverted_changed();
         self.mask_linked_changed();
         self.edit_target_changed();

@@ -149,6 +149,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             if (p.mask_inverted != 0u) {
                 m = 1.0 - m;
             }
+            // Contrast/shift refine (non-adjustment layers pack contrast in p0, shift in p1).
+            if (p.kind == 0u) {
+                let contrast = clamp(p.p0, -1.0, 1.0);
+                let shift = clamp(p.p1, -1.0, 1.0);
+                m = clamp((m - 0.5) * (1.0 + contrast) + 0.5 + shift, 0.0, 1.0);
+            }
             // Density: M' = 1 - density × (1 - M); p3 carries density for non-adjustment layers.
             let density = clamp(p.p3, 0.0, 1.0);
             m = 1.0 - density * (1.0 - m);
@@ -796,14 +802,16 @@ impl LayerCompositeEngine {
                 }
                 _ => (0, 0, 0),
             };
-            let (kind, adj_op, p0, p1, p2, mut p3) = adjustment_gpu_params(layer);
-            // Non-adjustment layers carry mask density in p3 for the composite shader.
+            let (kind, adj_op, mut p0, mut p1, p2, mut p3) = adjustment_gpu_params(layer);
+            // Non-adjustment layers: mask contrast/shift in p0/p1, density in p3.
             if kind == 0 {
-                p3 = layer
-                    .mask
-                    .as_ref()
-                    .map(|m| m.density.clamp(0.0, 1.0))
-                    .unwrap_or(1.0);
+                if let Some(m) = layer.mask.as_ref() {
+                    p0 = m.contrast.clamp(-1.0, 1.0);
+                    p1 = m.shift.clamp(-1.0, 1.0);
+                    p3 = m.density.clamp(0.0, 1.0);
+                } else {
+                    p3 = 1.0;
+                }
             }
             uniforms.layers[i] = LayerParamsGpu {
                 opacity: layer.opacity.clamp(0.0, 1.0),

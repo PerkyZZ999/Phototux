@@ -139,4 +139,21 @@ mod tests {
     fn panel_maps_to_atspi_panel() {
         assert_eq!(SemanticRole::Panel.atspi_role(), "panel");
     }
+
+    /// Evidence pack fixture: semantic tree → AT-SPI projection JSON (DR-028 A8).
+    #[test]
+    fn evidence_pack_projects_chrome_fixture() {
+        let tree = r#"[
+          {"id":"chrome.toolbar","role":"toolbar","name":"Tools","state":{"enabled":true}},
+          {"id":"chrome.canvas","role":"image","name":"Canvas 1920×1080","state":{"busy":false,"editTarget":"layer"}},
+          {"id":"panel.layers","role":"panel","name":"Layers","state":{"visible":true,"docked":true}}
+        ]"#;
+        let json = project_semantic_tree_json(tree);
+        let nodes: Vec<AtspiProjectionNode> = serde_json::from_str(&json).expect("projection json");
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0].atspi_role, "tool_bar");
+        assert_eq!(nodes[1].atspi_role, "image");
+        assert_eq!(nodes[2].atspi_role, "panel");
+        assert!(nodes[2].states.iter().any(|s| s == "docked"));
+    }
 }

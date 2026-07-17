@@ -331,7 +331,7 @@ pub enum CommandArgs {
         content: TextContent,
     },
     ShapeCreate {
-        content: ShapeContent,
+        content: Box<ShapeContent>,
     },
     ShapeBoolean {
         op: String,
@@ -422,6 +422,8 @@ pub enum CommandArgs {
         density: f32,
         feather: f32,
         inverted: bool,
+        contrast: f32,
+        shift: f32,
     },
     SoftProof {
         profile: String,
@@ -1912,6 +1914,8 @@ impl SessionState {
             density,
             feather,
             inverted,
+            contrast,
+            shift,
         } = args
         else {
             return Err(CommandError::InvalidArgument("expected MaskAttributes"));
@@ -1924,13 +1928,16 @@ impl SessionState {
         let Some(prev) = graph.get(id).and_then(|layer| layer.mask.clone()) else {
             return Err(CommandError::Rejected("no mask"));
         };
-        let next = crate::LayerMask {
+        let mut next = crate::LayerMask {
             enabled,
             linked,
             density: density.clamp(0.0, 1.0),
             feather: feather.max(0.0),
             inverted,
+            contrast,
+            shift,
         };
+        next.clamp_refine();
         if prev == next {
             return Err(CommandError::Rejected("mask attributes unchanged"));
         }
@@ -2060,7 +2067,7 @@ impl SessionState {
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let id = graph.add_shape_top(None, content)?;
+        let id = graph.add_shape_top(None, *content)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
             .get(id)
@@ -3470,10 +3477,10 @@ mod tests {
         s.invoke(
             command_id::SHAPE_CREATE,
             CommandArgs::ShapeCreate {
-                content: ShapeContent {
+                content: Box::new(ShapeContent {
                     path,
                     ..ShapeContent::default()
-                },
+                }),
             },
         )
         .expect("shape");

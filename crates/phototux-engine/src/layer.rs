@@ -48,7 +48,18 @@ impl Default for FillContent {
     }
 }
 
-/// Editable shape payload on a [`LayerKind::Shape`] layer (DR-027 v1).
+/// Linear gradient fill for shape layers (document space).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapeGradient {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    pub c0_rgba: [f32; 4],
+    pub c1_rgba: [f32; 4],
+}
+
+/// Editable shape payload on a [`LayerKind::Shape`] layer (DR-027 / DR-028).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeContent {
     pub path: crate::paths::VectorPath,
@@ -57,6 +68,30 @@ pub struct ShapeContent {
     pub stroke_width: f32,
     pub filled: bool,
     pub stroked: bool,
+    /// Kind key: `rect` | `ellipse` | `polygon` | `line`.
+    #[serde(default = "default_shape_kind")]
+    pub kind: String,
+    /// When true, host skips destructive bake and re-rasters from path each sync (v1 live).
+    #[serde(default)]
+    pub live_vector: bool,
+    /// Optional linear gradient fill (overrides flat `fill_rgba` when present).
+    #[serde(default)]
+    pub gradient: Option<ShapeGradient>,
+    /// Vector-preserving boolean partner (second operand path + op).
+    #[serde(default)]
+    pub boolean_partner: Option<ShapeBooleanPartner>,
+}
+
+/// Second operand for a vector-preserving boolean on a shape layer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapeBooleanPartner {
+    pub op: String,
+    pub path: crate::paths::VectorPath,
+    pub fill_rgba: [f32; 4],
+}
+
+fn default_shape_kind() -> String {
+    "rect".into()
 }
 
 impl Default for ShapeContent {
@@ -68,6 +103,10 @@ impl Default for ShapeContent {
             stroke_width: 2.0,
             filled: true,
             stroked: true,
+            kind: default_shape_kind(),
+            live_vector: false,
+            gradient: None,
+            boolean_partner: None,
         }
     }
 }
@@ -102,6 +141,12 @@ pub struct LayerMask {
     pub density: f32,
     pub feather: f32,
     pub inverted: bool,
+    /// Contrast refine (−1..1); applied at mask sample time.
+    #[serde(default)]
+    pub contrast: f32,
+    /// Level shift refine (−1..1); applied at mask sample time.
+    #[serde(default)]
+    pub shift: f32,
 }
 
 impl Default for LayerMask {
@@ -112,7 +157,19 @@ impl Default for LayerMask {
             density: 1.0,
             feather: 0.0,
             inverted: false,
+            contrast: 0.0,
+            shift: 0.0,
         }
+    }
+}
+
+impl LayerMask {
+    /// Clamp refine attributes into UI/GPU-safe ranges.
+    pub fn clamp_refine(&mut self) {
+        self.contrast = self.contrast.clamp(-1.0, 1.0);
+        self.shift = self.shift.clamp(-1.0, 1.0);
+        self.density = self.density.clamp(0.0, 1.0);
+        self.feather = self.feather.max(0.0);
     }
 }
 
