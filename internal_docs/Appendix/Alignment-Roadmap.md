@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **Accepted** (owner direction 2026-07-16) |
+| Status | **Complete** (handbook-ready exit 2026-07-16); Phase 5 product gates remain Deferred |
 | Handbook | [`internal_docs/`](../README.md) |
 | Gap inventory | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) |
 | Decisions | [Decision-Register.md](Decision-Register.md) |
@@ -185,31 +185,33 @@ Order is priority, not parallel forever.
 
 ---
 
-## 4. Documentation alignment workstream (parallel)
+## 4. Documentation alignment workstream
 
-Runs alongside Phase 0–3; does not block Phase 1 coding.
-
-| Task | Owner artifact |
-| --- | --- |
-| Keep Decision Register authoritative for stack + session model | `Decision-Register.md` |
-| Close gap-analysis rows as slices land | `Codebase-Handbook-Gap-Analysis.md` |
-| Living implementation checklist (replace archive development.md) | `internal_docs/Appendix/Implementation-Checklist.md` (create in Phase 0 follow-up or Phase 1.0) |
-| Migrate useful archived ADRs into DR “evidence / superseded” notes | `archive/docs/01-decisions/` → DR links |
-| Absorb root `SPEC.md` / `CONSTRAINTS.md` into handbook over time | Bridge until done |
-| Journal each phase exit | `archive/docs/04-journal/` |
+| Task | Status | Owner artifact |
+| --- | --- | --- |
+| Decision Register authoritative for stack + session model | **Done** | `Decision-Register.md` |
+| Close / relabel gap-analysis rows to shipped v1 | **Done** | `Codebase-Handbook-Gap-Analysis.md` |
+| Living implementation checklist | **Done** | `Implementation-Checklist.md` |
+| Archived ADRs → DR map (evidence only) | **Done** | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) |
+| Root `SPEC.md` / `CONSTRAINTS.md` demoted to bridges | **Done** | root banners → handbook |
+| Journal phase exits | **Ongoing** | `archive/docs/04-journal/` |
 
 ---
 
-## 5. Definition of “aligned”
+## 5. Definition of “aligned” — exit (2026-07-16)
 
-Alignment is **continuous**, not a single merge. A release is “aligned enough” when:
+Alignment for **handbook-ready development** is **Complete**. A release is “aligned enough” when:
 
-1. Tech stack statements in handbook match [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase).
-2. Every user-visible edit path is a command (or documented transient preview).
-3. Document generation + save receipts exist.
-4. Shell chrome is descriptor/action driven for menus, tools, and panels shipped.
-5. Gap analysis has no open **A** (architecture) items unmarked Deferred/Provisional with a phase number.
-6. No second normative doc tree outside `internal_docs/` (+ thin root bridges).
+| # | Criterion | Status |
+| --- | --- | --- |
+| 1 | Tech stack statements match [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) | **Met** |
+| 2 | Document-authoritative edits are named commands (or documented host-only exemptions) | **Met** (`SessionState::invoke`) |
+| 3 | Document generation + save receipts exist | **Met** (DR-005 v1 leases) |
+| 4 | Shell: panel/tool descriptors + prefs; menus/shortcuts QML-hardcoded = Accepted v1 ([DR-015](Decision-Register.md#dr-015--workspace-state-separate-from-documents)) | **Met** (not full action registry) |
+| 5 | Gap analysis open **A** items are Deferred/Provisional with phase (or Closed) | **Met** |
+| 6 | No second normative tree; root SPEC/CONSTRAINTS are bridges | **Met** |
+
+**Product work from here** follows handbook chapters + Decision Register. Phase 5 remains **gated** (tiling, multi-doc, plugins, history spill).
 
 ---
 
@@ -224,12 +226,13 @@ Alignment is **continuous**, not a single merge. A release is “aligned enough�
 
 ---
 
-## 7. Suggested near-term sequence (next 4 slices)
+## 7. Near-term (post-alignment)
 
-1. **Phase 0 complete** — DR + handbook stack language (this commit).
-2. **Implementation checklist** seeded from gap analysis + archived development.md.
-3. **Phase 1.1–1.3** — command router + wrap undo/layer ops.
-4. **Phase 3.2** — Preferences dialog (high IA value, low stack risk) *or* Phase 2.1 generation counter — pick one parallel track after 1.3.
+Alignment sequence finished. Next work is **handbook-driven product slices**, not more contract bootstrapping. Prefer:
+
+1. Features as new `command_id` + graph/GPU/I/O changes.
+2. Phase 5 only when a listed gate fires.
+3. Optional hardening: QML consume `*DescriptorsJson`; action-driven menus (target, not alignment).
 
 ---
 
@@ -237,6 +240,8 @@ Alignment is **continuous**, not a single merge. A release is “aligned enough�
 
 - [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md)
 - [Decision-Register.md](Decision-Register.md)
+- [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md)
+- [Implementation-Checklist.md](Implementation-Checklist.md)
 - [08-Command-System.md](../08-Command-System.md)
 - [10-Document-Model.md](../10-Document-Model.md)
 - [17-Rendering-Engine.md](../17-Rendering-Engine.md)
