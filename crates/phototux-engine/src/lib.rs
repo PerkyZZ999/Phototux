@@ -478,6 +478,22 @@ impl SessionState {
         }
     }
 
+    /// Toolkit-neutral edit-target id: `layer` or `mask`.
+    pub fn edit_target_id(&self) -> &'static str {
+        match self.paint_target() {
+            PaintTarget::LayerMask => "mask",
+            PaintTarget::LayerPixels => "layer",
+        }
+    }
+
+    /// Short user-facing edit-target label.
+    pub fn edit_target_label(&self) -> &'static str {
+        match self.paint_target() {
+            PaintTarget::LayerMask => "Layer mask",
+            PaintTarget::LayerPixels => "Layer pixels",
+        }
+    }
+
     pub fn history_labels_joined(&self) -> String {
         self.history.labels_newest_first().join("|")
     }
@@ -487,26 +503,41 @@ impl SessionState {
             return "PhotoTux — create or open a document".to_owned();
         }
         let layers = self.layer_count();
+        let idx = self.active_layer_index();
+        let names = self.layer_names_joined();
+        let kinds = self.layer_kinds_joined();
+        let layer_name = names
+            .split('|')
+            .nth(idx as usize)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("—");
+        let layer_kind = kinds
+            .split('|')
+            .nth(idx as usize)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("?");
+        let edit = self.edit_target_label();
+        let sel = if self.selection.active {
+            "pixel selection"
+        } else {
+            "no pixel selection"
+        };
         let comp = if self.composite_ms > 0.0 {
             format!(" · composite {:.2} ms", self.composite_ms)
         } else {
             String::new()
         };
-        let sel = if self.selection.active { " · sel" } else { "" };
-        let mask = if matches!(self.paint_target(), PaintTarget::LayerMask) {
-            " · mask"
-        } else {
-            ""
-        };
         format!(
-            "{}×{} · zoom {:.0}% · {} layers · {}{}{}{}",
+            "{}×{} · zoom {:.0}% · {} ({}) · {} · {} · {} layers · {}{}",
             self.size.width,
             self.size.height,
             self.camera.zoom * 100.0,
+            layer_name,
+            layer_kind,
+            edit,
+            sel,
             layers,
             self.active_tool,
-            sel,
-            mask,
             comp
         )
     }

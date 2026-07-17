@@ -637,10 +637,7 @@ ApplicationWindow {
             spacing: Theme.spaceLg
 
             Label {
-                text: AppSession.hasDocument
-                      ? (qsTr("%1 × %2 px").arg(AppSession.docWidth).arg(AppSession.docHeight)
-                         + "  ·  " + AppSession.statusText)
-                      : AppSession.statusText
+                text: AppSession.statusText
                 color: Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontMono
                 font.family: "Noto Sans Mono"
@@ -1722,13 +1719,63 @@ ApplicationWindow {
                         anchors.margins: Theme.spaceMd
                         spacing: Theme.spaceMd
 
+                        // Edit target + selection context (distinct chrome)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            visible: AppSession.hasDocument
+                            Label {
+                                text: qsTr("Edit target")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                            }
+                            Label {
+                                text: {
+                                    var kind = AppSession.activeLayerKind.length > 0
+                                               ? AppSession.activeLayerKind
+                                               : qsTr("layer")
+                                    var sel = AppSession.pixelSelectionActive
+                                              ? qsTr("pixel selection active")
+                                              : qsTr("no pixel selection")
+                                    return qsTr("%1 · %2 · %3")
+                                           .arg(kind)
+                                           .arg(AppSession.editTargetLabel)
+                                           .arg(sel)
+                                }
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Button {
+                                    text: qsTr("Layer pixels")
+                                    checkable: true
+                                    checked: AppSession.editTarget === "layer"
+                                    enabled: AppSession.hasDocument
+                                    Layout.fillWidth: true
+                                    onClicked: AppSession.setMaskEditTarget(false)
+                                }
+                                Button {
+                                    text: qsTr("Layer mask")
+                                    checkable: true
+                                    checked: AppSession.editTarget === "mask"
+                                    enabled: AppSession.hasDocument && root.activeLayerHasMask
+                                    Layout.fillWidth: true
+                                    onClicked: AppSession.setMaskEditTarget(true)
+                                }
+                            }
+                        }
+
                         // Selection combine modes
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
                             visible: root.isSelectTool()
                             Label {
-                                text: qsTr("Selection")
+                                text: qsTr("Pixel selection")
                                 color: Theme.colorOnSurface
                                 font.pixelSize: Theme.fontBodySm
                             }

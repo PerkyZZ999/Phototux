@@ -116,6 +116,12 @@ pub struct AppSession {
     layer_mask_flags: String,
     layer_clips: String,
     mask_edit_active: bool,
+    /// Distinct from focus/object selection: pixel selection channel active.
+    pixel_selection_active: bool,
+    /// `layer` or `mask` (PaintTarget).
+    edit_target: String,
+    edit_target_label: String,
+    active_layer_kind: String,
     history_labels: String,
     selection_active: bool,
     selection_x: i32,
@@ -254,6 +260,10 @@ impl AppSession {
             layer_mask_flags: String::new(),
             layer_clips: String::new(),
             mask_edit_active: false,
+            pixel_selection_active: false,
+            edit_target: "layer".to_owned(),
+            edit_target_label: "Layer pixels".to_owned(),
+            active_layer_kind: String::new(),
             history_labels: String::new(),
             selection_active: false,
             selection_x: 0,
@@ -407,6 +417,18 @@ impl AppSession {
             self.engine.paint_target(),
             phototux_engine::PaintTarget::LayerMask
         );
+        self.edit_target = self.engine.edit_target_id().to_owned();
+        self.edit_target_label = self.engine.edit_target_label().to_owned();
+        let idx = self.active_layer_index;
+        self.active_layer_kind = if idx >= 0 {
+            self.layer_kinds
+                .split('|')
+                .nth(idx as usize)
+                .unwrap_or("")
+                .to_owned()
+        } else {
+            String::new()
+        };
         self.history_labels = self.engine.history_labels_joined();
         self.sync_selection_fields();
         self.sync_transform_fields();
@@ -577,6 +599,9 @@ impl AppSession {
         self.layer_mask_flags_changed();
         self.layer_clips_changed();
         self.mask_edit_active_changed();
+        self.edit_target_changed();
+        self.edit_target_label_changed();
+        self.active_layer_kind_changed();
         self.history_labels_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
@@ -604,6 +629,7 @@ impl AppSession {
 
     fn sync_selection_fields(&mut self) {
         self.selection_active = self.engine.selection.active;
+        self.pixel_selection_active = self.engine.selection.active;
         self.selection_combine = self.engine.selection.combine.as_str().to_owned();
         self.selection_shape = self.engine.selection.shape.as_str().to_owned();
         if let Some(b) = self.engine.selection.bounds {
@@ -621,6 +647,7 @@ impl AppSession {
 
     fn emit_selection_fields(&mut self) {
         self.selection_active_changed();
+        self.pixel_selection_active_changed();
         self.selection_x_changed();
         self.selection_y_changed();
         self.selection_w_changed();
@@ -1314,6 +1341,26 @@ impl AppSession {
         Notify = mask_edit_active_changed
     );
     qproperty!(
+        "pixelSelectionActive",
+        Member = pixel_selection_active,
+        Notify = pixel_selection_active_changed
+    );
+    qproperty!(
+        "editTarget",
+        Member = edit_target,
+        Notify = edit_target_changed
+    );
+    qproperty!(
+        "editTargetLabel",
+        Member = edit_target_label,
+        Notify = edit_target_label_changed
+    );
+    qproperty!(
+        "activeLayerKind",
+        Member = active_layer_kind,
+        Notify = active_layer_kind_changed
+    );
+    qproperty!(
         "historyLabels",
         Member = history_labels,
         Notify = history_labels_changed
@@ -1703,6 +1750,14 @@ impl AppSession {
     fn layer_clips_changed(&mut self);
     #[qsignal]
     fn mask_edit_active_changed(&mut self);
+    #[qsignal]
+    fn pixel_selection_active_changed(&mut self);
+    #[qsignal]
+    fn edit_target_changed(&mut self);
+    #[qsignal]
+    fn edit_target_label_changed(&mut self);
+    #[qsignal]
+    fn active_layer_kind_changed(&mut self);
     #[qsignal]
     fn history_labels_changed(&mut self);
     #[qsignal]
@@ -3395,6 +3450,8 @@ impl AppSession {
         self.engine.mask_edit_layer = edit_mask.then_some(id);
         self.sync_from_engine();
         self.mask_edit_active_changed();
+        self.edit_target_changed();
+        self.edit_target_label_changed();
         self.status_text_changed();
     }
 

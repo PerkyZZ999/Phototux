@@ -119,11 +119,13 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 Chapters: [01](../01-Information-Architecture.md), [12](../12-Selection-System.md), DR-011
 
-- [ ] Distinct: object selection vs pixel selection vs focus vs context target vs active edit target
-- [ ] UI chrome never collapses these into one “selection”
-- [ ] Commands/announce for each concept
-- [ ] Mask-edit target vs layer pixels clearly indicated
-- [ ] Selection channel ops (replace/add/subtract/intersect) complete in chrome
+### P3.1 Chrome (this batch)
+
+- [~] Distinct: object selection vs pixel selection vs focus vs context target vs active edit target — pixel selection + edit target exposed (`pixelSelectionActive`, `editTarget`); object-selection later
+- [x] UI chrome never collapses these into one “selection” (status + Properties separate clauses)
+- [ ] Commands/announce for each concept (full DR-011 announce suite later)
+- [x] Mask-edit target vs layer pixels clearly indicated (Properties Edit target row + status)
+- [~] Selection channel ops (replace/add/subtract/intersect) complete in chrome (tool options present)
 - [ ] Marching-ants / overlay performance within interactive budgets
 - [ ] Select → mask / mask → selection flows
 
