@@ -214,13 +214,16 @@ impl BrushStamper {
         let max_dim = w.max(h);
         let cx = req.x / w;
         let cy = req.y / h;
-        let radius_uv = (req.radius_px * req.pressure.clamp(0.05, 1.0)) / max_dim;
+        // Radius already includes size-pressure from StrokeBuilder; do not scale again.
+        let radius_uv = req.radius_px / max_dim;
+        let mut color = req.params.color;
+        color[3] = req.params.stamp_alpha(req.pressure);
         StampUniforms {
             center_x: cx,
             center_y: cy,
             radius_uv,
             hardness: req.params.hardness.clamp(0.0, 1.0),
-            color: req.params.color,
+            color,
             eraser: u32::from(req.params.eraser),
             _pad0: 0,
             _pad1: 0,
@@ -305,6 +308,7 @@ mod tests {
             hardness: 0.8,
             color: [1.0, 0.0, 0.0, 1.0],
             eraser: false,
+            ..BrushParams::default()
         };
         let dab = Dab {
             x: 10.0,

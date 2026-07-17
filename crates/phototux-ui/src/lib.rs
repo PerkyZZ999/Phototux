@@ -3695,6 +3695,12 @@ impl AppSession {
             preset.color[2],
             preset.color[3],
         );
+        self.engine.brush.opacity = preset.opacity.clamp(0.0, 1.0);
+        self.engine.brush.flow = preset.flow.clamp(0.0, 1.0);
+        self.engine.brush.spacing_ratio = preset.spacing.clamp(0.05, 2.0);
+        self.engine.brush.scatter = preset.scatter.clamp(0.0, 1.0);
+        self.engine.brush.size_pressure = preset.size_pressure;
+        self.engine.brush.opacity_pressure = preset.opacity_pressure;
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.sync_from_engine();
         self.brush_size_changed();
@@ -3715,13 +3721,13 @@ impl AppSession {
             name,
             size: self.engine.brush_size,
             hardness: self.engine.brush_hardness,
-            opacity: 1.0,
-            flow: 1.0,
-            spacing: self.engine.brush.spacing() / self.engine.brush_size.max(1.0),
+            opacity: self.engine.brush.opacity,
+            flow: self.engine.brush.flow,
+            spacing: self.engine.brush.spacing_ratio,
             smoothing: 0.0,
-            size_pressure: true,
-            opacity_pressure: false,
-            scatter: 0.0,
+            size_pressure: self.engine.brush.size_pressure,
+            opacity_pressure: self.engine.brush.opacity_pressure,
+            scatter: self.engine.brush.scatter,
             color: self.engine.brush_color,
         };
         self.engine.brush_presets.upsert(preset);

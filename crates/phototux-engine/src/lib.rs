@@ -73,7 +73,7 @@ pub use shell::{
     PanelDescriptor, ToolDescriptor, default_panels, default_tools, essentials_panel_visibility,
     panels_json, tools_json,
 };
-pub use stroke::{BrushParams, Dab, StrokeBuilder};
+pub use stroke::{BrushParams, Dab, StrokeBuilder, dab_coverage, paint_dabs_rgba, stamp_dab_rgba};
 pub use text_bake::bake_text_rgba8;
 pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};

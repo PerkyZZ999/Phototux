@@ -166,7 +166,8 @@ impl MaskStamper {
         MaskStampUniforms {
             center_x: req.x / w,
             center_y: req.y / h,
-            radius_uv: (req.radius_px * req.pressure.clamp(0.05, 1.0)) / max_dim,
+            // Radius already includes size-pressure from StrokeBuilder.
+            radius_uv: req.radius_px / max_dim,
             hardness: req.params.hardness.clamp(0.0, 1.0),
             eraser: u32::from(req.params.eraser),
             _pad0: 0,
