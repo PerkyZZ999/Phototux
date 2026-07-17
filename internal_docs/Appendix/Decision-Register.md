@@ -304,16 +304,40 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | Consequences | `GRAPH_SCHEMA_VERSION` may bump for clarity; serde must remain backward-compatible. Full handbook 19 (booleans, parametric primitives) is incremental after v1 rect/ellipse/line. |
 | Revisit | When Shape payload needs a breaking schema change. |
 
+## DR-028 — Engine depth deferred beyond P5–P10 slices
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** (v1 depth deferral) |
+| Date | 2026-07-16 |
+| Docs | [Handbook Parity Roadmap](Handbook-Parity-Roadmap.md) P5–P10 |
+| Context | Full handbook brush dynamics, filter gallery, text/shape booleans, ICC host discovery, AT-SPI adapter, and snapshot pixel publisher exceed one parity pass. |
+| Decision | Ship vertical spines now: brush presets + scatter field, `FilterPlan` on layers, soft-proof tags, history jump, clipboard 64 MiB bound, prefs schema 4 (density/contrast/motion), semantic a11y JSON, `extension_data` blobs. Remaining handbook MUST depth stays checklist `[P]` / Deferred until dedicated milestones—not silent gaps. |
+| Consequences | Parity checklist marks P5–P10 **Met for shipped spines**; open rows stay visible. No claim of full chapter 14–19 completeness. |
+| Revisit | Per-engine milestone when product prioritizes that chapter. |
+
+## DR-029 — P11/P12 remain gated (no ungated impl)
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Date | 2026-07-16 |
+| Docs | Roadmap §4, DR-006, DR-009, DR-024, DR-026 |
+| Decision | Do **not** implement tiling/pyramid, multi-doc tabs, history spill, sparse `.ptx`, or plugin ABI in this parity pass. Record gates only; `extension_data` opaque round-trip is the sole P12 seam prep. |
+| Consequences | Checklist P11/P12 stay `[!]` / seam `[~]` until evidence + product need. |
+| Revisit | When benchmark/UX/product gates in roadmap §4 are met. |
+
 ## Open Deferred Cluster
 
 | Topic | Related DR | Blocking evidence |
 | --- | --- | --- |
 | Async runtime library mandate | DR-023 | Not required; revisit if workers insufficient |
-| Plugin ABI | DR-009 | isolation vs performance spikes |
-| `.ptx` chunk/sparse evolution | DR-026 | sparse/incremental/recovery spikes |
-| Tile geometry | DR-006 | large-doc + brush benchmarks |
-| History spill format | DR-004 | memory pressure scenarios |
-| Multi-document session | DR-024 | product scheduling + UX |
+| Plugin ABI | DR-009 / DR-029 | isolation vs performance spikes; product need |
+| `.ptx` chunk/sparse evolution | DR-026 / DR-029 | sparse/incremental/recovery spikes |
+| Tile geometry | DR-006 / DR-029 | large-doc + brush benchmarks |
+| History spill format | DR-004 / DR-029 | memory pressure scenarios |
+| Multi-document session | DR-024 / DR-029 | product scheduling + UX |
+| Engine chapter depth | DR-028 | per-engine milestones |
 
 ## Cross References
 
