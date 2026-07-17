@@ -14,9 +14,9 @@ use phototux_engine::{
     DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation, HistoryKind,
     HostFollowUp, HostHistoryAction, LayerId, LayerKind, LayerTransform, PathPoint,
     SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, ShapeContent,
-    TextContent, TransformSession, VectorPath, bake_text_rgba8, command_id, contract_mask_r8,
-    ellipse_path, expand_mask_r8, feather_mask_r8, rasterize_shape_rgba8, rect_path,
-    stroke_path_rgba8, tool_id,
+    TextContent, TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
+    contract_mask_r8, ellipse_path, expand_mask_r8, feather_mask_r8, rasterize_shape_rgba8,
+    rect_path, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
 
@@ -183,6 +183,7 @@ pub struct AppSession {
     /// Generation pinned when a Save was submitted (Phase 2 receipt).
     pending_save_generation: Option<u64>,
     prefs: Preferences,
+    workspace: WorkspaceState,
     panel_descriptors_json: String,
     tool_descriptors_json: String,
     actions_json: String,
@@ -327,6 +328,7 @@ impl AppSession {
             transform_redo: Vec::new(),
             pending_save_generation: None,
             prefs: Preferences::default(),
+            workspace: WorkspaceState::essentials(),
             panel_descriptors_json: phototux_engine::panels_json(),
             tool_descriptors_json: phototux_engine::tools_json(),
             actions_json: phototux_engine::actions_json(),
@@ -788,6 +790,7 @@ impl AppSession {
 
     fn apply_loaded_preferences(&mut self) {
         self.prefs = Preferences::load();
+        self.workspace = WorkspaceState::from_visibility_map(self.prefs.panel_visibility.clone());
         self.sync_pref_fields_from_store();
         self.refresh_shortcut_maps();
         self.engine.guides.show_guides = self.prefs.show_guides;
@@ -818,12 +821,27 @@ impl AppSession {
         self.pref_show_rulers = self.prefs.show_rulers;
         self.pref_snap = self.prefs.snap_enabled;
         self.pref_restore_last_tool = self.prefs.restore_last_tool;
-        self.panel_navigator_visible = self.prefs.panel_navigator;
-        self.panel_swatches_visible = self.prefs.panel_swatches;
-        self.panel_layers_visible = self.prefs.panel_layers;
-        self.panel_history_visible = self.prefs.panel_history;
-        self.panel_properties_visible = self.prefs.panel_properties;
+        self.sync_panel_visibility_from_workspace();
         self.sync_guides_fields();
+    }
+
+    fn sync_panel_visibility_from_workspace(&mut self) {
+        self.panel_navigator_visible = self.workspace.is_visible("panel.navigator");
+        self.panel_swatches_visible = self.workspace.is_visible("panel.swatches");
+        self.panel_layers_visible = self.workspace.is_visible("panel.layers");
+        self.panel_history_visible = self.workspace.is_visible("panel.history");
+        self.panel_properties_visible = self.workspace.is_visible("panel.properties");
+    }
+
+    fn persist_workspace_visibility(&mut self) {
+        self.prefs.apply_workspace(&self.workspace);
+        self.sync_panel_visibility_from_workspace();
+        self.persist_prefs();
+        self.panel_navigator_visible_changed();
+        self.panel_swatches_visible_changed();
+        self.panel_layers_visible_changed();
+        self.panel_history_visible_changed();
+        self.panel_properties_visible_changed();
     }
 
     fn emit_pref_fields(&mut self) {
@@ -2136,66 +2154,46 @@ impl AppSession {
 
     #[qslot]
     fn set_panel_navigator_visible(&mut self, value: bool) {
-        self.prefs.panel_navigator = value;
-        self.panel_navigator_visible = value;
-        self.persist_prefs();
-        self.panel_navigator_visible_changed();
+        let _ = self.workspace.set_visible("panel.navigator", value);
+        self.persist_workspace_visibility();
     }
 
     #[qslot]
     fn set_panel_swatches_visible(&mut self, value: bool) {
-        self.prefs.panel_swatches = value;
-        self.panel_swatches_visible = value;
-        self.persist_prefs();
-        self.panel_swatches_visible_changed();
+        let _ = self.workspace.set_visible("panel.swatches", value);
+        self.persist_workspace_visibility();
     }
 
     #[qslot]
     fn set_panel_layers_visible(&mut self, value: bool) {
-        self.prefs.panel_layers = value;
-        self.panel_layers_visible = value;
-        self.persist_prefs();
-        self.panel_layers_visible_changed();
+        let _ = self.workspace.set_visible("panel.layers", value);
+        self.persist_workspace_visibility();
     }
 
     #[qslot]
     fn set_panel_history_visible(&mut self, value: bool) {
-        self.prefs.panel_history = value;
-        self.panel_history_visible = value;
-        self.persist_prefs();
-        self.panel_history_visible_changed();
+        let _ = self.workspace.set_visible("panel.history", value);
+        self.persist_workspace_visibility();
     }
 
     #[qslot]
     fn set_panel_properties_visible(&mut self, value: bool) {
-        self.prefs.panel_properties = value;
-        self.panel_properties_visible = value;
-        self.persist_prefs();
-        self.panel_properties_visible_changed();
+        let _ = self.workspace.set_visible("panel.properties", value);
+        self.persist_workspace_visibility();
     }
 
     fn toggle_panel_by_id(&mut self, panel_id: &str) {
-        match panel_id {
-            "panel.navigator" => {
-                self.set_panel_navigator_visible(!self.panel_navigator_visible);
-            }
-            "panel.swatches" => {
-                self.set_panel_swatches_visible(!self.panel_swatches_visible);
-            }
-            "panel.layers" => self.set_panel_layers_visible(!self.panel_layers_visible),
-            "panel.history" => self.set_panel_history_visible(!self.panel_history_visible),
-            "panel.properties" => {
-                self.set_panel_properties_visible(!self.panel_properties_visible);
-            }
-            _ => {
-                self.status_text = format!("Unknown panel: {panel_id}");
-                self.status_text_changed();
-            }
+        if !self.workspace.toggle(panel_id) {
+            self.status_text = format!("Unknown panel: {panel_id}");
+            self.status_text_changed();
+            return;
         }
+        self.persist_workspace_visibility();
     }
 
     #[qslot]
     fn reset_workspace(&mut self) {
+        self.workspace.reset_essentials();
         self.prefs.reset_workspace_essentials();
         self.sync_pref_fields_from_store();
         self.persist_prefs();
