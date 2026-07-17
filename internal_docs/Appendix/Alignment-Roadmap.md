@@ -168,7 +168,7 @@ Order is priority, not parallel forever.
 | 4.9 | Guides / grid / rulers / snap | View chrome |
 | 4.10 | `.ptx` chunk/integrity evolution | DR-026; open old files |
 
-**Status:** Foundation complete 2026-07-16 (Shape kind + full GPU style/filter passes + `.ptx` integrity remain follow-ups). See journal `archive/docs/04-journal/2026-07-16-alignment-phase4.md`.
+**Status:** Complete including follow-ups (2026-07-16) — GPU styles/filters, color convert, Shape (DR-027), `.ptx` v2. Journals under `archive/docs/04-journal/2026-07-16-*.md`.
 
 ---
 

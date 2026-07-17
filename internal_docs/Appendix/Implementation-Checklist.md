@@ -56,13 +56,14 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 - [x] Selection modify: feather / expand / contract (CPU + Select menu)
 - [x] Color assign foundation (`document.assign-profile`; convert TBD)
 - [x] Paths engine + stroke-to-layer (`PathDocument`, Paths panel descriptor)
-- [!] Shape kind + tools (blocked on graph amend / DR-020)
-- [x] Adjustment/filter wave 2 (Motion Blur + Emboss params + Filter menu; GPU shaders stub keys)
-- [x] Layer styles v1 (Drop Shadow + Stroke metadata + CPU `apply_styles_rgba8`)
+- [x] Shape kind + tools (DR-027; rect/ellipse/line + rasterize)
+- [x] Adjustment/filter wave 2 (Motion Blur + Emboss; GPU `EffectPass`)
+- [x] Layer styles v1 (Drop Shadow + Stroke; GPU pre-pack + CPU ref)
 - [x] Guides / grid / rulers / snap (View menu + overlays + prefs; snap on guide place)
-- [~] `.ptx` chunk/integrity evolution (compat — deferred with DR-026 evolve-in-place)
+- [x] Color convert (`document.convert-profile`; sRGB↔Display-P3)
+- [x] `.ptx` v2 chunked writes + v1 read compat (DR-026)
 
-**Phase 4 exit (v1):** foundation + Character/guides chrome. Remaining: Shape kind, full GPU style/filter passes, `.ptx` integrity chunks.
+**Phase 4 exit:** complete (2026-07-16). Phase 5 remains gated.
 
 ---
 
