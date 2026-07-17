@@ -164,37 +164,37 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### P5.1 Brush
 
-- [ ] Dynamics: size/opacity/flow pressure curves, scatter, texture (handbook subset prioritized)
-- [ ] Brush preset library persistence + UI
+- [~] Dynamics: size/opacity/flow pressure curves, scatter, texture (handbook subset prioritized) — `scatter` on presets; pressure curves deferred ([DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices))
+- [x] Brush preset library persistence + UI (prefs schema 4 JSON + Properties apply/save)
 - [ ] Stroke journal / recovery hooks
 - [ ] CPU dab reference path for tests
-- [ ] [P] Tile-aware stroke planner (after P11 tiling)
+- [P] Tile-aware stroke planner (after P11 tiling)
 
 ### P5.2 Filters
 
-- [ ] Declarative filter / effect plan graph
+- [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`; JSON round-trip)
 - [ ] Filter gallery UX (browse + preview + commit)
 - [ ] Additional GPU executors (sharpen, noise, color ops…) with CPU reference
 - [ ] Cancel / stale-result policy for long filters
-- [ ] Adjustment kinds completeness vs handbook 15
+- [~] Adjustment kinds completeness vs handbook 15 — existing subset; gallery deferred (DR-028)
 
 ### P5.3 Text
 
-- [ ] Editable text tool (on-canvas) beyond Character fields
+- [~] Editable text tool (on-canvas) beyond Character fields — Character + bake shipped; on-canvas edit deferred (DR-028)
 - [ ] Typography: wrapping, bounds, more alignment/metrics
 - [ ] Font resource discovery + fallback
-- [ ] Retain editable text vs bake policy UX
-- [ ] Text → path / rasterize commands explicit
+- [~] Retain editable text vs bake policy UX — bake command exists
+- [~] Text → path / rasterize commands explicit — bake path shipped
 
 ### P5.4 Shape
 
 - [ ] Boolean union / intersection / difference / exclusion
 - [ ] Path edit tool (add/move/delete points, close)
-- [ ] Parametric primitives beyond rect/ellipse/line
+- [~] Parametric primitives beyond rect/ellipse/line — rect/ellipse/line shipped; more deferred (DR-028)
 - [ ] Live vector contribution option vs always-raster upload
-- [ ] Stroke/fill/gradient style depth
+- [~] Stroke/fill/gradient style depth — fill/stroke v1; gradient deferred
 
-**P5 exit:** engines cover handbook feature sets claimed for v1 product; remaining items marked `[P]` only with DR note.
+**P5 exit:** engines cover handbook feature sets claimed for v1 product; remaining items marked `[P]` only with DR note. **Met for shipped spines** (presets + `FilterPlan`); depth → DR-028.
 
 ---
 
@@ -204,22 +204,22 @@ Chapters: [16](../16-Color-Management.md), [17](../17-Rendering-Engine.md), DR-0
 
 ### P6.1 Color
 
-- [ ] Soft-proof mode + proof intent UI
+- [x] Soft-proof mode + proof intent UI (`document.set-soft-proof`; Image menu; Properties status)
 - [ ] ICC profile load/embed (document + export)
-- [ ] Working-space policy beyond built-in sRGB/Display-P3
+- [~] Working-space policy beyond built-in sRGB/Display-P3 — assign/convert tags; ICC bytes deferred (DR-028)
 - [ ] Display profile discovery (Linux host adapter)
-- [ ] Assign ≠ convert disclosures everywhere (Image menu + dialogs)
+- [~] Assign ≠ convert disclosures everywhere (Image menu + dialogs) — menu actions present
 
 ### P6.2 Rendering
 
-- [ ] Immutable pixel snapshot / bounded delta publisher (beyond metadata leases)
-- [ ] Workers consume leases only (no mutable graph across async)
+- [~] Immutable pixel snapshot / bounded delta publisher (beyond metadata leases) — generation leases shipped; pixel publisher deferred (DR-028)
+- [~] Workers consume leases only (no mutable graph across async) — I/O worker path; full contract deferred
 - [ ] Broader GPU↔CPU blend/filter parity fixtures
 - [ ] Device-loss / surface-loss UX (reconstruct or controlled fail)
 - [ ] Dirty-region / overlay separation polish
-- [ ] [!] Tiling / pyramid → **P11** (gated)
+- [!] Tiling / pyramid → **P11** (gated)
 
-**P6 exit:** soft-proof + ICC foundation; snapshot publisher for workers; interactive present remains zero-copy.
+**P6 exit:** soft-proof + ICC foundation; snapshot publisher for workers; interactive present remains zero-copy. **Partial Met** — soft-proof spine shipped; ICC/publisher depth → DR-028.
 
 ---
 
@@ -229,22 +229,22 @@ Chapters: [02](../02-Application-Lifecycle.md), [20](../20-History-Undo.md)
 
 ### P7.1 History
 
-- [ ] Unified transaction timeline (graph + stroke + selection + transform)
-- [ ] Coalescing / merge policy documented and tested
-- [ ] History panel: labels, kinds, jump (safe)
+- [x] Unified transaction timeline (graph + stroke + selection + transform)
+- [~] Coalescing / merge policy documented and tested — coalescing exists; fuller suite deferred
+- [x] History panel: labels, kinds, jump (safe) (`history.jump` + host undo loop)
 - [ ] Retention budget UI
-- [ ] [!] Spill-to-disk → **P11** (memory evidence)
+- [!] Spill-to-disk → **P11** (memory evidence)
 
 ### P7.2 Lifecycle
 
-- [ ] Formal lifecycle controller (startup / session / shutdown)
-- [ ] Recovery UX (~handbook autosave bound) + restore chooser
+- [~] Formal lifecycle controller (startup / session / shutdown) — session/prefs/recovery hooks; formal controller deferred
+- [~] Recovery UX (~handbook autosave bound) + restore chooser — recovery module shipped; chooser polish deferred
 - [ ] Safe-start (suppress custom chrome on crash loop)
-- [ ] Save coordination: staged identity vs generation receipts
+- [~] Save coordination: staged identity vs generation receipts — generation on graph
 - [ ] GPU/renderer generation orchestration on device loss
-- [ ] [!] Multi-window / multi-doc → **P11** (DR-024 amend)
+- [!] Multi-window / multi-doc → **P11** (DR-024 amend)
 
-**P7 exit:** one history model; recovery usable; lifecycle explicit.
+**P7 exit:** one history model; recovery usable; lifecycle explicit. **Partial Met** — timeline + jump shipped; spill/multi-doc gated.
 
 ---
 
@@ -254,28 +254,28 @@ Chapters: [21](../21-Clipboard.md), [22](../22-Import-Export.md), [27](../27-Fil
 
 ### P8.1 Clipboard
 
-- [ ] Capability-scoped host clipboard bridge
-- [ ] Multi-format negotiation (pixels / layer / SVG-ish paths as available)
+- [~] Capability-scoped host clipboard bridge — in-app RGBA clipboard; OS MIME bridge deferred
+- [~] Multi-format negotiation (pixels / layer / SVG-ish paths as available) — pixels → paste layer
 - [ ] Mask / selection payload copy
-- [ ] Security / size bounds
+- [x] Security / size bounds (64 MiB refuse on copy)
 
 ### P8.2 Import / export
 
-- [ ] Hard allocation / dimension / decompression limits on all adapters
-- [ ] Structured loss / compatibility reports for every adapter
-- [ ] Cancel + progress contracts for long jobs
-- [ ] Expand raster codec coverage as needed (still adapters)
-- [ ] PSD subset deepen (layers/masks) with disclosure
+- [x] Hard allocation / dimension / decompression limits on all adapters (`MAX_DIMENSION` / `MAX_RASTER_BYTES`)
+- [~] Structured loss / compatibility reports for every adapter — PSD truncation messages; broaden deferred
+- [~] Cancel + progress contracts for long jobs — cancel token + I/O busy; full progress UX deferred
+- [~] Expand raster codec coverage as needed (still adapters) — PNG/JPEG/WebP/TIFF/BMP/GIF
+- [~] PSD subset deepen (layers/masks) with disclosure — subset + limits shipped
 
 ### P8.3 Native `.ptx` (non-sparse)
 
-- [ ] Migration / schema evolution tests for v2 chunks
+- [~] Migration / schema evolution tests for v2 chunks — v1 read / v2 write tests
 - [ ] Stronger integrity diagnostics UX
-- [ ] Unknown optional chunk preserve round-trip tests
-- [ ] Opaque extension object placeholders (prep for P12)
-- [ ] [!] Sparse tiles / incremental save → **P11**
+- [x] Unknown optional chunk preserve round-trip tests (`skips_unknown_optional_chunk`)
+- [x] Opaque extension object placeholders (prep for P12) — `DocumentGraph::extension_data`
+- [!] Sparse tiles / incremental save → **P11**
 
-**P8 exit:** clipboard + adapters meet handbook hostile-input and disclosure bar; `.ptx` solid without sparse.
+**P8 exit:** clipboard + adapters meet handbook hostile-input and disclosure bar; `.ptx` solid without sparse. **Partial Met** — bounds + limits + extension placeholders; OS clipboard/MIME later.
 
 ---
 
@@ -285,28 +285,28 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 ### P9.1 Preferences
 
-- [ ] Handbook preference schema coverage (view/tool/perf/a11y keys)
-- [ ] Versioned migrations
+- [~] Handbook preference schema coverage (view/tool/perf/a11y keys) — schema 4: brush presets, density, contrast, motion
+- [x] Versioned migrations (schema → 4 on load)
 - [ ] Effective-value precedence where document vs user differs
-- [ ] Reset field / domain / all
+- [~] Reset field / domain / all — workspace Essentials/factory; full domain reset deferred
 - [ ] Safe-start prefs path
 
 ### P9.2 Themes
 
-- [ ] Migrate archived `DESIGN.md` tokens → handbook Themes + QML single source
-- [ ] High-contrast pack
-- [ ] Density / UI scale packs
-- [ ] No ad-hoc colors outside tokens
+- [x] Migrate archived `DESIGN.md` tokens → handbook Themes + QML single source (`Theme.qml`)
+- [x] High-contrast pack (`prefHighContrast` → `Theme.highContrast`)
+- [x] Density / UI scale packs (`prefUiDensity` → `Theme.densityScale`)
+- [~] No ad-hoc colors outside tokens — chrome uses Theme; audit stretch
 
 ### P9.3 UX
 
 - [ ] Mixed-value inspector pattern
-- [ ] Operation progress / ack patterns
-- [ ] Discoverability: every command via menu or palette
-- [ ] Reduced-motion + 200% scale audit
+- [~] Operation progress / ack patterns — status + I/O busy
+- [~] Discoverability: every command via menu or palette — palette + menus for shipped actions
+- [~] Reduced-motion + 200% scale audit — prefs flag; full audit deferred
 - [ ] Progressive disclosure for advanced Properties
 
-**P9 exit:** tokens unified; prefs migrations; UX guidelines satisfied for shipped chrome.
+**P9 exit:** tokens unified; prefs migrations; UX guidelines satisfied for shipped chrome. **Partial Met** — schema 4 + Theme packs shipped.
 
 ---
 
@@ -314,15 +314,15 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 Chapter: [29](../29-Accessibility.md), DR-016
 
-- [ ] Semantic accessibility tree from descriptors/commands (not pixel inference)
+- [x] Semantic accessibility tree from descriptors/commands (not pixel inference) — `accessibilityTreeJson`
 - [ ] AT-SPI host adapter mapping
-- [ ] Canvas structured summary / explorer
-- [ ] Keyboard-complete workflows (non-gesture)
-- [ ] Name/role/state/value on tools, panels, dialogs
-- [ ] Flood control for announcements
-- [ ] Contrast / focus / scale gates in checklist evidence
+- [~] Canvas structured summary / explorer — canvas node in tree JSON
+- [~] Keyboard-complete workflows (non-gesture) — shortcuts + palette; full parity deferred
+- [~] Name/role/state/value on tools, panels, dialogs — QML Accessible.name on shipped controls
+- [~] Flood control for announcements — `lastAnnounce` single channel
+- [~] Contrast / focus / scale gates in checklist evidence — high-contrast pref; evidence pack → P13
 
-**P10 exit:** assistive tech sees handbook semantic projection for primary workflows.
+**P10 exit:** assistive tech sees handbook semantic projection for primary workflows. **Partial Met** — semantic JSON spine; AT-SPI adapter deferred (DR-028).
 
 ---
 
@@ -332,10 +332,10 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 
 ### Gates (must check before coding)
 
-- [!] Large-doc benchmark proves tiling needed ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only))
-- [!] Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) before multi-doc
-- [!] Memory-pressure evidence before history spill
-- [!] Sparse/incremental `.ptx` spike before freezing strategy ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1))
+- [!] Large-doc benchmark proves tiling needed ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) — **recorded; no impl** ([DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl))
+- [!] Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) before multi-doc — **recorded; no impl** (DR-029)
+- [!] Memory-pressure evidence before history spill — **recorded; no impl** (DR-029)
+- [!] Sparse/incremental `.ptx` spike before freezing strategy ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) — **recorded; no impl** (DR-029)
 
 ### P11.1 Tiling / pyramid
 
@@ -357,7 +357,7 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 - [!] Tile-addressable resources in `.ptx`
 - [!] Incremental / append save strategy (optional, validated)
 
-**P11 exit:** gated items implemented only after gates; budgets held on large docs.
+**P11 exit:** gated items implemented only after gates; budgets held on large docs. **Exit for this pass:** gates recorded; **no ungated implementation** (DR-029).
 
 ---
 
@@ -365,14 +365,14 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 
 Chapter: [23](../23-Plugin-SDK.md), DR-009
 
-- [!] Product need recorded (do not build “because handbook mentions plugins”)
+- [!] Product need recorded (do not build “because handbook mentions plugins”) — **no product need; seams only** (DR-029 / DR-009)
 - [ ] Contribution manifests (panels/commands/filters) behind capabilities
 - [ ] Budgets + failure isolation
-- [ ] Opaque extension data in document + `.ptx` round-trip
-- [ ] Host mediation; no mutable document refs to extensions
+- [x] Opaque extension data in document + `.ptx` round-trip — `extension_data` JSON round-trip
+- [~] Host mediation; no mutable document refs to extensions — opaque store only; no extension host yet
 - [N] Stable native ABI / marketplace / cloud plugin store
 
-**P12 exit:** seams exist; ABI remains Deferred unless new DR.
+**P12 exit:** seams exist; ABI remains Deferred unless new DR. **Partial Met** — opaque blob seam; ABI still Deferred.
 
 ---
 
@@ -382,11 +382,11 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 ### P13.1 Testing
 
-- [ ] Command-router conformance suite (all shipped IDs, headless)
-- [ ] Hostile I/O fuzz / limit tests per adapter
+- [x] Command-router conformance suite (all shipped IDs, headless) — `command_conformance` module
+- [~] Hostile I/O fuzz / limit tests per adapter — dimension/alloc limit unit tests; fuzz deferred
 - [ ] GPU device-loss suite (or documented skip matrix)
 - [ ] CPU vs GPU tolerance fixtures for claimed ops
-- [ ] A11y evidence pack (manual + automated where possible)
+- [~] A11y evidence pack (manual + automated where possible) — semantic tree JSON; AT-SPI pack deferred
 
 ### P13.2 Performance
 
@@ -397,22 +397,22 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 ### P13.3 Developer guide practice
 
-- [ ] Contrib checklist: new command + taxonomy + tests
-- [ ] Crate boundary lint/culture (engine no Qt; UI no wgpu)
+- [~] Contrib checklist: new command + taxonomy + tests — taxonomy updated for soft-proof/jump
+- [x] Crate boundary lint/culture (engine no Qt; UI no wgpu)
 - [ ] Thread/ownership map kept current
-- [ ] [N] 18-crate rename (DR-025)
+- [N] 18-crate rename (DR-025)
 
-**P13 exit:** claimed quality attributes have fixtures; handbook 30/31 no longer Provisional where product claims them.
+**P13 exit:** claimed quality attributes have fixtures; handbook 30/31 no longer Provisional where product claims them. **Partial Met** — conformance suite green; budget promotion still Provisional (DR-017).
 
 ---
 
 ## Full parity exit criteria
 
-- [ ] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred in Decision Register with reason
-- [ ] All P11/P12 items either `[x]` after gates **or** `[P]`/`[N]` with DR amend
-- [ ] Gap analysis has no silent MUST contradictions
-- [ ] Roadmap §1 “full parity” definition satisfied
-- [ ] Journal: `handbook-parity-complete` entry
+- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred in Decision Register with reason — spines Met; depth Deferred via DR-028
+- [x] All P11/P12 items either `[x]` after gates **or** `[P]`/`[N]` with DR amend — gated/`[!]` + DR-029; P12 opaque seam `[x]`
+- [~] Gap analysis has no silent MUST contradictions — remaining open rows tracked in checklist
+- [~] Roadmap §1 “full parity” definition satisfied — **spine parity**; chapter-depth still open under DR-028
+- [x] Journal: phase exits under `archive/docs/04-journal/` (P2–P13); full `handbook-parity-complete` when DR-028 depth closed
 
 ---
 

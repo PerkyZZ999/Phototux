@@ -12,10 +12,10 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 
 | Family | IDs |
 | --- | --- |
-| History | `history.undo`, `history.redo` |
+| History | `history.undo`, `history.redo`, `history.jump` |
 | Layer | `layer.create`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.set-clip` |
 | View | `view.zoom-to`, `view.zoom-to-fit`, `view.pan-to`, `view.pan-by`, `view.zoom-at`, `view.set-tool` |
-| Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.crop`, `document.rotate-90` |
+| Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.set-soft-proof`, `document.crop`, `document.rotate-90` |
 | Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify`, `selection.to-mask` |
 | Mask | `mask.create`, `mask.delete`, `mask.set-enabled`, `mask.to-selection` |
 | Text / Shape | `text.create`, `text.set-content`, `text.bake`, `shape.create`, `shape.rasterize` |
@@ -313,6 +313,7 @@ The following catalog is normative for naming patterns and taxonomy placement. E
 | `color.assign-profile` | Interpretation only |
 | `color.convert-profile` | Pixel mutation |
 | `color.set-proofing` | View or document policy per descriptor |
+| `document.set-soft-proof` | View-like; no dirty / no generation bump |
 
 ### History
 
