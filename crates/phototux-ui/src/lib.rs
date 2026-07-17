@@ -2269,6 +2269,65 @@ impl AppSession {
         self.persist_workspace_visibility();
     }
 
+    /// Tear a docked panel into a floating window.
+    #[qslot]
+    fn tear_off_panel(&mut self, panel_id: String, x: i32, y: i32, width: i32, height: i32) {
+        let w = width.max(200) as u32;
+        let h = height.max(120) as u32;
+        if let Err(reason) = self.workspace.tear_off_panel(&panel_id, x, y, w, h, "") {
+            self.status_text = format!("Tear-off failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
+    /// Return a floating panel to the right dock stack.
+    #[qslot]
+    fn redock_panel(&mut self, panel_id: String) {
+        if let Err(reason) = self.workspace.redock_panel(&panel_id) {
+            self.status_text = format!("Redock failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
+    /// Persist floating window geometry (move/resize).
+    #[qslot]
+    fn set_floating_panel_geometry(
+        &mut self,
+        panel_id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) {
+        let w = width.max(200) as u32;
+        let h = height.max(120) as u32;
+        if let Err(reason) = self.workspace.set_floating_geometry(&panel_id, x, y, w, h) {
+            self.status_text = format!("Float geometry failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
+    /// Clamp floating windows to the given screen rect (logical pixels).
+    #[qslot]
+    fn clamp_floating_panels(&mut self, x: i32, y: i32, width: i32, height: i32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        self.workspace.clamp_floating(phototux_engine::ScreenRect {
+            x,
+            y,
+            width: width as u32,
+            height: height as u32,
+        });
+        self.persist_workspace_visibility();
+    }
+
     fn toggle_panel_by_id(&mut self, panel_id: &str) {
         if !self.workspace.toggle(panel_id) {
             self.status_text = format!("Unknown panel: {panel_id}");

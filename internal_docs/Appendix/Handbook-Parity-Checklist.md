@@ -98,7 +98,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 ### P2.2 Docking topology
 
 - [x] Dock topology model (right-stack v1 + validation; full split graph deferred)
-- [ ] Tear-off floating docks
+- [x] Tear-off floating docks
 - [ ] Auto-hide / reveal
 - [x] Persist topology across restart (reconcile on display change deferred)
 - [~] Drag/drop placement UX (keyboard stack reorder + index API; pointer DnD next)

@@ -111,6 +111,64 @@ impl WorkspaceState {
         Ok(())
     }
 
+    /// Tear a docked panel into a floating window (layout-only).
+    ///
+    /// # Errors
+    /// Returns a static reason when tear-off is invalid.
+    pub fn tear_off_panel(
+        &mut self,
+        panel_id: &str,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        display_hint: &str,
+    ) -> Result<(), &'static str> {
+        self.dock
+            .tear_off(panel_id, x, y, width, height, display_hint)?;
+        let _ = self.set_visible(panel_id, true);
+        self.revision = self.revision.saturating_add(1);
+        Ok(())
+    }
+
+    /// Redock a floating panel into the right stack.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not floating.
+    pub fn redock_panel(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        self.dock.redock(panel_id, None)?;
+        let _ = self.set_visible(panel_id, true);
+        self.revision = self.revision.saturating_add(1);
+        Ok(())
+    }
+
+    /// Persist floating window geometry after move/resize.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not floating.
+    pub fn set_floating_geometry(
+        &mut self,
+        panel_id: &str,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), &'static str> {
+        self.dock
+            .set_floating_geometry(panel_id, x, y, width, height)?;
+        self.revision = self.revision.saturating_add(1);
+        Ok(())
+    }
+
+    /// Clamp floating windows to a screen rect (restore / display change).
+    pub fn clamp_floating(&mut self, screen: crate::dock::ScreenRect) {
+        let before = self.dock.floating.clone();
+        self.dock.clamp_floating_to_screen(screen);
+        if self.dock.floating != before {
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
     /// JSON object for prefs / QML: `{ "panel.layers": true, … }`.
     pub fn visibility_json(&self) -> String {
         serde_json::to_string(&self.panel_visibility).unwrap_or_else(|_| "{}".into())

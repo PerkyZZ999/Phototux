@@ -1,8 +1,30 @@
-//! Minimal dock topology (handbook 04) — canvas + one right stack.
+//! Minimal dock topology (handbook 04) — canvas + right stack + floating tear-offs.
 
 use serde::{Deserialize, Serialize};
 
 use crate::shell::default_panels;
+
+/// Geometry for a torn-off floating panel (display-local logical pixels).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FloatingPanelPlacement {
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// Optional display / output hint for restore (host-defined).
+    #[serde(default)]
+    pub display_hint: String,
+}
+
+/// Axis-aligned screen rect used when clamping floating windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
 
 /// Versioned dock layout for the desktop shell.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -10,6 +32,9 @@ pub struct DockTopology {
     pub version: u32,
     /// Ordered panel ids in the right dock stack (top → bottom).
     pub right_stack: Vec<String>,
+    /// Panels torn off into floating windows (not in [`Self::right_stack`]).
+    #[serde(default)]
+    pub floating: Vec<FloatingPanelPlacement>,
 }
 
 impl Default for DockTopology {
@@ -32,12 +57,21 @@ impl DockTopology {
                 "panel.layers".into(),
                 "panel.history".into(),
             ],
+            floating: Vec::new(),
         }
     }
 
     /// Index of `panel_id` in the right stack, if present.
     pub fn stack_index(&self, panel_id: &str) -> Option<usize> {
         self.right_stack.iter().position(|id| id == panel_id)
+    }
+
+    pub fn is_docked(&self, panel_id: &str) -> bool {
+        self.stack_index(panel_id).is_some()
+    }
+
+    pub fn is_floating(&self, panel_id: &str) -> bool {
+        self.floating.iter().any(|f| f.id == panel_id)
     }
 
     /// Move a panel within the right stack by delta (−1 = up, +1 = down).
@@ -77,6 +111,99 @@ impl DockTopology {
         self.validate()
     }
 
+    /// Tear a docked panel into a floating window. Keeps at least one docked panel.
+    ///
+    /// # Errors
+    /// Returns a static reason when tear-off is invalid.
+    pub fn tear_off(
+        &mut self,
+        panel_id: &str,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        display_hint: impl Into<String>,
+    ) -> Result<(), &'static str> {
+        if self.right_stack.len() <= 1 {
+            return Err("cannot tear off last docked panel");
+        }
+        let idx = self
+            .stack_index(panel_id)
+            .ok_or("panel not in right_stack")?;
+        if self.is_floating(panel_id) {
+            return Err("panel already floating");
+        }
+        let width = width.max(200);
+        let height = height.max(120);
+        self.right_stack.remove(idx);
+        self.floating.push(FloatingPanelPlacement {
+            id: panel_id.to_owned(),
+            x,
+            y,
+            width,
+            height,
+            display_hint: display_hint.into(),
+        });
+        self.validate()
+    }
+
+    /// Return a floating panel to the right stack (append, or `at` when in range).
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not floating.
+    pub fn redock(&mut self, panel_id: &str, at: Option<usize>) -> Result<(), &'static str> {
+        let pos = self
+            .floating
+            .iter()
+            .position(|f| f.id == panel_id)
+            .ok_or("panel not floating")?;
+        self.floating.remove(pos);
+        let insert_at = at
+            .unwrap_or(self.right_stack.len())
+            .min(self.right_stack.len());
+        self.right_stack.insert(insert_at, panel_id.to_owned());
+        self.validate()
+    }
+
+    /// Update floating geometry (after user drag/resize).
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not floating.
+    pub fn set_floating_geometry(
+        &mut self,
+        panel_id: &str,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), &'static str> {
+        let panel = self
+            .floating
+            .iter_mut()
+            .find(|f| f.id == panel_id)
+            .ok_or("panel not floating")?;
+        panel.x = x;
+        panel.y = y;
+        panel.width = width.max(200);
+        panel.height = height.max(120);
+        Ok(())
+    }
+
+    /// Clamp all floating windows so a title-bar-sized strip stays on-screen.
+    pub fn clamp_floating_to_screen(&mut self, screen: ScreenRect) {
+        const TITLE: i32 = 32;
+        let max_x = screen.x + screen.width.saturating_sub(80) as i32;
+        let max_y = screen.y + screen.height.saturating_sub(TITLE as u32) as i32;
+        for panel in &mut self.floating {
+            panel.x = panel.x.clamp(screen.x, max_x);
+            panel.y = panel.y.clamp(screen.y, max_y);
+            let max_w = screen.width.max(200);
+            let max_h = screen.height.max(120);
+            panel.width = panel.width.clamp(200, max_w);
+            panel.height = panel.height.clamp(120, max_h);
+        }
+    }
+
     /// Validate panel ids against the built-in catalog.
     ///
     /// # Errors
@@ -96,6 +223,17 @@ impl DockTopology {
             }
             if !seen.insert(id.as_str()) {
                 return Err("duplicate panel id in right_stack");
+            }
+        }
+        for panel in &self.floating {
+            if !known.iter().any(|k| k == &panel.id) {
+                return Err("unknown panel id in floating");
+            }
+            if !seen.insert(panel.id.as_str()) {
+                return Err("panel both docked and floating");
+            }
+            if panel.width < 200 || panel.height < 120 {
+                return Err("floating geometry too small");
             }
         }
         Ok(())
@@ -151,5 +289,51 @@ mod tests {
         topo.reorder(0, 4).expect("to end");
         assert_eq!(topo.right_stack[4], "panel.properties");
         assert_eq!(topo.right_stack[0], "panel.navigator");
+    }
+
+    #[test]
+    fn tear_off_and_redock() {
+        let mut topo = DockTopology::essentials();
+        topo.tear_off("panel.history", 40, 40, 320, 240, "")
+            .expect("tear");
+        assert!(topo.is_floating("panel.history"));
+        assert!(!topo.is_docked("panel.history"));
+        assert_eq!(topo.right_stack.len(), 4);
+        topo.redock("panel.history", None).expect("dock");
+        assert!(topo.is_docked("panel.history"));
+        assert!(topo.floating.is_empty());
+    }
+
+    #[test]
+    fn cannot_tear_off_last() {
+        let mut topo = DockTopology {
+            version: 1,
+            right_stack: vec!["panel.layers".into()],
+            floating: Vec::new(),
+        };
+        assert!(topo.tear_off("panel.layers", 0, 0, 300, 200, "").is_err());
+    }
+
+    #[test]
+    fn clamp_keeps_strip_on_screen() {
+        let mut topo = DockTopology::essentials();
+        topo.tear_off("panel.navigator", -5000, -5000, 300, 200, "")
+            .expect("tear");
+        topo.clamp_floating_to_screen(ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        });
+        let f = &topo.floating[0];
+        assert!(f.x >= 0);
+        assert!(f.y >= 0);
+    }
+
+    #[test]
+    fn legacy_json_without_floating_loads() {
+        let json = r#"{"version":1,"right_stack":["panel.properties","panel.layers"]}"#;
+        let topo = DockTopology::from_json(json).expect("de");
+        assert!(topo.floating.is_empty());
     }
 }

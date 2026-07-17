@@ -105,6 +105,12 @@ ApplicationWindow {
         return 1000
     }
 
+    function panelIsDocked(panelId) {
+        return root.dockStackRow(panelId) < 1000
+    }
+
+    readonly property var floatingPanels: dockTopology.floating || []
+
     function panelTitle(panelId) {
         var all = root.panelDescriptors
         for (var i = 0; i < all.length; ++i) {
@@ -668,8 +674,69 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        AppSession.clampFloatingPanels(0, 0, Screen.width, Screen.height)
         if (!AppSession.hasDocument && !AppSession.ioBusy)
             welcomeDialog.open()
+    }
+
+    Instantiator {
+        model: {
+            var _ = AppSession.dockTopologyJson
+            return root.floatingPanels
+        }
+        delegate: Window {
+            id: floatWin
+            required property var modelData
+            title: qsTr(root.panelTitle(modelData.id))
+            width: Math.max(200, modelData.width || 320)
+            height: Math.max(120, modelData.height || 280)
+            x: modelData.x || 80
+            y: modelData.y || 80
+            visible: true
+            color: Theme.surface
+            flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint
+
+            onClosing: function (close) {
+                AppSession.redockPanel(modelData.id)
+                close.accepted = true
+            }
+            onXChanged: floatWin.persistGeometry()
+            onYChanged: floatWin.persistGeometry()
+            onWidthChanged: floatWin.persistGeometry()
+            onHeightChanged: floatWin.persistGeometry()
+
+            function persistGeometry() {
+                if (!visible)
+                    return
+                AppSession.setFloatingPanelGeometry(modelData.id, Math.round(x), Math.round(y),
+                                                   Math.round(width), Math.round(height))
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spaceSm
+                spacing: Theme.spaceSm
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("%1 (floating)").arg(qsTr(root.panelTitle(modelData.id)))
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontLabel
+                    font.weight: Font.Medium
+                }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    text: qsTr("Close window or Dock to return this panel to the right stack.")
+                    color: Theme.colorOnSurfaceVariant
+                    font.pixelSize: Theme.fontBodySm
+                    wrapMode: Text.WordWrap
+                }
+                Button {
+                    text: qsTr("Dock")
+                    onClicked: AppSession.redockPanel(modelData.id)
+                }
+            }
+        }
     }
 
     // —— Top chrome ——
@@ -1879,7 +1946,7 @@ ApplicationWindow {
 
                 // Properties panel header
                 Rectangle {
-                    visible: AppSession.panelPropertiesVisible
+                    visible: AppSession.panelPropertiesVisible && root.panelIsDocked("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -1919,11 +1986,22 @@ ApplicationWindow {
                             onClicked: AppSession.movePanelInStack("panel.properties", 1)
                             Accessible.name: qsTr("Move panel down")
                         }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "⧉"
+                            enabled: root.dockRightStack.length > 1
+                            onClicked: AppSession.tearOffPanel("panel.properties",
+                                                               root.x + root.width - 360, root.y + 80, 320, 400)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Tear off panel")
+                            Accessible.name: qsTr("Tear off panel")
+                        }
                     }
                 }
 
                 Flickable {
-                    visible: AppSession.panelPropertiesVisible
+                    visible: AppSession.panelPropertiesVisible && root.panelIsDocked("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2736,7 +2814,7 @@ ApplicationWindow {
 
                 // Navigator
                 Rectangle {
-                    visible: AppSession.panelNavigatorVisible
+                    visible: AppSession.panelNavigatorVisible && root.panelIsDocked("panel.navigator")
                     Layout.row: root.dockStackRow("panel.navigator") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2782,12 +2860,23 @@ ApplicationWindow {
                             onClicked: AppSession.movePanelInStack("panel.navigator", 1)
                             Accessible.name: qsTr("Move panel down")
                         }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "⧉"
+                            enabled: root.dockRightStack.length > 1
+                            onClicked: AppSession.tearOffPanel("panel.navigator",
+                                                               root.x + root.width - 360, root.y + 120, 320, 280)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Tear off panel")
+                            Accessible.name: qsTr("Tear off panel")
+                        }
                     }
                 }
 
                 Rectangle {
                     id: navigatorPane
-                    visible: AppSession.panelNavigatorVisible
+                    visible: AppSession.panelNavigatorVisible && root.panelIsDocked("panel.navigator")
                     Layout.row: root.dockStackRow("panel.navigator") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2878,7 +2967,7 @@ ApplicationWindow {
 
                 // Swatches
                 Rectangle {
-                    visible: AppSession.panelSwatchesVisible
+                    visible: AppSession.panelSwatchesVisible && root.panelIsDocked("panel.swatches")
                     Layout.row: root.dockStackRow("panel.swatches") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -2927,6 +3016,17 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "⧉"
+                            enabled: root.dockRightStack.length > 1
+                            onClicked: AppSession.tearOffPanel("panel.swatches",
+                                                               root.x + root.width - 360, root.y + 160, 320, 280)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Tear off panel")
+                            Accessible.name: qsTr("Tear off panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             icon.source: root.iconUrl("arrows-left-right")
                             icon.width: 14
                             icon.height: 14
@@ -2938,7 +3038,7 @@ ApplicationWindow {
                 }
 
                 Rectangle {
-                    visible: AppSession.panelSwatchesVisible
+                    visible: AppSession.panelSwatchesVisible && root.panelIsDocked("panel.swatches")
                     Layout.row: root.dockStackRow("panel.swatches") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3066,7 +3166,7 @@ ApplicationWindow {
 
                 // Layers panel
                 Rectangle {
-                    visible: AppSession.panelLayersVisible
+                    visible: AppSession.panelLayersVisible && root.panelIsDocked("panel.layers")
                     Layout.row: root.dockStackRow("panel.layers") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3116,6 +3216,17 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "⧉"
+                            enabled: root.dockRightStack.length > 1
+                            onClicked: AppSession.tearOffPanel("panel.layers",
+                                                               root.x + root.width - 360, root.y + 200, 320, 360)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Tear off panel")
+                            Accessible.name: qsTr("Tear off panel")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             icon.source: root.iconUrl("plus")
                             icon.width: 14
                             icon.height: 14
@@ -3150,7 +3261,7 @@ ApplicationWindow {
                 }
 
                 Rectangle {
-                    visible: AppSession.panelLayersVisible
+                    visible: AppSession.panelLayersVisible && root.panelIsDocked("panel.layers")
                     Layout.row: root.dockStackRow("panel.layers") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3317,7 +3428,7 @@ ApplicationWindow {
 
                 // History panel
                 Rectangle {
-                    visible: AppSession.panelHistoryVisible
+                    visible: AppSession.panelHistoryVisible && root.panelIsDocked("panel.history")
                     Layout.row: root.dockStackRow("panel.history") * 2
                     Layout.column: 0
                     Layout.fillWidth: true
@@ -3351,10 +3462,21 @@ ApplicationWindow {
                             onClicked: AppSession.movePanelInStack("panel.history", 1)
                             Accessible.name: qsTr("Move panel down")
                         }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "⧉"
+                            enabled: root.dockRightStack.length > 1
+                            onClicked: AppSession.tearOffPanel("panel.history",
+                                                               root.x + root.width - 360, root.y + 240, 320, 240)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Tear off panel")
+                            Accessible.name: qsTr("Tear off panel")
+                        }
                     }
                 }
                 Rectangle {
-                    visible: AppSession.panelHistoryVisible
+                    visible: AppSession.panelHistoryVisible && root.panelIsDocked("panel.history")
                     Layout.row: root.dockStackRow("panel.history") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
