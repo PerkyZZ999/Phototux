@@ -7,6 +7,7 @@ mod cancel;
 mod color;
 mod color_mgmt;
 mod command;
+mod command_meta;
 mod commands;
 mod cpu_composite;
 mod document;
@@ -35,6 +36,11 @@ pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
 pub use color_mgmt::{ConvertPlan, DocumentColorState, convert_rgba8_profile};
 pub use command::{EngineCommand, EngineEvent};
+pub use command_meta::ALL as COMMAND_META_ALL;
+pub use command_meta::{
+    CommandMeta, CommandScope, ConflictPolicy, MutationClass, UndoPolicy,
+    meta_for as command_meta_for,
+};
 pub use commands::{
     CommandArgs, CommandEffects, CommandError, HostFollowUp, HostHistoryAction, command_id,
 };
