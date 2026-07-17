@@ -1689,6 +1689,7 @@ impl SessionState {
                 .graph
                 .as_mut()
                 .and_then(|g| g.add_emboss(id, 1.0, 135.0)),
+            "sharpen" => self.graph.as_mut().and_then(|g| g.add_sharpen(id, 1.0)),
             _ => None,
         }) else {
             return Err(CommandError::InvalidArgument("unknown effect kind"));
@@ -1703,6 +1704,7 @@ impl SessionState {
             "gaussian" => "Gaussian Blur",
             "motion" => "Motion Blur",
             "emboss" => "Emboss",
+            "sharpen" => "Sharpen",
             other => other,
         };
         let generation = self.bump_document_generation();

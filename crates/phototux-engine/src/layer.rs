@@ -478,6 +478,18 @@ impl FilterEffect {
             .clamped(),
         }
     }
+
+    /// Create an enabled Sharpen effect.
+    pub fn sharpen(id: u64, amount: f32) -> Self {
+        Self {
+            id,
+            name: "Sharpen".into(),
+            enabled: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            params: FilterParams::Sharpen { amount }.clamped(),
+        }
+    }
 }
 
 /// Where brush/eraser strokes apply.

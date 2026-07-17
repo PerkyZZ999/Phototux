@@ -658,6 +658,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
         ),
+        act(
+            "action.filter.sharpen",
+            "&Sharpen",
+            "filter",
+            "has_document",
+            Some(command_id::FILTER_ADD_EFFECT),
+            None,
+            Some("sharpen"),
+            None,
+            None,
+        ),
         // View
         act(
             "action.view.zoom-fit",

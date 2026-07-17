@@ -485,6 +485,11 @@ impl DocumentGraph {
         })
     }
 
+    /// Append a Sharpen effect to a raster layer.
+    pub fn add_sharpen(&mut self, id: LayerId, amount: f32) -> Option<(Vec<FilterEffect>, u64)> {
+        self.add_filter_effect(id, |effect_id| FilterEffect::sharpen(effect_id, amount))
+    }
+
     fn add_filter_effect(
         &mut self,
         id: LayerId,

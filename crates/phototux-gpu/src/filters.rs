@@ -317,6 +317,44 @@ pub fn cpu_emboss_rgba(pixels: &mut [u8], width: u32, height: u32, strength: f32
     }
 }
 
+/// CPU reference unsharp / Laplacian sharpen (RGB; alpha preserved).
+pub fn cpu_sharpen_rgba(pixels: &mut [u8], width: u32, height: u32, amount: f32) {
+    let amount = amount.clamp(0.0, 4.0);
+    if amount < 0.001 || width < 3 || height < 3 {
+        return;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let src = pixels.to_vec();
+    for y in 0..h {
+        for x in 0..w {
+            let idx = (y * w + x) * 4;
+            let sample = |ox: i32, oy: i32, c: usize| -> f32 {
+                let xx = (x as i32 + ox).clamp(0, w as i32 - 1) as usize;
+                let yy = (y as i32 + oy).clamp(0, h as i32 - 1) as usize;
+                f32::from(src[(yy * w + xx) * 4 + c])
+            };
+            for c in 0..3 {
+                let center = sample(0, 0, c);
+                let lap = 4.0 * center
+                    - sample(-1, 0, c)
+                    - sample(1, 0, c)
+                    - sample(0, -1, c)
+                    - sample(0, 1, c);
+                let out = (center + amount * lap).clamp(0.0, 255.0);
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "sharpen output clamped to byte"
+                )]
+                {
+                    pixels[idx + c] = out.round() as u8;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,5 +389,17 @@ mod tests {
         cpu_gaussian_rgba(&mut px, 3, 3, 1.0);
         assert!(px[0] > 0);
         assert!(px[4 * 4] < 255);
+    }
+
+    #[test]
+    fn sharpen_increases_edge_contrast() {
+        let mut px = vec![128_u8; 9 * 4];
+        // Bright center on mid gray field.
+        px[4 * 4] = 200;
+        px[4 * 4 + 1] = 200;
+        px[4 * 4 + 2] = 200;
+        px[4 * 4 + 3] = 255;
+        cpu_sharpen_rgba(&mut px, 3, 3, 0.5);
+        assert!(px[4 * 4] > 200, "center r={}", px[4 * 4]);
     }
 }
