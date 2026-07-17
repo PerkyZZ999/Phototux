@@ -789,6 +789,7 @@ impl AppSession {
     fn apply_loaded_preferences(&mut self) {
         self.prefs = Preferences::load();
         self.sync_pref_fields_from_store();
+        self.refresh_shortcut_maps();
         self.engine.guides.show_guides = self.prefs.show_guides;
         self.engine.guides.show_grid = self.prefs.show_grid;
         self.engine.guides.show_rulers = self.prefs.show_rulers;
@@ -801,6 +802,14 @@ impl AppSession {
                 },
             );
         }
+    }
+
+    fn refresh_shortcut_maps(&mut self) {
+        let (chords, actions) = phototux_engine::effective_shortcuts_json(&self.prefs.keymap);
+        self.shortcuts_json = chords;
+        self.action_shortcuts_json = actions;
+        self.shortcuts_json_changed();
+        self.action_shortcuts_json_changed();
     }
 
     fn sync_pref_fields_from_store(&mut self) {
@@ -2001,7 +2010,8 @@ impl AppSession {
 
     #[qslot]
     fn shortcut_action(&mut self, chord: String) -> String {
-        let map = phototux_engine::default_shortcut_map();
+        let action_map = phototux_engine::effective_action_shortcuts(&self.prefs.keymap);
+        let map = phototux_engine::chord_map_from_action_shortcuts(&action_map);
         phototux_engine::resolve_shortcut(&map, &chord)
             .unwrap_or("")
             .to_owned()
@@ -2012,7 +2022,8 @@ impl AppSession {
         if self.preferences_open || self.shortcut_input_yield {
             return false;
         }
-        let map = phototux_engine::default_shortcut_map();
+        let action_map = phototux_engine::effective_action_shortcuts(&self.prefs.keymap);
+        let map = phototux_engine::chord_map_from_action_shortcuts(&action_map);
         let Some(action_id) = phototux_engine::resolve_shortcut(&map, &chord) else {
             return false;
         };
@@ -2028,6 +2039,58 @@ impl AppSession {
         }
         self.shortcut_input_yield = yield_input;
         self.shortcut_input_yield_changed();
+    }
+
+    #[qslot]
+    fn shortcut_conflict_for(&mut self, action_id: String, chord: String) -> String {
+        let effective = phototux_engine::effective_action_shortcuts(&self.prefs.keymap);
+        phototux_engine::shortcut_conflict(&action_id, &chord, &effective).unwrap_or_default()
+    }
+
+    #[qslot]
+    fn set_action_shortcut(&mut self, action_id: String, chord: String) {
+        if phototux_engine::action_by_id(&action_id).is_none() {
+            return;
+        }
+        let normalized = phototux_engine::normalize_shortcut(&chord);
+        let defaults = phototux_engine::default_action_shortcuts();
+        if normalized.is_empty() {
+            self.prefs.keymap.remove(&action_id);
+        } else if defaults.get(&action_id).is_some_and(|d| d == &normalized) {
+            // Same as default — drop override.
+            self.prefs.keymap.remove(&action_id);
+        } else {
+            let effective = phototux_engine::effective_action_shortcuts(&self.prefs.keymap);
+            if let Some(other) =
+                phototux_engine::shortcut_conflict(&action_id, &normalized, &effective)
+            {
+                // Steal chord: clear the other binding (as override to empty) or remove their override
+                // and set empty override so default doesn't restore a clash.
+                if defaults.contains_key(&other) {
+                    self.prefs.keymap.insert(other, String::new());
+                } else {
+                    self.prefs.keymap.remove(&other);
+                }
+            }
+            self.prefs.keymap.insert(action_id, normalized);
+        }
+        // Drop empty-string overrides that match “unbound” for actions without defaults.
+        self.prefs.keymap.retain(|id, chord| {
+            if !chord.is_empty() {
+                return true;
+            }
+            // Keep empty override only when action has a default (means unbound).
+            defaults.contains_key(id)
+        });
+        self.refresh_shortcut_maps();
+        self.persist_prefs();
+    }
+
+    #[qslot]
+    fn reset_keymap(&mut self) {
+        self.prefs.keymap.clear();
+        self.refresh_shortcut_maps();
+        self.persist_prefs();
     }
 
     #[qslot]

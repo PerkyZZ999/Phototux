@@ -1,5 +1,6 @@
 //! XDG preferences store (handbook 24 — Phase 3).
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -20,6 +21,8 @@ pub struct Preferences {
     pub panel_layers: bool,
     pub panel_history: bool,
     pub panel_properties: bool,
+    /// Action id → shortcut chord overrides (empty map = defaults only).
+    pub keymap: BTreeMap<String, String>,
     pub schema_version: u32,
 }
 
@@ -37,7 +40,8 @@ impl Default for Preferences {
             panel_layers: true,
             panel_history: true,
             panel_properties: true,
-            schema_version: 1,
+            keymap: BTreeMap::new(),
+            schema_version: 2,
         }
     }
 }

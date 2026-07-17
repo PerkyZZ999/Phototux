@@ -25,8 +25,9 @@ mod undo;
 
 pub use actions::{
     ActionDescriptor, action_by_id, action_shortcuts_json, actions_for_context, actions_json,
-    context_actions_json, default_action_shortcuts, default_actions, default_shortcut_map,
-    normalize_shortcut, resolve_shortcut, shortcuts_json,
+    chord_map_from_action_shortcuts, context_actions_json, default_action_shortcuts,
+    default_actions, default_shortcut_map, effective_action_shortcuts, effective_shortcuts_json,
+    normalize_shortcut, resolve_shortcut, shortcut_conflict, shortcuts_json,
 };
 pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};

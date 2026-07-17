@@ -851,6 +851,49 @@ pub fn resolve_shortcut<'a>(map: &'a BTreeMap<String, String>, chord: &str) -> O
     map.get(&key).map(String::as_str)
 }
 
+/// Merge default action→chord map with user overrides (action id → chord).
+/// Empty override chord removes the binding for that action.
+pub fn effective_action_shortcuts(
+    overrides: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut map = default_action_shortcuts();
+    for (action_id, chord) in overrides {
+        let normalized = normalize_shortcut(chord);
+        if normalized.is_empty() {
+            map.remove(action_id);
+        } else {
+            map.insert(action_id.clone(), normalized);
+        }
+    }
+    map
+}
+
+/// Invert action→chord into chord→action (last writer wins on duplicate chords).
+pub fn chord_map_from_action_shortcuts(
+    action_to_chord: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for (action_id, chord) in action_to_chord {
+        map.insert(chord.clone(), action_id.clone());
+    }
+    map
+}
+
+/// If `chord` is already bound to a different action, return that action id.
+pub fn shortcut_conflict(
+    action_id: &str,
+    chord: &str,
+    action_to_chord: &BTreeMap<String, String>,
+) -> Option<String> {
+    let normalized = normalize_shortcut(chord);
+    if normalized.is_empty() {
+        return None;
+    }
+    action_to_chord.iter().find_map(|(id, bound)| {
+        (id.as_str() != action_id && bound == &normalized).then(|| id.clone())
+    })
+}
+
 /// JSON object: chord → action id.
 pub fn shortcuts_json() -> String {
     serde_json::to_string(&default_shortcut_map()).unwrap_or_else(|_| "{}".into())
@@ -859,6 +902,15 @@ pub fn shortcuts_json() -> String {
 /// JSON object: action id → chord.
 pub fn action_shortcuts_json() -> String {
     serde_json::to_string(&default_action_shortcuts()).unwrap_or_else(|_| "{}".into())
+}
+
+/// Effective maps as JSON pair helpers for the host.
+pub fn effective_shortcuts_json(overrides: &BTreeMap<String, String>) -> (String, String) {
+    let action_map = effective_action_shortcuts(overrides);
+    let chord_map = chord_map_from_action_shortcuts(&action_map);
+    let chords = serde_json::to_string(&chord_map).unwrap_or_else(|_| "{}".into());
+    let actions = serde_json::to_string(&action_map).unwrap_or_else(|_| "{}".into());
+    (chords, actions)
 }
 
 #[cfg(test)]
@@ -951,5 +1003,21 @@ mod tests {
         }
         let map = default_shortcut_map();
         assert_eq!(resolve_shortcut(&map, "ctrl+z"), Some("action.edit.undo"));
+    }
+
+    #[test]
+    fn overrides_and_conflicts() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert("action.edit.redo".into(), "Ctrl+Z".into());
+        let effective = effective_action_shortcuts(&overrides);
+        assert_eq!(
+            effective.get("action.edit.redo").map(String::as_str),
+            Some("Ctrl+Z")
+        );
+        let defaults = effective_action_shortcuts(&BTreeMap::new());
+        assert_eq!(
+            shortcut_conflict("action.edit.redo", "Ctrl+Z", &defaults),
+            Some("action.edit.undo".into())
+        );
     }
 }

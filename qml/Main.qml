@@ -3335,11 +3335,72 @@ ApplicationWindow {
         modal: true
         title: qsTr("Preferences")
         standardButtons: Dialog.Close
-        width: 420
+        width: 480
+        height: 560
         visible: AppSession.preferencesOpen
         onRejected: AppSession.closePreferences()
         onAccepted: AppSession.closePreferences()
-        onClosed: AppSession.closePreferences()
+        onClosed: {
+            preferencesDialog.capturingActionId = ""
+            preferencesDialog.shortcutConflictHint = ""
+            AppSession.closePreferences()
+        }
+
+        property string capturingActionId: ""
+        property string shortcutConflictHint: ""
+
+        function chordFromKeyEvent(event) {
+            if (event.key === Qt.Key_Escape
+                    || event.key === Qt.Key_Tab
+                    || event.key === Qt.Key_Backtab
+                    || event.key === Qt.Key_Control
+                    || event.key === Qt.Key_Shift
+                    || event.key === Qt.Key_Alt
+                    || event.key === Qt.Key_Meta)
+                return ""
+            var parts = []
+            if (event.modifiers & Qt.ControlModifier)
+                parts.push("Ctrl")
+            if (event.modifiers & Qt.AltModifier)
+                parts.push("Alt")
+            if (event.modifiers & Qt.ShiftModifier)
+                parts.push("Shift")
+            if (event.modifiers & Qt.MetaModifier)
+                parts.push("Meta")
+            var name = ""
+            switch (event.key) {
+            case Qt.Key_Comma: name = ","; break
+            case Qt.Key_Period: name = "."; break
+            case Qt.Key_Slash: name = "/"; break
+            case Qt.Key_Space: name = "Space"; break
+            case Qt.Key_Return: case Qt.Key_Enter: name = "Return"; break
+            case Qt.Key_Left: name = "Left"; break
+            case Qt.Key_Right: name = "Right"; break
+            case Qt.Key_Up: name = "Up"; break
+            case Qt.Key_Down: name = "Down"; break
+            case Qt.Key_F1: name = "F1"; break
+            case Qt.Key_F2: name = "F2"; break
+            case Qt.Key_F3: name = "F3"; break
+            case Qt.Key_F4: name = "F4"; break
+            case Qt.Key_F5: name = "F5"; break
+            case Qt.Key_F6: name = "F6"; break
+            case Qt.Key_F7: name = "F7"; break
+            case Qt.Key_F8: name = "F8"; break
+            case Qt.Key_F9: name = "F9"; break
+            case Qt.Key_F10: name = "F10"; break
+            case Qt.Key_F11: name = "F11"; break
+            case Qt.Key_F12: name = "F12"; break
+            default:
+                if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z)
+                    name = String.fromCharCode(event.key)
+                else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9)
+                    name = String.fromCharCode(event.key)
+                else
+                    return ""
+            }
+            parts.push(name)
+            return parts.join("+")
+        }
 
         background: Rectangle {
             color: Theme.surface
@@ -3347,86 +3408,196 @@ ApplicationWindow {
             radius: Theme.radiusMd
         }
 
-        contentItem: ColumnLayout {
-            spacing: Theme.spaceMd
-            width: 380
-
-            Label {
-                text: qsTr("General")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontLabel
-                font.weight: Font.DemiBold
-            }
-            CheckBox {
-                text: qsTr("Show guides")
-                checked: AppSession.prefShowGuides
-                onToggled: AppSession.setPrefShowGuides(checked)
-            }
-            CheckBox {
-                text: qsTr("Show grid")
-                checked: AppSession.prefShowGrid
-                onToggled: AppSession.setGridVisible(checked)
-            }
-            CheckBox {
-                text: qsTr("Show rulers")
-                checked: AppSession.prefShowRulers
-                onToggled: AppSession.setRulersVisible(checked)
-            }
-            CheckBox {
-                text: qsTr("Snap to grid / guides")
-                checked: AppSession.prefSnap
-                onToggled: AppSession.setSnapEnabled(checked)
-            }
-            CheckBox {
-                text: qsTr("Restore last tool on launch")
-                checked: AppSession.prefRestoreLastTool
-                onToggled: AppSession.setPrefRestoreLastTool(checked)
-            }
-
-            Label {
-                Layout.topMargin: Theme.spaceSm
-                text: qsTr("Workspace panels")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontLabel
-                font.weight: Font.DemiBold
-            }
-            CheckBox {
-                text: qsTr("Navigator")
-                checked: AppSession.panelNavigatorVisible
-                onToggled: AppSession.setPanelNavigatorVisible(checked)
-            }
-            CheckBox {
-                text: qsTr("Swatches")
-                checked: AppSession.panelSwatchesVisible
-                onToggled: AppSession.setPanelSwatchesVisible(checked)
-            }
-            CheckBox {
-                text: qsTr("Layers")
-                checked: AppSession.panelLayersVisible
-                onToggled: AppSession.setPanelLayersVisible(checked)
-            }
-            CheckBox {
-                text: qsTr("History")
-                checked: AppSession.panelHistoryVisible
-                onToggled: AppSession.setPanelHistoryVisible(checked)
-            }
-            CheckBox {
-                text: qsTr("Properties")
-                checked: AppSession.panelPropertiesVisible
-                onToggled: AppSession.setPanelPropertiesVisible(checked)
+        contentItem: Flickable {
+            id: prefsFlick
+            clip: true
+            contentWidth: prefsCol.width
+            contentHeight: prefsCol.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            focus: preferencesDialog.capturingActionId.length > 0
+            Keys.onPressed: function (event) {
+                if (preferencesDialog.capturingActionId.length === 0)
+                    return
+                if (event.key === Qt.Key_Escape) {
+                    preferencesDialog.capturingActionId = ""
+                    preferencesDialog.shortcutConflictHint = ""
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                    AppSession.setActionShortcut(preferencesDialog.capturingActionId, "")
+                    preferencesDialog.capturingActionId = ""
+                    preferencesDialog.shortcutConflictHint = ""
+                    event.accepted = true
+                    return
+                }
+                var chord = preferencesDialog.chordFromKeyEvent(event)
+                if (!chord)
+                    return
+                var conflict = AppSession.shortcutConflictFor(
+                            preferencesDialog.capturingActionId, chord)
+                if (conflict && conflict.length > 0)
+                    preferencesDialog.shortcutConflictHint =
+                            qsTr("Replaces binding on %1").arg(conflict)
+                else
+                    preferencesDialog.shortcutConflictHint = ""
+                AppSession.setActionShortcut(preferencesDialog.capturingActionId, chord)
+                preferencesDialog.capturingActionId = ""
+                event.accepted = true
             }
 
-            Button {
-                text: qsTr("Reset Workspace to Essentials")
-                onClicked: AppSession.resetWorkspace()
-            }
+            ColumnLayout {
+                id: prefsCol
+                spacing: Theme.spaceMd
+                width: 440
 
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Stored in XDG config: phototux/preferences.json")
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontBodySm
-                wrapMode: Text.WordWrap
+                Label {
+                    text: qsTr("General")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontLabel
+                    font.weight: Font.DemiBold
+                }
+                CheckBox {
+                    text: qsTr("Show guides")
+                    checked: AppSession.prefShowGuides
+                    onToggled: AppSession.setPrefShowGuides(checked)
+                }
+                CheckBox {
+                    text: qsTr("Show grid")
+                    checked: AppSession.prefShowGrid
+                    onToggled: AppSession.setGridVisible(checked)
+                }
+                CheckBox {
+                    text: qsTr("Show rulers")
+                    checked: AppSession.prefShowRulers
+                    onToggled: AppSession.setRulersVisible(checked)
+                }
+                CheckBox {
+                    text: qsTr("Snap to grid / guides")
+                    checked: AppSession.prefSnap
+                    onToggled: AppSession.setSnapEnabled(checked)
+                }
+                CheckBox {
+                    text: qsTr("Restore last tool on launch")
+                    checked: AppSession.prefRestoreLastTool
+                    onToggled: AppSession.setPrefRestoreLastTool(checked)
+                }
+
+                Label {
+                    Layout.topMargin: Theme.spaceSm
+                    text: qsTr("Workspace panels")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontLabel
+                    font.weight: Font.DemiBold
+                }
+                CheckBox {
+                    text: qsTr("Navigator")
+                    checked: AppSession.panelNavigatorVisible
+                    onToggled: AppSession.setPanelNavigatorVisible(checked)
+                }
+                CheckBox {
+                    text: qsTr("Swatches")
+                    checked: AppSession.panelSwatchesVisible
+                    onToggled: AppSession.setPanelSwatchesVisible(checked)
+                }
+                CheckBox {
+                    text: qsTr("Layers")
+                    checked: AppSession.panelLayersVisible
+                    onToggled: AppSession.setPanelLayersVisible(checked)
+                }
+                CheckBox {
+                    text: qsTr("History")
+                    checked: AppSession.panelHistoryVisible
+                    onToggled: AppSession.setPanelHistoryVisible(checked)
+                }
+                CheckBox {
+                    text: qsTr("Properties")
+                    checked: AppSession.panelPropertiesVisible
+                    onToggled: AppSession.setPanelPropertiesVisible(checked)
+                }
+
+                Button {
+                    text: qsTr("Reset Workspace to Essentials")
+                    onClicked: AppSession.resetWorkspace()
+                }
+
+                Label {
+                    Layout.topMargin: Theme.spaceSm
+                    text: qsTr("Keyboard")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontLabel
+                    font.weight: Font.DemiBold
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Click a binding, then press a shortcut. Esc cancels; Backspace clears.")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                    wrapMode: Text.WordWrap
+                }
+                Label {
+                    visible: preferencesDialog.shortcutConflictHint.length > 0
+                             || preferencesDialog.capturingActionId.length > 0
+                    Layout.fillWidth: true
+                    text: preferencesDialog.capturingActionId.length > 0
+                          ? qsTr("Waiting for shortcut…")
+                          : preferencesDialog.shortcutConflictHint
+                    color: Theme.warning
+                    font.pixelSize: Theme.fontLabelSm
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: {
+                        var _ = AppSession.actionShortcutsJson
+                        var out = []
+                        var all = root.actionDescriptors
+                        for (var i = 0; i < all.length; ++i) {
+                            if (all[i].shortcut || root.shortcutForAction(all[i].id))
+                                out.push(all[i])
+                        }
+                        return out
+                    }
+                    delegate: RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spaceSm
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.label.replace(/&/g, "")
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontBodySm
+                            elide: Text.ElideRight
+                        }
+                        Button {
+                            implicitWidth: 140
+                            text: preferencesDialog.capturingActionId === modelData.id
+                                  ? qsTr("Press keys…")
+                                  : (root.shortcutForAction(modelData.id) || qsTr("None"))
+                            onClicked: {
+                                preferencesDialog.capturingActionId = modelData.id
+                                preferencesDialog.shortcutConflictHint = ""
+                                prefsFlick.forceActiveFocus()
+                            }
+                        }
+                    }
+                }
+
+                Button {
+                    text: qsTr("Reset shortcuts to defaults")
+                    onClicked: {
+                        preferencesDialog.capturingActionId = ""
+                        preferencesDialog.shortcutConflictHint = ""
+                        AppSession.resetKeymap()
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Stored in XDG config: phototux/preferences.json")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontBodySm
+                    wrapMode: Text.WordWrap
+                }
             }
         }
     }

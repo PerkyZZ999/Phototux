@@ -61,11 +61,11 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.5 Shortcuts
 
-- [ ] Shortcut map keyed by action/command IDs
-- [ ] Customizable bindings + conflict detection UI
-- [ ] Persist keymap in prefs
-- [ ] IME / text-field yield rules
-- [ ] Keyboard path for every non-gesture primary operation
+- [x] Shortcut map keyed by action/command IDs
+- [x] Customizable bindings + conflict detection UI
+- [x] Persist keymap in prefs
+- [x] IME / text-field yield rules
+- [~] Keyboard path for every non-gesture primary operation (shipped actions with defaults; some dialogs mouse-first)
 
 ### P1.6 Command search
 
