@@ -50,6 +50,37 @@ ApplicationWindow {
             return []
         }
     }
+    readonly property var toolDescriptors: {
+        try {
+            return JSON.parse(AppSession.toolDescriptorsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
+    // Fallback map if a descriptor still uses tool.* icon keys.
+    readonly property var toolIconStemMap: ({
+        "tool.brush": "paint-brush",
+        "tool.eraser": "eraser",
+        "tool.select.rect": "selection",
+        "tool.select.ellipse": "circle-dashed",
+        "tool.select.lasso": "lasso",
+        "tool.select.polygon": "polygon",
+        "tool.move": "arrows-out-cardinal",
+        "tool.transform": "arrows-out",
+        "tool.crop": "crop",
+        "tool.fill": "paint-bucket",
+        "tool.gradient": "gradient",
+        "tool.eyedropper": "eyedropper",
+        "tool.text": "text-t",
+        "tool.shape": "shapes",
+        "tool.pan": "hand",
+        "tool.zoom": "magnifying-glass"
+    })
+
+    function toolIconStem(iconKey) {
+        return root.toolIconStemMap[iconKey] || iconKey
+    }
 
     function actionsForMenu(menuName) {
         var out = []
@@ -699,38 +730,36 @@ ApplicationWindow {
                 width: parent.width - Theme.spaceXs * 2
 
                 Repeater {
-                    model: [
-                        { id: "tool.brush", stem: "paint-brush", tip: qsTr("Brush") },
-                        { id: "tool.eraser", stem: "eraser", tip: qsTr("Eraser") },
-                        { id: "tool.select.rect", stem: "selection", tip: qsTr("Rectangular Marquee") },
-                        { id: "tool.select.ellipse", stem: "circle-dashed", tip: qsTr("Elliptical Marquee") },
-                        { id: "tool.select.lasso", stem: "lasso", tip: qsTr("Lasso") },
-                        { id: "tool.select.polygon", stem: "polygon", tip: qsTr("Polygonal Lasso") },
-                        { id: "tool.move", stem: "arrows-out-cardinal", tip: qsTr("Move") },
-                        { id: "tool.transform", stem: "arrows-out", tip: qsTr("Free Transform") },
-                        { id: "tool.crop", stem: "crop", tip: qsTr("Crop") },
-                        { id: "tool.fill", stem: "paint-bucket", tip: qsTr("Fill") },
-                        { id: "tool.gradient", stem: "gradient", tip: qsTr("Gradient") },
-                        { id: "tool.eyedropper", stem: "eyedropper", tip: qsTr("Eyedropper") },
-                        { id: "tool.text", stem: "text-t", tip: qsTr("Text") },
-                        { id: "tool.shape", stem: "shapes", tip: qsTr("Shape") },
-                        { id: "tool.pan", stem: "hand", tip: qsTr("Pan") },
-                        { id: "tool.zoom", stem: "magnifying-glass", tip: qsTr("Zoom") }
-                    ]
+                    model: root.toolDescriptors
                     delegate: Item {
                         width: toolColumn.width
                         height: Theme.toolHit
+                        readonly property string toolId: modelData.id
+                        readonly property string toolGroup: modelData.group || ""
+                        readonly property string prevGroup: index > 0
+                                                           ? root.toolDescriptors[index - 1].group
+                                                           : ""
+
+                        Rectangle {
+                            visible: index > 0 && toolGroup !== prevGroup
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.top: parent.top
+                            width: parent.width - 8
+                            height: 1
+                            y: -Theme.spaceXs / 2
+                            color: Theme.border
+                        }
 
                         Rectangle {
                             anchors.fill: parent
                             anchors.leftMargin: 2
                             anchors.rightMargin: 2
                             radius: Theme.radiusSm
-                            color: AppSession.activeTool === modelData.id
+                            color: AppSession.activeTool === toolId
                                    ? Theme.toolActiveBg : (toolHover.hovered ? Theme.surfaceContainerHigh : "transparent")
 
                             Rectangle {
-                                visible: AppSession.activeTool === modelData.id
+                                visible: AppSession.activeTool === toolId
                                 anchors.left: parent.left
                                 anchors.top: parent.top
                                 anchors.bottom: parent.bottom
@@ -740,7 +769,7 @@ ApplicationWindow {
 
                             Image {
                                 anchors.centerIn: parent
-                                source: root.iconUrl(modelData.stem)
+                                source: root.iconUrl(root.toolIconStem(modelData.icon_key))
                                 width: 20
                                 height: 20
                                 sourceSize: Qt.size(20, 20)
@@ -752,17 +781,17 @@ ApplicationWindow {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (AppSession.transformActive
-                                            && modelData.id !== "tool.transform")
+                                            && toolId !== "tool.transform")
                                         AppSession.cancelTransform()
                                     if (AppSession.cropPreviewActive
-                                            && modelData.id !== "tool.crop")
+                                            && toolId !== "tool.crop")
                                         AppSession.cancelCrop()
-                                    AppSession.setActiveTool(modelData.id)
-                                    if (modelData.id === "tool.transform")
+                                    AppSession.setActiveTool(toolId)
+                                    if (toolId === "tool.transform")
                                         AppSession.beginTransform()
                                 }
                                 ToolTip.visible: containsMouse
-                                ToolTip.text: modelData.tip
+                                ToolTip.text: modelData.title
                                 ToolTip.delay: 400
                                 hoverEnabled: true
                             }

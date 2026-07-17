@@ -69,104 +69,104 @@ pub fn default_panels() -> Vec<PanelDescriptor> {
     ]
 }
 
-/// Built-in tool strip set.
+/// Built-in tool strip set (`icon_key` = Phosphor stem under `assets/icons/phosphor/`).
 pub fn default_tools() -> Vec<ToolDescriptor> {
     use crate::tool_id;
     vec![
         ToolDescriptor {
             id: tool_id::BRUSH.into(),
             title: "Brush".into(),
-            icon_key: "tool.brush".into(),
+            icon_key: "paint-brush".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::ERASER.into(),
             title: "Eraser".into(),
-            icon_key: "tool.eraser".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::FILL.into(),
-            title: "Paint Bucket".into(),
-            icon_key: "tool.fill".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::GRADIENT.into(),
-            title: "Gradient".into(),
-            icon_key: "tool.gradient".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::EYEDROPPER.into(),
-            title: "Eyedropper".into(),
-            icon_key: "tool.eyedropper".into(),
+            icon_key: "eraser".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_RECT.into(),
             title: "Rectangular Marquee".into(),
-            icon_key: "tool.select.rect".into(),
+            icon_key: "selection".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_ELLIPSE.into(),
             title: "Elliptical Marquee".into(),
-            icon_key: "tool.select.ellipse".into(),
+            icon_key: "circle-dashed".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_LASSO.into(),
             title: "Lasso".into(),
-            icon_key: "tool.select.lasso".into(),
+            icon_key: "lasso".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_POLYGON.into(),
             title: "Polygonal Lasso".into(),
-            icon_key: "tool.select.polygon".into(),
+            icon_key: "polygon".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::MOVE.into(),
             title: "Move".into(),
-            icon_key: "tool.move".into(),
+            icon_key: "arrows-out-cardinal".into(),
             group: "transform".into(),
         },
         ToolDescriptor {
             id: tool_id::TRANSFORM.into(),
             title: "Free Transform".into(),
-            icon_key: "tool.transform".into(),
+            icon_key: "arrows-out".into(),
             group: "transform".into(),
         },
         ToolDescriptor {
             id: tool_id::CROP.into(),
             title: "Crop".into(),
-            icon_key: "tool.crop".into(),
+            icon_key: "crop".into(),
             group: "transform".into(),
+        },
+        ToolDescriptor {
+            id: tool_id::FILL.into(),
+            title: "Fill".into(),
+            icon_key: "paint-bucket".into(),
+            group: "paint".into(),
+        },
+        ToolDescriptor {
+            id: tool_id::GRADIENT.into(),
+            title: "Gradient".into(),
+            icon_key: "gradient".into(),
+            group: "paint".into(),
+        },
+        ToolDescriptor {
+            id: tool_id::EYEDROPPER.into(),
+            title: "Eyedropper".into(),
+            icon_key: "eyedropper".into(),
+            group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::TEXT.into(),
             title: "Text".into(),
-            icon_key: "tool.text".into(),
+            icon_key: "text-t".into(),
             group: "type".into(),
         },
         ToolDescriptor {
             id: tool_id::SHAPE.into(),
             title: "Shape".into(),
-            icon_key: "tool.shape".into(),
+            icon_key: "shapes".into(),
             group: "vector".into(),
         },
         ToolDescriptor {
             id: tool_id::PAN.into(),
-            title: "Hand".into(),
-            icon_key: "tool.pan".into(),
+            title: "Pan".into(),
+            icon_key: "hand".into(),
             group: "navigate".into(),
         },
         ToolDescriptor {
             id: tool_id::ZOOM.into(),
             title: "Zoom".into(),
-            icon_key: "tool.zoom".into(),
+            icon_key: "magnifying-glass".into(),
             group: "navigate".into(),
         },
     ]

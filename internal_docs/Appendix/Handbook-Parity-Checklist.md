@@ -48,10 +48,10 @@ Chapters: [06](../06-Toolbar-System.md), [07](../07-Context-Menus.md), [08](../0
 
 ### P1.3 Toolbars & tools
 
-- [ ] Tool strip consumes `tools_json` / tool descriptors
-- [ ] Tool-options bar bound to active tool + edit target
+- [x] Tool strip consumes `tools_json` / tool descriptors
+- [~] Tool-options bar bound to active tool + edit target (active tool yes; edit-target chrome in P3.1)
 - [ ] Overflow / compact layout for narrow windows
-- [ ] Cancel-in-progress policy on tool switch (handbook 06)
+- [~] Cancel-in-progress policy on tool switch (handbook 06) — transform/crop cancel on switch already
 
 ### P1.4 Context menus
 
