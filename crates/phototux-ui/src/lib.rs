@@ -10,13 +10,13 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentError,
-    DocumentGraph, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation,
-    HistoryKind, HostHistoryAction, LayerId, LayerKind, LayerStyle, LayerTransform, PathPoint,
+    AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph,
+    DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation, HistoryKind,
+    HostFollowUp, HostHistoryAction, LayerId, LayerKind, LayerTransform, PathPoint,
     SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, ShapeContent,
     TextContent, TransformSession, VectorPath, bake_text_rgba8, command_id, contract_mask_r8,
     ellipse_path, expand_mask_r8, feather_mask_r8, rasterize_shape_rgba8, rect_path,
-    stroke_path_rgba8, tool_id, undo_actions,
+    stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
 
@@ -803,6 +803,12 @@ impl AppSession {
         if let Some(host) = effects.host_history {
             self.apply_host_history(host);
         }
+        match effects.host_follow_up {
+            HostFollowUp::None => {}
+            HostFollowUp::ConvertPixels { from, to } => {
+                self.apply_convert_pixels(&from, &to);
+            }
+        }
         if effects.recomposite {
             self.recomposite();
         }
@@ -822,10 +828,42 @@ impl AppSession {
             self.sync_from_engine();
             self.emit_doc_fields();
         }
+        if effects.sync_selection {
+            self.sync_from_engine();
+            self.emit_selection_fields();
+            self.can_undo_changed();
+            self.history_labels_changed();
+            self.status_text_changed();
+        }
         if effects.generation > 0 {
             self.graph_revision = effects.generation.min(i32::MAX as u64) as i32;
             self.graph_revision_changed();
         }
+    }
+
+    fn apply_convert_pixels(&mut self, from: &str, to: &str) {
+        match phototux_canvas::read_all_layer_rgba() {
+            Ok(layers) => {
+                for (id, _w, _h, mut pixels) in layers {
+                    phototux_engine::convert_rgba8_profile(&mut pixels, from, to);
+                    if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                        self.report_gpu("convert profile upload", &error);
+                        return;
+                    }
+                }
+            }
+            Err(error) => {
+                self.report_gpu("convert profile read", &error);
+                return;
+            }
+        }
+        if let Some(graph) = self.engine.graph.as_mut() {
+            graph.color.mark_converted();
+            graph.bump_generation();
+        }
+        self.status_text =
+            format!("Converted pixels to {to} (from {from}) — this rewrote layer data");
+        self.status_text_changed();
     }
 
     fn apply_host_history(&mut self, action: HostHistoryAction) {
@@ -1617,49 +1655,12 @@ impl AppSession {
     /// Convert document pixels into `profile` (destructive; DR-012).
     #[qslot]
     fn convert_document_profile(&mut self, profile: String) {
-        let from = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| g.color.assigned_profile.clone())
-            .unwrap_or_else(|| "sRGB".into());
         if let Err(error) = self.invoke_command(
             command_id::DOCUMENT_CONVERT_PROFILE,
-            CommandArgs::ConvertProfile {
-                profile: profile.clone(),
-            },
+            CommandArgs::ConvertProfile { profile },
         ) {
             self.report_gpu("convert profile", &error.to_string());
-            return;
         }
-        let needs_rewrite = from != profile;
-        if needs_rewrite {
-            match phototux_canvas::read_all_layer_rgba() {
-                Ok(layers) => {
-                    for (id, _w, _h, mut pixels) in layers {
-                        phototux_engine::convert_rgba8_profile(&mut pixels, &from, &profile);
-                        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
-                            self.report_gpu("convert profile upload", &error);
-                            return;
-                        }
-                    }
-                }
-                Err(error) => {
-                    self.report_gpu("convert profile read", &error);
-                    return;
-                }
-            }
-        }
-        if let Some(graph) = self.engine.graph.as_mut() {
-            graph.color.mark_converted();
-            graph.bump_generation();
-        }
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.status_text =
-            format!("Converted pixels to {profile} (from {from}) — this rewrote layer data");
-        self.status_text_changed();
     }
 
     #[qslot]
@@ -1894,18 +1895,17 @@ impl AppSession {
                     dirty = true;
                 }
                 EngineEvent::StrokeEnded => {
-                    let __gen = self.engine.bump_document_generation();
-                    self.engine.history.push_stroke(
-                        if self.mask_edit_active {
-                            "Mask stroke"
-                        } else {
-                            "Brush stroke"
+                    let label = if self.mask_edit_active {
+                        "Mask stroke"
+                    } else {
+                        "Brush stroke"
+                    };
+                    let _ = self.invoke_command(
+                        command_id::RASTER_PAINT_STROKE,
+                        CommandArgs::RasterPaintStroke {
+                            label: label.to_owned(),
                         },
-                        __gen,
                     );
-                    self.graph_revision = self.graph_revision.wrapping_add(1);
-                    self.graph_revision_changed();
-                    self.mark_dirty();
                     dirty = true;
                 }
                 EngineEvent::Error(e) => {
@@ -2143,16 +2143,19 @@ impl AppSession {
 
     #[qslot]
     fn pan_by(&mut self, dx: f32, dy: f32) {
-        self.engine.pan_by(dx, dy);
-        self.sync_camera_from_engine();
-        self.emit_camera_fields();
+        let _ = self.invoke_command(command_id::VIEW_PAN_BY, CommandArgs::PanBy { dx, dy });
     }
 
     #[qslot]
     fn zoom_at(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
-        self.engine.zoom_at(factor, anchor_x, anchor_y);
-        self.sync_camera_from_engine();
-        self.emit_camera_fields();
+        let _ = self.invoke_command(
+            command_id::VIEW_ZOOM_AT,
+            CommandArgs::ZoomAt {
+                factor,
+                anchor_x,
+                anchor_y,
+            },
+        );
     }
 
     #[qslot]
@@ -2487,21 +2490,18 @@ impl AppSession {
         if let Err(error) = gpu_result {
             self.report_gpu("selection apply", &error);
         }
-        match shape {
-            SelectionShape::Rect => self.engine.selection.set_rect(rect, mode),
-            SelectionShape::Ellipse => self.engine.selection.set_ellipse(rect, mode),
-            SelectionShape::Mask => {}
-        }
         self.selection_preview_active = false;
         self.clear_selection_path();
-        let __gen = self.engine.bump_document_generation();
-        self.engine.history.push_selection(label, __gen);
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_selection_fields();
-        self.can_undo_changed();
-        self.history_labels_changed();
-        self.status_text_changed();
+        let _ = self.invoke_command(
+            command_id::SELECTION_REPLACE,
+            CommandArgs::SelectionReplace {
+                shape,
+                combine: mode,
+                rect,
+                polygon: Vec::new(),
+                label: label.to_owned(),
+            },
+        );
     }
 
     fn clear_selection_path(&mut self) {
@@ -2577,15 +2577,14 @@ impl AppSession {
             return;
         }
         let mode = SelectionCombine::parse(&combine);
-        let Some(bounds) = SelectionState::polygon_bounds(&parsed) else {
+        if SelectionState::polygon_bounds(&parsed).is_none() {
             self.clear_selection_path();
             return;
-        };
+        }
         self.push_selection_snapshot();
         if let Err(error) = phototux_canvas::selection_apply_polygon(&parsed, mode) {
             self.report_gpu("polygon selection", &error);
         }
-        self.engine.selection.set_mask_polygon(bounds, mode);
         self.selection_preview_active = false;
         self.clear_selection_path();
         let label = if self.engine.active_tool.contains("lasso") {
@@ -2593,14 +2592,21 @@ impl AppSession {
         } else {
             "Polygonal selection"
         };
-        let __gen = self.engine.bump_document_generation();
-        self.engine.history.push_selection(label, __gen);
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_selection_fields();
-        self.can_undo_changed();
-        self.history_labels_changed();
-        self.status_text_changed();
+        let _ = self.invoke_command(
+            command_id::SELECTION_REPLACE,
+            CommandArgs::SelectionReplace {
+                shape: SelectionShape::Mask,
+                combine: mode,
+                rect: SelectionRect {
+                    x: 0,
+                    y: 0,
+                    width: 0,
+                    height: 0,
+                },
+                polygon: parsed,
+                label: label.to_owned(),
+            },
+        );
     }
 
     #[qslot]
@@ -2624,16 +2630,9 @@ impl AppSession {
         if let Err(error) = phototux_canvas::selection_clear() {
             self.report_gpu("deselect", &error);
         }
-        self.engine.selection.clear();
         self.selection_preview_active = false;
         self.clear_selection_path();
-        let __gen = self.engine.bump_document_generation();
-        self.engine.history.push_selection("Deselect", __gen);
-        self.sync_from_engine();
-        self.emit_selection_fields();
-        self.can_undo_changed();
-        self.history_labels_changed();
-        self.status_text_changed();
+        let _ = self.invoke_command(command_id::SELECTION_DESELECT, CommandArgs::None);
     }
 
     #[qslot]
@@ -2645,17 +2644,8 @@ impl AppSession {
         if let Err(error) = phototux_canvas::selection_select_all() {
             self.report_gpu("select all", &error);
         }
-        self.engine
-            .selection
-            .select_all(self.engine.size.width, self.engine.size.height);
         self.selection_preview_active = false;
-        let __gen = self.engine.bump_document_generation();
-        self.engine.history.push_selection("Select all", __gen);
-        self.sync_from_engine();
-        self.emit_selection_fields();
-        self.can_undo_changed();
-        self.history_labels_changed();
-        self.status_text_changed();
+        let _ = self.invoke_command(command_id::SELECTION_SELECT_ALL, CommandArgs::None);
     }
 
     #[qslot]
@@ -2667,19 +2657,8 @@ impl AppSession {
         if let Err(error) = phototux_canvas::selection_invert() {
             self.report_gpu("invert selection", &error);
         }
-        self.engine
-            .selection
-            .invert_bounds(self.engine.size.width, self.engine.size.height);
         self.selection_preview_active = false;
-        let __gen = self.engine.bump_document_generation();
-        self.engine
-            .history
-            .push_selection("Invert selection", __gen);
-        self.sync_from_engine();
-        self.emit_selection_fields();
-        self.can_undo_changed();
-        self.history_labels_changed();
-        self.status_text_changed();
+        let _ = self.invoke_command(command_id::SELECTION_INVERT, CommandArgs::None);
     }
 
     #[qslot]
@@ -2720,23 +2699,19 @@ impl AppSession {
             self.fail_io("Paste", "clipboard empty");
             return;
         };
-        let result = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            undo_actions::add_layer(graph, history, Some("Pasted".into()))
-        };
-        match result {
-            Ok(id) => {
-                if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
-                    // Dimension mismatch: still keep empty layer.
-                    let _ = (width, height, error);
+        match self.invoke_command(
+            command_id::CLIPBOARD_PASTE_LAYER,
+            CommandArgs::PasteLayer {
+                name: "Pasted".into(),
+            },
+        ) {
+            Ok(()) => {
+                if let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) {
+                    if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                        let _ = (width, height, error);
+                    }
+                    self.recomposite();
                 }
-                self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
             }
             Err(error) => self.report_gpu("paste", &error.to_string()),
         }
@@ -2744,69 +2719,17 @@ impl AppSession {
 
     #[qslot]
     fn add_group_layer(&mut self) {
-        let result = (|| {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
-            let id = graph.add_group_top(None)?;
-            let index = graph.index_of(id).unwrap_or(0);
-            let layer = graph
-                .get(id)
-                .cloned()
-                .ok_or(DocumentError::LayerMissingAfterAdd)?;
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::AddLayer { id, index, layer },
-                "Add group",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
-            Ok::<_, DocumentError>(())
-        })();
-        match result {
-            Ok(()) => {
-                self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
-            }
-            Err(error) => self.report_gpu("add group", &error.to_string()),
+        if let Err(error) = self.invoke_command(command_id::LAYER_GROUP, CommandArgs::None) {
+            self.report_gpu("add group", &error.to_string());
         }
     }
 
     #[qslot]
     fn add_text_layer(&mut self, text: String) {
-        let content = TextContent {
-            text,
-            ..TextContent::default()
-        };
-        let result = (|| {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
-            let id = graph.add_text_top(None, content)?;
-            let index = graph.index_of(id).unwrap_or(0);
-            let layer = graph
-                .get(id)
-                .cloned()
-                .ok_or(DocumentError::LayerMissingAfterAdd)?;
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::AddLayer { id, index, layer },
-                "Add text layer",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
-            Ok::<_, DocumentError>(())
-        })();
-        match result {
-            Ok(()) => {
-                self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
-            }
-            Err(error) => self.report_gpu("add text", &error.to_string()),
+        if let Err(error) =
+            self.invoke_command(command_id::TEXT_CREATE, CommandArgs::TextCreate { text })
+        {
+            self.report_gpu("add text", &error.to_string());
         }
     }
 
@@ -2838,22 +2761,15 @@ impl AppSession {
                 return;
             }
         };
-        if let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) {
-            layer.kind = LayerKind::Raster;
-            layer.text = None;
-            if layer.asset_key.is_none() {
-                layer.asset_key = Some(format!("layer-{}", id.0));
-            }
+        if let Err(error) = self.invoke_command(command_id::TEXT_BAKE, CommandArgs::None) {
+            self.report_gpu("bake text", &error.to_string());
+            return;
         }
         if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
             self.report_gpu("bake text upload", &error);
             return;
         }
-        let _ = self.engine.bump_document_generation();
         self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
         self.status_text = "Text baked to pixels".to_owned();
         self.status_text_changed();
     }
@@ -2899,35 +2815,19 @@ impl AppSession {
                 return;
             }
         };
-        let result = (|| {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
-            let id = graph.add_shape_top(None, content)?;
-            let index = graph.index_of(id).unwrap_or(0);
-            let layer = graph
-                .get(id)
-                .cloned()
-                .ok_or(DocumentError::LayerMissingAfterAdd)?;
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::AddLayer { id, index, layer },
-                "Add shape layer",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
-            Ok::<_, DocumentError>(id)
-        })();
-        match result {
-            Ok(id) => {
+        match self.invoke_command(
+            command_id::SHAPE_CREATE,
+            CommandArgs::ShapeCreate { content },
+        ) {
+            Ok(()) => {
+                let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) else {
+                    return;
+                };
                 if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
                     self.report_gpu("shape upload", &error);
                     return;
                 }
                 self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
             }
             Err(error) => self.report_gpu("add shape", &error.to_string()),
         }
@@ -2981,22 +2881,15 @@ impl AppSession {
                 return;
             }
         };
-        if let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) {
-            layer.kind = LayerKind::Raster;
-            layer.shape = None;
-            if layer.asset_key.is_none() {
-                layer.asset_key = Some(format!("layer-{}", id.0));
-            }
+        if let Err(error) = self.invoke_command(command_id::SHAPE_RASTERIZE, CommandArgs::None) {
+            self.report_gpu("rasterize shape", &error.to_string());
+            return;
         }
         if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
             self.report_gpu("rasterize shape upload", &error);
             return;
         }
-        let _ = self.engine.bump_document_generation();
         self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
         self.status_text = "Shape rasterized to pixels".to_owned();
         self.status_text_changed();
     }
@@ -3014,11 +2907,11 @@ impl AppSession {
             return;
         };
         let (w, h) = (graph.size.width, graph.size.height);
-        let radius = radius as u32;
+        let radius_u = radius as u32;
         let next = match op.as_str() {
-            "feather" => feather_mask_r8(w, h, &mask, radius),
-            "expand" => expand_mask_r8(w, h, &mask, radius),
-            "contract" => contract_mask_r8(w, h, &mask, radius),
+            "feather" => feather_mask_r8(w, h, &mask, radius_u),
+            "expand" => expand_mask_r8(w, h, &mask, radius_u),
+            "contract" => contract_mask_r8(w, h, &mask, radius_u),
             _ => {
                 self.status_text = format!("Unknown selection op: {op}");
                 self.status_text_changed();
@@ -3027,17 +2920,19 @@ impl AppSession {
         };
         match next {
             Ok(bytes) => {
+                self.push_selection_snapshot();
                 if let Err(error) = phototux_canvas::selection_restore(&bytes) {
                     self.report_gpu("modify selection", &error);
                     return;
                 }
-                self.engine.selection.feather = if op == "feather" {
-                    radius as f32
-                } else {
-                    self.engine.selection.feather
-                };
-                self.sync_from_engine();
-                self.status_text = format!("Selection {op} ({radius}px)");
+                let _ = self.invoke_command(
+                    command_id::SELECTION_MODIFY,
+                    CommandArgs::SelectionModify {
+                        op: op.clone(),
+                        radius: radius_u,
+                    },
+                );
+                self.status_text = format!("Selection {op} ({radius_u}px)");
                 self.status_text_changed();
             }
             Err(error) => self.report_gpu("modify selection", &error),
@@ -3046,44 +2941,24 @@ impl AppSession {
 
     #[qslot]
     fn add_drop_shadow_style(&mut self) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) else {
-            return;
-        };
-        if layer.kind != LayerKind::Raster {
-            self.status_text = "Drop Shadow requires a raster layer".to_owned();
+        if let Err(error) =
+            self.invoke_command(command_id::STYLE_ADD_DROP_SHADOW, CommandArgs::None)
+        {
+            self.status_text = error.to_string();
             self.status_text_changed();
             return;
         }
-        layer.styles.push(LayerStyle::drop_shadow_default());
-        let _ = self.engine.bump_document_generation();
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
         self.status_text = "Drop Shadow style added".to_owned();
         self.status_text_changed();
     }
 
     #[qslot]
     fn add_stroke_style(&mut self) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) else {
-            return;
-        };
-        if layer.kind != LayerKind::Raster {
-            self.status_text = "Stroke style requires a raster layer".to_owned();
+        if let Err(error) = self.invoke_command(command_id::STYLE_ADD_STROKE, CommandArgs::None) {
+            self.status_text = error.to_string();
             self.status_text_changed();
             return;
         }
-        layer.styles.push(LayerStyle::stroke_default());
-        let _ = self.engine.bump_document_generation();
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
         self.status_text = "Stroke style added".to_owned();
         self.status_text_changed();
     }
@@ -3124,23 +2999,19 @@ impl AppSession {
             }
         };
         let layer_name = path.name.clone();
-        let result = {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            undo_actions::add_layer(graph, history, Some(layer_name))
-        };
-        match result {
-            Ok(id) => {
+        match self.invoke_command(
+            command_id::PATH_STROKE_TO_LAYER,
+            CommandArgs::PathStroke { layer_name },
+        ) {
+            Ok(()) => {
+                let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) else {
+                    return;
+                };
                 if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
                     self.report_gpu("stroke path upload", &error);
                     return;
                 }
                 self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
                 self.status_text = "Path stroked to new layer".to_owned();
                 self.status_text_changed();
             }
@@ -3150,119 +3021,20 @@ impl AppSession {
 
     #[qslot]
     fn add_adjustment_layer(&mut self, kind: String) {
-        let (name, params) = match kind.as_str() {
-            "levels" => (
-                "Levels",
-                AdjustmentParams::Levels {
-                    black: 0.0,
-                    white: 1.0,
-                    gamma: 1.0,
-                },
-            ),
-            "invert" => ("Invert", AdjustmentParams::Invert),
-            "threshold" => ("Threshold", AdjustmentParams::Threshold { level: 0.5 }),
-            "posterize" => ("Posterize", AdjustmentParams::Posterize { levels: 8 }),
-            "hue" => (
-                "Hue/Saturation",
-                AdjustmentParams::HueSaturation {
-                    hue: 0.0,
-                    saturation: 0.0,
-                    lightness: 0.0,
-                },
-            ),
-            _ => (
-                "Brightness/Contrast",
-                AdjustmentParams::BrightnessContrast {
-                    brightness: 0.0,
-                    contrast: 0.0,
-                },
-            ),
-        };
-        let result = (|| {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let graph = graph.as_mut().ok_or(DocumentError::NoDocument)?;
-            let id = graph.add_adjustment_top(Some(name.into()), params)?;
-            let index = graph.index_of(id).unwrap_or(0);
-            let layer = graph
-                .get(id)
-                .cloned()
-                .ok_or(DocumentError::LayerMissingAfterAdd)?;
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::AddLayer { id, index, layer },
-                "Add adjustment",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
-            Ok::<_, DocumentError>(())
-        })();
-        match result {
-            Ok(()) => {
-                self.recomposite();
-                self.mark_dirty();
-                self.sync_from_engine();
-                self.emit_layer_fields();
-            }
-            Err(error) => self.report_gpu("add adjustment", &error.to_string()),
+        if let Err(error) = self.invoke_command(
+            command_id::FILTER_ADD_ADJUSTMENT,
+            CommandArgs::FilterAdjustment { kind },
+        ) {
+            self.report_gpu("add adjustment", &error.to_string());
         }
     }
 
     #[qslot]
     fn set_adjustment_params(&mut self, p0: f32, p1: f32, p2: f32) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let Some(prev) = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.get(id))
-            .and_then(|l| l.adjustment.clone())
-        else {
-            return;
-        };
-        let next = match &prev {
-            AdjustmentParams::BrightnessContrast { .. } => AdjustmentParams::BrightnessContrast {
-                brightness: p0,
-                contrast: p1,
-            },
-            AdjustmentParams::Levels { .. } => AdjustmentParams::Levels {
-                black: p0,
-                white: p1,
-                gamma: p2,
-            },
-            other => other.clone(),
-        };
-        let next = next.clamped();
-        if next == prev {
-            return;
-        }
-        {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            if graph.set_adjustment(id, Some(next.clone())).is_none() {
-                return;
-            }
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::SetAdjustment {
-                    id,
-                    prev: Some(prev),
-                    next: Some(next),
-                },
-                "Adjustment",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
-        }
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
+        let _ = self.invoke_command(
+            command_id::FILTER_SET_PARAMETERS,
+            CommandArgs::FilterParameters { p0, p1, p2 },
+        );
     }
 
     #[qslot]
@@ -3281,102 +3053,23 @@ impl AppSession {
     }
 
     fn add_named_filter(&mut self, kind: &str) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let is_raster = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.get(id))
-            .is_some_and(|l| l.kind == LayerKind::Raster);
-        if !is_raster {
-            self.status_text = format!("{kind} filter requires an active raster layer");
+        if let Err(error) = self.invoke_command(
+            command_id::FILTER_ADD_EFFECT,
+            CommandArgs::FilterEffect {
+                kind: kind.to_owned(),
+            },
+        ) {
+            self.status_text = error.to_string();
             self.status_text_changed();
-            return;
         }
-        let Some((prev, _)) = (match kind {
-            "gaussian" => self
-                .engine
-                .graph
-                .as_mut()
-                .and_then(|g| g.add_gaussian_blur(id, 4.0)),
-            "motion" => self
-                .engine
-                .graph
-                .as_mut()
-                .and_then(|g| g.add_motion_blur(id, 8.0, 0.0)),
-            "emboss" => self
-                .engine
-                .graph
-                .as_mut()
-                .and_then(|g| g.add_emboss(id, 1.0, 135.0)),
-            _ => None,
-        }) else {
-            return;
-        };
-        let next = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.get(id))
-            .map(|l| l.effects.clone())
-            .unwrap_or_default();
-        let label = match kind {
-            "gaussian" => "Gaussian Blur",
-            "motion" => "Motion Blur",
-            "emboss" => "Emboss",
-            other => other,
-        };
-        {
-            let generation = self.engine.bump_document_generation();
-            self.engine.history.push_graph_applied(
-                phototux_engine::GraphCommand::SetEffects { id, prev, next },
-                label,
-                generation,
-            );
-        }
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]
     fn set_gaussian_radius(&mut self, radius: f32) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let Some(prev) = self
-            .engine
-            .graph
-            .as_mut()
-            .and_then(|g| g.set_gaussian_radius(id, radius))
-        else {
-            return;
-        };
-        let next = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.get(id))
-            .map(|l| l.effects.clone())
-            .unwrap_or_default();
-        if next == prev {
-            return;
-        }
-        {
-            let generation = self.engine.bump_document_generation();
-            self.engine.history.push_graph_applied(
-                phototux_engine::GraphCommand::SetEffects { id, prev, next },
-                "Blur radius",
-                generation,
-            );
-        }
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
+        let _ = self.invoke_command(
+            command_id::FILTER_SET_GAUSSIAN_RADIUS,
+            CommandArgs::FilterGaussianRadius { radius },
+        );
     }
 
     #[qslot]
@@ -3397,30 +3090,9 @@ impl AppSession {
             self.report_gpu("add mask", &error);
             return;
         }
-        {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            let prev = graph.get(id).and_then(|l| l.mask.clone());
-            let next = Some(phototux_engine::LayerMask::default());
-            if graph.set_mask(id, next.clone()).is_none() {
-                return;
-            }
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::SetMask { id, prev, next },
-                "Add layer mask",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
+        if let Err(error) = self.invoke_command(command_id::MASK_CREATE, CommandArgs::None) {
+            self.report_gpu("add mask", &error.to_string());
         }
-        self.engine.mask_edit_layer = Some(id);
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]
@@ -3441,82 +3113,17 @@ impl AppSession {
             self.report_gpu("delete mask", &error);
             return;
         }
-        {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            let prev = graph.get(id).and_then(|layer| layer.mask.clone());
-            if graph.set_mask(id, None).is_none() {
-                return;
-            }
-            history.push_graph_applied(
-                phototux_engine::GraphCommand::SetMask {
-                    id,
-                    prev,
-                    next: None,
-                },
-                "Delete layer mask",
-                {
-                    graph.bump_generation();
-                    graph.generation
-                },
-            );
+        if let Err(error) = self.invoke_command(command_id::MASK_DELETE, CommandArgs::None) {
+            self.report_gpu("delete mask", &error.to_string());
         }
-        if self.engine.mask_edit_layer == Some(id) {
-            self.engine.mask_edit_layer = None;
-        }
-        self.recomposite();
-        self.mark_dirty();
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]
     fn set_mask_enabled_on_active(&mut self, enabled: bool) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let mut changed = false;
-        {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            let Some(prev) = graph.get(id).and_then(|layer| layer.mask.clone()) else {
-                return;
-            };
-            if prev.enabled == enabled {
-                return;
-            }
-            let mut next = prev.clone();
-            next.enabled = enabled;
-            if graph.set_mask(id, Some(next.clone())).is_some() {
-                history.push_graph_applied(
-                    phototux_engine::GraphCommand::SetMask {
-                        id,
-                        prev: Some(prev),
-                        next: Some(next),
-                    },
-                    if enabled {
-                        "Enable layer mask"
-                    } else {
-                        "Disable layer mask"
-                    },
-                    {
-                        graph.bump_generation();
-                        graph.generation
-                    },
-                );
-                changed = true;
-            }
-        }
-        if changed {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-        }
+        let _ = self.invoke_command(
+            command_id::MASK_SET_ENABLED,
+            CommandArgs::MaskSetEnabled { enabled },
+        );
     }
 
     #[qslot]
@@ -3542,44 +3149,10 @@ impl AppSession {
 
     #[qslot]
     fn set_clips_to_below_on_active(&mut self, clips: bool) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let mut changed = false;
-        {
-            let SessionState { graph, history, .. } = &mut self.engine;
-            let Some(graph) = graph.as_mut() else {
-                return;
-            };
-            let Some(prev) = graph.set_clips_to_below(id, clips) else {
-                return;
-            };
-            if prev != clips {
-                history.push_graph_applied(
-                    phototux_engine::GraphCommand::SetClipsToBelow {
-                        id,
-                        prev,
-                        next: clips,
-                    },
-                    if clips {
-                        "Create clipping mask"
-                    } else {
-                        "Release clipping mask"
-                    },
-                    {
-                        graph.bump_generation();
-                        graph.generation
-                    },
-                );
-                changed = true;
-            }
-        }
-        if changed {
-            self.recomposite();
-            self.mark_dirty();
-            self.sync_from_engine();
-            self.emit_layer_fields();
-        }
+        let _ = self.invoke_command(
+            command_id::LAYER_SET_CLIP,
+            CommandArgs::LayerSetClip { clips },
+        );
     }
 
     #[qslot]
@@ -3671,18 +3244,9 @@ impl AppSession {
         alignment: i32,
         color_hex: String,
     ) {
-        let Some(id) = self.active_id() else {
-            return;
-        };
-        let Some(layer) = self.engine.graph.as_mut().and_then(|g| g.get_mut(id)) else {
-            return;
-        };
-        if layer.kind != LayerKind::Text {
-            return;
-        }
         let rgba =
             phototux_engine::ColorState::from_hex(&color_hex).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-        layer.text = Some(TextContent {
+        let content = TextContent {
             text: body,
             font_family,
             font_size_pt: font_size.clamp(4.0, 512.0),
@@ -3690,11 +3254,17 @@ impl AppSession {
             alignment: u8::try_from(alignment.clamp(0, 2)).unwrap_or(0),
             tracking,
             line_spacing: line_spacing.clamp(0.5, 4.0),
-        });
-        let _ = self.engine.bump_document_generation();
-        self.mark_dirty();
-        self.sync_text_fields();
-        self.emit_text_fields();
+        };
+        if self
+            .invoke_command(
+                command_id::TEXT_SET_CONTENT,
+                CommandArgs::TextSetContent { content },
+            )
+            .is_ok()
+        {
+            self.sync_text_fields();
+            self.emit_text_fields();
+        }
     }
 
     #[qslot]
@@ -3770,10 +3340,11 @@ impl AppSession {
 
     #[qslot]
     fn commit_transform(&mut self) {
-        let Some(session) = self.engine.transform_session.take() else {
+        let Some(session) = self.engine.transform_session.clone() else {
             return;
         };
         if session.draft.is_identity() {
+            self.engine.transform_session = None;
             self.sync_transform_fields();
             self.emit_transform_fields();
             return;
@@ -3787,24 +3358,13 @@ impl AppSession {
             .unwrap_or_default();
         match phototux_canvas::bake_layer_transform(session.layer_id, session.draft, &layers) {
             Ok(ms) => {
-                if let Some(graph) = self.engine.graph.as_mut() {
-                    if let Some(layer) = graph.get_mut(session.layer_id) {
-                        layer.transform = LayerTransform::identity();
-                    }
-                    graph.revision = graph.revision.wrapping_add(1);
-                }
                 self.engine.set_composite_ms(ms);
-                let __gen = self.engine.bump_document_generation();
-                self.engine.history.push_transform("Free Transform", __gen);
-                self.mark_dirty();
+                let _ = self.invoke_command(command_id::RASTER_TRANSFORM_COMMIT, CommandArgs::None);
             }
             Err(error) => {
-                self.engine.transform_session = Some(session);
                 self.report_gpu("transform bake", &error);
             }
         }
-        self.sync_from_engine();
-        self.emit_layer_fields();
         self.emit_transform_fields();
     }
 
@@ -3861,27 +3421,19 @@ impl AppSession {
             .unwrap_or_default();
         match phototux_canvas::crop_document(rect, &layers) {
             Ok((new_size, ms)) => {
-                if let Some(graph) = self.engine.graph.as_mut() {
-                    graph.size = new_size;
-                    for layer in graph.layers_mut() {
-                        layer.transform = LayerTransform::identity();
-                    }
-                    graph.revision = graph.revision.wrapping_add(1);
-                }
-                self.engine.size = new_size;
                 self.engine.set_composite_ms(ms);
-                let __gen = self.engine.bump_document_generation();
-                self.engine.history.push_transform("Crop", __gen);
-                self.engine.selection.clear();
                 self.crop_preview_active = false;
                 self.clear_selection_stacks();
-                self.mark_dirty();
-                self.engine.zoom_to_fit();
+                let _ = self.invoke_command(
+                    command_id::DOCUMENT_CROP,
+                    CommandArgs::DocumentCrop {
+                        width: new_size.width,
+                        height: new_size.height,
+                    },
+                );
             }
             Err(error) => self.report_gpu("crop", &error),
         }
-        self.sync_from_engine();
-        self.emit_doc_fields();
     }
 
     #[qslot]
@@ -3905,21 +3457,13 @@ impl AppSession {
         match phototux_canvas::flip_layer(id, horizontal, &layers) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
-                let __gen = self.engine.bump_document_generation();
-                self.engine.history.push_transform(
-                    if horizontal {
-                        "Flip Horizontal"
-                    } else {
-                        "Flip Vertical"
-                    },
-                    __gen,
+                let _ = self.invoke_command(
+                    command_id::RASTER_FLIP,
+                    CommandArgs::RasterFlip { horizontal },
                 );
-                self.mark_dirty();
             }
             Err(error) => self.report_gpu("flip", &error),
         }
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]
@@ -3935,24 +3479,13 @@ impl AppSession {
             .map(|g| g.layers().to_vec())
             .unwrap_or_default();
         match phototux_canvas::rotate_canvas_90_cw(&layers) {
-            Ok((new_size, ms)) => {
-                if let Some(graph) = self.engine.graph.as_mut() {
-                    graph.size = new_size;
-                    graph.revision = graph.revision.wrapping_add(1);
-                }
-                self.engine.size = new_size;
+            Ok((_new_size, ms)) => {
                 self.engine.set_composite_ms(ms);
-                let __gen = self.engine.bump_document_generation();
-                self.engine.history.push_transform("Rotate 90° CW", __gen);
-                self.engine.selection.clear();
                 self.clear_selection_stacks();
-                self.mark_dirty();
-                self.engine.zoom_to_fit();
+                let _ = self.invoke_command(command_id::DOCUMENT_ROTATE_90, CommandArgs::None);
             }
             Err(error) => self.report_gpu("rotate canvas", &error),
         }
-        self.sync_from_engine();
-        self.emit_doc_fields();
     }
 
     fn active_raster_paintable(&self) -> Option<LayerId> {
@@ -3983,14 +3516,10 @@ impl AppSession {
         match phototux_canvas::fill_layer(id, fg, &layers, use_selection) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
-                let __gen = self.engine.bump_document_generation();
-                self.engine.history.push_transform("Fill", __gen);
-                self.mark_dirty();
+                let _ = self.invoke_command(command_id::RASTER_FILL, CommandArgs::None);
             }
             Err(error) => self.report_gpu("fill", &error),
         }
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]
@@ -4021,14 +3550,10 @@ impl AppSession {
         ) {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
-                let __gen = self.engine.bump_document_generation();
-                self.engine.history.push_transform("Gradient", __gen);
-                self.mark_dirty();
+                let _ = self.invoke_command(command_id::RASTER_GRADIENT, CommandArgs::None);
             }
             Err(error) => self.report_gpu("gradient", &error),
         }
-        self.sync_from_engine();
-        self.emit_layer_fields();
     }
 
     #[qslot]

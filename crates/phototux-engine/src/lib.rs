@@ -28,7 +28,9 @@ pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
 pub use color_mgmt::{ConvertPlan, DocumentColorState, convert_rgba8_profile};
 pub use command::{EngineCommand, EngineEvent};
-pub use commands::{CommandArgs, CommandEffects, CommandError, HostHistoryAction, command_id};
+pub use commands::{
+    CommandArgs, CommandEffects, CommandError, HostFollowUp, HostHistoryAction, command_id,
+};
 pub use cpu_composite::{CpuLayerRef, composite_rgba8};
 pub use document::{DocumentGraph, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use error::DocumentError;
