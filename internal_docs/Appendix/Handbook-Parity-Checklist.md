@@ -101,7 +101,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 - [ ] Tear-off floating docks
 - [ ] Auto-hide / reveal
 - [x] Persist topology across restart (reconcile on display change deferred)
-- [ ] Drag/drop placement UX
+- [~] Drag/drop placement UX (keyboard stack reorder + index API; pointer DnD next)
 
 ### P2.3 Panel system
 

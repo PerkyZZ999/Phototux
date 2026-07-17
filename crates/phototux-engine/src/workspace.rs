@@ -85,6 +85,32 @@ impl WorkspaceState {
         Ok(())
     }
 
+    /// Reorder a docked panel within the right stack (layout-only; never dirties document).
+    ///
+    /// # Errors
+    /// Returns a static reason when the move is invalid.
+    pub fn move_panel_in_stack(&mut self, panel_id: &str, delta: i32) -> Result<(), &'static str> {
+        let before = self.dock.clone();
+        self.dock.move_in_stack(panel_id, delta)?;
+        if self.dock != before {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    /// Absolute reorder by stack indices.
+    ///
+    /// # Errors
+    /// Returns a static reason when indices are invalid.
+    pub fn reorder_panel_in_stack(&mut self, from: usize, to: usize) -> Result<(), &'static str> {
+        let before = self.dock.clone();
+        self.dock.reorder(from, to)?;
+        if self.dock != before {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(())
+    }
+
     /// JSON object for prefs / QML: `{ "panel.layers": true, … }`.
     pub fn visibility_json(&self) -> String {
         serde_json::to_string(&self.panel_visibility).unwrap_or_else(|_| "{}".into())
@@ -135,5 +161,17 @@ mod tests {
     fn rejects_unknown_panel() {
         let mut ws = WorkspaceState::essentials();
         assert!(!ws.set_visible("panel.nope", true));
+    }
+
+    #[test]
+    fn move_panel_bumps_revision_not_document() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let doc_gen = session.document_generation();
+        let mut ws = WorkspaceState::essentials();
+        let rev = ws.revision;
+        ws.move_panel_in_stack("panel.history", -1).expect("move");
+        assert!(ws.revision > rev);
+        assert_eq!(session.document_generation(), doc_gen);
     }
 }

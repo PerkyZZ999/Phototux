@@ -2222,6 +2222,53 @@ impl AppSession {
         self.persist_workspace_visibility();
     }
 
+    /// Replace dock topology from JSON (layout-only; never dirties document).
+    #[qslot]
+    fn set_dock_topology_json(&mut self, json: String) {
+        match phototux_engine::DockTopology::from_json(&json) {
+            Ok(dock) => {
+                if let Err(reason) = self.workspace.set_dock(dock) {
+                    self.status_text = format!("Dock topology rejected: {reason}");
+                    self.status_text_changed();
+                    return;
+                }
+                self.persist_workspace_visibility();
+            }
+            Err(reason) => {
+                self.status_text = format!("Dock topology invalid: {reason}");
+                self.status_text_changed();
+            }
+        }
+    }
+
+    /// Move a panel within the right stack (`delta` −1 up / +1 down).
+    #[qslot]
+    fn move_panel_in_stack(&mut self, panel_id: String, delta: i32) {
+        if let Err(reason) = self.workspace.move_panel_in_stack(&panel_id, delta) {
+            self.status_text = format!("Panel move failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
+    /// Reorder right stack by indices (DnD commit).
+    #[qslot]
+    fn reorder_panel_in_stack(&mut self, from: i32, to: i32) {
+        if from < 0 || to < 0 {
+            return;
+        }
+        if let Err(reason) = self
+            .workspace
+            .reorder_panel_in_stack(from as usize, to as usize)
+        {
+            self.status_text = format!("Panel reorder failed: {reason}");
+            self.status_text_changed();
+            return;
+        }
+        self.persist_workspace_visibility();
+    }
+
     fn toggle_panel_by_id(&mut self, panel_id: &str) {
         if !self.workspace.toggle(panel_id) {
             self.status_text = format!("Unknown panel: {panel_id}");

@@ -95,6 +95,16 @@ ApplicationWindow {
     }
     readonly property var dockRightStack: dockTopology.right_stack || []
 
+    /// Row base for GridLayout dock (header = base*2, body = base*2+1).
+    function dockStackRow(panelId) {
+        var stack = root.dockRightStack
+        for (var i = 0; i < stack.length; ++i) {
+            if (stack[i] === panelId)
+                return i
+        }
+        return 1000
+    }
+
     function panelTitle(panelId) {
         var all = root.panelDescriptors
         for (var i = 0; i < all.length; ++i) {
@@ -1861,13 +1871,17 @@ ApplicationWindow {
                 color: Theme.border
             }
 
-            ColumnLayout {
+            GridLayout {
                 anchors.fill: parent
-                spacing: 0
+                columns: 1
+                rowSpacing: 0
+                columnSpacing: 0
 
                 // Properties panel header
                 Rectangle {
                     visible: AppSession.panelPropertiesVisible
+                    Layout.row: root.dockStackRow("panel.properties") * 2
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
@@ -1877,19 +1891,41 @@ ApplicationWindow {
                         height: 1
                         color: Theme.border
                     }
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
+                    RowLayout {
+                        anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
-                        text: qsTr(root.panelTitle("panel.properties"))
-                        color: Theme.colorOnSurfaceVariant
-                        font.pixelSize: Theme.fontLabel
-                        font.weight: Font.Medium
+                        anchors.rightMargin: Theme.spaceXs
+                        Label {
+                            text: qsTr(root.panelTitle("panel.properties"))
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.Medium
+                            Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↑"
+                            enabled: root.dockStackRow("panel.properties") > 0
+                            onClicked: AppSession.movePanelInStack("panel.properties", -1)
+                            Accessible.name: qsTr("Move panel up")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↓"
+                            enabled: root.dockStackRow("panel.properties") >= 0
+                                     && root.dockStackRow("panel.properties") < root.dockRightStack.length - 1
+                            onClicked: AppSession.movePanelInStack("panel.properties", 1)
+                            Accessible.name: qsTr("Move panel down")
+                        }
                     }
                 }
 
                 Flickable {
                     visible: AppSession.panelPropertiesVisible
+                    Layout.row: root.dockStackRow("panel.properties") * 2 + 1
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? parent.height * 0.52 : 0
                     contentHeight: propsCol.implicitHeight
@@ -2701,6 +2737,8 @@ ApplicationWindow {
                 // Navigator
                 Rectangle {
                     visible: AppSession.panelNavigatorVisible
+                    Layout.row: root.dockStackRow("panel.navigator") * 2
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
@@ -2716,20 +2754,42 @@ ApplicationWindow {
                         height: 1
                         color: Theme.border
                     }
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
+                    RowLayout {
+                        anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
-                        text: qsTr(root.panelTitle("panel.navigator"))
-                        color: Theme.colorOnSurfaceVariant
-                        font.pixelSize: Theme.fontLabel
-                        font.weight: Font.Medium
+                        anchors.rightMargin: Theme.spaceXs
+                        Label {
+                            text: qsTr(root.panelTitle("panel.navigator"))
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.Medium
+                            Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↑"
+                            enabled: root.dockStackRow("panel.navigator") > 0
+                            onClicked: AppSession.movePanelInStack("panel.navigator", -1)
+                            Accessible.name: qsTr("Move panel up")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↓"
+                            enabled: root.dockStackRow("panel.navigator") >= 0
+                                     && root.dockStackRow("panel.navigator") < root.dockRightStack.length - 1
+                            onClicked: AppSession.movePanelInStack("panel.navigator", 1)
+                            Accessible.name: qsTr("Move panel down")
+                        }
                     }
                 }
 
                 Rectangle {
                     id: navigatorPane
                     visible: AppSession.panelNavigatorVisible
+                    Layout.row: root.dockStackRow("panel.navigator") * 2 + 1
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? 132 : 0
                     color: Theme.surfaceSunken
@@ -2819,6 +2879,8 @@ ApplicationWindow {
                 // Swatches
                 Rectangle {
                     visible: AppSession.panelSwatchesVisible
+                    Layout.row: root.dockStackRow("panel.swatches") * 2
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
@@ -2848,6 +2910,23 @@ ApplicationWindow {
                         ToolButton {
                             implicitWidth: 22
                             implicitHeight: 22
+                            text: "↑"
+                            enabled: root.dockStackRow("panel.swatches") > 0
+                            onClicked: AppSession.movePanelInStack("panel.swatches", -1)
+                            Accessible.name: qsTr("Move panel up")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↓"
+                            enabled: root.dockStackRow("panel.swatches") >= 0
+                                     && root.dockStackRow("panel.swatches") < root.dockRightStack.length - 1
+                            onClicked: AppSession.movePanelInStack("panel.swatches", 1)
+                            Accessible.name: qsTr("Move panel down")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
                             icon.source: root.iconUrl("arrows-left-right")
                             icon.width: 14
                             icon.height: 14
@@ -2860,6 +2939,8 @@ ApplicationWindow {
 
                 Rectangle {
                     visible: AppSession.panelSwatchesVisible
+                    Layout.row: root.dockStackRow("panel.swatches") * 2 + 1
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? (swatchesCol.implicitHeight + Theme.spaceMd * 2) : 0
                     color: Theme.surfaceSunken
@@ -2986,6 +3067,8 @@ ApplicationWindow {
                 // Layers panel
                 Rectangle {
                     visible: AppSession.panelLayersVisible
+                    Layout.row: root.dockStackRow("panel.layers") * 2
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
@@ -3012,6 +3095,23 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontLabel
                             font.weight: Font.Medium
                             Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↑"
+                            enabled: root.dockStackRow("panel.layers") > 0
+                            onClicked: AppSession.movePanelInStack("panel.layers", -1)
+                            Accessible.name: qsTr("Move panel up")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↓"
+                            enabled: root.dockStackRow("panel.layers") >= 0
+                                     && root.dockStackRow("panel.layers") < root.dockRightStack.length - 1
+                            onClicked: AppSession.movePanelInStack("panel.layers", 1)
+                            Accessible.name: qsTr("Move panel down")
                         }
                         ToolButton {
                             implicitWidth: 22
@@ -3051,6 +3151,8 @@ ApplicationWindow {
 
                 Rectangle {
                     visible: AppSession.panelLayersVisible
+                    Layout.row: root.dockStackRow("panel.layers") * 2 + 1
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.fillHeight: visible
                     Layout.preferredHeight: visible ? 180 : 0
@@ -3216,21 +3318,45 @@ ApplicationWindow {
                 // History panel
                 Rectangle {
                     visible: AppSession.panelHistoryVisible
+                    Layout.row: root.dockStackRow("panel.history") * 2
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
+                    RowLayout {
+                        anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
-                        text: qsTr(root.panelTitle("panel.history"))
-                        color: Theme.colorOnSurfaceVariant
-                        font.pixelSize: Theme.fontLabel
-                        font.weight: Font.Medium
+                        anchors.rightMargin: Theme.spaceXs
+                        Label {
+                            text: qsTr(root.panelTitle("panel.history"))
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.Medium
+                            Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↑"
+                            enabled: root.dockStackRow("panel.history") > 0
+                            onClicked: AppSession.movePanelInStack("panel.history", -1)
+                            Accessible.name: qsTr("Move panel up")
+                        }
+                        ToolButton {
+                            implicitWidth: 22
+                            implicitHeight: 22
+                            text: "↓"
+                            enabled: root.dockStackRow("panel.history") >= 0
+                                     && root.dockStackRow("panel.history") < root.dockRightStack.length - 1
+                            onClicked: AppSession.movePanelInStack("panel.history", 1)
+                            Accessible.name: qsTr("Move panel down")
+                        }
                     }
                 }
                 Rectangle {
                     visible: AppSession.panelHistoryVisible
+                    Layout.row: root.dockStackRow("panel.history") * 2 + 1
+                    Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? 120 : 0
                     color: Theme.surfaceSunken
@@ -3256,6 +3382,7 @@ ApplicationWindow {
                 Repeater {
                     model: {
                         var _ = AppSession.panelVisibilityJson
+                        var _t = AppSession.dockTopologyJson
                         var stack = root.dockRightStack
                         var all = root.panelDescriptors
                         var out = []
@@ -3276,6 +3403,8 @@ ApplicationWindow {
                     }
                     delegate: ColumnLayout {
                         required property string modelData
+                        Layout.row: root.dockStackRow(modelData) * 2
+                        Layout.column: 0
                         Layout.fillWidth: true
                         spacing: 0
                         Rectangle {

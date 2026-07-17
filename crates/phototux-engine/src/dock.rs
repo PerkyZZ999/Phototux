@@ -1,4 +1,4 @@
-//! Minimal dock topology (handbook 04) — canvas + one right stack. No float/DnD yet.
+//! Minimal dock topology (handbook 04) — canvas + one right stack.
 
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +33,48 @@ impl DockTopology {
                 "panel.history".into(),
             ],
         }
+    }
+
+    /// Index of `panel_id` in the right stack, if present.
+    pub fn stack_index(&self, panel_id: &str) -> Option<usize> {
+        self.right_stack.iter().position(|id| id == panel_id)
+    }
+
+    /// Move a panel within the right stack by delta (−1 = up, +1 = down).
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is missing or the move is a no-op at the edge.
+    pub fn move_in_stack(&mut self, panel_id: &str, delta: i32) -> Result<(), &'static str> {
+        if delta == 0 {
+            return Ok(());
+        }
+        let from = self
+            .stack_index(panel_id)
+            .ok_or("panel not in right_stack")?;
+        let to = from as i32 + delta;
+        if to < 0 || to as usize >= self.right_stack.len() {
+            return Err("move out of stack bounds");
+        }
+        let to = to as usize;
+        self.right_stack.swap(from, to);
+        self.validate()
+    }
+
+    /// Move panel from `from` index to `to` index (both must be in range).
+    ///
+    /// # Errors
+    /// Returns a static reason when indices are invalid.
+    pub fn reorder(&mut self, from: usize, to: usize) -> Result<(), &'static str> {
+        let len = self.right_stack.len();
+        if from >= len || to >= len {
+            return Err("reorder index out of range");
+        }
+        if from == to {
+            return Ok(());
+        }
+        let id = self.right_stack.remove(from);
+        self.right_stack.insert(to, id);
+        self.validate()
     }
 
     /// Validate panel ids against the built-in catalog.
@@ -92,5 +134,22 @@ mod tests {
         bad = DockTopology::essentials();
         bad.right_stack.push("panel.layers".into());
         assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn move_in_stack_reorders() {
+        let mut topo = DockTopology::essentials();
+        topo.move_in_stack("panel.layers", -1).expect("up");
+        assert_eq!(topo.right_stack[2], "panel.layers");
+        assert_eq!(topo.right_stack[3], "panel.swatches");
+        assert!(topo.move_in_stack("panel.properties", -1).is_err());
+    }
+
+    #[test]
+    fn reorder_moves_by_index() {
+        let mut topo = DockTopology::essentials();
+        topo.reorder(0, 4).expect("to end");
+        assert_eq!(topo.right_stack[4], "panel.properties");
+        assert_eq!(topo.right_stack[0], "panel.navigator");
     }
 }
