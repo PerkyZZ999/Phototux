@@ -130,6 +130,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let under = textureSample(under_tex, samp, in.uv);
         return over(src, under);
     }
+    // 7 = Laplacian sharpen (matches cpu_sharpen_rgba)
+    if (u.mode == 7u) {
+        let amount = clamp(u.p0, 0.0, 4.0);
+        let px = 1.0 / dims;
+        let c = src.rgb;
+        let l = textureSample(src_tex, samp, in.uv + vec2<f32>(-px.x, 0.0)).rgb;
+        let r = textureSample(src_tex, samp, in.uv + vec2<f32>(px.x, 0.0)).rgb;
+        let t = textureSample(src_tex, samp, in.uv + vec2<f32>(0.0, -px.y)).rgb;
+        let b = textureSample(src_tex, samp, in.uv + vec2<f32>(0.0, px.y)).rgb;
+        let lap = 4.0 * c - l - r - t - b;
+        return vec4<f32>(clamp(c + amount * lap, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
     return src;
 }
 "#;
@@ -446,6 +458,31 @@ impl EffectPass {
             use_a = !use_a;
         }
 
+        if let Some(amount) = plan.sharpen {
+            let (from, to) = if use_a {
+                (&self.scratch_a, &self.scratch_b)
+            } else {
+                (&self.scratch_b, &self.scratch_a)
+            };
+            self.run(
+                ctx,
+                encoder,
+                from,
+                &self.black,
+                to,
+                EffectUniformsGpu {
+                    mode: 7,
+                    p0: amount,
+                    p1: 0.0,
+                    p2: 0.0,
+                    color: [0.0; 4],
+                    offset: [0.0; 2],
+                    _pad: [0.0; 2],
+                },
+            );
+            use_a = !use_a;
+        }
+
         let content = if use_a {
             self.scratch_a.clone()
         } else {
@@ -555,6 +592,8 @@ pub struct LayerPackPlan {
     pub gaussian: f32,
     pub motion: Option<(f32, f32)>,
     pub emboss: Option<(f32, f32)>,
+    /// Sharpen amount when present (`FilterParams::Sharpen`).
+    pub sharpen: Option<f32>,
     pub drop_shadow: Option<ShadowPlan>,
     pub stroke: Option<StrokePlan>,
 }
@@ -581,6 +620,7 @@ impl LayerPackPlan {
             gaussian: 0.0,
             motion: None,
             emboss: None,
+            sharpen: None,
             drop_shadow: None,
             stroke: None,
         }
@@ -590,6 +630,7 @@ impl LayerPackPlan {
         self.gaussian > 0.01
             || self.motion.is_some()
             || self.emboss.is_some()
+            || self.sharpen.is_some_and(|a| a > 0.001)
             || self.drop_shadow.is_some()
             || self.stroke.is_some()
     }
@@ -616,6 +657,9 @@ impl LayerPackPlan {
                     angle_deg,
                 } if strength > 0.01 => {
                     plan.emboss = Some((strength, angle_deg));
+                }
+                FilterParams::Sharpen { amount } if amount > 0.001 => {
+                    plan.sharpen = Some(plan.sharpen.map_or(amount, |a| a.max(amount)));
                 }
                 _ => {}
             }
