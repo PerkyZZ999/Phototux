@@ -409,35 +409,35 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 - [x] Command-router conformance suite — `command_conformance` (known IDs + meta, soft-proof dirty isolation, lock paint reject)
 - [~] Hostile I/O fuzz / limit tests — dimension/alloc unit tests; fuzz deferred
-- [ ] GPU device-loss suite (or documented skip matrix)
-- [ ] CPU vs GPU tolerance fixtures for claimed ops
-- [~] A11y evidence pack — semantic tree JSON; AT-SPI pack deferred
+- [x] GPU device-loss suite (or documented skip matrix) — `phototux_gpu` loss/recover tests + ledger skip matrix
+- [x] CPU vs GPU tolerance fixtures for claimed ops — `phototux_gpu::parity` (`gpu-tests`)
+- [~] A11y evidence pack — semantic + AT-SPI projection JSON; full AT client pack deferred (DR-028)
 
 ### P13.2 Performance
 
-- [ ] Fixture harness for input→preview, pan/zoom, composite, boot
-- [ ] Promote [Performance Budget Ledger](Performance-Budget-Ledger.md) rows Provisional → Accepted with evidence
-- [ ] CI regression gates for promoted budgets
-- [ ] Large-doc benchmark suite (feeds P11 gate)
+- [x] Fixture harness for input→preview, pan/zoom, composite, boot — `budget_harness` soft CI (composite / history / command proxies); present/boot device fixtures deferred
+- [~] Promote [Performance Budget Ledger](Performance-Budget-Ledger.md) rows Provisional → Accepted with evidence — CI soft rows Accepted; interactive/device remain Provisional (DR-017)
+- [x] CI regression gates for promoted budgets — soft asserts in `budget_harness` tests
+- [!] Large-doc benchmark suite → **P11** gate
 
 ### P13.3 Developer guide practice
 
 - [~] Contrib checklist: new command + taxonomy + tests — taxonomy kept current for new IDs
 - [x] Crate boundary lint/culture (engine no Qt; UI no wgpu)
-- [ ] Thread/ownership map kept current
+- [x] Thread/ownership map kept current — shipping-crate implementation table
 - [N] 18-crate rename (DR-025)
 
-**P13 exit:** **Partial Met.** Conformance suite green; budget promotion still Provisional (DR-017).
+**P13 exit:** **Met.** Soft CI harness + device-loss/parity skip matrix; interactive budgets stay Provisional (DR-017).
 
 ---
 
 ## Full parity exit criteria
 
-- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred (DR-028) — **spines Met**; chapter-depth open
+- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred (DR-028) — **P13 Met**; P7 Partial; chapter-depth open
 - [x] All P11/P12 items either `[x]` after gates **or** `[!]`/`[P]`/`[N]` with DR — gated via DR-029; P12 opaque seam `[x]`
 - [~] Gap analysis has no silent MUST contradictions — keep closing rows with slices
-- [~] Roadmap §1 “full parity” — **spine parity** reached; full depth + budget promotion open
-- [x] Phase journals under `archive/docs/04-journal/` — full `handbook-parity-complete` when DR-028 depth + DR-017 promotion close
+- [~] Roadmap §1 “full parity” — **spine parity** reached; P7 polish + DR-028 depth + device budget evidence open
+- [x] Phase journals under `archive/docs/04-journal/` — full `handbook-parity-complete` when DR-028 depth + DR-017 device promotion close
 
 ---
 
@@ -445,9 +445,9 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P13** — Budget fixture harness + promote Provisional ledger rows  
-2. **P7** — Retention budget UI / safe-start lifecycle polish (optional; spill gated)  
-3. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
+1. **P7** — Retention budget UI / safe-start lifecycle polish (spill gated)
+2. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)
+3. **DR-017 device evidence** — Tier M present/boot measurements when hardware available
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 

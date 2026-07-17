@@ -22,7 +22,7 @@ This roadmap is the plan to bring the **shipping editor** to **full parity** wit
 | **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
 | **Engines / color / session** | P5–P10 | **P5–P6/P8–P10 Met**; P7 Partial — open depth tracked under DR-028 |
 | **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
-| **Verification** | P13 | **Partial** — command conformance green; budgets still Provisional (DR-017) |
+| **Verification** | P13 | **Met** — soft CI harness; interactive budgets Provisional (DR-017) |
 
 **Spine parity** means shipped product surfaces resolve through handbook contracts (commands, workspace model, selection concepts, soft-proof, history jump, recovery chooser, OS clipboard, a11y JSON, etc.). It does **not** mean every handbook chapter feature is complete — remaining MUST depth is either `[ ]`/`[~]` on the checklist or Deferred via DR-028/029.
 
@@ -114,7 +114,7 @@ flowchart TB
 | **P10** | Accessibility projection | 29, DR-016 | None | **Met** |
 | **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** §4 | **Gated** (DR-029) |
 | **P12** | Extension capability seams | 23, DR-009 | Product need | **Partial** (seam only) |
-| **P13** | Verification & budget promotion | 30, 31, 32, DR-017/022 | Continuous | **Partial** |
+| **P13** | Verification & budget promotion | 30, 31, 32, DR-017/022 | Continuous | **Met** (soft CI; device Provisional) |
 
 Phases may overlap when independent. Do not start P11/P12 without gates.
 
@@ -129,7 +129,7 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 | History spill | P11 spill-to-disk | Memory-pressure scenarios ([DR-004](Decision-Register.md)) | **Open** — recorded DR-029 |
 | `.ptx` sparse / incremental | P11 format evolution | Large sparse + recovery spikes ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) | **Open** — recorded DR-029 |
 | Plugin seams / ABI | P12 beyond opaque data | Real product need; ABI still deferred ([DR-009](Decision-Register.md#dr-009--plugin-abi-deferred-capability-seams-now)) | Seam `[x]`; ABI Deferred |
-| Budget promotion | P13 exit claims | Fixtures + ledger rows ([DR-017](Decision-Register.md#dr-017--performance-budgets-provisional)) | **Open** — conformance started |
+| Budget promotion | P13 exit claims | Fixtures + ledger rows ([DR-017](Decision-Register.md#dr-017--performance-budgets-provisional)) | **Partial** — CI soft Accepted; device Provisional |
 
 ---
 
@@ -235,13 +235,13 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 **Still todo:** Contribution manifests; budgets/isolation; host mediation — only with product need. ABI stays Deferred.
 
-### P13 — Verification & budget promotion — **Partial**
+### P13 — Verification & budget promotion — **Met**
 
 **Goal:** Conformance suite; hostile I/O fuzz; promote Provisional performance rows.
 
-**Shipped:** Headless command-router conformance module.
+**Shipped:** Command conformance; `budget_harness` soft CI; device-loss + parity skip matrix; Thread-Ownership-Map crate table; CI soft-gate promotions (B2-proxy / B9 / B1-proxy).
 
-**Still todo:** Fixture harness; promote DR-017 ledger rows; device-loss suite; CI budget gates; large-doc suite (feeds P11).
+**Still Provisional / gated:** Interactive present/boot device budgets (DR-017); large-doc suite → P11; full AT evidence pack / fuzz corpus depth.
 
 ---
 
@@ -262,9 +262,9 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
 
-1. **P13** — Budget fixture harness + promote Provisional ledger rows  
-2. **P7** — Retention / formal lifecycle polish (spill gated)  
-3. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
+1. **P7** — Retention / formal lifecycle polish (spill gated)  
+2. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
+3. **DR-017 device evidence** — Tier M present/boot when hardware available  
 
 Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 

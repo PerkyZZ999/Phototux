@@ -62,6 +62,24 @@ impl HistoryService {
         self.graph.clear();
     }
 
+    /// Current retention budget (max undo entries retained).
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+
+    /// Update retention budget and drop oldest entries immediately when over limit.
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit.max(1);
+        while self.undo.len() > self.limit {
+            let removed = self.undo.remove(0);
+            if removed.kind == HistoryKind::Graph {
+                let _ = self.graph.drop_oldest();
+            }
+        }
+        // Capacity for future graph pushes; stacks already aligned above.
+        self.graph.set_limit(self.limit);
+    }
+
     pub fn graph_stack_mut(&mut self) -> &mut UndoStack {
         &mut self.graph
     }

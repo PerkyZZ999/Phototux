@@ -251,6 +251,26 @@ notes: ...
 - Generative inference SLAs
 - Guaranteeing 120 Hz on Tier L
 
+## Soft CI gates (P13 / DR-017)
+
+Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test` / `./scripts/check-rust.sh`. These are **soft CI gates** (CPU / command-router proxies), not photon/present promotions.
+
+| Budget | Fixture | Soft max | Status |
+| --- | --- | --- | --- |
+| B2-proxy | `cpu-composite-8x256` | 500 ms | **Accepted (CI soft)** |
+| B9 | `history-retention-trim-200-to-64` | 50 ms | **Accepted (CI soft)** |
+| B1-proxy | `view-zoom-to-fit` invoke | 25 ms | **Accepted (CI soft)** |
+
+Interactive B1/B2 present endpoints, B3 boot, B5 large-doc, and GPU composite remain **Provisional** under DR-017 until Tier M device evidence lands. Large-doc suite feeds the P11 gate.
+
+### GPU skip matrix (device-loss / parity)
+
+| Suite | Gate | Skip when |
+| --- | --- | --- |
+| `phototux_gpu` device-loss unit tests | Vulkan adapter via `GpuContext::new` | No Vulkan device (test panics / CI host without GPU) |
+| `phototux_gpu` CPU↔GPU parity | `--features gpu-tests` | Feature off (default CI); or no adapter |
+| Host recover UX | Manual / interactive | Headless |
+
 ## Cross References
 
 - [30 — Performance](../30-Performance.md)

@@ -281,6 +281,19 @@ Shader compilation MUST NOT block recovery decisions or native window input.
 - Extension callbacks during commit
 - Using panel React/GTK models as undo stacks
 
+## Implementation map (shipping crates, 2026-07)
+
+| Role | Shipping location |
+| --- | --- |
+| Host/UI thread | `phototux_ui` (`AppSession` qtbridge) + QML |
+| Document executor | `phototux_engine::SessionState` (UI-thread serial today; worker before heavy brush) |
+| History engine | `phototux_engine::HistoryService` + `UndoStack` |
+| GPU queue lane | `phototux_gpu::GpuContext` / composite; canvas interop in `phototux_canvas` |
+| I/O coordinator | `phototux_ui::file_worker` + `phototux_io` |
+| Accessibility projector | engine `atspi_map` + UI `accessibilityTreeJson` / `atspiProjectionJson` |
+
+Keep this table current when roles move crates or gain dedicated threads.
+
 ## Cross References
 
 - [00 — Introduction](../00-Introduction.md)

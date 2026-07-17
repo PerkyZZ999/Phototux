@@ -3,6 +3,7 @@
 mod actions;
 mod atspi_map;
 mod brush_preset;
+mod budget_harness;
 mod camera;
 mod cancel;
 mod color;
@@ -44,6 +45,9 @@ pub use atspi_map::{
     AtspiProjectionNode, SemanticRole, project_semantic_tree, project_semantic_tree_json,
 };
 pub use brush_preset::{BrushPreset, BrushPresetLibrary};
+pub use budget_harness::{
+    BudgetSample, measure_cpu_composite_8x256, measure_cpu_composite_10x512, run_soft_ci_suite,
+};
 pub use camera::{Camera2D, FpsTracker, Rect};
 pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};

@@ -324,6 +324,14 @@ impl UndoStack {
         self.redo.clear();
     }
 
+    /// Update stack capacity and drop oldest undo commands when over limit.
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit.max(1);
+        while self.undo.len() > self.limit {
+            self.undo.remove(0);
+        }
+    }
+
     /// Drop the oldest undo command without applying it (timeline budget sync).
     pub fn drop_oldest(&mut self) -> Option<GraphCommand> {
         if self.undo.is_empty() {

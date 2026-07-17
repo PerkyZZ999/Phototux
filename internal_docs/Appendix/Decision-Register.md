@@ -179,10 +179,11 @@ Status values:
 
 | Field | Content |
 | --- | --- |
-| Status | Provisional |
+| Status | Provisional (interactive / device); **Accepted** for listed CI soft-gates |
 | Docs | [30](../30-Performance.md), [Performance Budget Ledger](Performance-Budget-Ledger.md) |
 | Decision | Charter and ledger thresholds are design constraints for measurement; promotion to hard gates requires fixtures, tiers, and Decision Register updates. |
 | Consequences | Teams MUST measure against them; revising thresholds with evidence is not automatically a product regression. |
+| Amendment (2026-07-17) | Soft CI fixtures in `phototux_engine::budget_harness` promote B2-proxy / B9 / B1-proxy rows to **Accepted (CI soft)**. Photon/present B1–B3, B5 large-doc, and GPU composite stay Provisional until Tier M evidence. |
 
 ## DR-018 — Least authority for files and extensions
 
