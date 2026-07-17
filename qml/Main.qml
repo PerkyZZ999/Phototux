@@ -374,6 +374,17 @@ ApplicationWindow {
                 enabled: AppSession.hasDocument
                 onTriggered: AppSession.assignDocumentProfile("Display-P3")
             }
+            MenuSeparator {}
+            MenuItem {
+                text: qsTr("Convert to sRGB")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.convertDocumentProfile("sRGB")
+            }
+            MenuItem {
+                text: qsTr("Convert to Display-P3")
+                enabled: AppSession.hasDocument && !AppSession.ioBusy
+                onTriggered: AppSession.convertDocumentProfile("Display-P3")
+            }
         }
         Menu {
             title: qsTr("&Layer")

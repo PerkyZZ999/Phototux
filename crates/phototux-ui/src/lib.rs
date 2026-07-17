@@ -1613,6 +1613,54 @@ impl AppSession {
         }
     }
 
+    /// Convert document pixels into `profile` (destructive; DR-012).
+    #[qslot]
+    fn convert_document_profile(&mut self, profile: String) {
+        let from = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.color.assigned_profile.clone())
+            .unwrap_or_else(|| "sRGB".into());
+        if let Err(error) = self.invoke_command(
+            command_id::DOCUMENT_CONVERT_PROFILE,
+            CommandArgs::ConvertProfile {
+                profile: profile.clone(),
+            },
+        ) {
+            self.report_gpu("convert profile", &error.to_string());
+            return;
+        }
+        let needs_rewrite = from != profile;
+        if needs_rewrite {
+            match phototux_canvas::read_all_layer_rgba() {
+                Ok(layers) => {
+                    for (id, _w, _h, mut pixels) in layers {
+                        phototux_engine::convert_rgba8_profile(&mut pixels, &from, &profile);
+                        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                            self.report_gpu("convert profile upload", &error);
+                            return;
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.report_gpu("convert profile read", &error);
+                    return;
+                }
+            }
+        }
+        if let Some(graph) = self.engine.graph.as_mut() {
+            graph.color.mark_converted();
+            graph.bump_generation();
+        }
+        self.recomposite();
+        self.mark_dirty();
+        self.sync_from_engine();
+        self.status_text =
+            format!("Converted pixels to {profile} (from {from}) — this rewrote layer data");
+        self.status_text_changed();
+    }
+
     #[qslot]
     fn open_preferences(&mut self) {
         self.preferences_open = true;

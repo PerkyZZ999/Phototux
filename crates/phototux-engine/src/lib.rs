@@ -26,7 +26,7 @@ pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use camera::{Camera2D, FpsTracker, Rect};
 pub use cancel::CancelToken;
 pub use color::{ColorState, SampleSource};
-pub use color_mgmt::DocumentColorState;
+pub use color_mgmt::{ConvertPlan, DocumentColorState, convert_rgba8_profile};
 pub use command::{EngineCommand, EngineEvent};
 pub use commands::{CommandArgs, CommandEffects, CommandError, HostHistoryAction, command_id};
 pub use cpu_composite::{CpuLayerRef, composite_rgba8};
