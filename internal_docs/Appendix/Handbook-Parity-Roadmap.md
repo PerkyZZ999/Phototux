@@ -20,7 +20,7 @@ This roadmap is the plan to bring the **shipping editor** to **full parity** wit
 | --- | --- | --- |
 | **Chrome / IA spines** | P1–P3 | **Met** — action chrome, docking, selection concepts |
 | **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
-| **Engines / color / session** | P5–P10 | **P5–P6/P8–P10 Met**; P7 Partial — open depth tracked under DR-028 |
+| **Engines / color / session** | P5–P10 | **Met** — depth remnants under DR-028 |
 | **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
 | **Verification** | P13 | **Met** — soft CI harness; interactive budgets Provisional (DR-017) |
 
@@ -108,7 +108,7 @@ flowchart TB
 | **P4** | Masks & layer semantics | 11, 13 | None | **Met** |
 | **P5** | Creative engines depth | 14, 15, 18, 19 | None | **Met** |
 | **P6** | Color & rendering contracts | 16, 17, DR-005/006 | Tiling → P11 | **Met** |
-| **P7** | History & lifecycle | 02, 20 | Spill → P11 | **Partial** |
+| **P7** | History & lifecycle | 02, 20 | Spill → P11 | **Met** |
 | **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Met** |
 | **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None | **Met** |
 | **P10** | Accessibility projection | 29, DR-016 | None | **Met** |
@@ -189,13 +189,13 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 **Still todo (deferred):** Display profile discovery (colord); dense pixel snapshot/delta publisher; dirty-region polish → DR-028. Tiling → P11.
 
-### P7 — History & lifecycle — **Partial**
+### P7 — History & lifecycle — **Met**
 
 **Goal:** Unified timeline; formal lifecycle/recovery.
 
-**Shipped:** Unified history kinds; panel jump; autosave + restore/discard chooser; stroke journal files.
+**Shipped:** Unified history kinds; panel jump; autosave + restore/discard chooser; stroke journal; retention budget UI (`history_retention_limit`); safe-start; GPU recover / `renderer_generation`.
 
-**Still todo:** Retention budget UI; safe-start; formal lifecycle controller; device-loss orchestration. Spill / multi-doc → P11.
+**Still todo (deferred / gated):** Formal lifecycle controller depth; fuller coalescing suite → DR-028. Spill / multi-doc → P11.
 
 ### P8 — Clipboard & interchange I/O — **Met**
 
@@ -262,9 +262,9 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
 
-1. **P7** — Retention / formal lifecycle polish (spill gated)  
-2. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
-3. **DR-017 device evidence** — Tier M present/boot when hardware available  
+1. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
+2. **DR-017 device evidence** — Tier M present/boot when hardware available  
+3. Independent polish — toolbar overflow, fuzzy palette, virtualization  
 
 Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 

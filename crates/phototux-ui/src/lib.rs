@@ -197,6 +197,7 @@ pub struct AppSession {
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
+    pref_history_retention: i32,
     foreground_hex: String,
     background_hex: String,
     fill_color_hex: String,
@@ -392,6 +393,7 @@ impl AppSession {
             properties_advanced_open: false,
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
+            pref_history_retention: 128,
             foreground_hex: "#000000".to_owned(),
             background_hex: "#FFFFFF".to_owned(),
             fill_color_hex: "#738CBF".to_owned(),
@@ -1240,6 +1242,12 @@ impl AppSession {
         self.pref_high_contrast = self.prefs.high_contrast;
         self.pref_reduced_motion = self.prefs.reduced_motion;
         self.pref_safe_start_next = self.prefs.safe_start_next;
+        self.prefs.history_retention_limit =
+            crate::prefs::clamp_history_retention(self.prefs.history_retention_limit);
+        self.pref_history_retention = self.prefs.history_retention_limit as i32;
+        self.engine
+            .history
+            .set_limit(self.prefs.history_retention_limit as usize);
         self.refresh_pref_effective_json();
         if let Ok(lib) =
             phototux_engine::BrushPresetLibrary::from_json(&self.prefs.brush_presets_json)
@@ -1291,6 +1299,8 @@ impl AppSession {
         self.pref_ui_density_changed();
         self.pref_high_contrast_changed();
         self.pref_reduced_motion_changed();
+        self.pref_safe_start_next_changed();
+        self.pref_history_retention_changed();
         self.panel_navigator_visible_changed();
         self.panel_swatches_visible_changed();
         self.panel_layers_visible_changed();
@@ -2228,6 +2238,11 @@ impl AppSession {
         Notify = pref_safe_start_next_changed
     );
     qproperty!(
+        "prefHistoryRetention",
+        Member = pref_history_retention,
+        Notify = pref_history_retention_changed
+    );
+    qproperty!(
         "foregroundHex",
         Member = foreground_hex,
         Notify = foreground_hex_changed
@@ -2694,6 +2709,8 @@ impl AppSession {
     fn pref_effective_json_changed(&mut self);
     #[qsignal]
     fn pref_safe_start_next_changed(&mut self);
+    #[qsignal]
+    fn pref_history_retention_changed(&mut self);
     #[qsignal]
     fn foreground_hex_changed(&mut self);
     #[qsignal]
@@ -3190,6 +3207,33 @@ impl AppSession {
             self.last_announce = self.engine.last_announce.clone();
             self.last_announce_changed();
         }
+    }
+
+    #[qslot]
+    fn set_pref_history_retention(&mut self, value: i32) {
+        let clamped = crate::prefs::clamp_history_retention(value.max(0) as u32);
+        self.prefs.history_retention_limit = clamped;
+        self.pref_history_retention = clamped as i32;
+        self.engine.history.set_limit(clamped as usize);
+        self.persist_prefs();
+        self.pref_history_retention_changed();
+        self.can_undo = self.engine.history.can_undo();
+        self.can_redo = self.engine.history.can_redo();
+        self.history_labels = self.engine.history_labels_joined();
+        self.history_entry_ids = self
+            .engine
+            .history
+            .entry_ids_newest_first()
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join("|");
+        self.history_kinds = self.engine.history.kinds_newest_first().join("|");
+        self.can_undo_changed();
+        self.can_redo_changed();
+        self.history_labels_changed();
+        self.history_entry_ids_changed();
+        self.history_kinds_changed();
     }
 
     #[qslot]

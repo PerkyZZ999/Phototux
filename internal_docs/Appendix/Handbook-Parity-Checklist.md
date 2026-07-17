@@ -257,19 +257,19 @@ Chapters: [02](../02-Application-Lifecycle.md), [20](../20-History-Undo.md)
 - [x] Unified transaction timeline (graph + stroke + selection + transform)
 - [~] Coalescing / merge policy documented and tested — coalescing exists; fuller suite deferred
 - [x] History panel: labels, kinds, jump (safe) (`history.jump` + host undo loop)
-- [ ] Retention budget UI
+- [x] Retention budget UI — prefs `history_retention_limit` + SpinBox (8–512); `HistoryService::set_limit`
 - [!] Spill-to-disk → **P11** (memory evidence)
 
 ### P7.2 Lifecycle
 
 - [~] Formal lifecycle controller — session/prefs/recovery hooks; formal controller deferred
 - [x] Recovery UX + restore chooser — autosave + startup restore/discard dialog
-- [ ] Safe-start (suppress custom chrome on crash loop)
+- [x] Safe-start (suppress custom chrome on crash loop) — `safe_start_next` + `PHOTOTUX_SAFE_START=1`
 - [~] Save coordination: staged identity vs generation receipts — generation on graph
-- [~] GPU/renderer generation orchestration on device loss — `renderer_generation` + recover shipped; full Event-Catalog lifecycle → later P7 depth
+- [~] GPU/renderer generation orchestration on device loss — `renderer_generation` + recover shipped; full Event-Catalog lifecycle → later depth (DR-028)
 - [!] Multi-window / multi-doc → **P11** (DR-024 amend)
 
-**P7 exit:** **Partial Met.** Timeline + jump + recovery chooser shipped; spill/multi-doc gated.
+**P7 exit:** **Met.** Timeline + jump + recovery + retention UI + safe-start; spill/multi-doc gated.
 
 ---
 
@@ -433,10 +433,10 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 ## Full parity exit criteria
 
-- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred (DR-028) — **P13 Met**; P7 Partial; chapter-depth open
+- [~] All non-gated P1–P10 and P13 items `[x]` or explicitly Deferred (DR-028) — **P1–P10/P13 Met**; chapter-depth open under DR-028
 - [x] All P11/P12 items either `[x]` after gates **or** `[!]`/`[P]`/`[N]` with DR — gated via DR-029; P12 opaque seam `[x]`
 - [~] Gap analysis has no silent MUST contradictions — keep closing rows with slices
-- [~] Roadmap §1 “full parity” — **spine parity** reached; P7 polish + DR-028 depth + device budget evidence open
+- [~] Roadmap §1 “full parity” — **spine parity** reached; DR-028 depth + device budget evidence open
 - [x] Phase journals under `archive/docs/04-journal/` — full `handbook-parity-complete` when DR-028 depth + DR-017 device promotion close
 
 ---
@@ -445,9 +445,9 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P7** — Retention budget UI / safe-start lifecycle polish (spill gated)
-2. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)
-3. **DR-017 device evidence** — Tier M present/boot measurements when hardware available
+1. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)
+2. **DR-017 device evidence** — Tier M present/boot measurements when hardware available
+3. Independent polish — toolbar overflow, fuzzy palette, History/Layers virtualization
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 

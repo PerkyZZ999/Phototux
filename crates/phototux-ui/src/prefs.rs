@@ -53,9 +53,25 @@ pub struct Preferences {
     /// When true, next load applies safe-start chrome (essentials layout, no custom keymap restore).
     #[serde(default)]
     pub safe_start_next: bool,
+    /// Max undo timeline entries retained (handbook B9 / P7).
+    #[serde(default = "default_history_retention")]
+    pub history_retention_limit: u32,
     /// Action id → shortcut chord overrides (empty map = defaults only).
     pub keymap: BTreeMap<String, String>,
     pub schema_version: u32,
+}
+
+/// Inclusive bounds for [`Preferences::history_retention_limit`].
+pub const HISTORY_RETENTION_MIN: u32 = 8;
+pub const HISTORY_RETENTION_MAX: u32 = 512;
+
+fn default_history_retention() -> u32 {
+    128
+}
+
+/// Clamp retention to product bounds.
+pub fn clamp_history_retention(value: u32) -> u32 {
+    value.clamp(HISTORY_RETENTION_MIN, HISTORY_RETENTION_MAX)
 }
 
 fn default_ui_density() -> String {
@@ -87,8 +103,9 @@ impl Default for Preferences {
             high_contrast: false,
             reduced_motion: false,
             safe_start_next: false,
+            history_retention_limit: default_history_retention(),
             keymap: BTreeMap::new(),
-            schema_version: 4,
+            schema_version: 5,
         }
     }
 }
@@ -154,7 +171,8 @@ impl Preferences {
         if self.ui_density.is_empty() {
             self.ui_density = default_ui_density();
         }
-        self.schema_version = self.schema_version.max(4);
+        self.history_retention_limit = clamp_history_retention(self.history_retention_limit);
+        self.schema_version = self.schema_version.max(5);
     }
 
     fn sync_legacy_bools_from_map(&mut self) {
@@ -269,7 +287,14 @@ mod tests {
         p.panel_navigator = false;
         p.migrate_panel_visibility();
         assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
-        assert_eq!(p.schema_version, 4);
+        assert_eq!(p.schema_version, 5);
+    }
+
+    #[test]
+    fn history_retention_clamped() {
+        assert_eq!(clamp_history_retention(1), HISTORY_RETENTION_MIN);
+        assert_eq!(clamp_history_retention(9999), HISTORY_RETENTION_MAX);
+        assert_eq!(clamp_history_retention(128), 128);
     }
 
     #[test]

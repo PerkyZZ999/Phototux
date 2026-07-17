@@ -4690,6 +4690,25 @@ ApplicationWindow {
                     ToolTip.text: qsTr("Next launch uses essentials layout and ignores custom shortcuts (PHOTOTUX_SAFE_START=1 also works)")
                     Accessible.name: qsTr("Safe start next launch")
                 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: qsTr("History retention")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontBodySm
+                        Layout.fillWidth: true
+                    }
+                    SpinBox {
+                        from: 8
+                        to: 512
+                        stepSize: 8
+                        value: AppSession.prefHistoryRetention
+                        onValueModified: AppSession.setPrefHistoryRetention(value)
+                        Accessible.name: qsTr("History retention steps")
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Max undo steps retained (oldest dropped when over budget)")
+                    }
+                }
                 Label {
                     visible: AppSession.prefEffectiveJson.length > 0
                     text: qsTr("Effective sources (debug): density/guides/soft-proof tracked")
