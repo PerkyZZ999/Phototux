@@ -36,6 +36,10 @@ pub mod soft_gate {
     pub const HISTORY_RETENTION_TRIM: Duration = Duration::from_millis(50);
     /// Single non-mutating command invoke (view.zoom-to-fit).
     pub const COMMAND_INVOKE_VIEW: Duration = Duration::from_millis(25);
+    /// 120 pan/zoom camera updates on a 4K session (B2 CPU proxy; not present).
+    pub const CAMERA_NAV_4K_120: Duration = Duration::from_millis(50);
+    /// 60 view command invokes on 4K session (B1 command-router proxy).
+    pub const COMMAND_BATCH_4K_60: Duration = Duration::from_millis(100);
 }
 
 fn solid_rgba(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
@@ -119,12 +123,53 @@ pub fn measure_command_invoke_view() -> Result<BudgetSample, String> {
     })
 }
 
+/// 120 pan/zoom mutations against a synthetic 4K document (ledger B2 proxy).
+pub fn measure_camera_nav_4k_120() -> BudgetSample {
+    let mut session = SessionState::default();
+    session.apply_preset(SizePreset::P4k);
+    session.set_viewport(1440.0, 900.0);
+    let start = Instant::now();
+    for i in 0..120 {
+        session.camera.pan_x += 2.0;
+        session.camera.pan_y += 1.0;
+        let z = 0.25 + (i as f32) * 0.01;
+        session.set_zoom(z);
+    }
+    BudgetSample {
+        budget_id: "B2",
+        fixture: "camera-nav-4k-120",
+        elapsed: start.elapsed(),
+        soft_max: soft_gate::CAMERA_NAV_4K_120,
+    }
+}
+
+/// 60 zoom-to-fit invokes on synthetic 4K (ledger B1 command-router proxy).
+pub fn measure_command_batch_4k_60() -> Result<BudgetSample, String> {
+    let mut session = SessionState::default();
+    session.apply_preset(SizePreset::P4k);
+    session.set_viewport(1440.0, 900.0);
+    let start = Instant::now();
+    for _ in 0..60 {
+        session
+            .invoke(command_id::VIEW_ZOOM_TO_FIT, CommandArgs::None)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(BudgetSample {
+        budget_id: "B1",
+        fixture: "command-batch-4k-60",
+        elapsed: start.elapsed(),
+        soft_max: soft_gate::COMMAND_BATCH_4K_60,
+    })
+}
+
 /// Run all soft CI fixtures; returns samples (caller asserts gates).
 pub fn run_soft_ci_suite() -> Result<Vec<BudgetSample>, String> {
     Ok(vec![
         measure_cpu_composite_8x256()?,
         measure_history_retention_trim(),
         measure_command_invoke_view()?,
+        measure_camera_nav_4k_120(),
+        measure_command_batch_4k_60()?,
     ])
 }
 
@@ -138,7 +183,7 @@ mod tests {
     #[test]
     fn soft_ci_suite_within_gates() {
         let samples = run_soft_ci_suite().expect("suite");
-        assert_eq!(samples.len(), 3);
+        assert_eq!(samples.len(), 5);
         for s in &samples {
             assert!(
                 s.within_soft_gate(),
@@ -147,6 +192,13 @@ mod tests {
                 s.fixture,
                 s.elapsed,
                 s.soft_max
+            );
+            eprintln!(
+                "budget_id: {} fixture: {} elapsed_ms: {:.3} soft_max_ms: {}",
+                s.budget_id,
+                s.fixture,
+                s.elapsed.as_secs_f64() * 1000.0,
+                s.soft_max.as_millis()
             );
         }
     }

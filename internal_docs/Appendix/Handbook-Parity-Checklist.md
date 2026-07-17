@@ -20,14 +20,14 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P3 Selection targets | **Met** | Multi-object select polish deferred |
 | P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; path edit + refine contrast/shift stay `[~]` |
 | P5 Creative engines | **Met** | Gallery preview/commit + cancel/stale; path-edit tool; text frame/wrap + bake policy UX; deferred texture/fonts/on-canvas/vector-boolean/live-vector → DR-028 |
-| P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; display discovery + pixel publisher → DR-028 |
-| P7 History / lifecycle | **Met** | Retention UI + safe-start; spill/multi-doc gated |
+| P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; pixel publisher spine shipped; display discovery → DR-028 |
+| P7 History / lifecycle | **Met** | Retention UI + safe-start; spill gated; multi-doc → P11 tabs |
 | P8 Clipboard / I/O | **Met** | Mask/selection clipboard + `.ptx` integrity diagnostics UX; SVG MIME / sparse → deferred/P11 |
 | P9 Prefs / themes | **Met** | Mixed inspector + safe-start + effective-source spine; full schema/audit → deferred |
 | P10 Accessibility | **Met** | Semantic JSON + AT-SPI role projection; full D-Bus provider / evidence → DR-028/P13 |
-| P11 Scale / multi-doc | **Gated** | Gates recorded only (DR-029) — no impl |
-| P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred |
-| P13 Verification | **Met** | Soft CI harness; interactive budgets Provisional (DR-017) |
+| P11 Scale / multi-doc | **Partial** | Multi-doc tabs shipped (DR-024 v2); tiling/spill/sparse still gated |
+| P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred; no product need |
+| P13 Verification | **Met** | Soft CI harness; Tier M B1/B2 CPU proxies; interactive present still Provisional |
 
 **Spine parity** for P1–P10/P13 shipped concepts is in place. DR-028 chapter-depth and DR-017 device evidence remain open. Journals: `archive/docs/04-journal/*handbook-parity*`.
 
@@ -237,7 +237,7 @@ Chapters: [16](../16-Color-Management.md), [17](../17-Rendering-Engine.md), DR-0
 
 ### P6.2 Rendering
 
-- [~] Immutable pixel snapshot / bounded delta publisher — generation leases shipped; pixel publisher → DR-028
+- [x] Immutable pixel snapshot / bounded delta publisher — `SnapshotPublisher` / `PixelSnapshot` (64 MiB); dense deltas still Provisional
 - [~] Workers consume leases only — I/O worker path; full contract deferred
 - [x] Broader GPU↔CPU blend/filter parity fixtures — `phototux_gpu::parity` (+ `gpu-tests` device path)
 - [x] Device-loss / surface-loss UX (reconstruct or controlled fail) — `GpuError::DeviceLost`/`SurfaceLost`; status + Recover; `renderer_generation`
@@ -267,7 +267,7 @@ Chapters: [02](../02-Application-Lifecycle.md), [20](../20-History-Undo.md)
 - [x] Safe-start (suppress custom chrome on crash loop) — `safe_start_next` + `PHOTOTUX_SAFE_START=1`
 - [~] Save coordination: staged identity vs generation receipts — generation on graph
 - [~] GPU/renderer generation orchestration on device loss — `renderer_generation` + recover shipped; full Event-Catalog lifecycle → later depth (DR-028)
-- [!] Multi-window / multi-doc → **P11** (DR-024 amend)
+- [x] Multi-doc tabs → **P11** (DR-024 v2); multi-window still deferred
 
 **P7 exit:** **Met.** Timeline + jump + recovery + retention UI + safe-start; spill/multi-doc gated.
 
@@ -351,14 +351,14 @@ Chapter: [29](../29-Accessibility.md), DR-016
 
 ---
 
-## P11 — Scale & multi-document (gated)
+## P11 — Scale & multi-document (partially ungated)
 
 Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md), [17](../17-Rendering-Engine.md), [20](../20-History-Undo.md), [27](../27-File-Formats.md)
 
 ### Gates (must check before coding)
 
 - [!] Large-doc benchmark proves tiling needed ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) — recorded; no impl ([DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl))
-- [!] Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) before multi-doc — recorded; no impl (DR-029)
+- [x] Explicit amend of [DR-024](Decision-Register.md#dr-024--document-session-model) before multi-doc — **v2 tabs Accepted 2026-07-17**
 - [!] Memory-pressure evidence before history spill — recorded; no impl (DR-029)
 - [!] Sparse/incremental `.ptx` spike before freezing strategy ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) — recorded; no impl (DR-029)
 
@@ -371,8 +371,8 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 
 ### P11.2 Multi-document
 
-- [!] Document registry + tabs
-- [!] Per-document mutation serialization (DR-010)
+- [x] Document registry + tabs — `DocumentRegistry` + QML `TabBar` (max 8)
+- [~] Per-document mutation serialization (DR-010) — UI-thread serial per active doc; dedicated queues deferred
 - [!] Multi-view of one document
 - [!] Cross-window document presentation (if product wants)
 
@@ -382,7 +382,7 @@ Chapters: [02](../02-Application-Lifecycle.md), [03](../03-Workspace-System.md),
 - [!] Tile-addressable resources in `.ptx`
 - [!] Incremental / append save strategy (optional, validated)
 
-**P11 exit:** **Gated — no ungated implementation** (DR-029). Do not start without evidence.
+**P11 exit:** **Partial Met.** Tabs shipped; tiling/spill/sparse remain gated (DR-029).
 
 ---
 
@@ -445,11 +445,11 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)
-2. **DR-017 device evidence** — Tier M present/boot measurements when hardware available
-3. Independent polish — remaining `[~]` chrome depth only (overflow/fuzzy/virtualization shipped)
+1. **DR-028 depth** — display ICC / colord; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)
+2. **DR-017 present evidence** — photon/present B1/B2 on device (CPU proxies shipped)
+3. **P11 gated** — tiling/spill/sparse only with evidence; **P12** no plugins yet
 
-**Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
+**Do not** start P11 tiling/spill/sparse or P12 ABI without gates (DR-029). Multi-doc tabs are ungated (DR-024 v2).
 
 ---
 

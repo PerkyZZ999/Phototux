@@ -21,8 +21,8 @@ This roadmap is the plan to bring the **shipping editor** to **full parity** wit
 | **Chrome / IA spines** | P1–P3 | **Met** — action chrome, docking, selection concepts |
 | **Document semantics** | P4 | **Met** — multi-select, fill, effects reorder, clip break, mask apply, style depth |
 | **Engines / color / session** | P5–P10 | **Met** — depth remnants under DR-028 |
-| **Gated scale / plugins** | P11–P12 | **Gates recorded** (DR-029); opaque `extension_data` seam only for P12 |
-| **Verification** | P13 | **Met** — soft CI harness; interactive budgets Provisional (DR-017) |
+| **Gated scale / plugins** | P11–P12 | **P11 Partial** (tabs); tiling/spill/sparse gated; P12 seam only |
+| **Verification** | P13 | **Met** — soft CI + Tier M B1/B2 CPU proxies; present still Provisional |
 
 **Spine parity** means shipped product surfaces resolve through handbook contracts (commands, workspace model, selection concepts, soft-proof, history jump, recovery chooser, OS clipboard, a11y JSON, etc.). It does **not** mean every handbook chapter feature is complete — remaining MUST depth is either `[ ]`/`[~]` on the checklist or Deferred via DR-028/029.
 
@@ -112,7 +112,7 @@ flowchart TB
 | **P8** | Clipboard & interchange I/O | 21, 22, 27 | Sparse → P11 | **Met** |
 | **P9** | Preferences, themes, UX polish | 01, 24, 25, 28 | None | **Met** |
 | **P10** | Accessibility projection | 29, DR-016 | None | **Met** |
-| **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** §4 | **Gated** (DR-029) |
+| **P11** | Scale & multi-document | 02, 03, 17, 20, 27 | **Gated** §4 | **Partial** (tabs; rest gated) |
 | **P12** | Extension capability seams | 23, DR-009 | Product need | **Partial** (seam only) |
 | **P13** | Verification & budget promotion | 30, 31, 32, DR-017/022 | Continuous | **Met** (soft CI; device Provisional) |
 
@@ -125,7 +125,7 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 | Gate | Required before | Evidence / amend | State |
 | --- | --- | --- | --- |
 | Large-doc / tiling | P11 tiling & pyramid | Benchmark: interactive path fails budgets without residency ([DR-006](Decision-Register.md#dr-006--gpu-first-via-wgpu-not-gpu-only)) | **Open** — recorded DR-029 |
-| Multi-document | P11 multi-doc tabs/registry | Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) | **Open** — recorded DR-029 |
+| Multi-document | P11 multi-doc tabs/registry | Explicit amend of [DR-024](Decision-Register.md#dr-024--document-session-model) | **Met** — tabs (DR-024 v2) |
 | History spill | P11 spill-to-disk | Memory-pressure scenarios ([DR-004](Decision-Register.md)) | **Open** — recorded DR-029 |
 | `.ptx` sparse / incremental | P11 format evolution | Large sparse + recovery spikes ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) | **Open** — recorded DR-029 |
 | Plugin seams / ABI | P12 beyond opaque data | Real product need; ABI still deferred ([DR-009](Decision-Register.md#dr-009--plugin-abi-deferred-capability-seams-now)) | Seam `[x]`; ABI Deferred |
@@ -221,11 +221,13 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 **Still todo (deferred):** Full custom AT-SPI D-Bus provider (DR-028); fuller keyboard parity; a11y evidence pack → P13.
 
-### P11 — Scale & multi-document — **Gated**
+### P11 — Scale & multi-document — **Partial**
 
 **Goal:** Tiles/pyramid; multi-doc; history spill; sparse `.ptx` — **only after gates**.
 
-**State:** Gates recorded in DR-029 / checklist. **No implementation** until evidence + amends.
+**Shipped:** Multi-doc tabs (`DocumentRegistry` + TabBar) after DR-024 v2 amend.
+
+**Still gated:** Tiling/pyramid, history spill, sparse `.ptx` (DR-029).
 
 ### P12 — Extension capability seams — **Partial**
 
@@ -262,9 +264,9 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 
 Start sequence for the alignment era is **done**. Prefer this order next (see checklist “Recommended next slices”):
 
-1. **DR-028 depth** — display ICC / pixel publisher; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus (as needed)  
-2. **DR-017 device evidence** — Tier M present/boot when hardware available  
-3. Independent polish — toolbar overflow, fuzzy palette, virtualization  
+1. **DR-028 depth** — display ICC; texture tips; on-canvas text/fonts; live vector; full AT-SPI bus  
+2. **DR-017 present evidence** — photon/present B1/B2 (CPU proxies shipped)  
+3. **P11 gated** — tiling/spill/sparse with evidence only
 
 Independent polish (any time): toolbar overflow, fuzzy palette, History/Layers virtualization, path context menu.
 

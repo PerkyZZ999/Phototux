@@ -60,11 +60,12 @@ Status values:
 
 | Field | Content |
 | --- | --- |
-| Status | **Accepted** (v1 lease); full pixel-immutable snapshots **Provisional** |
+| Status | **Accepted** (v1 lease + bounded pixel publish); dense deltas / tiles **Provisional** |
 | Docs | [17](../17-Rendering-Engine.md), 10, [Alignment Roadmap](Alignment-Roadmap.md) |
 | Decision | Render workers consume versioned immutable snapshots and bounded deltas; they MUST NOT mutate authoritative documents. |
 | Accepted v1 (shipping) | Document **generation** counters plus metadata **`DocumentSnapshotLease`** (and `mark_persisted`) are the authoritative stale-result / cache-key contract. Workers and GPU paths key off generation; they do not hold mutable graph refs across async work. |
-| Provisional (later) | Full immutable pixel snapshot blobs, dense delta streams, and tile/pyramid publishers remain target architecture (Phase 5 / [DR-006](#dr-006--gpu-first-via-wgpu-not-gpu-only) evidence). |
+| Accepted v1.1 (2026-07-17) | Bounded **`SnapshotPublisher` / `PixelSnapshot`** (`Arc` RGBA8 composite, 64 MiB cap) published from CPU composite or host GPU readback; invalidated on generation bump. |
+| Provisional (later) | Dense delta streams and tile/pyramid publishers remain target architecture ([DR-006](#dr-006--gpu-first-via-wgpu-not-gpu-only) evidence). |
 | Consequences | Snapshot publisher required at the semantic level; stale result policy required; GPU caches keyed by full semantic inputs (generation + params). Do not rewrite interactive present for paper-pure pixel clones until evidence demands. |
 
 ## DR-006 — GPU-first via wgpu, not GPU-only
@@ -184,6 +185,7 @@ Status values:
 | Decision | Charter and ledger thresholds are design constraints for measurement; promotion to hard gates requires fixtures, tiers, and Decision Register updates. |
 | Consequences | Teams MUST measure against them; revising thresholds with evidence is not automatically a product regression. |
 | Amendment (2026-07-17) | Soft CI fixtures in `phototux_engine::budget_harness` promote B2-proxy / B9 / B1-proxy rows to **Accepted (CI soft)**. Photon/present B1–B3, B5 large-doc, and GPU composite stay Provisional until Tier M evidence. |
+| Amendment (2026-07-17 b) | Tier M synthetic 4K CPU proxies: `camera-nav-4k-120` (B2) and `command-batch-4k-60` (B1) Accepted as CI soft. Present/photon endpoints still Provisional. |
 
 ## DR-018 — Least authority for files and extensions
 
@@ -261,16 +263,17 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | Consequences | Handbook MUST describe this stack as binding. No toolkit/GPU/shell rewrite for “neutrality.” Semantic contracts (commands, snapshots, workspace models) still apply **on top of** this stack. |
 | Revisit | Catastrophic blocker only (zero-copy impossible, qtbridge abandoned upstream with no path, etc.). |
 
-## DR-024 — Single-document session v1
+## DR-024 — Document session model
 
 | Field | Content |
 | --- | --- |
-| Status | **Accepted** (v1) |
-| Date | 2026-07-16 |
-| Docs | [Alignment Roadmap](Alignment-Roadmap.md), archived ADR-013 |
-| Decision | Application session hosts **one** editable document at a time. Multi-window / tabs / multi-doc registry are out of v1. |
-| Consequences | Lifecycle/workspace handbook multi-doc sections are **target architecture**; implementation waits for an explicit amend of this DR. |
-| Revisit | When Phase 5 multi-doc project is scheduled with UX + session design. |
+| Status | **Accepted** (v2 — multi-document tabs) |
+| Date | 2026-07-16; amended 2026-07-17 |
+| Docs | [Alignment Roadmap](Alignment-Roadmap.md), archived ADR-013, [02](../02-Application-Lifecycle.md) |
+| Decision (v1) | Application session hosted **one** editable document at a time. |
+| Amendment (v2) | Session hosts a **tabbed document registry** (`DocumentRegistry`, max 8): one active `SessionState` + parked inactive sessions with CPU layer pixels for GPU rehydrate. Multi-**window** remains out of scope. |
+| Consequences | New/Open park the current tab when opening another; Close activates another parked tab or clears. Tiling/spill/sparse stay gated ([DR-029](#dr-029--p11p12-remain-gated-no-ungated-impl)). |
+| Revisit | Multi-window presentation; per-document worker pools if contention appears. |
 
 ## DR-025 — Crate topology: coarse workspace
 
@@ -321,11 +324,12 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 
 | Field | Content |
 | --- | --- |
-| Status | **Accepted** |
+| Status | **Accepted** (amended 2026-07-17) |
 | Date | 2026-07-16 |
 | Docs | Roadmap §4, DR-006, DR-009, DR-024, DR-026 |
-| Decision | Do **not** implement tiling/pyramid, multi-doc tabs, history spill, sparse `.ptx`, or plugin ABI in this parity pass. Record gates only; `extension_data` opaque round-trip is the sole P12 seam prep. |
-| Consequences | Checklist P11/P12 stay `[!]` / seam `[~]` until evidence + product need. |
+| Decision | Do **not** implement tiling/pyramid, history spill, sparse `.ptx`, or plugin ABI without gates. Record gates only; `extension_data` opaque round-trip is the sole P12 seam prep. |
+| Amendment (2026-07-17) | **Multi-document tabs** ungated via [DR-024](#dr-024--document-session-model) v2 product decision. Tiling / spill / sparse / plugin ABI remain gated. |
+| Consequences | Checklist P11 multi-doc may ship; other P11/P12 rows stay `[!]` / seam until evidence + product need. |
 | Revisit | When benchmark/UX/product gates in roadmap §4 are met. |
 
 ## Open Deferred Cluster
@@ -337,7 +341,8 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | `.ptx` chunk/sparse evolution | DR-026 / DR-029 | sparse/incremental/recovery spikes |
 | Tile geometry | DR-006 / DR-029 | large-doc + brush benchmarks |
 | History spill format | DR-004 / DR-029 | memory pressure scenarios |
-| Multi-document session | DR-024 / DR-029 | product scheduling + UX |
+| Multi-document session | DR-024 v2 | **Shipped tabs**; multi-window still open |
+| Tiling / spill / sparse | DR-029 | large-doc + memory evidence |
 | Engine chapter depth | DR-028 | per-engine milestones |
 
 ## Cross References

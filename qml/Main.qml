@@ -84,6 +84,13 @@ ApplicationWindow {
             return []
         }
     }
+    readonly property var documentTabs: {
+        try {
+            return JSON.parse(AppSession.documentTabsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
     readonly property var panelDescriptors: {
         try {
             return JSON.parse(AppSession.panelDescriptorsJson || "[]")
@@ -1122,10 +1129,36 @@ ApplicationWindow {
         }
     }
 
-    RowLayout {
+    ColumnLayout {
         anchors.fill: parent
         spacing: 0
         enabled: !AppSession.ioBusy
+
+        TabBar {
+            id: documentTabBar
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.documentTabs.length > 0 ? Theme.panelHeaderHeight : 0
+            visible: root.documentTabs.length > 0
+            clip: true
+            background: Rectangle { color: Theme.surfaceContainer }
+
+            Repeater {
+                model: root.documentTabs
+                TabButton {
+                    required property var modelData
+                    width: Math.min(180, implicitWidth + Theme.spaceMd)
+                    text: (modelData.dirty ? "* " : "") + (modelData.title || qsTr("Untitled"))
+                    checked: modelData.active === true
+                    Accessible.name: text
+                    onClicked: AppSession.activateDocumentTab(Number(modelData.id))
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 0
 
         // Left tool strip (overflow menu when strip height is tight)
         Rectangle {
@@ -4293,7 +4326,8 @@ ApplicationWindow {
                 }
             }
         }
-    }
+        } // RowLayout (tool strip + canvas + docks)
+    } // ColumnLayout (tabs + main)
 
     FileDialog {
         id: openFileDialog

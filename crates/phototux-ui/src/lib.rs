@@ -11,12 +11,12 @@ use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph,
-    DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation, HistoryKind,
-    HostFollowUp, HostHistoryAction, LayerId, LayerKind, LayerTransform, PathPoint,
-    SelectionCombine, SelectionRect, SelectionShape, SelectionState, SessionState, ShapeContent,
-    TextContent, TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
-    contract_mask_r8, ellipse_path, expand_mask_r8, feather_mask_r8, rasterize_shape_rgba8,
-    rect_path, stroke_path_rgba8, tool_id,
+    DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide,
+    GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, LayerId, LayerKind,
+    LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionRect, SelectionShape,
+    SelectionState, SessionState, ShapeContent, TextContent, TransformSession, VectorPath,
+    WorkspaceState, bake_text_rgba8, command_id, contract_mask_r8, ellipse_path, expand_mask_r8,
+    feather_mask_r8, rasterize_shape_rgba8, rect_path, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
 
@@ -218,6 +218,10 @@ pub struct AppSession {
     io_error: String,
     startup_ms: f32,
     engine: SessionState,
+    /// Inactive open documents (active session is [`Self::engine`]).
+    doc_registry: DocumentRegistry,
+    active_doc_id: Option<OpenDocumentId>,
+    document_tabs_json: String,
     worker: PaintWorker,
     file_worker: FileWorker,
     /// RGBA image clipboard (app-local; may also push OS image).
@@ -414,6 +418,9 @@ impl AppSession {
             io_error: String::new(),
             startup_ms: 0.0,
             engine,
+            doc_registry: DocumentRegistry::new(),
+            active_doc_id: None,
+            document_tabs_json: "[]".into(),
             worker: PaintWorker::start(),
             file_worker: FileWorker::start(),
             clipboard_rgba: None,
@@ -492,6 +499,14 @@ impl AppSession {
     }
 
     fn apply_opened_ptx(&mut self, path: PathBuf, document: PtxDocument) {
+        let title = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Document.ptx".into());
+        if let Err(error) = self.prepare_new_document_tab(&title) {
+            self.fail_io("Open", &error);
+            return;
+        }
         let (graph, rasters, masks) = document.into_parts();
         self.clear_selection_stacks();
         self.clear_transform_stacks();
@@ -515,16 +530,15 @@ impl AppSession {
                 self.engine.replace_graph(graph);
                 self.engine.document_path = Some(path.display().to_string());
                 self.engine.set_composite_ms(ms);
-                self.document_name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "Document.ptx".into());
+                self.document_name = title;
                 self.dirty = true;
                 self.io_busy = false;
                 self.compatibility_report.clear();
+                self.publish_pixel_snapshot_from_gpu();
                 self.sync_from_engine();
                 self.emit_doc_fields();
                 self.compatibility_report_changed();
+                self.refresh_document_tabs_json();
             }
             Err(error) => self.fail_io("Open", &error),
         }
@@ -1201,6 +1215,7 @@ impl AppSession {
         if !self.dirty {
             self.dirty = true;
             self.dirty_changed();
+            self.refresh_document_tabs_json();
         }
     }
 
@@ -1830,9 +1845,102 @@ impl AppSession {
         self.selection_preview_active = false;
         self.crop_preview_active = false;
         match phototux_canvas::open_document(size, &layers) {
-            Ok(ms) => self.engine.set_composite_ms(ms),
+            Ok(ms) => {
+                self.engine.set_composite_ms(ms);
+                self.publish_pixel_snapshot_from_gpu();
+            }
             Err(e) => self.report_gpu("open_document GPU", &e),
         }
+        self.refresh_document_tabs_json();
+    }
+
+    fn publish_pixel_snapshot_from_gpu(&mut self) {
+        if let Ok((_w, _h, rgba)) = phototux_canvas::read_composite_rgba() {
+            let _ = self.engine.publish_pixel_snapshot_rgba(rgba);
+        }
+    }
+
+    fn refresh_document_tabs_json(&mut self) {
+        self.document_tabs_json = self.doc_registry.tabs_json(&self.document_name, self.dirty);
+        self.document_tabs_json_changed();
+    }
+
+    /// Park the active document so another tab can become active.
+    fn park_current_document(&mut self) -> Result<(), String> {
+        let Some(id) = self.active_doc_id else {
+            return Ok(());
+        };
+        if !self.engine.has_document {
+            self.active_doc_id = None;
+            self.doc_registry.set_active_id(None);
+            return Ok(());
+        }
+        self.publish_pixel_snapshot_from_gpu();
+        let layer_pixels: Vec<_> = phototux_canvas::read_all_layer_rgba()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(layer_id, _w, _h, pixels)| (layer_id, pixels))
+            .collect();
+        let viewport_width = self.engine.viewport_w;
+        let viewport_height = self.engine.viewport_h;
+        let title = self.document_name.clone();
+        let dirty = self.dirty;
+        let session = std::mem::take(&mut self.engine);
+        phototux_canvas::close_document();
+        self.clear_selection_stacks();
+        self.clear_transform_stacks();
+        self.doc_registry
+            .park_active(id, title, session, layer_pixels, dirty);
+        self.active_doc_id = None;
+        self.engine = SessionState::default();
+        self.engine.set_viewport(viewport_width, viewport_height);
+        self.dirty = false;
+        Ok(())
+    }
+
+    fn prepare_new_document_tab(&mut self, title: &str) -> Result<(), String> {
+        if self.engine.has_document {
+            self.park_current_document()?;
+        }
+        let id = self.doc_registry.begin_active(title)?;
+        self.active_doc_id = Some(id);
+        Ok(())
+    }
+
+    fn activate_document_id(&mut self, id: OpenDocumentId) -> Result<(), String> {
+        if self.active_doc_id == Some(id) {
+            return Ok(());
+        }
+        if self.engine.has_document {
+            self.park_current_document()?;
+        }
+        let parked = self
+            .doc_registry
+            .take_parked(id)
+            .ok_or_else(|| format!("unknown document tab {}", id.0))?;
+        let viewport_width = self.engine.viewport_w;
+        let viewport_height = self.engine.viewport_h;
+        self.engine = parked.session;
+        self.engine.set_viewport(viewport_width, viewport_height);
+        self.document_name = parked.title;
+        self.dirty = parked.dirty;
+        self.active_doc_id = Some(id);
+        self.doc_registry.set_active_id(Some(id));
+        if let Some(graph) = self.engine.graph.as_ref() {
+            let size = graph.size;
+            let layers = graph.layers().to_vec();
+            match phototux_canvas::recover_gpu_document(size, &layers, &parked.layer_pixels) {
+                Ok(ms) => {
+                    self.engine.set_composite_ms(ms);
+                    self.publish_pixel_snapshot_from_gpu();
+                }
+                Err(error) => self.report_gpu("activate document GPU", &error),
+            }
+        }
+        self.sync_from_engine();
+        self.emit_doc_fields();
+        self.refresh_document_tabs_json();
+        Ok(())
     }
 
     fn active_id(&self) -> Option<LayerId> {
@@ -2313,6 +2421,11 @@ impl AppSession {
         Member = document_name,
         Notify = document_name_changed
     );
+    qproperty!(
+        "documentTabsJson",
+        Member = document_tabs_json,
+        Notify = document_tabs_json_changed
+    );
     qproperty!("dirty", Member = dirty, Notify = dirty_changed);
     qproperty!("ioBusy", Member = io_busy, Notify = io_busy_changed);
     qproperty!("ioError", Member = io_error, Notify = io_error_changed);
@@ -2741,6 +2854,8 @@ impl AppSession {
     fn icon_root_changed(&mut self);
     #[qsignal]
     fn document_name_changed(&mut self);
+    #[qsignal]
+    fn document_tabs_json_changed(&mut self);
     #[qsignal]
     fn dirty_changed(&mut self);
     #[qsignal]
@@ -3654,6 +3769,10 @@ impl AppSession {
                         .file_name()
                         .map(|name| name.to_string_lossy().into_owned())
                         .unwrap_or_else(|| "Image".to_owned());
+                    if let Err(error) = self.prepare_new_document_tab(&layer_name) {
+                        self.fail_io("Open", &error);
+                        continue;
+                    }
                     let graph = DocumentGraph::new_flattened(size, layer_name.clone());
                     let Some(target_layer) = graph.active_id() else {
                         self.fail_io("Open", "decoded document has no layer");
@@ -3673,8 +3792,10 @@ impl AppSession {
                             self.document_name = layer_name;
                             self.dirty = false;
                             self.io_busy = false;
+                            self.publish_pixel_snapshot_from_gpu();
                             self.sync_from_engine();
                             self.emit_doc_fields();
+                            self.refresh_document_tabs_json();
                         }
                         Err(error) => self.fail_io("Open", &error),
                     }
@@ -3691,6 +3812,14 @@ impl AppSession {
                     flattened,
                     report,
                 } => {
+                    let title = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "Imported.psd".into());
+                    if let Err(error) = self.prepare_new_document_tab(&title) {
+                        self.fail_io("Open", &error);
+                        continue;
+                    }
                     self.clear_selection_stacks();
                     self.clear_transform_stacks();
                     let open_result = if !layer_rasters.is_empty() {
@@ -3719,16 +3848,15 @@ impl AppSession {
                         Ok(ms) => {
                             self.engine.replace_graph(graph);
                             self.engine.set_composite_ms(ms);
-                            self.document_name = path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| "Imported.psd".into());
+                            self.document_name = title;
                             self.dirty = true;
                             self.io_busy = false;
                             self.compatibility_report = format_report(&report);
+                            self.publish_pixel_snapshot_from_gpu();
                             self.sync_from_engine();
                             self.emit_doc_fields();
                             self.compatibility_report_changed();
+                            self.refresh_document_tabs_json();
                         }
                         Err(error) => self.fail_io("Open", &error),
                     }
@@ -3863,6 +3991,11 @@ impl AppSession {
 
     #[qslot]
     fn apply_size_preset(&mut self, label: String) {
+        if let Err(error) = self.prepare_new_document_tab("Untitled") {
+            self.status_text = error;
+            self.status_text_changed();
+            return;
+        }
         if self
             .invoke_command(
                 command_id::DOCUMENT_NEW_PRESET,
@@ -3874,11 +4007,17 @@ impl AppSession {
             self.document_name = "Untitled".to_owned();
             self.dirty = false;
             self.emit_doc_fields();
+            self.refresh_document_tabs_json();
         }
     }
 
     #[qslot]
     fn apply_document_size(&mut self, width: i32, height: i32) {
+        if let Err(error) = self.prepare_new_document_tab("Untitled") {
+            self.status_text = error;
+            self.status_text_changed();
+            return;
+        }
         let w = width.max(1) as u32;
         let h = height.max(1) as u32;
         if self
@@ -3895,6 +4034,18 @@ impl AppSession {
             self.document_name = "Untitled".to_owned();
             self.dirty = false;
             self.emit_doc_fields();
+            self.refresh_document_tabs_json();
+        }
+    }
+
+    #[qslot]
+    fn activate_document_tab(&mut self, id: i32) {
+        if id < 0 {
+            return;
+        }
+        if let Err(error) = self.activate_document_id(OpenDocumentId(id as u64)) {
+            self.status_text = error;
+            self.status_text_changed();
         }
     }
 
@@ -4097,12 +4248,28 @@ impl AppSession {
         self.clear_transform_stacks();
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
-        self.document_name = "Untitled".to_owned();
-        self.dirty = false;
+        self.active_doc_id = None;
+        self.doc_registry.set_active_id(None);
         self.selection_preview_active = false;
         self.crop_preview_active = false;
-        self.sync_from_engine();
-        self.emit_doc_fields();
+        let next = self.doc_registry.parked_ids().next();
+        if let Some(next_id) = next {
+            if let Err(error) = self.activate_document_id(next_id) {
+                self.status_text = error;
+                self.status_text_changed();
+                self.document_name = "Untitled".to_owned();
+                self.dirty = false;
+                self.sync_from_engine();
+                self.emit_doc_fields();
+                self.refresh_document_tabs_json();
+            }
+        } else {
+            self.document_name = "Untitled".to_owned();
+            self.dirty = false;
+            self.sync_from_engine();
+            self.emit_doc_fields();
+            self.refresh_document_tabs_json();
+        }
     }
 
     #[qslot]

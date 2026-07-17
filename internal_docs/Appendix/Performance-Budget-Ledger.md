@@ -260,6 +260,8 @@ Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test`
 | B2-proxy | `cpu-composite-8x256` | 500 ms | **Accepted (CI soft)** |
 | B9 | `history-retention-trim-200-to-64` | 50 ms | **Accepted (CI soft)** |
 | B1-proxy | `view-zoom-to-fit` invoke | 25 ms | **Accepted (CI soft)** |
+| B2 | `camera-nav-4k-120` (Tier M CPU proxy) | 50 ms | **Accepted (CI soft)** — not photon/present |
+| B1 | `command-batch-4k-60` (Tier M CPU proxy) | 100 ms | **Accepted (CI soft)** — not photon/present |
 
 Interactive B1/B2 present endpoints, B3 boot, B5 large-doc, and GPU composite remain **Provisional** under DR-017 until Tier M device evidence lands. Large-doc suite feeds the P11 gate.
 

@@ -15,6 +15,7 @@ mod commands;
 mod cpu_composite;
 mod dock;
 mod document;
+mod document_registry;
 mod effective_pref;
 mod error;
 mod filter_plan;
@@ -27,6 +28,7 @@ mod paths;
 mod selection;
 mod shape_boolean;
 mod shell;
+mod snapshot_publish;
 mod stroke;
 mod stroke_journal;
 mod text_bake;
@@ -67,6 +69,7 @@ pub use commands::{
 pub use cpu_composite::{CpuLayerRef, composite_rgba8};
 pub use dock::{DockTopology, FloatingPanelPlacement, ScreenRect};
 pub use document::{DocumentGraph, ExtensionBlob, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
+pub use document_registry::{DocumentRegistry, MAX_OPEN_DOCUMENTS, OpenDocumentId, ParkedDocument};
 pub use effective_pref::{PrefSource, resolve_layered, values_are_mixed};
 pub use error::DocumentError;
 pub use filter_plan::{FilterPlan, FilterPlanNode};
@@ -91,6 +94,9 @@ pub use shape_boolean::{BooleanOp, boolean_rgba8};
 pub use shell::{
     PanelDescriptor, ToolDescriptor, default_panels, default_tools, essentials_panel_visibility,
     panels_json, tools_json,
+};
+pub use snapshot_publish::{
+    MAX_SNAPSHOT_BYTES, PixelSnapshot, SnapshotError, SnapshotPublisher, solid_layer_rgba,
 };
 pub use stroke::{BrushParams, Dab, StrokeBuilder, dab_coverage, paint_dabs_rgba, stamp_dab_rgba};
 pub use stroke_journal::{
@@ -234,6 +240,8 @@ pub struct SessionState {
     pub filter_preview: Option<FilterPreviewSession>,
     /// Selected anchor index for path-edit tool.
     pub path_edit_anchor: Option<usize>,
+    /// Latest bounded CPU pixel snapshot for workers (DR-005 / DR-028 E).
+    pub pixel_publisher: SnapshotPublisher,
 }
 
 /// Immutable metadata lease for render/save coordination (handbook Phase 2).
@@ -279,6 +287,7 @@ impl Default for SessionState {
             last_persisted_generation: None,
             filter_preview: None,
             path_edit_anchor: None,
+            pixel_publisher: SnapshotPublisher::new(),
         }
     }
 }
@@ -360,6 +369,7 @@ impl SessionState {
         self.last_announce.clear();
         self.document_path = None;
         self.last_persisted_generation = None;
+        self.pixel_publisher.clear();
         self.sync_object_selection_to_active();
         self.zoom_to_fit();
     }
@@ -382,6 +392,7 @@ impl SessionState {
         self.selected_layer_ids.clear();
         self.last_announce.clear();
         self.last_persisted_generation = None;
+        self.pixel_publisher.clear();
         self.sync_object_selection_to_active();
         self.zoom_to_fit();
     }
@@ -478,10 +489,40 @@ impl SessionState {
     pub fn bump_document_generation(&mut self) -> u64 {
         if let Some(graph) = self.graph.as_mut() {
             graph.bump_generation();
-            graph.generation
+            let generation = graph.generation;
+            self.pixel_publisher.invalidate_if_stale(generation);
+            generation
         } else {
             0
         }
+    }
+
+    /// Publish a CPU composite snapshot under the current metadata lease.
+    ///
+    /// # Errors
+    /// Returns [`SnapshotError`] when there is no document, budget is exceeded, or composite fails.
+    pub fn publish_pixel_snapshot(
+        &mut self,
+        layers: &[crate::CpuLayerRef<'_>],
+    ) -> Result<std::sync::Arc<PixelSnapshot>, SnapshotError> {
+        let lease = self.snapshot_lease().ok_or(SnapshotError::NoDocument)?;
+        self.pixel_publisher.publish_composite(lease, layers)
+    }
+
+    /// Publish a host-provided composite buffer (e.g. GPU readback).
+    ///
+    /// # Errors
+    /// Returns [`SnapshotError`] on lease/budget/length mismatch.
+    pub fn publish_pixel_snapshot_rgba(
+        &mut self,
+        rgba: Vec<u8>,
+    ) -> Result<std::sync::Arc<PixelSnapshot>, SnapshotError> {
+        let lease = self.snapshot_lease().ok_or(SnapshotError::NoDocument)?;
+        self.pixel_publisher.publish_rgba_buffer(lease, rgba)
+    }
+
+    pub fn latest_pixel_snapshot(&self) -> Option<std::sync::Arc<PixelSnapshot>> {
+        self.pixel_publisher.latest()
     }
 
     /// Layer names bottom→top, joined for QML (pipe-separated).
