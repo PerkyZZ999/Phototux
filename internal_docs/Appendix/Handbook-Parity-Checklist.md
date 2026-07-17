@@ -23,7 +23,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P6 Color / render | **Met** | ICC embed + GPU↔CPU fixtures + device-loss UX; display discovery + pixel publisher → DR-028 |
 | P7 History / lifecycle | **Partial** | Timeline + jump + recovery chooser; spill/multi-doc gated |
 | P8 Clipboard / I/O | **Met** | Mask/selection clipboard + `.ptx` integrity diagnostics UX; SVG MIME / sparse → deferred/P11 |
-| P9 Prefs / themes | **Partial** | Schema 4 + Theme packs; mixed-value inspector open |
+| P9 Prefs / themes | **Met** | Mixed inspector + safe-start + effective-source spine; full schema/audit → deferred |
 | P10 Accessibility | **Partial** | Semantic JSON spine; AT-SPI adapter → DR-028 |
 | P11 Scale / multi-doc | **Gated** | Gates recorded only (DR-029) — no impl |
 | P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred |
@@ -312,9 +312,9 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 - [~] Handbook preference schema coverage — schema 4: brush presets, density, contrast, motion
 - [x] Versioned migrations (schema → 4 on load)
-- [ ] Effective-value precedence where document vs user differs
+- [x] Effective-value precedence where document vs user differs — `resolve_layered` + `prefEffectiveJson` spine
 - [~] Reset field / domain / all — workspace Essentials/factory; full domain reset deferred
-- [ ] Safe-start prefs path
+- [x] Safe-start prefs path — `safe_start_next` + `PHOTOTUX_SAFE_START=1`
 
 ### P9.2 Themes
 
@@ -325,13 +325,13 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 ### P9.3 UX
 
-- [ ] Mixed-value inspector pattern
+- [x] Mixed-value inspector pattern — opacity/blend show Mixed on multi-select disagreement
 - [~] Operation progress / ack patterns — status + I/O busy
 - [~] Discoverability: every command via menu or palette — palette + menus for shipped actions
 - [~] Reduced-motion + 200% scale audit — prefs flag; full audit deferred
-- [ ] Progressive disclosure for advanced Properties
+- [x] Progressive disclosure for advanced Properties — advanced color section toggle
 
-**P9 exit:** **Partial Met.** Schema 4 + Theme packs shipped.
+**P9 exit:** **Met.** Schema 4 + Theme packs + mixed inspector + safe-start + effective-source spine. Full preference engine / 200% audit → deferred.
 
 ---
 
@@ -445,10 +445,9 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 
 Priority order for agents (see also Roadmap §7):
 
-1. **P9** — Mixed-value inspector; safe-start prefs  
-2. **P10** — AT-SPI host adapter (semantic tree already exists)  
-3. **P13** — Budget fixture harness + promote Provisional ledger rows  
-4. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
+1. **P10** — AT-SPI host adapter (semantic tree already exists)  
+2. **P13** — Budget fixture harness + promote Provisional ledger rows  
+3. **DR-028 depth** — display ICC / colord; pixel publisher; texture tips; on-canvas text/fonts; live vector (as needed)  
 
 **Do not** start P11 tiling/multi-doc/spill/sparse or P12 ABI without gates (DR-029).
 

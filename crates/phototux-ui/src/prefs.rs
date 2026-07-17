@@ -50,6 +50,9 @@ pub struct Preferences {
     /// Reduced-motion preference.
     #[serde(default)]
     pub reduced_motion: bool,
+    /// When true, next load applies safe-start chrome (essentials layout, no custom keymap restore).
+    #[serde(default)]
+    pub safe_start_next: bool,
     /// Action id → shortcut chord overrides (empty map = defaults only).
     pub keymap: BTreeMap<String, String>,
     pub schema_version: u32,
@@ -83,6 +86,7 @@ impl Default for Preferences {
             ui_density: default_ui_density(),
             high_contrast: false,
             reduced_motion: false,
+            safe_start_next: false,
             keymap: BTreeMap::new(),
             schema_version: 4,
         }
@@ -101,11 +105,30 @@ impl Preferences {
     pub fn load() -> Self {
         let path = Self::config_path();
         let Ok(bytes) = fs::read(&path) else {
-            return Self::default();
+            let mut prefs = Self::default();
+            if env_requests_safe_start() {
+                prefs.apply_safe_start_chrome();
+            }
+            return prefs;
         };
         let mut prefs: Self = serde_json::from_slice(&bytes).unwrap_or_default();
         prefs.migrate_panel_visibility();
+        let force = env_requests_safe_start() || prefs.safe_start_next;
+        if force {
+            prefs.apply_safe_start_chrome();
+            prefs.safe_start_next = false;
+            let _ = prefs.save();
+        }
         prefs
+    }
+
+    /// Essentials workspace + ignore custom keymap / last-tool restore (handbook safe-start).
+    pub fn apply_safe_start_chrome(&mut self) {
+        self.reset_workspace_essentials();
+        self.keymap.clear();
+        self.restore_last_tool = false;
+        self.last_tool = phototux_engine::tool_id::BRUSH.to_owned();
+        self.dock_topology_json.clear();
     }
 
     /// Fill `panel_visibility` from legacy bools when the map is empty.
@@ -214,6 +237,13 @@ impl Preferences {
     }
 }
 
+fn env_requests_safe_start() -> bool {
+    matches!(
+        std::env::var("PHOTOTUX_SAFE_START").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +270,16 @@ mod tests {
         p.migrate_panel_visibility();
         assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
         assert_eq!(p.schema_version, 4);
+    }
+
+    #[test]
+    fn safe_start_clears_keymap_and_restores_essentials() {
+        let mut p = Preferences::default();
+        p.keymap.insert("action.edit.undo".into(), "Ctrl+Y".into());
+        p.restore_last_tool = true;
+        p.apply_safe_start_chrome();
+        assert!(p.keymap.is_empty());
+        assert!(!p.restore_last_tool);
+        assert!(p.panel_visibility.contains_key("panel.layers"));
     }
 }

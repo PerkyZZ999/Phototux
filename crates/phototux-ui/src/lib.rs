@@ -186,6 +186,15 @@ pub struct AppSession {
     graph_revision: i32,
     active_opacity: f32,
     active_blend: String,
+    /// Multi-select: opacity values disagree.
+    inspector_opacity_mixed: bool,
+    /// Multi-select: blend modes disagree.
+    inspector_blend_mixed: bool,
+    /// Progressive disclosure for advanced Properties section.
+    properties_advanced_open: bool,
+    /// JSON map of preference key → winning source (builtin/user/workspace/document).
+    pref_effective_json: String,
+    pref_safe_start_next: bool,
     foreground_hex: String,
     background_hex: String,
     fill_color_hex: String,
@@ -375,6 +384,11 @@ impl AppSession {
             graph_revision: 0,
             active_opacity: 1.0,
             active_blend: "normal".to_owned(),
+            inspector_opacity_mixed: false,
+            inspector_blend_mixed: false,
+            properties_advanced_open: false,
+            pref_effective_json: String::new(),
+            pref_safe_start_next: false,
             foreground_hex: "#000000".to_owned(),
             background_hex: "#FFFFFF".to_owned(),
             fill_color_hex: "#738CBF".to_owned(),
@@ -658,6 +672,7 @@ impl AppSession {
             .and_then(|l| l.fill.as_ref())
             .map(|f| phototux_engine::ColorState::to_hex(f.color_rgba))
             .unwrap_or_else(|| "#738CBF".to_owned());
+        self.sync_inspector_mixed_fields();
         self.sync_color_fields();
         self.viewport_width = self.engine.viewport_w;
         self.viewport_height = self.engine.viewport_h;
@@ -666,6 +681,7 @@ impl AppSession {
         self.sync_path_edit_fields();
         self.sync_filter_preview_fields();
         self.sync_guides_fields();
+        self.refresh_pref_effective_json();
         self.status_text = self.engine.status_summary();
     }
 
@@ -877,7 +893,60 @@ impl AppSession {
         self.recent_colors_changed();
     }
 
+    fn sync_inspector_mixed_fields(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            self.inspector_opacity_mixed = false;
+            self.inspector_blend_mixed = false;
+            return;
+        };
+        let ids = if self.engine.selected_layer_ids.is_empty() {
+            graph.active_id().into_iter().collect::<Vec<_>>()
+        } else {
+            self.engine.selected_layer_ids.clone()
+        };
+        let opacities: Vec<f32> = ids
+            .iter()
+            .filter_map(|id| graph.get(*id).map(|l| l.opacity))
+            .collect();
+        let blends: Vec<&str> = ids
+            .iter()
+            .filter_map(|id| graph.get(*id).map(|l| l.blend.as_str()))
+            .collect();
+        self.inspector_opacity_mixed = phototux_engine::values_are_mixed(&opacities);
+        self.inspector_blend_mixed = phototux_engine::values_are_mixed(&blends);
+    }
+
+    fn refresh_pref_effective_json(&mut self) {
+        // Document soft-proof profile beats user default (none). Guides: session mirrors user prefs.
+        let (soft_proof, soft_src) = phototux_engine::resolve_layered(
+            String::new(),
+            Some(String::new()),
+            None,
+            self.engine
+                .graph
+                .as_ref()
+                .map(|g| g.color.soft_proof_profile.clone())
+                .filter(|s| !s.is_empty()),
+        );
+        let (density, dens_src) = phototux_engine::resolve_layered(
+            "dense".to_owned(),
+            Some(self.prefs.ui_density.clone()),
+            None,
+            None,
+        );
+        let (guides, guides_src) =
+            phototux_engine::resolve_layered(true, Some(self.prefs.show_guides), None, None);
+        let map = serde_json::json!({
+            "soft_proof_profile": { "value": soft_proof, "source": soft_src.as_str() },
+            "ui_density": { "value": density, "source": dens_src.as_str() },
+            "show_guides": { "value": guides, "source": guides_src.as_str() },
+        });
+        self.pref_effective_json = map.to_string();
+        self.pref_effective_json_changed();
+    }
+
     fn emit_layer_fields(&mut self) {
+        self.sync_inspector_mixed_fields();
         self.layer_count_changed();
         self.active_layer_index_changed();
         self.can_undo_changed();
@@ -901,6 +970,8 @@ impl AppSession {
         self.history_kinds_changed();
         self.brush_preset_names_changed();
         self.soft_proof_profile_changed();
+        self.inspector_opacity_mixed_changed();
+        self.inspector_blend_mixed_changed();
         self.soft_proof_active_changed();
         self.has_embedded_icc_changed();
         self.accessibility_tree_json_changed();
@@ -1162,6 +1233,8 @@ impl AppSession {
         self.pref_ui_density = self.prefs.ui_density.clone();
         self.pref_high_contrast = self.prefs.high_contrast;
         self.pref_reduced_motion = self.prefs.reduced_motion;
+        self.pref_safe_start_next = self.prefs.safe_start_next;
+        self.refresh_pref_effective_json();
         if let Ok(lib) =
             phototux_engine::BrushPresetLibrary::from_json(&self.prefs.brush_presets_json)
         {
@@ -2119,6 +2192,31 @@ impl AppSession {
         Notify = active_blend_changed
     );
     qproperty!(
+        "inspectorOpacityMixed",
+        Member = inspector_opacity_mixed,
+        Notify = inspector_opacity_mixed_changed
+    );
+    qproperty!(
+        "inspectorBlendMixed",
+        Member = inspector_blend_mixed,
+        Notify = inspector_blend_mixed_changed
+    );
+    qproperty!(
+        "propertiesAdvancedOpen",
+        Member = properties_advanced_open,
+        Notify = properties_advanced_open_changed
+    );
+    qproperty!(
+        "prefEffectiveJson",
+        Member = pref_effective_json,
+        Notify = pref_effective_json_changed
+    );
+    qproperty!(
+        "prefSafeStartNext",
+        Member = pref_safe_start_next,
+        Notify = pref_safe_start_next_changed
+    );
+    qproperty!(
         "foregroundHex",
         Member = foreground_hex,
         Notify = foreground_hex_changed
@@ -2573,6 +2671,16 @@ impl AppSession {
     fn active_opacity_changed(&mut self);
     #[qsignal]
     fn active_blend_changed(&mut self);
+    #[qsignal]
+    fn inspector_opacity_mixed_changed(&mut self);
+    #[qsignal]
+    fn inspector_blend_mixed_changed(&mut self);
+    #[qsignal]
+    fn properties_advanced_open_changed(&mut self);
+    #[qsignal]
+    fn pref_effective_json_changed(&mut self);
+    #[qsignal]
+    fn pref_safe_start_next_changed(&mut self);
     #[qsignal]
     fn foreground_hex_changed(&mut self);
     #[qsignal]
@@ -3053,6 +3161,28 @@ impl AppSession {
         self.pref_reduced_motion = value;
         self.persist_prefs();
         self.pref_reduced_motion_changed();
+    }
+
+    #[qslot]
+    fn set_pref_safe_start_next(&mut self, value: bool) {
+        self.prefs.safe_start_next = value;
+        self.pref_safe_start_next = value;
+        self.persist_prefs();
+        self.pref_safe_start_next_changed();
+        if value {
+            self.engine
+                .announce("Safe start armed — next launch uses essentials chrome");
+            self.status_text = self.engine.last_announce.clone();
+            self.status_text_changed();
+            self.last_announce = self.engine.last_announce.clone();
+            self.last_announce_changed();
+        }
+    }
+
+    #[qslot]
+    fn set_properties_advanced_open(&mut self, open: bool) {
+        self.properties_advanced_open = open;
+        self.properties_advanced_open_changed();
     }
 
     #[qslot]

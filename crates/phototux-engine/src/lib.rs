@@ -13,6 +13,7 @@ mod commands;
 mod cpu_composite;
 mod dock;
 mod document;
+mod effective_pref;
 mod error;
 mod filter_plan;
 mod filter_preview;
@@ -58,6 +59,7 @@ pub use commands::{
 pub use cpu_composite::{CpuLayerRef, composite_rgba8};
 pub use dock::{DockTopology, FloatingPanelPlacement, ScreenRect};
 pub use document::{DocumentGraph, ExtensionBlob, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
+pub use effective_pref::{PrefSource, resolve_layered, values_are_mixed};
 pub use error::DocumentError;
 pub use filter_plan::{FilterPlan, FilterPlanNode};
 pub use filter_preview::{FilterPreviewSession, GALLERY_EFFECT_KINDS, kind_is_supported};

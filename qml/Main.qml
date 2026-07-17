@@ -3058,34 +3058,49 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
                             visible: AppSession.hasDocument
-                            Label {
-                                text: AppSession.softProofActive
-                                      ? qsTr("Soft-proof: %1").arg(AppSession.softProofProfile)
-                                      : qsTr("Soft-proof: Off")
-                                color: Theme.colorOnSurfaceVariant
-                                font.pixelSize: Theme.fontBodySm
+                            Button {
+                                text: AppSession.propertiesAdvancedOpen
+                                      ? qsTr("Hide advanced color")
+                                      : qsTr("Show advanced color")
+                                flat: true
+                                Layout.fillWidth: true
+                                onClicked: AppSession.setPropertiesAdvancedOpen(
+                                               !AppSession.propertiesAdvancedOpen)
+                                Accessible.name: qsTr("Toggle advanced color properties")
                             }
-                            Label {
-                                text: AppSession.hasEmbeddedIcc
-                                      ? qsTr("ICC: embedded")
-                                      : qsTr("ICC: tag-only")
-                                color: Theme.colorOnSurfaceVariant
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            RowLayout {
+                            ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spaceXs
-                                Button {
-                                    text: qsTr("Embed ICC…")
-                                    flat: true
-                                    enabled: !AppSession.ioBusy
-                                    onClicked: embedIccFileDialog.open()
+                                visible: AppSession.propertiesAdvancedOpen
+                                Label {
+                                    text: AppSession.softProofActive
+                                          ? qsTr("Soft-proof: %1").arg(AppSession.softProofProfile)
+                                          : qsTr("Soft-proof: Off")
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
                                 }
-                                Button {
-                                    text: qsTr("Clear ICC")
-                                    flat: true
-                                    enabled: AppSession.hasEmbeddedIcc && !AppSession.ioBusy
-                                    onClicked: AppSession.clearEmbeddedIcc()
+                                Label {
+                                    text: AppSession.hasEmbeddedIcc
+                                          ? qsTr("ICC: embedded")
+                                          : qsTr("ICC: tag-only")
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    Button {
+                                        text: qsTr("Embed ICC…")
+                                        flat: true
+                                        enabled: !AppSession.ioBusy
+                                        onClicked: embedIccFileDialog.open()
+                                    }
+                                    Button {
+                                        text: qsTr("Clear ICC")
+                                        flat: true
+                                        enabled: AppSession.hasEmbeddedIcc && !AppSession.ioBusy
+                                        onClicked: AppSession.clearEmbeddedIcc()
+                                    }
                                 }
                             }
                         }
@@ -3210,6 +3225,14 @@ ApplicationWindow {
                                 color: Theme.colorOnSurface
                                 font.pixelSize: Theme.fontBodySm
                             }
+                            Label {
+                                visible: AppSession.inspectorBlendMixed
+                                text: qsTr("Mixed")
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                font.italic: true
+                                Accessible.name: qsTr("Blend mode mixed across selection")
+                            }
                             ComboBox {
                                 id: blendCombo
                                 Layout.fillWidth: true
@@ -3226,6 +3249,7 @@ ApplicationWindow {
                                 textRole: "label"
                                 valueRole: "id"
                                 enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
+                                opacity: AppSession.inspectorBlendMixed ? 0.85 : 1.0
                                 Component.onCompleted: root.syncBlendCombo()
                                 onActivated: AppSession.setActiveBlend(currentValue)
                             }
@@ -3318,10 +3342,18 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                 }
                                 Label {
-                                    text: Math.round(layerOpacitySlider.value * 100) + " %"
-                                    color: Theme.primary
+                                    text: AppSession.inspectorOpacityMixed
+                                          ? qsTr("Mixed")
+                                          : (Math.round(layerOpacitySlider.value * 100) + " %")
+                                    color: AppSession.inspectorOpacityMixed
+                                           ? Theme.colorOnSurfaceMuted
+                                           : Theme.primary
                                     font.pixelSize: Theme.fontMono
                                     font.family: "Noto Sans Mono"
+                                    font.italic: AppSession.inspectorOpacityMixed
+                                    Accessible.name: AppSession.inspectorOpacityMixed
+                                                     ? qsTr("Opacity mixed across selection")
+                                                     : qsTr("Layer opacity percent")
                                 }
                             }
                             Slider {
@@ -3331,6 +3363,7 @@ ApplicationWindow {
                                 to: 1
                                 value: AppSession.activeOpacity
                                 enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
+                                opacity: AppSession.inspectorOpacityMixed ? 0.85 : 1.0
                                 onMoved: AppSession.setActiveOpacity(value)
                             }
                         }
@@ -4648,6 +4681,22 @@ ApplicationWindow {
                     text: qsTr("Reduced motion")
                     checked: AppSession.prefReducedMotion
                     onToggled: AppSession.setPrefReducedMotion(checked)
+                }
+                CheckBox {
+                    text: qsTr("Safe start next launch")
+                    checked: AppSession.prefSafeStartNext
+                    onToggled: AppSession.setPrefSafeStartNext(checked)
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Next launch uses essentials layout and ignores custom shortcuts (PHOTOTUX_SAFE_START=1 also works)")
+                    Accessible.name: qsTr("Safe start next launch")
+                }
+                Label {
+                    visible: AppSession.prefEffectiveJson.length > 0
+                    text: qsTr("Effective sources (debug): density/guides/soft-proof tracked")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
                 }
 
                 Label {
