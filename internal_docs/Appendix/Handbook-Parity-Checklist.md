@@ -135,7 +135,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 - [x] Placeholder / contribution slots for future panels
 - [~] Paths / Character / Navigator parity with descriptor catalog (Navigator body + Paths/Character placeholders)
 
-**P2 exit:** **Met.** Split graph / user presets / list virtualization remain polish.
+**P2 exit:** **Met.** Split graph / user presets remain polish; Layers/History virtualized.
 
 ---
 
