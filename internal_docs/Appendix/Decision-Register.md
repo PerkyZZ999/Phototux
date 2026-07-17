@@ -282,11 +282,12 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 
 | Field | Content |
 | --- | --- |
-| Status | **Accepted** (v1); evolution Provisional |
+| Status | **Accepted** (v1); **v2 chunked writes Accepted** (2026-07-16) |
 | Docs | [27](../27-File-Formats.md), `phototux_io`, archived ADR-016 |
 | Decision | Product native editable format is **`.ptx`**. Open/save paths continue to use it. Future work evolves chunking, integrity, and sparse resources **compatibly** (versioned schema), not a second native extension. |
+| Encoding (2026-07-16) | Writers emit **format version 2**: typed chunks `MANI` / `RASL` / `MASK` + whole-body CRC32. Readers still open **v1** monolithic bodies. Unknown optional chunks are skipped. |
 | Consequences | Handbook “bytes deferred” means future encoding improvements, not “format unset.” |
-| Revisit | Only if `.ptx` cannot meet large-doc/recovery requirements after evolution attempts. |
+| Revisit | Sparse/tile manifests and incremental save when large-doc evidence demands. |
 
 ## DR-027 — Graph kind set includes Shape
 

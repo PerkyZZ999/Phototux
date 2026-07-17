@@ -16,8 +16,14 @@ use thiserror::Error;
 use crate::{Raster, RasterFormat, decode, encode};
 
 const MAGIC: &[u8; 8] = b"PHOTOTUX";
-/// Container format version (independent of graph schema).
-pub const PTX_FORMAT_VERSION: u32 = 1;
+/// Container format version written by this build (chunked envelope).
+pub const PTX_FORMAT_VERSION: u32 = 2;
+/// Legacy monolithic body (still readable).
+pub const PTX_FORMAT_VERSION_V1: u32 = 1;
+
+const CHUNK_MANI: [u8; 4] = *b"MANI";
+const CHUNK_RASL: [u8; 4] = *b"RASL";
+const CHUNK_MASK: [u8; 4] = *b"MASK";
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -98,12 +104,13 @@ impl PtxDocument {
     }
 }
 
-/// Encode a document to bytes (deflate JSON + PNG assets + CRC).
+/// Encode a document to bytes (v2 typed chunks + CRC).
 ///
 /// # Errors
 /// Returns [`PtxError`] on encode failures.
 pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
     let mut manifest = doc.manifest.clone();
+    manifest.format_version = PTX_FORMAT_VERSION;
     manifest.mask_asset_ids = allocate_mask_asset_ids(&doc.rasters, &doc.masks)?;
     let manifest_json = serde_json::to_vec(&manifest)?;
     let mut manifest_z = Vec::new();
@@ -113,12 +120,16 @@ pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
         enc.finish()?;
     }
 
-    let mut assets: Vec<(u64, Vec<u8>)> = Vec::with_capacity(doc.rasters.len() + doc.masks.len());
+    let mut body = Vec::new();
+    write_chunk(&mut body, CHUNK_MANI, &manifest_z)?;
+
+    let mut assets: Vec<(u64, Vec<u8>, bool)> =
+        Vec::with_capacity(doc.rasters.len() + doc.masks.len());
     let mut png = Vec::new();
     let mut z = Vec::new();
     for (id, raster) in &doc.rasters {
         encode_png_asset(&mut png, &mut z, raster)?;
-        assets.push((*id, std::mem::take(&mut z)));
+        assets.push((*id, std::mem::take(&mut z), false));
     }
     for (layer_id, mask) in &doc.masks {
         let asset_id = manifest
@@ -127,30 +138,41 @@ pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
             .ok_or_else(|| PtxError::Corrupt("missing mask asset id".into()))?;
         let mask = normalize_mask(mask)?;
         encode_png_asset(&mut png, &mut z, &mask)?;
-        assets.push((*asset_id, std::mem::take(&mut z)));
+        assets.push((*asset_id, std::mem::take(&mut z), true));
     }
-    assets.sort_by_key(|(id, _)| *id);
-
-    let mut body = Vec::new();
-    body.extend_from_slice(&usize_as_u32(manifest_z.len())?.to_le_bytes());
-    body.extend_from_slice(&manifest_z);
-    body.extend_from_slice(&usize_as_u32(assets.len())?.to_le_bytes());
-    for (id, blob) in assets {
-        body.extend_from_slice(&id.to_le_bytes());
-        body.extend_from_slice(&usize_as_u32(blob.len())?.to_le_bytes());
-        body.extend_from_slice(&blob);
+    assets.sort_by_key(|(id, _, _)| *id);
+    for (id, blob, is_mask) in assets {
+        let mut payload = Vec::with_capacity(8 + blob.len());
+        payload.extend_from_slice(&id.to_le_bytes());
+        payload.extend_from_slice(&blob);
+        write_chunk(
+            &mut body,
+            if is_mask { CHUNK_MASK } else { CHUNK_RASL },
+            &payload,
+        )?;
     }
 
-    let crc = crc32fast::hash(&body);
+    wrap_container(PTX_FORMAT_VERSION, &body)
+}
+
+fn write_chunk(body: &mut Vec<u8>, kind: [u8; 4], payload: &[u8]) -> Result<(), PtxError> {
+    body.extend_from_slice(&kind);
+    body.extend_from_slice(&usize_as_u32(payload.len())?.to_le_bytes());
+    body.extend_from_slice(payload);
+    Ok(())
+}
+
+fn wrap_container(version: u32, body: &[u8]) -> Result<Vec<u8>, PtxError> {
+    let crc = crc32fast::hash(body);
     let mut out = Vec::with_capacity(8 + 4 + body.len() + 4);
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&PTX_FORMAT_VERSION.to_le_bytes());
-    out.extend_from_slice(&body);
+    out.extend_from_slice(&version.to_le_bytes());
+    out.extend_from_slice(body);
     out.extend_from_slice(&crc.to_le_bytes());
     Ok(out)
 }
 
-/// Decode `.ptx` bytes.
+/// Decode `.ptx` bytes (v1 monolithic or v2 chunked).
 ///
 /// # Errors
 /// Returns [`PtxError`] for magic/version/checksum/corruption failures.
@@ -165,9 +187,6 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
         return Err(PtxError::BadMagic);
     }
     let version = read_u32_at(bytes, 8)?;
-    if version != PTX_FORMAT_VERSION {
-        return Err(PtxError::UnsupportedVersion(version));
-    }
     let crc_offset = bytes
         .len()
         .checked_sub(4)
@@ -179,12 +198,19 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
     if crc32fast::hash(body) != crc_stored {
         return Err(PtxError::ChecksumMismatch);
     }
+    match version {
+        PTX_FORMAT_VERSION_V1 => decode_ptx_v1_body(body),
+        PTX_FORMAT_VERSION => decode_ptx_v2_body(body),
+        other => Err(PtxError::UnsupportedVersion(other)),
+    }
+}
 
+fn decode_ptx_v1_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
     let mut cursor = 0usize;
     let manifest_len = read_u32(body, &mut cursor)? as usize;
     let manifest_z = read_slice(body, &mut cursor, manifest_len)?;
     let manifest_json = inflate(manifest_z)?;
-    let mut manifest: PtxManifest = serde_json::from_slice(&manifest_json)?;
+    let manifest: PtxManifest = serde_json::from_slice(&manifest_json)?;
 
     let asset_count = read_u32(body, &mut cursor)? as usize;
     let mut assets = HashMap::with_capacity(asset_count);
@@ -198,7 +224,56 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
             return Err(PtxError::Corrupt("duplicate asset id".into()));
         }
     }
+    finish_document(manifest, assets)
+}
 
+fn decode_ptx_v2_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
+    let mut cursor = 0usize;
+    let mut manifest: Option<PtxManifest> = None;
+    let mut assets: HashMap<u64, Raster> = HashMap::new();
+    while cursor < body.len() {
+        if body.len().saturating_sub(cursor) < 8 {
+            return Err(PtxError::Corrupt("truncated chunk header".into()));
+        }
+        let kind_bytes = read_slice(body, &mut cursor, 4)?;
+        let kind: [u8; 4] = kind_bytes
+            .try_into()
+            .map_err(|_| PtxError::Corrupt("chunk type".into()))?;
+        let len = read_u32(body, &mut cursor)? as usize;
+        let payload = read_slice(body, &mut cursor, len)?;
+        match kind {
+            CHUNK_MANI => {
+                let manifest_json = inflate(payload)?;
+                manifest = Some(serde_json::from_slice(&manifest_json)?);
+            }
+            CHUNK_RASL | CHUNK_MASK => {
+                if payload.len() < 8 {
+                    return Err(PtxError::Corrupt("truncated asset chunk".into()));
+                }
+                let id = u64::from_le_bytes(
+                    payload[0..8]
+                        .try_into()
+                        .map_err(|_| PtxError::Corrupt("asset id bytes".into()))?,
+                );
+                let png = inflate(&payload[8..])?;
+                let raster = decode(std::io::Cursor::new(png))?;
+                if assets.insert(id, raster).is_some() {
+                    return Err(PtxError::Corrupt("duplicate asset id".into()));
+                }
+            }
+            _ => {
+                // Unknown optional chunks are skipped (DR-026 evolve-in-place).
+            }
+        }
+    }
+    let manifest = manifest.ok_or_else(|| PtxError::Corrupt("missing MANI chunk".into()))?;
+    finish_document(manifest, assets)
+}
+
+fn finish_document(
+    mut manifest: PtxManifest,
+    mut assets: HashMap<u64, Raster>,
+) -> Result<PtxDocument, PtxError> {
     let mut masks = HashMap::with_capacity(manifest.mask_asset_ids.len());
     for (layer_id, asset_id) in &manifest.mask_asset_ids {
         let mask = assets
@@ -435,5 +510,60 @@ mod tests {
     fn rejects_bad_magic() {
         let err = decode_ptx(b"notptx!!........").expect_err("magic");
         assert!(matches!(err, PtxError::BadMagic));
+    }
+
+    #[test]
+    fn writes_v2_and_reads_legacy_v1() {
+        let graph = DocumentGraph::new(DocumentSize::new(2, 1));
+        let id = graph.layers()[0].id.0;
+        let raster =
+            Raster::new(2, 1, vec![1, 2, 3, 255, 4, 5, 6, 255].into_boxed_slice()).expect("raster");
+        let doc = PtxDocument::from_graph(graph, HashMap::from([(id, raster.clone())]));
+
+        let v2 = encode_ptx(&doc).expect("encode v2");
+        assert_eq!(u32::from_le_bytes(v2[8..12].try_into().unwrap()), 2);
+        let back = decode_ptx(&v2).expect("decode v2");
+        assert_eq!(back.rasters.get(&id), Some(&raster));
+
+        // Hand-build a v1 body (legacy monolithic layout).
+        let mut manifest = doc.manifest.clone();
+        manifest.format_version = 1;
+        let manifest_json = serde_json::to_vec(&manifest).unwrap();
+        let mut manifest_z = Vec::new();
+        {
+            use flate2::write::DeflateEncoder;
+            let mut enc = DeflateEncoder::new(&mut manifest_z, Compression::default());
+            enc.write_all(&manifest_json).unwrap();
+            enc.finish().unwrap();
+        }
+        let mut png = Vec::new();
+        let mut z = Vec::new();
+        encode_png_asset(&mut png, &mut z, &raster).unwrap();
+        let mut body = Vec::new();
+        body.extend_from_slice(&(manifest_z.len() as u32).to_le_bytes());
+        body.extend_from_slice(&manifest_z);
+        body.extend_from_slice(&1u32.to_le_bytes());
+        body.extend_from_slice(&id.to_le_bytes());
+        body.extend_from_slice(&(z.len() as u32).to_le_bytes());
+        body.extend_from_slice(&z);
+        let v1 = wrap_container(1, &body).expect("wrap v1");
+        let legacy = decode_ptx(&v1).expect("decode v1");
+        assert_eq!(legacy.rasters.get(&id), Some(&raster));
+    }
+
+    #[test]
+    fn skips_unknown_optional_chunk() {
+        let graph = DocumentGraph::new(DocumentSize::new(1, 1));
+        let id = graph.layers()[0].id.0;
+        let raster = Raster::new(1, 1, vec![9, 8, 7, 255].into_boxed_slice()).expect("raster");
+        let doc = PtxDocument::from_graph(graph, HashMap::from([(id, raster.clone())]));
+        let mut bytes = encode_ptx(&doc).expect("encode");
+        // Insert UNKNOWN chunk before trailing CRC.
+        let crc_at = bytes.len() - 4;
+        let mut body = bytes[12..crc_at].to_vec();
+        write_chunk(&mut body, *b"UNKN", b"ignored").unwrap();
+        bytes = wrap_container(2, &body).unwrap();
+        let back = decode_ptx(&bytes).expect("decode with unknown");
+        assert_eq!(back.rasters.get(&id), Some(&raster));
     }
 }
