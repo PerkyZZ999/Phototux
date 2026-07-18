@@ -203,13 +203,13 @@ Handbook: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 ### 5.2 Masks
 
-- [ ] Add layer mask
-- [ ] Edit target Layer pixels vs Layer mask
-- [ ] Paint on mask; composite updates
-- [ ] Density / feather / invert / link
-- [ ] **Contrast / shift** refine sliders
-- [ ] Apply mask / delete mask
-- [ ] Mask ops with no mask: rejected or disabled, no crash
+- [x] Add layer mask — palette Add Mask; `Add layer mask · graph`; `M` badge on Layer 1
+- [x] Edit target Layer pixels vs Layer mask — status `Layer mask` / buttons; auto-selects mask on add
+- [x] Paint on mask; composite updates — `Mask stroke · graph`; dark stroke on canvas
+- [x] Density / feather / invert / link — Mask section controls present (Density/Feather labels, Invert, Link mask)
+- [x] **Contrast / shift** refine sliders — `Contrast 0.00` / `Shift 0.00` labels + sliders in Properties
+- [x] Apply mask / delete mask — palette Apply / Delete; history `Apply layer mask` / `Delete layer mask`
+- [x] Mask ops with no mask: rejected or disabled, no crash — Apply with no mask; app stayed up; Layer mask disabled
 
 ### 5.3 Conflicts
 
