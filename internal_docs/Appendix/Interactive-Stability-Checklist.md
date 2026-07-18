@@ -176,9 +176,9 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 
 ### 4.5 Fill / gradient / eyedropper
 
-- [ ] Fill paints FG into layer / respects selection
-- [ ] Gradient drag preview + commit
-- [ ] Eyedropper samples to foreground (swatches / hex update)
+- [x] Fill paints FG into layer / respects selection — Fill tool; canvas went black; Unsaved
+- [x] Gradient drag preview + commit — linear black→white gradient on canvas
+- [x] Eyedropper samples to foreground (swatches / hex update) — status `Sampled #9D9D9D`; hex `#9D9D9D`
 
 ### 4.6 Empty / edge
 
