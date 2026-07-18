@@ -118,9 +118,9 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 ### 2.5 Context menus
 
-- [ ] Canvas / layer / selection / mask context menus open
-- [ ] Actions match selection / edit target
-- [ ] Closing menu restores usable focus
+- [x] Canvas / layer / selection / mask context menus open — canvas + selection verified; layer popup repositioned on-screen (T-020); mask path deferred
+- [x] Actions match selection / edit target — Deselect disabled without selection; selection menu lists Feather/Copy when active
+- [x] Closing menu restores usable focus — Esc dismisses; canvas usable
 
 ---
 
@@ -393,6 +393,7 @@ Mark `[N]` unless Decision Register amends:
 | T-017 | high | §2.2 / §4.4 | `set_active_tool` notified QML without mirroring engine `active_tool`/`status_text`; transform chrome stuck after leave; tool switch cancel unreliable | Transform → Esc or strip leave | **fixed** — mirror props after `VIEW_SET_TOOL`; cancel on leave; app Esc cancels session |
 | T-018 | med | §2.3 | App shortcuts fired while New Document / spin editors active (`instanceof TextInput` miss + no dialog yield) | New Document → Ctrl+Shift+P | **fixed** — SpinBox/TextField/TextEdit detect; `newDocDialog.opened` yields; hex/FG focus arms yield |
 | T-019 | med | §2.3 | Preferences Flickable did not scroll (Keyboard unreachable); keymap capture needs F-keys | Prefs → Keyboard | **fixed** — Flickable sized to `availableWidth/Height` + AlwaysOn scrollbar; Save→F9 persisted |
+| T-020 | med | §2.5 | Layer context `Menu.popup()` near bottom dock opened off-screen / invisible | Right-click Layer 1 | **fixed** — `openContextMenu` clamps to Overlay; canvas/selection use same helper |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -411,6 +412,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.2 / §4.4 transform-crop cancel | T-017 | active_tool sync; Esc + strip cancel |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.3 shortcut yield | T-018 | New Document blocks palette; editor detect |
 | 2026-07-18 | agent (kwinmcp) | Wayland kept-home | §2.3 keymap + conflict | T-019 | prefs scroll; Save F9 persist; chord steal |
+| 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.5 context menus | T-020 | canvas/selection menus; clamped popup helper |
 
 ---
 

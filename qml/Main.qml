@@ -686,6 +686,17 @@ ApplicationWindow {
         }
     }
 
+    function openContextMenu(menu, originItem, localX, localY) {
+        var p = originItem.mapToItem(Overlay.overlay, localX, localY)
+        // Keep menu on-screen when opened from bottom dock rows (layers).
+        var approxH = Math.max(160, menu.contentHeight || 0)
+        if (p.y + approxH > Overlay.overlay.height - 8)
+            p.y = Math.max(8, Overlay.overlay.height - approxH - 8)
+        if (p.x + 260 > Overlay.overlay.width - 8)
+            p.x = Math.max(8, Overlay.overlay.width - 260 - 8)
+        menu.popup(Overlay.overlay, p.x, p.y)
+    }
+
     Menu {
         id: layerContextMenu
         property int targetIndex: -1
@@ -1773,7 +1784,9 @@ ApplicationWindow {
                 MouseArea {
                     anchors.fill: parent
                     acceptedButtons: Qt.RightButton
-                    onClicked: selectionContextMenu.popup()
+                    onClicked: function (mouse) {
+                        root.openContextMenu(selectionContextMenu, this, mouse.x, mouse.y)
+                    }
                 }
 
                 Shape {
@@ -2058,9 +2071,9 @@ ApplicationWindow {
                         dragging = false
                         painting = false
                         if (AppSession.selectionActive)
-                            selectionContextMenu.popup()
+                            root.openContextMenu(selectionContextMenu, canvasInput, mouse.x, mouse.y)
                         else
-                            canvasContextMenu.popup()
+                            root.openContextMenu(canvasContextMenu, canvasInput, mouse.x, mouse.y)
                         return
                     }
                     dragging = true
@@ -4497,12 +4510,12 @@ ApplicationWindow {
                                     AppSession.selectLayerClick(stackIndex, ctrl, shift)
                                     if (mouse.button === Qt.RightButton) {
                                         layerContextMenu.targetIndex = stackIndex
-                                        layerContextMenu.popup()
+                                        root.openContextMenu(layerContextMenu, this, mouse.x, mouse.y)
                                     }
                                 }
                                 onPressAndHold: {
                                     layerContextMenu.targetIndex = stackIndex
-                                    layerContextMenu.popup()
+                                    root.openContextMenu(layerContextMenu, this, width / 2, height / 2)
                                 }
                             }
                         }
