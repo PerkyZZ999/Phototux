@@ -103,16 +103,16 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 ### 2.3 Shortcuts
 
-- [ ] Ctrl+N / O / S / Z / Shift+Z / W / Q behave as mapped
-- [ ] Ctrl+Shift+P opens command palette
+- [~] Ctrl+N / O / S / Z / Shift+Z / W / Q behave as mapped — N/W/Z exercised
+- [x] Ctrl+Shift+P opens command palette
 - [ ] Shortcuts yield while text field / on-canvas TextEdit focused
 - [ ] Custom keymap in Preferences persists across restart
 - [ ] Conflict detection UI surfaces duplicate chords
 
 ### 2.4 Command palette
 
-- [ ] Fuzzy filter finds actions by label
-- [ ] Enter invokes selected action
+- [x] Fuzzy filter finds actions by label — typed `about`
+- [x] Enter invokes selected action
 - [ ] Escape closes without mutation
 - [ ] Rejected commands show status / error (not silent)
 
