@@ -51,21 +51,21 @@ Handbook: [02](../02-Application-Lifecycle.md), [10](../10-Document-Model.md), [
 
 - [x] Welcome appears when no document and no recovery
 - [x] **New File** opens New Document dialog; Welcome closes
-- [ ] **Open File** opens file chooser; Welcome closes
+- [x] **Open File** opens file chooser; Welcome closes
 - [x] Ctrl+N / File → New closes Welcome and opens New Document
 - [x] Presets 720p / 1080p / 2K / 4K create correct size (status / title) — 1080p verified (1920×1080)
 - [ ] Custom width/height create path works
-- [x] Cancel leaves no half-open document; Welcome returns if still empty — Escape closes New Document cleanly
+- [x] Cancel leaves no half-open document; Welcome returns if still empty — Escape closes New Document; **Open cancel restores Welcome** (T-011)
 - [x] Enter / Create confirms; Escape cancels — Create mouse needs AT→EIS Y offset in kwinmcp; Enter reliable; deferred open after Welcome
-- [x] Zoom-to-fit on open/new — 1080p at ~53% zoom in viewport
+- [x] Zoom-to-fit on open/new — 1080p ~53%; tiny 64² opens ~1118% fit
 
 ### 1.2 Open / save / close / dirty
 
-- [ ] Open raster (png/jpeg/…) loads without crash
-- [~] Dirty `*` in title and Unsaved affordance after first edit — paint path hit T-009 before re-verify
-- [ ] Save / Save As / Export complete or show actionable error
-- [ ] Close last document returns to empty/welcome state without ghost canvas
-- [ ] Quit with dirty prompts (unsaved dialog); discard / cancel / save paths
+- [x] Open raster (png/jpeg/…) loads without crash — `phototux-test.png` 64×64
+- [x] Dirty `*` in title and Unsaved affordance after first edit — `Untitled*` / Unsaved after stroke
+- [~] Save / Save As / Export complete or show actionable error — Save dialog opens from unsaved prompt; full Save As not finished this pass
+- [x] Close last document returns to empty/welcome state without ghost canvas — Discard → Welcome (T-011)
+- [x] Quit with dirty prompts (unsaved dialog); discard / cancel / save paths — Discard + Cancel exercised; Save opens chooser
 - [ ] Quit clean with no document
 - [ ] Recovery list: restore and discard entries
 
@@ -87,19 +87,19 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 ### 2.1 Menus
 
-- [ ] File / Edit / Select / Image / Layer / Filter / View / Window / Help open
+- [~] File / Edit / Select / Image / Layer / Filter / View / Window / Help open — Help opened via Alt+H
 - [ ] Menu items invoke via action IDs (no bypass of `invoke` for document mutations)
 - [ ] Disabled items match enablement (no document → save/export disabled)
-- [ ] Help → About (or equivalent) opens and closes cleanly
+- [x] Help → About (or equivalent) opens and closes cleanly
 
 ### 2.2 Tool strip & overflow
 
-- [ ] Essentials tools visible or reachable (Brush … Zoom)
-- [ ] Active tool highlight matches status `tool.*`
+- [x] Essentials tools visible or reachable (Brush … Zoom)
+- [x] Active tool highlight matches status `tool.*` — Brush / Eraser verified
 - [ ] Tool switch cancels in-progress transform/crop when required
 - [ ] Overflow “More tools” lists remaining tools when strip is short
 - [ ] Narrow window: tools remain reachable via overflow / palette
-- [ ] Each tool button has Accessible name (AT tree)
+- [x] Each tool button has Accessible name (AT tree)
 
 ### 2.3 Shortcuts
 
@@ -151,7 +151,7 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 
 ### 4.2 Brush / eraser
 
-- [ ] Stroke paints on raster layer; dirty + history entry
+- [x] Stroke paints on raster layer; dirty + history entry
 - [ ] Brush size / hardness / **texture** sliders affect stroke
 - [ ] Eraser removes paint
 - [ ] Mid-stroke tool switch ends stroke cleanly (no stuck painting)
@@ -384,6 +384,7 @@ Mark `[N]` unless Decision Register amends:
 | --- | --- | --- | --- | --- | --- |
 | T-009 | high | §14–15 / paint | Brush stroke floods AT-SPI (`statusText` + full `sync_from_engine` on every `CompositeDone`); AT queries time out; kwinmcp session dies | New 1080p → paint drag | **fixed** — composite out of `status_summary`; CompositeDone updates telemetry only; a11y JSON notify only on change; status/FPS labels `Accessible.ignored` |
 | T-010 | med | §1.1 | Welcome→New Document open races modal Overlay; deferred `Qt.callLater` open | New File from Welcome | **fixed** — `openNewDocumentDialog()` |
+| T-011 | high | §1.1–1.2 | Cancel Open File / close last doc left empty shell with no Welcome | Open File → Escape; Discard close | **fixed** — `openFileDialog.onRejected` + `onHasDocumentChanged` reopens Welcome |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -394,8 +395,8 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | Date | Runner | Env | Smoke | Depth | Notes / commit |
 | --- | --- | --- | --- | --- | --- |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | mostly green | partial DR-028 | `0c78559`, `59ce147` — see archive journal |
-| 2026-07-17 | agent (kwinmcp) | Wayland isolated | §0 green / §1.1 partial | T-009/T-010 | AT flood + Welcome defer; kwinmcp dropped after T-009 — resume next |
-| | | | | | |
+| 2026-07-17 | agent (kwinmcp) | Wayland isolated | §0 green / §1.1 partial | T-009/T-010 | AT flood + Welcome defer |
+| 2026-07-17 | agent (kwinmcp; CU host map failed) | Wayland isolated | §1.1–1.2 + About | T-011 | Welcome restore; open PNG; dirty/close |
 
 ---
 

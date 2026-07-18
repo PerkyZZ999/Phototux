@@ -4619,6 +4619,10 @@ ApplicationWindow {
             qsTr("Photoshop (*.psd)")
         ]
         onAccepted: AppSession.openRasterFile(selectedFile.toString())
+        onRejected: {
+            if (!AppSession.hasDocument && !AppSession.ioBusy)
+                welcomeDialog.open()
+        }
     }
 
     FileDialog {
@@ -5561,6 +5565,11 @@ ApplicationWindow {
         function onHasDocumentChanged() {
             if (AppSession.hasDocument)
                 welcomeDialog.close()
+            else if (!AppSession.ioBusy
+                     && !openFileDialog.visible
+                     && !newDocDialog.visible
+                     && !recoveryDialog.visible)
+                welcomeDialog.open()
         }
     }
 
