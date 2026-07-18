@@ -278,11 +278,11 @@ Handbook: [16](../16-Color-Management.md)
 
 Handbook: [20](../20-History-Undo.md), [02](../02-Application-Lifecycle.md)
 
-- [ ] Undo / redo after paint, layer, filter, text
-- [ ] History panel lists entries; jump if supported
-- [ ] History retention preference applies
-- [ ] Long filter / export: cancel if offered; busy state exposed
-- [ ] Autosave / recovery after kill −9 mid-edit (spot check)
+- [x] Undo / redo after paint, layer, filter, text — Ctrl+Z / Ctrl+Shift+Z; history advances (brush, Gaussian Blur, Add layer, selection ops)
+- [x] History panel lists entries; jump if supported — `Add layer · graph` / `Gaussian Blur · graph` listed; click entry jumps (layer count drops)
+- [x] History retention preference applies — Prefs SpinBox → 8; after >8 Add layer ops AT shows exactly 8 history labels
+- [x] Long filter / export: cancel if offered; busy state exposed — Filter Gallery Cancel closes dialog; chrome exposes `Working…` / `ioBusy`
+- [x] Autosave / recovery after kill −9 mid-edit (spot check) — dirty doc autosave timer writes recovery `.ptx`; kill −9 → relaunch shows “PhotoTux found autosaved documents…”
 
 ---
 

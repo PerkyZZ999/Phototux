@@ -896,6 +896,15 @@ ApplicationWindow {
             welcomeDialog.open()
     }
 
+    // Periodic recovery snapshot while the document is dirty (handbook §02).
+    Timer {
+        id: autosaveTimer
+        interval: 8000
+        repeat: true
+        running: AppSession.hasDocument && AppSession.dirty && !AppSession.ioBusy
+        onTriggered: AppSession.autosaveNow()
+    }
+
     Dialog {
         id: recoveryDialog
         anchors.centerIn: parent
@@ -5318,11 +5327,18 @@ ApplicationWindow {
                         Layout.fillWidth: true
                     }
                     SpinBox {
+                        id: historyRetentionSpin
                         from: 8
                         to: 512
                         stepSize: 8
+                        editable: true
                         value: AppSession.prefHistoryRetention
                         onValueModified: AppSession.setPrefHistoryRetention(value)
+                        // Editable commits do not always emit valueModified until focus leaves.
+                        onValueChanged: {
+                            if (value !== AppSession.prefHistoryRetention)
+                                AppSession.setPrefHistoryRetention(value)
+                        }
                         Accessible.name: qsTr("History retention steps")
                         ToolTip.visible: hovered
                         ToolTip.text: qsTr("Max undo steps retained (oldest dropped when over budget)")
