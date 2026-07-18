@@ -265,12 +265,12 @@ Handbook: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 Handbook: [16](../16-Color-Management.md)
 
-- [ ] Foreground / background swatches and hex field
-- [ ] Recent colors / palette clicks
-- [ ] Soft-proof toggle; **Use display profile** path
-- [ ] Embed ICC / Clear ICC
-- [ ] Display profile name falls back to sRGB when colord absent
-- [ ] Soft-proof does not freeze UI
+- [x] Foreground / background swatches and hex field — Swatches FG/BG; red swatch → `#FF0000` + red FG square
+- [x] Recent colors / palette clicks — preset swatch row click updates FG hex
+- [x] Soft-proof toggle; **Use display profile** path — palette `Soft-Proof: Display-P3` / `Soft-Proof: Off`; Properties `Soft-proof: Display-P3` / Off; advanced `Use display profile` (Accessible: Soft-proof with display ICC)
+- [x] Embed ICC / Clear ICC — palette Embed ICC… opens file dialog (Esc cancel); `Clear Embedded ICC` runnable
+- [x] Display profile name falls back to sRGB when colord absent — AT/label `Display: sRGB` in isolated home
+- [x] Soft-proof does not freeze UI — soft-proof on/off while UI stays interactive (swatches/navigator still update)
 
 ---
 
