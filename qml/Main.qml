@@ -2097,6 +2097,16 @@ ApplicationWindow {
                 property real pathCursorY: 0
                 property real lastClickMs: 0
 
+                Connections {
+                    target: AppSession
+                    function onActiveToolChanged() {
+                        if (!canvasInput.painting)
+                            return
+                        AppSession.strokeEnd()
+                        canvasInput.painting = false
+                    }
+                }
+
                 Keys.onPressed: function (event) {
                     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                         if (AppSession.transformActive) {

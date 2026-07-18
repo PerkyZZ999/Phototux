@@ -152,10 +152,12 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 ### 4.2 Brush / eraser
 
 - [x] Stroke paints on raster layer; dirty + history entry
-- [ ] Brush size / hardness / **texture** sliders affect stroke
-- [ ] Eraser removes paint
-- [ ] Mid-stroke tool switch ends stroke cleanly (no stuck painting)
-- [ ] Brush presets apply (Default / Soft / Hard / Noise Tip)
+- [x] Brush size / hardness / **texture** sliders affect stroke — size→167 px, texture→83%; Soft Round hardness 20%; stroke visible
+- [x] Eraser removes paint — `tool.eraser` + erase drag over stroke
+- [x] Mid-stroke tool switch ends stroke cleanly (no stuck painting) — `onActiveToolChanged` calls `strokeEnd`; interrupted gesture left no trail
+- [x] Brush presets apply (Default / Soft / Hard / Noise Tip) — Soft 20%, Hard 100%, Noise 70%/55% texture, Default 85%
+
+**Note (kwinmcp EIS):** native window chrome adds ~28 px Y — use AT `y + 28` for dock/tool-strip clicks.
 
 ### 4.3 Selection tools
 
