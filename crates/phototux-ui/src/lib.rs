@@ -3238,6 +3238,18 @@ impl AppSession {
             return;
         };
         if !self.action_enablement(&action.enablement) {
+            let label = action.label.replace('&', "");
+            self.status_text = format!(
+                "Action unavailable: {label} ({})",
+                match action.enablement.as_str() {
+                    "has_document" | "has_document_io_idle" => "no document open",
+                    "can_undo" => "nothing to undo",
+                    "can_redo" => "nothing to redo",
+                    "io_idle" => "busy",
+                    other => other,
+                }
+            );
+            self.status_text_changed();
             return;
         }
         if let Some(host) = action.host_op.as_deref() {

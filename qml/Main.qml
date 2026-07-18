@@ -1305,19 +1305,26 @@ ApplicationWindow {
                 icon.height: 18
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("More tools")
-                onClicked: toolOverflowMenu.open()
+                // Native ToolButton menu attachment positions reliably vs manual Menu.open().
+                menu: toolOverflowMenu
 
                 Menu {
                     id: toolOverflowMenu
-                    y: toolOverflowBtn.y - height
-                    Repeater {
+                    Instantiator {
                         model: toolStrip.stripOverflow
                         delegate: MenuItem {
+                            required property var modelData
                             text: modelData.title
                             icon.source: root.iconUrl(root.toolIconStem(modelData.icon_key))
                             checked: AppSession.activeTool === modelData.id
                             checkable: true
                             onTriggered: root.activateToolFromStrip(modelData.id)
+                        }
+                        onObjectAdded: function (index, object) {
+                            toolOverflowMenu.insertItem(index, object)
+                        }
+                        onObjectRemoved: function (index, object) {
+                            toolOverflowMenu.removeItem(object)
                         }
                     }
                 }

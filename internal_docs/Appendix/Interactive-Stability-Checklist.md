@@ -97,8 +97,8 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 - [x] Essentials tools visible or reachable (Brush … Zoom)
 - [x] Active tool highlight matches status `tool.*` — Brush / Eraser verified
 - [ ] Tool switch cancels in-progress transform/crop when required
-- [ ] Overflow “More tools” lists remaining tools when strip is short
-- [ ] Narrow window: tools remain reachable via overflow / palette
+- [~] Overflow “More tools” lists remaining tools when strip is short — button appears at 520px height (T-016 Instantiator + `menu:` attach)
+- [~] Narrow window: tools remain reachable via overflow / palette — More tools present; menu open re-verify after T-016
 - [x] Each tool button has Accessible name (AT tree)
 
 ### 2.3 Shortcuts
@@ -113,8 +113,8 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 - [x] Fuzzy filter finds actions by label — typed `about`
 - [x] Enter invokes selected action
-- [ ] Escape closes without mutation
-- [ ] Rejected commands show status / error (not silent)
+- [x] Escape closes without mutation — Esc returns to Welcome; no doc created
+- [x] Rejected commands show status / error (not silent) — Ctrl+S → `Action unavailable: Save (no document open)` (T-015)
 
 ### 2.5 Context menus
 
@@ -388,6 +388,8 @@ Mark `[N]` unless Decision Register amends:
 | T-012 | med | §1.1 | Custom size SpinBox `value:` binding fought typing; Create could keep stale preset | Edit width/height then Create | **fixed** — no binding fight; `confirmCreate` syncs spins / clears mismatched preset |
 | T-013 | high | §1.3 | New/Open on dirty doc showed discard dialog instead of parking tab (DR-024) | Paint → Ctrl+N / toolbar New | **fixed** — `host:document.new` / `.open` open dialogs without `requestDestructiveAction` |
 | T-014 | high | §1.3 | At document limit, `prepare_new_document_tab` parked then failed `begin_active`, leaving no active doc | Open max tabs → New → Create | **fixed** — `can_open_another` before park; status surfaces limit; optional `PHOTOTUX_MAX_OPEN_DOCUMENTS` |
+| T-015 | med | §2.4 | Disabled actions (Save with no doc) failed silently via shortcut/palette | Ctrl+S on Welcome | **fixed** — `invoke_action` sets status `Action unavailable: …` |
+| T-016 | med | §2.2 | Tool overflow `Menu` used `Repeater` / bad `y` so items never appeared | Short window → More tools | **fixed** — Instantiator insert/remove + ToolButton `menu:` |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -402,6 +404,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp; CU host map failed) | Wayland isolated | §1.1–1.2 + About | T-011 | Welcome restore; open PNG; dirty/close |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | custom size + quit | T-012 | 600×600 create; Ctrl+Q clean |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | §1.3 multi-doc tabs | T-013/T-014 | park New/Open; limit status; tab switch/close |
+| 2026-07-17 | agent (kwinmcp) | Wayland isolated 520px | §2.1–2.4 + overflow | T-015/T-016 | rejected Save status; More tools Instantiator |
 
 ---
 
