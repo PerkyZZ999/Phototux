@@ -168,10 +168,10 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 
 ### 4.4 Move / transform / crop
 
-- [ ] Move tool repositions selection or layer per policy
-- [ ] Transform: begin, drag handles, Enter apply, Esc cancel
-- [ ] Constrain proportions toggle
-- [ ] Crop: preview, apply, cancel
+- [x] Move tool repositions selection or layer per policy — Move tool + drag with selection active
+- [x] Transform: begin, drag handles, Enter apply, Esc cancel — Free Transform chrome; Enter apply; Esc cancel
+- [x] Constrain proportions toggle — checkbox present and clicked
+- [x] Crop: preview, apply, cancel — Esc cancel; Apply → canvas `488×375` (from 1920×1080)
 - [x] Switching away from transform/crop cancels in-progress session — same as §2.2 / T-017
 
 ### 4.5 Fill / gradient / eyedropper
