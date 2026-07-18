@@ -257,13 +257,27 @@ ApplicationWindow {
         return root.actionShortcutMap[actionId] || ""
     }
 
+    function itemIsTextEditor(item) {
+        if (!item)
+            return false
+        if (item instanceof TextInput || item instanceof TextEdit
+                || item instanceof TextField || item instanceof TextArea
+                || item instanceof SpinBox)
+            return true
+        // Controls may keep focus on the wrapper; editor is contentItem.
+        if (item.contentItem && root.itemIsTextEditor(item.contentItem))
+            return true
+        // Duck-type editors (instanceof can fail across QML import boundaries).
+        if (typeof item.text === "string"
+                && typeof item.cursorPosition === "number"
+                && typeof item.select === "function")
+            return true
+        return false
+    }
+
     function refreshShortcutYield() {
-        var item = root.activeFocusItem
-        var yieldKeys = false
-        if (item) {
-            // TextInput covers TextField; TextEdit covers multiline editors.
-            yieldKeys = (item instanceof TextInput) || (item instanceof TextEdit)
-        }
+        var yieldKeys = root.itemIsTextEditor(root.activeFocusItem)
+                || newDocDialog.opened
         AppSession.setShortcutInputYield(
                     yieldKeys || AppSession.preferencesOpen || AppSession.filterGalleryOpen)
     }
@@ -1521,6 +1535,12 @@ ApplicationWindow {
                                          : (AppSession.textAlignment === 2
                                             ? TextEdit.AlignRight : TextEdit.AlignLeft)
                     Accessible.name: qsTr("On-canvas text editor")
+                    onActiveFocusChanged: {
+                        if (activeFocus)
+                            AppSession.setShortcutInputYield(true)
+                        else
+                            root.refreshShortcutYield()
+                    }
                     onTextChanged: {
                         if (activeFocus && text !== AppSession.textBody) {
                             AppSession.updateActiveText(
@@ -4114,7 +4134,12 @@ ApplicationWindow {
                                     border.width: 1
                                     MouseArea {
                                         anchors.fill: parent
-                                        onClicked: hexField.forceActiveFocus()
+                                        onClicked: {
+                                            Qt.callLater(function () {
+                                                hexField.forceActiveFocus()
+                                                AppSession.setShortcutInputYield(true)
+                                            })
+                                        }
                                         ToolTip.visible: containsMouse
                                         ToolTip.text: qsTr("Foreground")
                                         hoverEnabled: true
@@ -4127,6 +4152,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: AppSession.foregroundHex
                                 selectByMouse: true
+                                Accessible.name: qsTr("Foreground hex")
                                 font.family: "Noto Sans Mono"
                                 font.pixelSize: Theme.fontMono
                                 color: Theme.colorOnSurface
@@ -4134,6 +4160,12 @@ ApplicationWindow {
                                     color: Theme.surfaceContainer
                                     border.color: parent.activeFocus ? Theme.primary : Theme.border
                                     radius: Theme.radiusSm
+                                }
+                                onActiveFocusChanged: {
+                                    if (activeFocus)
+                                        AppSession.setShortcutInputYield(true)
+                                    else
+                                        root.refreshShortcutYield()
                                 }
                                 onEditingFinished: AppSession.setForegroundHex(text)
                                 Keys.onReturnPressed: {
@@ -5582,7 +5614,11 @@ ApplicationWindow {
     NewDocumentDialog {
         id: newDocDialog
         anchors.centerIn: parent
-        onOpened: welcomeDialog.close()
+        onOpened: {
+            welcomeDialog.close()
+            root.refreshShortcutYield()
+        }
+        onClosed: root.refreshShortcutYield()
         onCreateRequested: function (presetLabel, w, h) {
             welcomeDialog.close()
             AppSession.setViewportSize(canvasHost.width, canvasHost.height)
