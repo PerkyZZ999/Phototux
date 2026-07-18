@@ -182,8 +182,8 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 
 ### 4.6 Empty / edge
 
-- [ ] Tools with no document: no panic; status or no-op
-- [ ] Click letterbox (outside document) does not corrupt camera
+- [x] Tools with no document: no panic; status or no-op — Fill click with no doc; app stayed up, no panic in log
+- [x] Click letterbox (outside document) does not corrupt camera — click beside canvas; window remained healthy
 
 ---
 
