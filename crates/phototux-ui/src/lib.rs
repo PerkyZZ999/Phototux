@@ -1978,6 +1978,14 @@ impl AppSession {
     }
 
     fn prepare_new_document_tab(&mut self, title: &str) -> Result<(), String> {
+        // Refuse before parking so a full registry cannot leave the session with
+        // no active document after a failed begin_active.
+        if !self.doc_registry.can_open_another() {
+            let limit = phototux_engine::max_open_documents();
+            return Err(format!(
+                "document limit reached ({limit}); close a tab first"
+            ));
+        }
         if self.engine.has_document {
             self.park_current_document()?;
         }

@@ -73,11 +73,11 @@ Handbook: [02](../02-Application-Lifecycle.md), [10](../10-Document-Model.md), [
 
 Handbook: [DR-024](Decision-Register.md) (single-doc v1 amended for tabs)
 
-- [~] New while another doc open parks prior tab — Ctrl+N while doc open showed New Document; create not re-verified after AT fix
-- [ ] Switch tabs without crash; active tool/layer context follows
-- [ ] Dirty flag per tab
-- [ ] Close one tab leaves others intact
-- [ ] Document limit rejection is user-visible (no silent fail)
+- [x] New while another doc open parks prior tab — New/Open no longer discard-prompt (T-013); parks via `prepare_new_document_tab`
+- [x] Switch tabs without crash; active tool/layer context follows — tab strip activate OK
+- [x] Dirty flag per tab — `* Untitled` / clean labels track park dirty bit
+- [x] Close one tab leaves others intact — Discard close activates parked sibling
+- [x] Document limit rejection is user-visible (no silent fail) — status `document limit reached (N); close a tab first` (T-014: refuse before park; `PHOTOTUX_MAX_OPEN_DOCUMENTS` for QA)
 
 ---
 
@@ -386,6 +386,8 @@ Mark `[N]` unless Decision Register amends:
 | T-010 | med | §1.1 | Welcome→New Document open races modal Overlay; deferred `Qt.callLater` open | New File from Welcome | **fixed** — `openNewDocumentDialog()` |
 | T-011 | high | §1.1–1.2 | Cancel Open File / close last doc left empty shell with no Welcome | Open File → Escape; Discard close | **fixed** — `openFileDialog.onRejected` + `onHasDocumentChanged` reopens Welcome |
 | T-012 | med | §1.1 | Custom size SpinBox `value:` binding fought typing; Create could keep stale preset | Edit width/height then Create | **fixed** — no binding fight; `confirmCreate` syncs spins / clears mismatched preset |
+| T-013 | high | §1.3 | New/Open on dirty doc showed discard dialog instead of parking tab (DR-024) | Paint → Ctrl+N / toolbar New | **fixed** — `host:document.new` / `.open` open dialogs without `requestDestructiveAction` |
+| T-014 | high | §1.3 | At document limit, `prepare_new_document_tab` parked then failed `begin_active`, leaving no active doc | Open max tabs → New → Create | **fixed** — `can_open_another` before park; status surfaces limit; optional `PHOTOTUX_MAX_OPEN_DOCUMENTS` |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -399,6 +401,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | §0 green / §1.1 partial | T-009/T-010 | AT flood + Welcome defer |
 | 2026-07-17 | agent (kwinmcp; CU host map failed) | Wayland isolated | §1.1–1.2 + About | T-011 | Welcome restore; open PNG; dirty/close |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | custom size + quit | T-012 | 600×600 create; Ctrl+Q clean |
+| 2026-07-17 | agent (kwinmcp) | Wayland isolated | §1.3 multi-doc tabs | T-013/T-014 | park New/Open; limit status; tab switch/close |
 
 ---
 

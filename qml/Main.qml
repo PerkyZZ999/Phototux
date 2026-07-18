@@ -401,13 +401,15 @@ ApplicationWindow {
     function handleHostStatusMarker(text) {
         if (!text || text.indexOf("host:") !== 0)
             return false
+        // DR-024 v2: New/Open park the current tab — do not discard-prompt.
         if (text === "host:document.new") {
-            root.requestDestructiveAction("new")
+            root.openNewDocumentDialog()
             AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:document.open") {
-            root.requestDestructiveAction("open")
+            welcomeDialog.close()
+            openFileDialog.open()
             AppSession.clearHostStatusMarker()
             return true
         }

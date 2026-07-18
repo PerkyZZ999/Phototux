@@ -62,6 +62,8 @@ Popup {
         dialog.close()
     }
 
+    onOpened: createButton.forceActiveFocus()
+
     Keys.onPressed: function (event) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             dialog.confirmCreate()
@@ -365,8 +367,10 @@ Popup {
                             }
 
                             Button {
+                                id: createButton
                                 Layout.fillWidth: true
                                 text: qsTr("Create")
+                                Accessible.name: qsTr("Create")
                                 focus: true
                                 onClicked: dialog.confirmCreate()
                                 Keys.onReturnPressed: dialog.confirmCreate()

@@ -15,6 +15,15 @@ pub struct OpenDocumentId(pub u64);
 /// Maximum simultaneous open documents (memory bound for v1 tabs).
 pub const MAX_OPEN_DOCUMENTS: usize = 8;
 
+/// Effective open-document cap (override with `PHOTOTUX_MAX_OPEN_DOCUMENTS` for tests).
+pub fn max_open_documents() -> usize {
+    std::env::var("PHOTOTUX_MAX_OPEN_DOCUMENTS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|&n| (1..=MAX_OPEN_DOCUMENTS).contains(&n))
+        .unwrap_or(MAX_OPEN_DOCUMENTS)
+}
+
 /// Parked inactive document (pixels optional until first park-from-GPU).
 #[derive(Debug)]
 pub struct ParkedDocument {
@@ -58,14 +67,15 @@ impl DocumentRegistry {
     }
 
     pub fn can_open_another(&self) -> bool {
-        self.open_count() < MAX_OPEN_DOCUMENTS
+        self.open_count() < max_open_documents()
     }
 
     /// Allocate a new id and mark it active (caller places session in host slot).
     pub fn begin_active(&mut self, title: impl Into<String>) -> Result<OpenDocumentId, String> {
         if !self.can_open_another() {
+            let limit = max_open_documents();
             return Err(format!(
-                "document limit reached ({MAX_OPEN_DOCUMENTS}); close a tab first"
+                "document limit reached ({limit}); close a tab first"
             ));
         }
         let id = OpenDocumentId(self.next_id);
@@ -167,7 +177,8 @@ mod tests {
     #[test]
     fn enforces_max_open() {
         let mut reg = DocumentRegistry::new();
-        for i in 0..MAX_OPEN_DOCUMENTS {
+        let limit = max_open_documents();
+        for i in 0..limit {
             let id = reg.begin_active(format!("D{i}")).expect("open");
             reg.park_active(
                 id,
