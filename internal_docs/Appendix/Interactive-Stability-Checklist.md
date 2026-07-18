@@ -235,12 +235,12 @@ Handbook: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### 7.1 Filters & adjustments
 
-- [ ] Filter Gallery opens (menu or palette)
-- [ ] Gaussian / Motion / Emboss / Sharpen / **Noise** preview + apply
-- [ ] Cancel preview restores prior pixels
-- [ ] Exposure adjustment layer + Properties sliders
-- [ ] Brightness/Contrast / levels-style adjustments if present
-- [ ] Effect on wrong layer kind → actionable error
+- [x] Filter Gallery opens (menu or palette) — kwinmcp: palette `Filter Gallery` → dialog with kind combo + Preview/Apply/Cancel
+- [x] Gaussian / Motion / Emboss / Sharpen / **Noise** preview + apply — gallery combo → each kind; history `… · graph`; status `… applied`; Noise preview visibly noisy
+- [x] Cancel preview restores prior pixels — gallery auto-preview then Cancel; status stayed `Noise applied`; no new Gaussian history entry
+- [x] Exposure adjustment layer + Properties sliders — palette `Exposure`; Stops/Gamma in Properties (Gamma dragged to 0.45)
+- [x] Brightness/Contrast / levels-style adjustments if present — palette `Brightness/Contrast` + `Levels` with Black/White/Gamma sliders
+- [x] Effect on wrong layer kind → actionable error — Gaussian Blur on adjustment → Properties `command rejected: effect requires raster layer`
 
 ### 7.2 Text
 
