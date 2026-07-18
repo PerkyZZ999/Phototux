@@ -161,10 +161,10 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 
 ### 4.3 Selection tools
 
-- [ ] Rect / ellipse / lasso / polygon create selection (ants / status)
-- [ ] Shift add / Alt subtract / Shift+Alt intersect (status hint)
-- [ ] Deselect (Ctrl+D) clears
-- [ ] Empty document: selection tools do not panic
+- [x] Rect / ellipse / lasso / polygon create selection (ants / status) — `pixel selection active`; Rectangular selection status
+- [x] Shift add / Alt subtract / Shift+Alt intersect (status hint) — hint shown; Shift/Alt/Shift+Alt drags exercised
+- [x] Deselect (Ctrl+D) clears — status returned to `no pixel selection`
+- [x] Empty document: selection tools do not panic — marquee drag with no doc; app stayed up, no panic in log
 
 ### 4.4 Move / transform / crop
 
