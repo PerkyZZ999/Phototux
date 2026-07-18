@@ -38,7 +38,23 @@ Popup {
         }
     }
 
+    function syncCustomFromSpins() {
+        customW = spinW.value
+        customH = spinH.value
+        var match = ""
+        for (var i = 0; i < presets.length; ++i) {
+            if (presets[i].w === spinW.value && presets[i].h === spinH.value) {
+                match = presets[i].label
+                break
+            }
+        }
+        selectedPreset = match
+    }
+
     function confirmCreate() {
+        // Always honor the spin values the user sees. Preset label is only used when
+        // width/height still match that preset (avoids stale selection after edits).
+        syncCustomFromSpins()
         if (dialog.selectedPreset && dialog.selectedPreset.length > 0)
             dialog.createRequested(dialog.selectedPreset, 0, 0)
         else
@@ -292,12 +308,11 @@ Popup {
                             Layout.fillWidth: true
                             from: 1
                             to: 32768
-                            value: dialog.customW
                             editable: true
-                            onValueModified: {
-                                dialog.customW = value
-                                dialog.selectedPreset = ""
-                            }
+                            Accessible.name: qsTr("Document width")
+                            // Avoid `value: dialog.customW` binding — it fights editable typing.
+                            Component.onCompleted: value = dialog.customW
+                            onValueModified: dialog.syncCustomFromSpins()
                         }
 
                         Label {
@@ -311,12 +326,10 @@ Popup {
                             Layout.fillWidth: true
                             from: 1
                             to: 32768
-                            value: dialog.customH
                             editable: true
-                            onValueModified: {
-                                dialog.customH = value
-                                dialog.selectedPreset = ""
-                            }
+                            Accessible.name: qsTr("Document height")
+                            Component.onCompleted: value = dialog.customH
+                            onValueModified: dialog.syncCustomFromSpins()
                         }
 
                         Label {

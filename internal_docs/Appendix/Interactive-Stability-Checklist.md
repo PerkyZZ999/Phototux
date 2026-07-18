@@ -54,7 +54,7 @@ Handbook: [02](../02-Application-Lifecycle.md), [10](../10-Document-Model.md), [
 - [x] **Open File** opens file chooser; Welcome closes
 - [x] Ctrl+N / File → New closes Welcome and opens New Document
 - [x] Presets 720p / 1080p / 2K / 4K create correct size (status / title) — 1080p verified (1920×1080)
-- [ ] Custom width/height create path works
+- [x] Custom width/height create path works — 600×600 via spins (T-012: spins no longer fight typing; Create honors spin dims)
 - [x] Cancel leaves no half-open document; Welcome returns if still empty — Escape closes New Document; **Open cancel restores Welcome** (T-011)
 - [x] Enter / Create confirms; Escape cancels — Create mouse needs AT→EIS Y offset in kwinmcp; Enter reliable; deferred open after Welcome
 - [x] Zoom-to-fit on open/new — 1080p ~53%; tiny 64² opens ~1118% fit
@@ -66,8 +66,8 @@ Handbook: [02](../02-Application-Lifecycle.md), [10](../10-Document-Model.md), [
 - [~] Save / Save As / Export complete or show actionable error — Save dialog opens from unsaved prompt; full Save As not finished this pass
 - [x] Close last document returns to empty/welcome state without ghost canvas — Discard → Welcome (T-011)
 - [x] Quit with dirty prompts (unsaved dialog); discard / cancel / save paths — Discard + Cancel exercised; Save opens chooser
-- [ ] Quit clean with no document
-- [ ] Recovery list: restore and discard entries
+- [x] Quit clean with no document — Ctrl+Q; process exits, no PhotoTux window
+- [N] Recovery list: restore and discard entries — no recovery entries in isolated home this pass
 
 ### 1.3 Multi-document tabs (shipped spine)
 
@@ -385,6 +385,7 @@ Mark `[N]` unless Decision Register amends:
 | T-009 | high | §14–15 / paint | Brush stroke floods AT-SPI (`statusText` + full `sync_from_engine` on every `CompositeDone`); AT queries time out; kwinmcp session dies | New 1080p → paint drag | **fixed** — composite out of `status_summary`; CompositeDone updates telemetry only; a11y JSON notify only on change; status/FPS labels `Accessible.ignored` |
 | T-010 | med | §1.1 | Welcome→New Document open races modal Overlay; deferred `Qt.callLater` open | New File from Welcome | **fixed** — `openNewDocumentDialog()` |
 | T-011 | high | §1.1–1.2 | Cancel Open File / close last doc left empty shell with no Welcome | Open File → Escape; Discard close | **fixed** — `openFileDialog.onRejected` + `onHasDocumentChanged` reopens Welcome |
+| T-012 | med | §1.1 | Custom size SpinBox `value:` binding fought typing; Create could keep stale preset | Edit width/height then Create | **fixed** — no binding fight; `confirmCreate` syncs spins / clears mismatched preset |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -397,6 +398,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | mostly green | partial DR-028 | `0c78559`, `59ce147` — see archive journal |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | §0 green / §1.1 partial | T-009/T-010 | AT flood + Welcome defer |
 | 2026-07-17 | agent (kwinmcp; CU host map failed) | Wayland isolated | §1.1–1.2 + About | T-011 | Welcome restore; open PNG; dirty/close |
+| 2026-07-17 | agent (kwinmcp) | Wayland isolated | custom size + quit | T-012 | 600×600 create; Ctrl+Q clean |
 
 ---
 
