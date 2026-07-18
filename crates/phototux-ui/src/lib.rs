@@ -3260,12 +3260,26 @@ impl AppSession {
             match self.command_args_for_action(cid, action.arg.as_deref()) {
                 Ok(args) => {
                     if let Err(error) = self.invoke_command(cid, args) {
-                        self.report_gpu("action", &error.to_string());
+                        self.report_action_error(&error.to_string());
                     }
                 }
-                Err(error) => self.report_gpu("action", &error.to_string()),
+                Err(error) => self.report_action_error(&error.to_string()),
             }
         }
+    }
+
+    /// Surface action/command failures in the status footer and Properties announce.
+    fn report_action_error(&mut self, error: &str) {
+        let lower = error.to_ascii_lowercase();
+        if lower.contains("rejected") || lower.contains("invalid argument") {
+            self.status_text = error.to_owned();
+            self.status_text_changed();
+            self.engine.announce(error);
+            self.last_announce = self.engine.last_announce.clone();
+            self.last_announce_changed();
+            return;
+        }
+        self.report_gpu("action", error);
     }
 
     #[qslot]

@@ -213,8 +213,8 @@ Handbook: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 ### 5.3 Conflicts
 
-- [ ] Filter requiring raster on text/shape layer → clear rejection
-- [ ] Mask edit while wrong target selected → no silent pixel write to wrong buffer
+- [x] Filter requiring raster on text/shape layer → clear rejection — Drop Shadow on shape → Properties `command rejected: drop shadow requires raster` (unit: `drop_shadow_rejects_shape_layer`)
+- [x] Mask edit while wrong target selected → no silent pixel write to wrong buffer — with mask present, Layer pixels target → history `Brush stroke` (not `Mask stroke`)
 
 ---
 

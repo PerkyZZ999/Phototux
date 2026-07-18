@@ -3486,6 +3486,30 @@ mod tests {
     }
 
     #[test]
+    fn drop_shadow_rejects_shape_layer() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let path = crate::paths::rect_path("R", 10.0, 10.0, 40.0, 30.0);
+        s.invoke(
+            command_id::SHAPE_CREATE,
+            CommandArgs::ShapeCreate {
+                content: Box::new(ShapeContent {
+                    path,
+                    ..ShapeContent::default()
+                }),
+            },
+        )
+        .expect("shape");
+        let err = s
+            .invoke(command_id::STYLE_ADD_DROP_SHADOW, CommandArgs::None)
+            .expect_err("shape drop shadow");
+        assert!(
+            matches!(err, CommandError::Rejected(msg) if msg.contains("raster")),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn path_edit_round_trip_on_shape() {
         let mut s = SessionState::default();
         s.apply_preset(SizePreset::P720);

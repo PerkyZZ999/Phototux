@@ -11,7 +11,8 @@ ApplicationWindow {
     id: root
     visible: true
     width: 1440
-    height: 900
+    // Leave room for SSD title bar on 900px virtual screens so the status footer stays on-screen.
+    height: 860
     title: AppSession.hasDocument
            ? (AppSession.dirty
               ? qsTr("%1* — PhotoTux").arg(AppSession.documentName)
@@ -878,6 +879,8 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        if (Screen.height > 0 && height + 48 > Screen.height)
+            height = Math.max(600, Screen.height - 48)
         // Clamp restored floating geometry before any Window persist can run.
         if (Screen.width > 0 && Screen.height > 0)
             AppSession.clampFloatingPanels(0, 0, Screen.width, Screen.height)
