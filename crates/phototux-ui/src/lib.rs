@@ -3896,16 +3896,26 @@ impl AppSession {
         } else {
             tool_id::BRUSH.to_owned()
         };
+        // Leaving transform/crop must end the in-progress session (strip, palette, shortcuts).
+        if id != tool_id::TRANSFORM && self.engine.transform_session.is_some() {
+            self.cancel_transform();
+        }
+        if id != tool_id::CROP && self.crop_preview_active {
+            self.cancel_crop();
+        }
         let _ = self.invoke_command(
             command_id::VIEW_SET_TOOL,
             CommandArgs::Tool { tool: id.clone() },
         );
         self.engine.sync_brush_from_tool();
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
-        self.prefs.last_tool = id;
+        self.prefs.last_tool = id.clone();
         if self.prefs.restore_last_tool {
             self.persist_prefs();
         }
+        // VIEW_SET_TOOL is view-only (no sync_doc); mirror engine into QML props here.
+        self.active_tool = id;
+        self.status_text = self.engine.status_summary();
         self.active_tool_changed();
         self.status_text_changed();
     }
@@ -6459,6 +6469,7 @@ impl AppSession {
         self.recomposite();
         self.sync_from_engine();
         self.emit_transform_fields();
+        self.status_text_changed();
         self.graph_revision_changed();
     }
 

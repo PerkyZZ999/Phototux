@@ -646,10 +646,19 @@ ApplicationWindow {
     Shortcut {
         sequence: "Esc"
         context: Qt.ApplicationShortcut
-        enabled: !AppSession.shortcutInputYield
-                 && !AppSession.preferencesOpen
-                 && root.autoHiddenPanels.length > 0
+        enabled: !AppSession.shortcutInputYield && !AppSession.preferencesOpen
+                 && (AppSession.transformActive
+                     || AppSession.cropPreviewActive
+                     || root.autoHiddenPanels.length > 0)
         onActivated: {
+            if (AppSession.transformActive) {
+                AppSession.cancelTransform()
+                return
+            }
+            if (AppSession.cropPreviewActive) {
+                AppSession.cancelCrop()
+                return
+            }
             var id = root.autoHiddenPanels[0]
             if (id)
                 AppSession.pinPanel(id)
@@ -2965,6 +2974,7 @@ ApplicationWindow {
                                 }
                                 Button {
                                     text: qsTr("Cancel")
+                                    Accessible.name: qsTr("Cancel")
                                     enabled: AppSession.transformActive
                                              || AppSession.cropPreviewActive
                                     onClicked: {

@@ -96,7 +96,7 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 - [x] Essentials tools visible or reachable (Brush … Zoom)
 - [x] Active tool highlight matches status `tool.*` — Brush / Eraser verified
-- [ ] Tool switch cancels in-progress transform/crop when required
+- [x] Tool switch cancels in-progress transform/crop when required — T-017; Esc app Shortcut; strip→Brush/Eraser clears session
 - [~] Overflow “More tools” lists remaining tools when strip is short — button appears at 520px height (T-016 Instantiator + `menu:` attach)
 - [~] Narrow window: tools remain reachable via overflow / palette — More tools present; menu open re-verify after T-016
 - [x] Each tool button has Accessible name (AT tree)
@@ -170,7 +170,7 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 - [ ] Transform: begin, drag handles, Enter apply, Esc cancel
 - [ ] Constrain proportions toggle
 - [ ] Crop: preview, apply, cancel
-- [ ] Switching away from transform/crop cancels in-progress session
+- [x] Switching away from transform/crop cancels in-progress session — same as §2.2 / T-017
 
 ### 4.5 Fill / gradient / eyedropper
 
@@ -390,6 +390,7 @@ Mark `[N]` unless Decision Register amends:
 | T-014 | high | §1.3 | At document limit, `prepare_new_document_tab` parked then failed `begin_active`, leaving no active doc | Open max tabs → New → Create | **fixed** — `can_open_another` before park; status surfaces limit; optional `PHOTOTUX_MAX_OPEN_DOCUMENTS` |
 | T-015 | med | §2.4 | Disabled actions (Save with no doc) failed silently via shortcut/palette | Ctrl+S on Welcome | **fixed** — `invoke_action` sets status `Action unavailable: …` |
 | T-016 | med | §2.2 | Tool overflow Menu `Repeater`/`menu:` crash or empty; items never listed | Short window → More tools | **partial** — Popup+Repeater boots; More tools button AT-visible; open path still flaky under EIS |
+| T-017 | high | §2.2 / §4.4 | `set_active_tool` notified QML without mirroring engine `active_tool`/`status_text`; transform chrome stuck after leave; tool switch cancel unreliable | Transform → Esc or strip leave | **fixed** — mirror props after `VIEW_SET_TOOL`; cancel on leave; app Esc cancels session |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -405,6 +406,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | custom size + quit | T-012 | 600×600 create; Ctrl+Q clean |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated | §1.3 multi-doc tabs | T-013/T-014 | park New/Open; limit status; tab switch/close |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 520px | §2.1–2.4 + overflow | T-015/T-016 | rejected Save status; More tools Instantiator |
+| 2026-07-17 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.2 / §4.4 transform-crop cancel | T-017 | active_tool sync; Esc + strip cancel |
 
 ---
 
