@@ -106,8 +106,8 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 - [~] Ctrl+N / O / S / Z / Shift+Z / W / Q behave as mapped — N/W/Z exercised
 - [x] Ctrl+Shift+P opens command palette
 - [x] Shortcuts yield while text field / on-canvas TextEdit focused — T-018; New Document open blocks Ctrl+Shift+P; TextField/SpinBox/TextEdit detection + hex/FG handlers
-- [ ] Custom keymap in Preferences persists across restart
-- [ ] Conflict detection UI surfaces duplicate chords
+- [x] Custom keymap in Preferences persists across restart — T-019; Save→F9 in prefs.json survives relaunch with same XDG config
+- [x] Conflict detection UI surfaces duplicate chords — steal clears prior binding (Open→None when Export took Ctrl+O); hint path present
 
 ### 2.4 Command palette
 
@@ -392,6 +392,7 @@ Mark `[N]` unless Decision Register amends:
 | T-016 | med | §2.2 | Tool overflow Menu `Repeater`/`menu:` crash or empty; items never listed | Short window → More tools | **partial** — Popup+Repeater boots; More tools button AT-visible; open path still flaky under EIS |
 | T-017 | high | §2.2 / §4.4 | `set_active_tool` notified QML without mirroring engine `active_tool`/`status_text`; transform chrome stuck after leave; tool switch cancel unreliable | Transform → Esc or strip leave | **fixed** — mirror props after `VIEW_SET_TOOL`; cancel on leave; app Esc cancels session |
 | T-018 | med | §2.3 | App shortcuts fired while New Document / spin editors active (`instanceof TextInput` miss + no dialog yield) | New Document → Ctrl+Shift+P | **fixed** — SpinBox/TextField/TextEdit detect; `newDocDialog.opened` yields; hex/FG focus arms yield |
+| T-019 | med | §2.3 | Preferences Flickable did not scroll (Keyboard unreachable); keymap capture needs F-keys | Prefs → Keyboard | **fixed** — Flickable sized to `availableWidth/Height` + AlwaysOn scrollbar; Save→F9 persisted |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -409,6 +410,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 520px | §2.1–2.4 + overflow | T-015/T-016 | rejected Save status; More tools Instantiator |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.2 / §4.4 transform-crop cancel | T-017 | active_tool sync; Esc + strip cancel |
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.3 shortcut yield | T-018 | New Document blocks palette; editor detect |
+| 2026-07-18 | agent (kwinmcp) | Wayland kept-home | §2.3 keymap + conflict | T-019 | prefs scroll; Save F9 persist; chord steal |
 
 ---
 

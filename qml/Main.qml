@@ -5036,10 +5036,16 @@ ApplicationWindow {
         contentItem: Flickable {
             id: prefsFlick
             clip: true
-            contentWidth: prefsCol.width
-            contentHeight: prefsCol.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
+            width: preferencesDialog.availableWidth
+            height: preferencesDialog.availableHeight
+            contentWidth: width
+            contentHeight: prefsCol.implicitHeight
             focus: preferencesDialog.capturingActionId.length > 0
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AlwaysOn
+                Accessible.name: qsTr("Preferences scroll")
+            }
             Keys.onPressed: function (event) {
                 if (preferencesDialog.capturingActionId.length === 0)
                     return
@@ -5074,7 +5080,8 @@ ApplicationWindow {
             ColumnLayout {
                 id: prefsCol
                 spacing: Theme.spaceMd
-                width: 440
+                width: prefsFlick.width
+                Accessible.name: qsTr("Preferences content")
 
                 Label {
                     text: qsTr("General")
