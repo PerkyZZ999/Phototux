@@ -605,6 +605,9 @@ ApplicationWindow {
     readonly property color toolActiveBg: Theme.toolActiveBg
 
     function openNewDocumentDialog() {
+        // Cancel in-progress gallery so New is not blocked by modal yield.
+        if (AppSession.filterGalleryOpen)
+            AppSession.filterGalleryCancel()
         welcomeDialog.close()
         // Defer so Welcome's modal Overlay is torn down before the next Popup mounts.
         Qt.callLater(function () {
@@ -627,6 +630,9 @@ ApplicationWindow {
     }
 
     function requestDestructiveAction(action) {
+        // Hostile UX: close/quit while Filter Gallery is open must not stick the modal.
+        if (AppSession.filterGalleryOpen)
+            AppSession.filterGalleryCancel()
         if (AppSession.dirty) {
             pendingDestructiveAction = action
             unsavedDialog.open()

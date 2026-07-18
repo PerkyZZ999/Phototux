@@ -3264,8 +3264,21 @@ impl AppSession {
         };
         if !self.action_enablement(&action.enablement) {
             let label = action.label.replace('&', "");
-            self.status_text = format!(
-                "Action unavailable: {label} ({})",
+            let reason = if self.io_busy
+                && matches!(
+                    action.enablement.as_str(),
+                    "io_idle"
+                        | "has_document"
+                        | "has_document_io_idle"
+                        | "can_undo"
+                        | "can_redo"
+                        | "selection_active"
+                        | "has_mask"
+                        | "no_mask"
+                        | "has_multiple_layers"
+                ) {
+                "busy"
+            } else {
                 match action.enablement.as_str() {
                     "has_document" | "has_document_io_idle" => "no document open",
                     "can_undo" => "nothing to undo",
@@ -3273,7 +3286,8 @@ impl AppSession {
                     "io_idle" => "busy",
                     other => other,
                 }
-            );
+            };
+            self.status_text = format!("Action unavailable: {label} ({reason})");
             self.status_text_changed();
             return;
         }

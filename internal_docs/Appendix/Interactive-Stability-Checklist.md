@@ -357,14 +357,14 @@ Handbook: [17](../17-Rendering-Engine.md), [30](../30-Performance.md), [Performa
 
 Handbook: [08](../08-Command-System.md), [Error-Taxonomy](Error-Taxonomy.md), [31](../31-Testing.md)
 
-- [ ] Rapid undo/redo spam during stroke end
-- [ ] Open dialog while IO busy
-- [ ] Switch tab mid-filter preview
-- [ ] Close document while filter gallery open
-- [ ] New document while save in progress
-- [ ] Double-click Create / double palette Enter (idempotent or safe reject)
-- [ ] Host status markers (`host:document.*`) clear after handling
-- [ ] No stuck modal with no focus escape
+- [x] Rapid undo/redo spam during stroke end — stroke then Ctrl+Z / Ctrl+Shift+Z burst; no crash; doc stays interactive
+- [x] Open dialog while IO busy — `has_document_io_idle` / `io_busy` gates actions; unavailable reason reports `busy` (not “no document”)
+- [x] Switch tab mid-filter preview — Filter Gallery modal blocks tab chrome until Esc/Cancel (safe reject); no crash
+- [x] Close document while filter gallery open — Esc cancels gallery; Ctrl+W then unsaved prompt; gallery cancel-on-destructive in QML
+- [x] New document while save in progress — Save As open + Ctrl+N leaves Save dialog intact (no stuck/corrupt race)
+- [x] Double-click Create / double palette Enter (idempotent or safe reject) — double Create click → single doc, no crash
+- [x] Host status markers (`host:document.*`) clear after handling — Ctrl+N → status `PhotoTux — create…` (not `host:document.new`)
+- [x] No stuck modal with no focus escape — Esc closes Filter Gallery, unsaved prompt, Save As
 
 ---
 
@@ -417,18 +417,19 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.5 context menus | T-020 | canvas/selection menus; clamped popup helper |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §3 workspace/panels | — | Compact/Essentials; Navigator toggle; no dirty |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §4.1 pan/zoom | — | wheel zoom; Fit shortcut; middle-drag pan |
+| 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §15 conflicts/races | — | undo spam; gallery Esc/close; host markers; Esc modals |
 
 ---
 
 ## Sign-off (per pass)
 
-- [ ] §0–§2 green (boot + lifecycle + action chrome)
-- [ ] §4–§5 green (tools + layers/masks) or `[!]` filed
-- [ ] §7 creative engines exercised or explicitly `[N]` with reason
-- [ ] §13 a11y smoke green
-- [ ] All `[!]` fixed or deferred with Decision Register / gap note
-- [ ] `./scripts/check-rust.sh` green for code fixes
-- [ ] This checklist + journal updated; commits landed
+- [x] §0–§2 green (boot + lifecycle + action chrome)
+- [x] §4–§5 green (tools + layers/masks) or `[!]` filed
+- [x] §7 creative engines exercised or explicitly `[N]` with reason
+- [x] §13 a11y smoke green
+- [x] All `[!]` fixed or deferred with Decision Register / gap note
+- [x] `./scripts/check-rust.sh` green for code fixes
+- [x] This checklist + journal updated; commits landed
 
 ---
 
