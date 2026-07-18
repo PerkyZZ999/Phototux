@@ -303,12 +303,12 @@ Handbook: [22](../22-Import-Export.md), [27](../27-File-Formats.md)
 
 Handbook: [24](../24-Preferences.md), [25](../25-Themes.md), [28](../28-UX-Guidelines.md)
 
-- [ ] Preferences open / close; Esc
-- [ ] UI density / high contrast / reduced motion toggles apply
-- [ ] Show guides / grid / rulers / snap persist
-- [ ] Restore last tool preference
-- [ ] Prefs survive restart
-- [ ] Theme tokens remain single source (no accidental light flash)
+- [x] Preferences open / close; Esc — Ctrl+, opens Preferences; Esc dismisses
+- [x] UI density / high contrast / reduced motion toggles apply — Prefs → Comfortable + High contrast + Reduced motion; Theme bindings update; `preferences.json` matches
+- [x] Show guides / grid / rulers / snap persist — toggles write `show_guides/grid/rulers` + `snap_enabled` in `preferences.json`
+- [x] Restore last tool preference — restore-on-launch + always-persist `last_tool`; relaunch with `tool.text` → status `tool.text`
+- [x] Prefs survive restart — same XDG home reload: comfortable / high_contrast / grid / rulers / restore_last_tool intact
+- [x] Theme tokens remain single source (no accidental light flash) — `Theme.qml` bindings for density/contrast/motion; dock stays `#2B2B30`-class dark after restart
 
 ---
 

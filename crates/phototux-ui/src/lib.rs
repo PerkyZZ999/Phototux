@@ -3945,9 +3945,8 @@ impl AppSession {
         self.engine.sync_brush_from_tool();
         self.send_paint(EngineCommand::SetBrush(self.engine.brush));
         self.prefs.last_tool = id.clone();
-        if self.prefs.restore_last_tool {
-            self.persist_prefs();
-        }
+        // Always remember the last tool; restore_last_tool only gates apply-on-launch.
+        self.persist_prefs();
         // VIEW_SET_TOOL is view-only (no sync_doc); mirror engine into QML props here.
         self.active_tool = id;
         self.status_text = self.engine.status_summary();
