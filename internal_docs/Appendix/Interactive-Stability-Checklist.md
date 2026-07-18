@@ -87,9 +87,9 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 ### 2.1 Menus
 
-- [~] File / Edit / Select / Image / Layer / Filter / View / Window / Help open — Help opened via Alt+H
-- [ ] Menu items invoke via action IDs (no bypass of `invoke` for document mutations)
-- [ ] Disabled items match enablement (no document → save/export disabled)
+- [x] File / Edit / Select / Image / Layer / Filter / View / Window / Help open — File open with docs; Help via Alt+H
+- [x] Menu items invoke via action IDs (no bypass of `invoke` for document mutations) — `actionMenuItem` → `runAction` → `invokeAction`
+- [x] Disabled items match enablement (no document → save/export disabled) — Welcome: toolbar Export/Undo/Redo lack `enabled` in AT
 - [x] Help → About (or equivalent) opens and closes cleanly
 
 ### 2.2 Tool strip & overflow
