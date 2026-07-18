@@ -1622,6 +1622,13 @@ impl AppSession {
                 self.status_text_changed();
             }
             "app.recover_gpu" => self.recover_gpu(),
+            "app.simulate_device_lost" => {
+                if let Err(error) = phototux_canvas::simulate_device_lost() {
+                    self.report_gpu("simulate device lost", &error);
+                } else {
+                    self.enter_gpu_lost();
+                }
+            }
             "palette.open" => {
                 self.status_text = "host:palette.open".into();
                 self.status_text_changed();

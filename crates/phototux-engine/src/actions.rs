@@ -1147,6 +1147,17 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
         ),
         act(
+            "action.app.simulate-device-lost",
+            "Simulate Device Lost (debug)",
+            "view",
+            "has_document",
+            None,
+            Some("app.simulate_device_lost"),
+            None,
+            None,
+            None,
+        ),
+        act(
             "action.app.recover-gpu",
             "&Recover graphics…",
             "view",

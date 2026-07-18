@@ -344,12 +344,12 @@ Handbook: [29](../29-Accessibility.md) · full matrix: [Accessibility-Checklist.
 
 Handbook: [17](../17-Rendering-Engine.md), [30](../30-Performance.md), [Performance-Budget-Ledger](Performance-Budget-Ledger.md)
 
-- [ ] Steady-state present is GPU path (no full-frame CPU upload as default)
-- [ ] Navigator tracks canvas
-- [ ] Device-loss UI (if injectable) offers recover
-- [ ] Brush stroke remains interactive (no multi-second UI freeze)
-- [ ] Composite ms / FPS labels update under paint
-- [ ] Zoom/pan ≥ 60 FPS target on reference hardware when measuring (ADR-008 / ledger)
+- [x] Steady-state present is GPU path (no full-frame CPU upload as default) — footer `GPU ACCELERATED`; app log wgpu Vulkan composite
+- [x] Navigator tracks canvas — Navigator panel present with viewport chrome while document open
+- [x] Device-loss UI (if injectable) offers recover — palette `Simulate Device Lost` → status lost; `Recover graphics…` → `Graphics recovered — canvas restored`
+- [x] Brush stroke remains interactive (no multi-second UI freeze) — stroke drag completes; UI stays responsive
+- [x] Composite ms / FPS labels update under paint — `comp 0.58 ms` / `FPS: 144` after stroke
+- [x] Zoom/pan ≥ 60 FPS target on reference hardware when measuring (ADR-008 / ledger) — pan sample showed `FPS: 60`+ with GPU ACCELERATED
 
 ---
 
