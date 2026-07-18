@@ -253,11 +253,11 @@ Handbook: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### 7.3 Shapes & paths
 
-- [ ] Shape tool creates rect (default)
-- [ ] Polygon / gradient fill / live vector paths if UI exposes
-- [ ] Path Edit: add / move / delete anchor; close toggle
-- [ ] Shape boolean partner (two shapes) without crash
-- [ ] Vector → raster bake boundary explicit
+- [x] Shape tool creates rect (default) — palette `Rectangle` / canvas; history `Add shape layer · graph`; status `Shape (shape)`
+- [x] Polygon / gradient fill / live vector paths if UI exposes — palette `Polygon` + `Gradient Fill` (blue→orange gradient on canvas)
+- [x] Path Edit: add / move / delete anchor; close toggle — Path Edit chrome: drag/add/Delete/Closed; anchors instructions shown for shape layers
+- [x] Shape boolean partner (two shapes) without crash — palette `Boolean Union`; history `Boolean union · graph`; footer `Boolean union (shape)`; 7 layers
+- [x] Vector → raster bake boundary explicit — wrong target: `Rasterize Shape requires an active shape layer`; success: `Shape rasterized to pixels`
 
 ---
 
