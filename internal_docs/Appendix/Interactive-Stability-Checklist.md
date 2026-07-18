@@ -290,12 +290,12 @@ Handbook: [20](../20-History-Undo.md), [02](../02-Application-Lifecycle.md)
 
 Handbook: [22](../22-Import-Export.md), [27](../27-File-Formats.md)
 
-- [ ] Open `.ptx` round-trip
-- [ ] Export PNG / JPEG
-- [ ] Export PSD if shipped
-- [ ] Corrupt / truncated file → error, no crash
-- [ ] Huge dimension rejection or progress (no hang forever)
-- [ ] Path with spaces / unicode in filename
+- [x] Open `.ptx` round-trip — `PHOTOTUX_DESKTOP_OPEN` routes `.ptx`; open `Round Trip café.ptx` + Ctrl+S rewrites file (901→1.1k)
+- [x] Export PNG / JPEG — `PHOTOTUX_DESKTOP_EXPORT` after open writes `export-out.png` / `.jpg`; `phototux_io` PNG/JPEG tests green
+- [x] Export PSD if shipped — Export dialog includes Photoshop subset (`*.psd`); `psd::export_import_round_trip` test green
+- [x] Corrupt / truncated file → error, no crash — open `corrupt truncated.ptx` → integrity UI (`corrupt ptx: truncated header`); process stays up
+- [x] Huge dimension rejection or progress (no hang forever) — `phototux_io::rejects_rgba_allocation_over_limit` test green
+- [x] Path with spaces / unicode in filename — opened/saved `Documents/Round Trip café.ptx`
 
 ---
 

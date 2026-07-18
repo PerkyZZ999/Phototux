@@ -314,7 +314,17 @@ impl Default for AppSession {
             let path = PathBuf::from(path);
             session.io_busy = true;
             session.status_text = format!("Opening {}…", path.display());
-            if let Err(error) = session.file_worker.send(FileCommand::Open(path)) {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            let command = match ext.as_str() {
+                "ptx" => FileCommand::OpenPtx(path),
+                "psd" => FileCommand::OpenPsd(path),
+                _ => FileCommand::Open(path),
+            };
+            if let Err(error) = session.file_worker.send(command) {
                 session.io_busy = false;
                 session.io_error = format!("Open failed: {error}");
             }
@@ -572,6 +582,14 @@ impl AppSession {
                 self.emit_doc_fields();
                 self.compatibility_report_changed();
                 self.refresh_document_tabs_json();
+                if let Ok(export_path) = std::env::var("PHOTOTUX_DESKTOP_EXPORT") {
+                    let url = if export_path.starts_with("file:") {
+                        export_path
+                    } else {
+                        format!("file://{export_path}")
+                    };
+                    self.export_raster_file(url);
+                }
             }
             Err(error) => self.fail_io("Open", &error),
         }
