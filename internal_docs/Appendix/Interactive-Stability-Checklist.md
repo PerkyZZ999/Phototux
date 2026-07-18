@@ -128,7 +128,7 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 
 Handbook: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](../05-Panel-System.md)
 
-- [ ] Essentials panels present: Properties, Navigator, Swatches, Layers, History
+- [x] Essentials panels present: Properties, Navigator, Swatches, Layers, History — AT labels present with doc open
 - [ ] Toggle panel visibility (Window menu / actions) without crash
 - [ ] Move panel up/down in dock stack
 - [ ] Auto-hide / tear-off (if shipped) do not orphan canvas
@@ -389,7 +389,7 @@ Mark `[N]` unless Decision Register amends:
 | T-013 | high | §1.3 | New/Open on dirty doc showed discard dialog instead of parking tab (DR-024) | Paint → Ctrl+N / toolbar New | **fixed** — `host:document.new` / `.open` open dialogs without `requestDestructiveAction` |
 | T-014 | high | §1.3 | At document limit, `prepare_new_document_tab` parked then failed `begin_active`, leaving no active doc | Open max tabs → New → Create | **fixed** — `can_open_another` before park; status surfaces limit; optional `PHOTOTUX_MAX_OPEN_DOCUMENTS` |
 | T-015 | med | §2.4 | Disabled actions (Save with no doc) failed silently via shortcut/palette | Ctrl+S on Welcome | **fixed** — `invoke_action` sets status `Action unavailable: …` |
-| T-016 | med | §2.2 | Tool overflow `Menu` used `Repeater` / bad `y` so items never appeared | Short window → More tools | **fixed** — Instantiator insert/remove + ToolButton `menu:` |
+| T-016 | med | §2.2 | Tool overflow Menu `Repeater`/`menu:` crash or empty; items never listed | Short window → More tools | **partial** — Popup+Repeater boots; More tools button AT-visible; open path still flaky under EIS |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 

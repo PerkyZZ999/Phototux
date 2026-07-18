@@ -1305,26 +1305,45 @@ ApplicationWindow {
                 icon.height: 18
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("More tools")
-                // Native ToolButton menu attachment positions reliably vs manual Menu.open().
-                menu: toolOverflowMenu
+                onClicked: toolOverflowPopup.open()
 
-                Menu {
-                    id: toolOverflowMenu
-                    Instantiator {
-                        model: toolStrip.stripOverflow
-                        delegate: MenuItem {
-                            required property var modelData
-                            text: modelData.title
-                            icon.source: root.iconUrl(root.toolIconStem(modelData.icon_key))
-                            checked: AppSession.activeTool === modelData.id
-                            checkable: true
-                            onTriggered: root.activateToolFromStrip(modelData.id)
-                        }
-                        onObjectAdded: function (index, object) {
-                            toolOverflowMenu.insertItem(index, object)
-                        }
-                        onObjectRemoved: function (index, object) {
-                            toolOverflowMenu.removeItem(object)
+                Popup {
+                    id: toolOverflowPopup
+                    parent: Overlay.overlay
+                    modal: true
+                    focus: true
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    padding: Theme.spaceSm
+                    x: {
+                        var origin = toolOverflowBtn.mapToItem(Overlay.overlay, 0, 0)
+                        return origin.x
+                    }
+                    y: {
+                        var origin = toolOverflowBtn.mapToItem(Overlay.overlay, 0, 0)
+                        return Math.max(0, origin.y - implicitHeight)
+                    }
+                    background: Rectangle {
+                        color: Theme.surfaceContainer
+                        border.color: Theme.border
+                        radius: Theme.radiusSm
+                    }
+                    Column {
+                        spacing: 2
+                        Repeater {
+                            model: toolStrip.stripOverflow
+                            delegate: ToolButton {
+                                required property var modelData
+                                width: 160
+                                text: modelData.title
+                                icon.source: root.iconUrl(root.toolIconStem(modelData.icon_key))
+                                display: AbstractButton.TextBesideIcon
+                                checkable: true
+                                checked: AppSession.activeTool === modelData.id
+                                onClicked: {
+                                    root.activateToolFromStrip(modelData.id)
+                                    toolOverflowPopup.close()
+                                }
+                            }
                         }
                     }
                 }
