@@ -1297,16 +1297,21 @@ ApplicationWindow {
             }
         }
 
-        RowLayout {
+        // Anchored panes (not RowLayout): fixed tool strip + dock widths so the
+        // fill-width canvas cannot collapse the right dock to zero.
+        Item {
+            id: mainPanes
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 0
 
         // Left tool strip (overflow menu when strip height is tight)
         Rectangle {
             id: toolStrip
-            Layout.preferredWidth: root.toolStripWidth
-            Layout.fillHeight: true
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            // Literal widths avoid Theme size tokens resolving to 0 under PHOTOTUX_QML.
+            width: 48
             color: Theme.surface
             Accessible.role: Accessible.ToolBar
             Accessible.name: qsTr("Tools")
@@ -1466,8 +1471,10 @@ ApplicationWindow {
         // GPU canvas viewport
         Item {
             id: canvasHost
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.left: toolStrip.right
+            anchors.right: rightDock.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
 
             Rectangle {
                 anchors.fill: parent
@@ -2479,9 +2486,13 @@ ApplicationWindow {
 
         // Right docks
         Rectangle {
-            Layout.preferredWidth: root.dockWidth
-            Layout.fillHeight: true
+            id: rightDock
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 280
             color: Theme.surface
+            z: 10
 
             Rectangle {
                 anchors.left: parent.left
@@ -2610,10 +2621,23 @@ ApplicationWindow {
                     Layout.row: root.dockStackRow("panel.properties") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? parent.height * 0.52 : 0
+                    // Cap height so Layers/History stay above the status bar. Never go
+                    // negative when parent.height is 0 during the first layout pass —
+                    // negative preferredHeight collapses the whole right dock to width 0.
+                    Layout.preferredHeight: {
+                        if (!visible)
+                            return 0
+                        var h = parent.height
+                        if (h <= 0)
+                            return 0
+                        return Math.min(h * 0.42, Math.max(0, h - 280))
+                    }
                     contentHeight: propsCol.implicitHeight
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                    }
 
                     ColumnLayout {
                         id: propsCol
@@ -3900,7 +3924,8 @@ ApplicationWindow {
                                     font.italic: AppSession.inspectorOpacityMixed
                                     Accessible.name: AppSession.inspectorOpacityMixed
                                                      ? qsTr("Opacity mixed across selection")
-                                                     : qsTr("Layer opacity percent")
+                                                     : qsTr("Layer opacity percent %1")
+                                                           .arg(Math.round(layerOpacitySlider.value * 100))
                                 }
                             }
                             Slider {
@@ -4408,6 +4433,7 @@ ApplicationWindow {
                             onClicked: AppSession.addLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Add layer")
+                            Accessible.name: qsTr("Add layer")
                         }
                         ToolButton {
                             implicitWidth: 22
@@ -4419,6 +4445,7 @@ ApplicationWindow {
                             onClicked: AppSession.addGroupLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Add group")
+                            Accessible.name: qsTr("Add group")
                         }
                         ToolButton {
                             implicitWidth: 22
@@ -4430,6 +4457,7 @@ ApplicationWindow {
                             onClicked: AppSession.deleteActiveLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Delete layer")
+                            Accessible.name: qsTr("Delete layer")
                         }
                     }
                     MouseArea {
@@ -4487,22 +4515,33 @@ ApplicationWindow {
                                           : (isSelected ? Theme.primaryHover : "transparent")
                             border.width: (isActive || isSelected) ? 1 : 0
 
+                            ToolButton {
+                                id: layerVisButton
+                                z: 3
+                                anchors.left: parent.left
+                                anchors.leftMargin: Theme.spaceXs
+                                anchors.verticalCenter: parent.verticalCenter
+                                implicitWidth: 22
+                                implicitHeight: 22
+                                flat: true
+                                icon.source: root.iconUrl(layerVis ? "eye" : "eye-slash")
+                                icon.width: 16
+                                icon.height: 16
+                                onClicked: AppSession.toggleLayerVisible(stackIndex)
+                                Accessible.name: layerVis
+                                                 ? qsTr("Hide %1").arg(layerName)
+                                                 : qsTr("Show %1").arg(layerName)
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                            }
+
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.leftMargin: Theme.spaceSm
+                                anchors.leftMargin: 28
                                 anchors.rightMargin: Theme.spaceSm
                                 spacing: Theme.spaceSm
 
-                                Image {
-                                    source: root.iconUrl(layerVis ? "eye" : "eye-slash")
-                                    width: 16
-                                    height: 16
-                                    sourceSize: Qt.size(16, 16)
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        onClicked: AppSession.toggleLayerVisible(stackIndex)
-                                    }
-                                }
+                                // Visibility control is layerVisButton (above) so it stays above the row MouseArea.
 
                                 Rectangle {
                                     width: 24
@@ -4595,7 +4634,8 @@ ApplicationWindow {
                             HoverHandler { id: layerHover }
                             MouseArea {
                                 anchors.fill: parent
-                                anchors.leftMargin: 28
+                                anchors.leftMargin: 48
+                                z: -1
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: function (mouse) {
                                     var ctrl = (mouse.modifiers & Qt.ControlModifier)
@@ -4782,7 +4822,7 @@ ApplicationWindow {
                 }
             }
         }
-        } // RowLayout (tool strip + canvas + docks)
+        } // mainPanes (tool strip + canvas + docks)
     } // ColumnLayout (tabs + main)
 
     FileDialog {

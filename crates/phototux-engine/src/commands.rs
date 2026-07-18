@@ -784,17 +784,21 @@ impl SessionState {
     }
 
     fn cmd_layer_create(&mut self) -> Result<CommandEffects, CommandError> {
-        let SessionState { graph, history, .. } = self;
-        let Some(graph) = graph.as_mut() else {
-            return Err(CommandError::Document(DocumentError::NoDocument));
+        let generation = {
+            let SessionState { graph, history, .. } = self;
+            let Some(graph) = graph.as_mut() else {
+                return Err(CommandError::Document(DocumentError::NoDocument));
+            };
+            if graph.layer_count() >= MAX_LAYERS {
+                return Err(CommandError::Document(DocumentError::layer_limit(
+                    MAX_LAYERS,
+                )));
+            }
+            undo_actions::add_layer(graph, history, None)?;
+            graph.generation
         };
-        if graph.layer_count() >= MAX_LAYERS {
-            return Err(CommandError::Document(DocumentError::layer_limit(
-                MAX_LAYERS,
-            )));
-        }
-        undo_actions::add_layer(graph, history, None)?;
-        Ok(CommandEffects::document_edit(graph.generation))
+        self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_layer_create_fill(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
@@ -3003,6 +3007,18 @@ mod tests {
         assert_eq!(s.layer_count(), n + 1);
         assert!(s.document_generation() >= 1);
         assert!(s.can_undo());
+        // Object selection must track the newly active layer (checklist §5.1).
+        let active_name = s
+            .layer_names_joined()
+            .split('|')
+            .nth(s.active_layer_index() as usize)
+            .unwrap_or("")
+            .to_owned();
+        assert_eq!(s.object_selection_names_joined(), active_name);
+        assert!(
+            s.status_summary()
+                .contains(&format!("object: {active_name}"))
+        );
     }
 
     #[test]

@@ -193,13 +193,13 @@ Handbook: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 ### 5.1 Layers
 
-- [ ] Add raster layer; rename if UI allows
-- [ ] Visibility toggle; undo restores
-- [ ] Opacity / blend mode from Properties
-- [ ] Active layer highlight matches edit target
-- [ ] Delete layer; focus/selection fallback sane
-- [ ] Lock px / lock pos / lock all block the right edits
-- [ ] Clipping / group actions if shipped
+- [x] Add raster layer; rename if UI allows — `Ctrl+Shift+N`; no rename UI (label only)
+- [x] Visibility toggle; undo restores — Hide/Show Layer 2 + `Ctrl+Z`; stroke cleared/restored
+- [x] Opacity / blend mode from Properties — Blend Mode + Layer Opacity controls present; opacity AT name includes percent
+- [x] Active layer highlight matches edit target — `object: Layer 2` after create; sync after delete→Layer 1 / group
+- [x] Delete layer; focus/selection fallback sane — palette Delete layer → Layer 1 + matching object selection
+- [x] Lock px / lock pos / lock all block the right edits — `Set layer locks` history; paint after lock added no stroke
+- [x] Clipping / group actions if shipped — New Group + Create Clipping Mask via palette; `object: Group`
 
 ### 5.2 Masks
 
