@@ -329,12 +329,12 @@ Handbook: [29](../29-Accessibility.md) · full matrix: [Accessibility-Checklist.
 
 **Smoke subset (always run with interactive pass):**
 
-- [ ] Application / window / Tools toolbar / canvas named in AT-SPI
-- [ ] Tool strip buttons named (not icon-only)
-- [ ] Dialogs: New File, Create, Cancel named
-- [ ] Tab order reaches primary chrome without trap
-- [ ] Modal dialog focuses useful control; Esc closes
-- [ ] Status region remains readable when panels crowded
+- [x] Application / window / Tools toolbar / canvas named in AT-SPI — `[application] PhotoTux`, frame, `[tool bar] Tools`, canvas `Empty canvas` / `Canvas 1920×1080`
+- [x] Tool strip buttons named (not icon-only) — Brush, Eraser, Marquee, Text, Shape, … + main chrome `New…`/`Open…`/`Undo`/`Redo` Accessible.name
+- [x] Dialogs: New File, Create, Cancel named — Welcome `New File`; New Document `Create`/`Cancel`/`New Document`
+- [x] Tab order reaches primary chrome without trap — Tab through chrome/dialog; Esc recovers; no stuck focus
+- [x] Modal dialog focuses useful control; Esc closes — New Document / Preferences modal+focused; Esc dismisses
+- [x] Status region remains readable when panels crowded — `[tool bar] Status` + status bar with full doc summary (zoom/layer/tool)
 
 *Defer detailed A–K rows to Accessibility-Checklist during a11y-focused passes.*
 

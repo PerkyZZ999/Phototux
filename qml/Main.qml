@@ -1112,6 +1112,7 @@ ApplicationWindow {
                 onClicked: root.runAction("action.file.new")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("New…")
+                Accessible.name: ToolTip.text
             }
 
             ToolButton {
@@ -1123,6 +1124,7 @@ ApplicationWindow {
                 onClicked: root.runAction("action.file.open")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Open…")
+                Accessible.name: ToolTip.text
             }
 
             ToolButton {
@@ -1134,6 +1136,7 @@ ApplicationWindow {
                 onClicked: root.runAction("action.file.export")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Export PNG, JPEG, or PSD subset")
+                Accessible.name: ToolTip.text
             }
 
             ToolSeparator {
@@ -1149,6 +1152,7 @@ ApplicationWindow {
                 onClicked: root.runAction("action.edit.undo")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Undo")
+                Accessible.name: ToolTip.text
             }
             ToolButton {
                 icon.source: root.iconUrl("arrow-clockwise")
@@ -1159,6 +1163,7 @@ ApplicationWindow {
                 onClicked: root.runAction("action.edit.redo")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Redo")
+                Accessible.name: ToolTip.text
             }
 
             Item { Layout.fillWidth: true }
@@ -1186,12 +1191,14 @@ ApplicationWindow {
                 onClicked: aboutDialog.open()
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("About PhotoTux")
+                Accessible.name: ToolTip.text
             }
         }
     }
 
     footer: ToolBar {
         height: root.statusHeight
+        Accessible.name: qsTr("Status")
         background: Rectangle {
             color: Theme.surfaceContainer
             Rectangle {
@@ -1214,8 +1221,9 @@ ApplicationWindow {
                 font.family: "Noto Sans Mono"
                 elide: Text.ElideRight
                 Layout.fillWidth: true
-                // High-churn telemetry lives elsewhere; keep AT-SPI off this label.
-                Accessible.ignored: true
+                // Expose the latest status string for AT-SPI; FPS/comp stay ignored below.
+                Accessible.name: text.length > 0 ? text : qsTr("Status")
+                Accessible.role: Accessible.StatusBar
             }
 
             Button {
