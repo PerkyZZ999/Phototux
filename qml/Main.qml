@@ -152,6 +152,31 @@ ApplicationWindow {
 
     readonly property var floatingPanels: dockTopology.floating || []
     readonly property var autoHiddenPanels: dockTopology.auto_hidden || []
+    /// Stable Instantiator key — panel ids only so geometry persists do not recreate Windows.
+    readonly property string floatingPanelIdKey: {
+        var _ = AppSession.dockTopologyJson
+        var panels = root.floatingPanels
+        var ids = []
+        for (var i = 0; i < panels.length; ++i)
+            ids.push(panels[i].id)
+        return ids.join("\n")
+    }
+    /// Block float geometry writes until the first screen clamp finishes.
+    property bool floatingPersistEnabled: false
+
+    function floatingPlacement(panelId) {
+        var panels = root.floatingPanels
+        for (var i = 0; i < panels.length; ++i) {
+            if (panels[i].id === panelId)
+                return panels[i]
+        }
+        return null
+    }
+
+    function tearOffAndClamp(panelId, x, y, width, height) {
+        AppSession.tearOffPanel(panelId, x, y, width, height)
+        root.reclampFloatingPanels()
+    }
 
     function panelTitle(panelId) {
         var all = root.panelDescriptors
@@ -835,8 +860,28 @@ ApplicationWindow {
     Binding { target: Theme; property: "reducedMotion"; value: AppSession.prefReducedMotion }
     Binding { target: Theme; property: "uiDensity"; value: AppSession.prefUiDensity }
 
-    Component.onCompleted: {
+    function reclampFloatingPanels() {
+        if (Screen.width <= 0 || Screen.height <= 0)
+            return
+        if (!root.floatingPanels || root.floatingPanels.length === 0)
+            return
         AppSession.clampFloatingPanels(0, 0, Screen.width, Screen.height)
+    }
+
+    onWidthChanged: Qt.callLater(root.reclampFloatingPanels)
+    onHeightChanged: Qt.callLater(root.reclampFloatingPanels)
+
+    Connections {
+        target: Screen
+        function onWidthChanged() { root.reclampFloatingPanels() }
+        function onHeightChanged() { root.reclampFloatingPanels() }
+    }
+
+    Component.onCompleted: {
+        // Clamp restored floating geometry before any Window persist can run.
+        if (Screen.width > 0 && Screen.height > 0)
+            AppSession.clampFloatingPanels(0, 0, Screen.width, Screen.height)
+        root.floatingPersistEnabled = true
         AppSession.refreshRecoveryList()
         var entries = []
         try { entries = JSON.parse(AppSession.recoveryEntriesJson || "[]") } catch (e) {}
@@ -911,24 +956,33 @@ ApplicationWindow {
     }
 
     Instantiator {
-        model: {
-            var _ = AppSession.dockTopologyJson
-            return root.floatingPanels
+        model: root.floatingPanelIdKey.length > 0 ? root.floatingPanelIdKey.split("\n") : []
+        onObjectRemoved: function (index, object) {
+            if (!object)
+                return
+            object.visible = false
+            object.close()
+            object.destroy()
         }
         delegate: Window {
             id: floatWin
-            required property var modelData
-            title: qsTr(root.panelTitle(modelData.id))
-            width: Math.max(200, modelData.width || 320)
-            height: Math.max(120, modelData.height || 280)
-            x: modelData.x || 80
-            y: modelData.y || 80
+            required property string modelData
+            property bool syncingGeometry: false
+            readonly property var placement: {
+                var _ = AppSession.dockTopologyJson
+                return root.floatingPlacement(modelData)
+            }
+            title: qsTr(root.panelTitle(modelData))
+            width: Math.max(200, (placement && placement.width) || 320)
+            height: Math.max(120, (placement && placement.height) || 280)
+            x: (placement && placement.x !== undefined) ? placement.x : 80
+            y: (placement && placement.y !== undefined) ? placement.y : 80
             visible: true
             color: Theme.surface
             flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint
 
             onClosing: function (close) {
-                AppSession.redockPanel(modelData.id)
+                AppSession.redockPanel(modelData)
                 close.accepted = true
             }
             onXChanged: floatWin.persistGeometry()
@@ -936,11 +990,36 @@ ApplicationWindow {
             onWidthChanged: floatWin.persistGeometry()
             onHeightChanged: floatWin.persistGeometry()
 
-            function persistGeometry() {
-                if (!visible)
+            function applyModelGeometry() {
+                var p = placement
+                if (!p)
                     return
-                AppSession.setFloatingPanelGeometry(modelData.id, Math.round(x), Math.round(y),
+                var nx = p.x || 0
+                var ny = p.y || 0
+                var nw = Math.max(200, p.width || 320)
+                var nh = Math.max(120, p.height || 280)
+                if (x === nx && y === ny && width === nw && height === nh)
+                    return
+                syncingGeometry = true
+                x = nx
+                y = ny
+                width = nw
+                height = nh
+                syncingGeometry = false
+            }
+
+            function persistGeometry() {
+                if (!visible || syncingGeometry || !root.floatingPersistEnabled)
+                    return
+                AppSession.setFloatingPanelGeometry(modelData, Math.round(x), Math.round(y),
                                                    Math.round(width), Math.round(height))
+            }
+
+            Connections {
+                target: AppSession
+                function onDockTopologyJsonChanged() {
+                    floatWin.applyModelGeometry()
+                }
             }
 
             ColumnLayout {
@@ -949,7 +1028,7 @@ ApplicationWindow {
                 spacing: Theme.spaceSm
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("%1 (floating)").arg(qsTr(root.panelTitle(modelData.id)))
+                    text: qsTr("%1 (floating)").arg(qsTr(root.panelTitle(modelData)))
                     color: Theme.colorOnSurface
                     font.pixelSize: Theme.fontLabel
                     font.weight: Font.Medium
@@ -964,7 +1043,7 @@ ApplicationWindow {
                 }
                 Button {
                     text: qsTr("Dock")
-                    onClicked: AppSession.redockPanel(modelData.id)
+                    onClicked: AppSession.redockPanel(modelData)
                 }
             }
         }
@@ -2491,7 +2570,7 @@ ApplicationWindow {
                             implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
-                            onClicked: AppSession.tearOffPanel("panel.properties",
+                            onClicked: root.tearOffAndClamp("panel.properties",
                                                                root.x + root.width - 360, root.y + 80, 320, 400)
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Tear off panel")
@@ -2500,6 +2579,8 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        // Leave room for ↑↓ auto-hide tear-off so they receive clicks.
+                        anchors.rightMargin: 110
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -3896,7 +3977,7 @@ ApplicationWindow {
                             implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
-                            onClicked: AppSession.tearOffPanel("panel.navigator",
+                            onClicked: root.tearOffAndClamp("panel.navigator",
                                                                root.x + root.width - 360, root.y + 120, 320, 280)
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Tear off panel")
@@ -3905,6 +3986,7 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        anchors.rightMargin: 110
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -4068,7 +4150,7 @@ ApplicationWindow {
                             implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
-                            onClicked: AppSession.tearOffPanel("panel.swatches",
+                            onClicked: root.tearOffAndClamp("panel.swatches",
                                                                root.x + root.width - 360, root.y + 160, 320, 280)
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Tear off panel")
@@ -4087,6 +4169,7 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        anchors.rightMargin: 110
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -4299,7 +4382,7 @@ ApplicationWindow {
                             implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
-                            onClicked: AppSession.tearOffPanel("panel.layers",
+                            onClicked: root.tearOffAndClamp("panel.layers",
                                                                root.x + root.width - 360, root.y + 200, 320, 360)
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Tear off panel")
@@ -4341,6 +4424,7 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        anchors.rightMargin: 110
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -4572,7 +4656,7 @@ ApplicationWindow {
                             implicitHeight: 22
                             text: "⧉"
                             enabled: root.dockRightStack.length > 1
-                            onClicked: AppSession.tearOffPanel("panel.history",
+                            onClicked: root.tearOffAndClamp("panel.history",
                                                                root.x + root.width - 360, root.y + 240, 320, 240)
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Tear off panel")
@@ -4581,6 +4665,7 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        anchors.rightMargin: 110
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor

@@ -386,6 +386,31 @@ mod tests {
     }
 
     #[test]
+    fn clamp_after_screen_shrink_keeps_panel_visible() {
+        let mut topo = DockTopology::essentials();
+        topo.tear_off("panel.history", 1600, 900, 320, 240, "")
+            .expect("tear");
+        // Simulated display change / windowing resize to a smaller screen.
+        topo.clamp_floating_to_screen(ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1440,
+            height: 900,
+        });
+        let f = &topo.floating[0];
+        assert!(
+            f.x + 80 <= 1440,
+            "title strip must remain horizontally reachable"
+        );
+        assert!(
+            f.y + 32 <= 900,
+            "title strip must remain vertically reachable"
+        );
+        assert!(f.x >= 0 && f.y >= 0);
+        assert!(f.width <= 1440 && f.height <= 900);
+    }
+
+    #[test]
     fn legacy_json_without_floating_loads() {
         let json = r#"{"version":1,"right_stack":["panel.properties","panel.layers"]}"#;
         let topo = DockTopology::from_json(json).expect("de");

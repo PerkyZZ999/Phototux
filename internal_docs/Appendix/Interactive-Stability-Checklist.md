@@ -135,7 +135,7 @@ Handbook: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 - [x] Workspace reset to Essentials restores defaults — palette → Essentials; status `Workspace: Essentials`
 - [x] Workspace preset switch (Essentials / Compact / Painting / Factory) — Compact then Essentials via palette
 - [x] Layout changes do **not** mark document dirty — title stayed `Untitled` (no `*`) after Compact/toggle
-- [ ] Floating panel clamp stays on-screen after resize
+- [x] Floating panel clamp stays on-screen after resize — restore off-screen float (5000,5000) clamps to screen (1360,868 on 1440×900); Instantiator id-stable + persist gated until first clamp; width/Screen change reclamp
 
 ---
 

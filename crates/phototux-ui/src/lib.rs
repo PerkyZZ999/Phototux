@@ -3666,13 +3666,16 @@ impl AppSession {
         if width <= 0 || height <= 0 {
             return;
         }
+        let before = self.workspace.revision;
         self.workspace.clamp_floating(phototux_engine::ScreenRect {
             x,
             y,
             width: width as u32,
             height: height as u32,
         });
-        self.persist_workspace_visibility();
+        if self.workspace.revision != before {
+            self.persist_workspace_visibility();
+        }
     }
 
     /// Toggle auto-hide for a docked panel (edge strip).
