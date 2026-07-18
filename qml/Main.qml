@@ -211,9 +211,12 @@ ApplicationWindow {
 
     /// How many tool strip rows fit above the overflow control.
     function toolStripCapacity(stripHeight) {
-        var row = Theme.toolHit + Theme.spaceXs
-        var reserve = Theme.toolHit + Theme.spaceSm * 2
-        return Math.max(1, Math.floor((stripHeight - reserve - Theme.spaceXs) / row))
+        // Dense packing: 2px gaps match toolColumn.spacing so a 900px shell fits the
+        // full essentials tool set without forcing overflow.
+        var gap = 2
+        var row = Theme.toolHit + gap
+        var reserve = Theme.toolHit + Theme.spaceSm
+        return Math.max(1, Math.floor((stripHeight - reserve - gap) / row))
     }
 
     /// Split tools into visible strip vs overflow menu; keep active tool on-strip.
@@ -560,8 +563,10 @@ ApplicationWindow {
     function executeDestructiveAction(action) {
         pendingDestructiveAction = ""
         if (action === "new") {
+            welcomeDialog.close()
             newDocDialog.open()
         } else if (action === "open") {
+            welcomeDialog.close()
             openFileDialog.open()
         } else if (action === "close") {
             AppSession.closeDocument()
@@ -1201,8 +1206,8 @@ ApplicationWindow {
                 id: toolColumn
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
-                anchors.topMargin: Theme.spaceXs
-                spacing: Theme.spaceXs
+                anchors.topMargin: 2
+                spacing: 2
                 width: parent.width - Theme.spaceXs * 2
 
                 Repeater {
@@ -1255,6 +1260,11 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
+                                Accessible.role: Accessible.Button
+                                Accessible.name: modelData.title
+                                Accessible.description: toolId
+                                Accessible.checkable: true
+                                Accessible.checked: AppSession.activeTool === toolId
                                 onClicked: root.activateToolFromStrip(toolId)
                                 ToolTip.visible: containsMouse
                                 ToolTip.text: modelData.title
@@ -5517,7 +5527,9 @@ ApplicationWindow {
     NewDocumentDialog {
         id: newDocDialog
         anchors.centerIn: parent
+        onOpened: welcomeDialog.close()
         onCreateRequested: function (presetLabel, w, h) {
+            welcomeDialog.close()
             AppSession.setViewportSize(canvasHost.width, canvasHost.height)
             if (presetLabel && presetLabel.length > 0)
                 AppSession.applySizePreset(presetLabel)
@@ -5528,6 +5540,14 @@ ApplicationWindow {
             if (typeof layerOpacitySlider !== "undefined" && layerOpacitySlider)
                 layerOpacitySlider.value = AppSession.activeOpacity
             root.syncBlendCombo()
+        }
+    }
+
+    Connections {
+        target: AppSession
+        function onHasDocumentChanged() {
+            if (AppSession.hasDocument)
+                welcomeDialog.close()
         }
     }
 

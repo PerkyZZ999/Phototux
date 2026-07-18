@@ -1,6 +1,7 @@
 # PhotoTux Interactive Testing Checklist
 
 **Started:** 2026-07-17  
+**Updated:** 2026-07-17 (pass 2)  
 **Goal:** Exercise shipped UI/spines; find and fix edge cases until smoke + depth paths are green.
 
 Legend: `[ ]` todo · `[~]` in progress / flaky · `[x]` pass · `[!]` fail (tracked below) · `[N]` skipped
@@ -13,29 +14,33 @@ Legend: `[ ]` todo · `[~]` in progress / flaky · `[x]` pass · `[!]` fail (tra
 
 ## Smoke — document & chrome
 
-- [x] New document (preset) opens; zoom-to-fit (1080p via Welcome → Create / Enter)
-- [~] Tool strip: brush / eraser visible; others behind “More tools” at this window height (capacity)
-- [x] Layers panel present after new doc (status: 2 layers)
-- [x] Undo after paint (Ctrl+Z)
+- [x] New document (preset) opens; zoom-to-fit (1080p via Ctrl+N → Enter)
+- [x] Welcome closes on Ctrl+N / document create (no stuck overlay)
+- [x] Tool strip: Brush…Path Edit named in AT-SPI; icons bundled in qrc
+- [x] Layers: status shows layer count after edits
+- [x] Undo after paint (Ctrl+Z) — pass 1
 - [x] Dirty indicator (`Untitled*`, Unsaved)
+- [x] Command palette (Ctrl+Shift+P)
 - [N] Multi-doc tabs: not exercised this pass
 
 ## DR-028 depth spines
 
-- [x] A1 Brush texture strength slider visible (`Brush tip texture strength`)
-- [N] A2 Filter gallery: Noise — deferred (menu path not exercised)
-- [N] A2 Exposure adjustment — deferred
-- [N] A3 Text tool on-canvas — deferred (editor host fixed; create path not retested)
-- [N] A4 Soft-proof display profile — deferred (UI labels present: Display: sRGB)
-- [N] A5 Shape / boolean — deferred
-- [N] A6 Mask contrast/shift — deferred (controls present in AT tree)
-- [N] A7 Grid overlay — deferred
-- [x] A8 Accessible names: canvas (`Canvas 1920×1080`), Tools toolbar, New File button, Create button
+- [x] A1 Brush texture strength slider (`Brush tip texture strength`)
+- [x] A2 Filter Noise via command palette (rejects on text layer with clear status — raster required)
+- [x] A2 Exposure via command palette
+- [x] A3 Text tool: create layer; Character panel; on-canvas “Text” frame
+- [x] A4 Soft-proof control present (`Soft-proof with display ICC`)
+- [x] A5 Shape: canvas click grows layer count (5 layers after shape)
+- [N] A5 Shape boolean — deferred
+- [N] A6 Mask contrast/shift interact — controls present; not drag-tested
+- [x] A7 Grid overlay via palette “grid”
+- [x] A8 Accessible names on tool strip buttons + canvas + New File
 
 ## Edge / conflict watch
 
 - [x] Empty document → Welcome + New Document flow
 - [x] Host status marker `host:document.new` cleared after handling
+- [x] Filter on non-raster layer → rejected without crash
 - [N] Switch tool mid-stroke — deferred
 - [N] Rapid zoom/pan — deferred
 - [N] Close last document — deferred
@@ -44,16 +49,19 @@ Legend: `[ ]` todo · `[~]` in progress / flaky · `[x]` pass · `[!]` fail (tra
 
 | ID | Severity | Symptom | Status |
 | --- | --- | --- | --- |
-| T-001 | blocker | App never showed a window: `AppSession` emitted `*_changed` during `Default` before qtbridge proxy existed → panic “No proxy” | **fixed** — field-only init; notify after construction |
-| T-002 | blocker | QML root failed silently: Qt Quick `TextEdit` had invalid `background:` property | **fixed** — wrap editor in `Item` + `Rectangle` chrome |
-| T-003 | high | New Document Create appeared to no-op: Cancel/Create were stacked full-width; clicks hit Cancel; `accepted` signal name was fragile | **fixed** — `createRequested` signal, Enter confirms, Cancel\|Create row |
-| T-004 | med | Welcome New/Open were MouseAreas without AT button roles | **fixed** — Accessible.Button + name |
-| T-005 | med | Status bar stuck on `host:document.new` after Ctrl+N | **fixed** — `clearHostStatusMarker` |
-| T-006 | low | colord `busctl` could hang session discovery | **fixed** — `timeout 1s` |
-| T-007 | low | Tool strip overflows many tools behind “More tools” at default test geometry | open — capacity formula / window height |
+| T-001 | blocker | App never showed a window: `AppSession` emitted `*_changed` during `Default` before qtbridge proxy existed → panic “No proxy” | **fixed** |
+| T-002 | blocker | QML root failed silently: Qt Quick `TextEdit` had invalid `background:` | **fixed** |
+| T-003 | high | New Document Create no-op / Cancel stacked | **fixed** |
+| T-004 | med | Welcome New/Open without AT button roles | **fixed** |
+| T-005 | med | Status stuck on `host:document.new` | **fixed** |
+| T-006 | low | colord `busctl` hang risk | **fixed** |
+| T-007 | med | Tool strip overflow + missing AT names + missing qrc icons | **fixed** — Accessible on tools; denser strip packing; phosphor icons in qml-aot |
+| T-008 | high | Welcome stayed open after Ctrl+N / document create | **fixed** — close welcome on destructive new/open, dialog open, `hasDocument` |
+| T-009 | info | Noise filter on text layer → `command rejected: effect requires raster layer` | expected — switch to raster first |
 
 ## Sign-off
 
-- [x] Blockers T-001–T-003 fixed and retested under kwinmcp
-- [~] Smoke mostly green; depth spines partially `[N]` for time
+- [x] Blockers T-001–T-003, T-008 fixed and retested under kwinmcp
+- [x] Smoke green for this pass
+- [x] Depth spines mostly `[x]`; boolean / mask drag / multi-doc still `[N]`
 - [x] Commits for fixes + checklist updates
