@@ -717,9 +717,12 @@ impl AppSession {
             self.soft_proof_active = false;
             self.has_embedded_icc = false;
         }
-        self.accessibility_tree_json = self.build_accessibility_tree_json();
-        self.atspi_projection_json =
-            phototux_engine::project_semantic_tree_json(&self.accessibility_tree_json);
+        let accessibility_tree_json = self.build_accessibility_tree_json();
+        if accessibility_tree_json != self.accessibility_tree_json {
+            self.accessibility_tree_json = accessibility_tree_json;
+            self.atspi_projection_json =
+                phototux_engine::project_semantic_tree_json(&self.accessibility_tree_json);
+        }
         self.sync_selection_fields();
         self.sync_transform_fields();
         self.document_path = self.engine.document_path.clone().unwrap_or_default();
@@ -3895,12 +3898,15 @@ impl AppSession {
         for ev in events {
             match ev {
                 EngineEvent::CompositeDone { ms } => {
+                    // Telemetry only — do not full-sync (status/AT thrash freezes AT-SPI).
                     self.engine.set_composite_ms(ms);
-                    dirty = true;
+                    self.composite_ms = ms;
+                    self.composite_ms_changed();
                 }
                 EngineEvent::StrokeLatency { ms } => {
                     self.engine.set_stroke_latency_ms(ms);
-                    dirty = true;
+                    self.stroke_latency_ms = ms;
+                    self.stroke_latency_ms_changed();
                 }
                 EngineEvent::StrokeJournaled(entry) => {
                     // Best-effort recovery hook; never fail the stroke on journal I/O.
@@ -4064,12 +4070,19 @@ impl AppSession {
             }
         }
         if dirty {
+            let prev_status = self.status_text.clone();
+            let prev_a11y = self.accessibility_tree_json.clone();
             self.sync_from_engine();
-            self.composite_ms_changed();
-            self.stroke_latency_ms_changed();
             self.can_undo_changed();
             self.can_redo_changed();
-            self.status_text_changed();
+            self.dirty_changed();
+            if self.status_text != prev_status {
+                self.status_text_changed();
+            }
+            if self.accessibility_tree_json != prev_a11y {
+                self.accessibility_tree_json_changed();
+                self.atspi_projection_json_changed();
+            }
         }
     }
 

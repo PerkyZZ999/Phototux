@@ -560,11 +560,18 @@ ApplicationWindow {
     readonly property color canvasLetterbox: Theme.canvasLetterbox
     readonly property color toolActiveBg: Theme.toolActiveBg
 
+    function openNewDocumentDialog() {
+        welcomeDialog.close()
+        // Defer so Welcome's modal Overlay is torn down before the next Popup mounts.
+        Qt.callLater(function () {
+            newDocDialog.open()
+        })
+    }
+
     function executeDestructiveAction(action) {
         pendingDestructiveAction = ""
         if (action === "new") {
-            welcomeDialog.close()
-            newDocDialog.open()
+            root.openNewDocumentDialog()
         } else if (action === "open") {
             welcomeDialog.close()
             openFileDialog.open()
@@ -1078,6 +1085,8 @@ ApplicationWindow {
                 font.family: "Noto Sans Mono"
                 elide: Text.ElideRight
                 Layout.fillWidth: true
+                // High-churn telemetry lives elsewhere; keep AT-SPI off this label.
+                Accessible.ignored: true
             }
 
             Button {
@@ -1112,6 +1121,7 @@ ApplicationWindow {
                 color: Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontMono
                 font.family: "Noto Sans Mono"
+                Accessible.ignored: true
             }
 
             Label {
@@ -1122,6 +1132,7 @@ ApplicationWindow {
                        ? Theme.primary : Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontMono
                 font.family: "Noto Sans Mono"
+                Accessible.ignored: true
             }
 
             Label {
@@ -1131,6 +1142,7 @@ ApplicationWindow {
                 color: AppSession.fps >= 60 ? Theme.primary : Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontMono
                 font.family: "Noto Sans Mono"
+                Accessible.ignored: true
             }
 
             Label {
@@ -1139,6 +1151,7 @@ ApplicationWindow {
                 font.pixelSize: Theme.fontMono
                 font.family: "Noto Sans Mono"
                 opacity: 0.7
+                Accessible.ignored: true
             }
         }
     }
@@ -5520,7 +5533,7 @@ ApplicationWindow {
     WelcomeDialog {
         id: welcomeDialog
         anchors.centerIn: parent
-        onRequestNew: newDocDialog.open()
+        onRequestNew: root.openNewDocumentDialog()
         onRequestOpen: openFileDialog.open()
     }
 

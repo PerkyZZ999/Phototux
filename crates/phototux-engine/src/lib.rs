@@ -799,13 +799,10 @@ impl SessionState {
                 format!("object: {joined}")
             }
         };
-        let comp = if self.composite_ms > 0.0 {
-            format!(" · composite {:.2} ms", self.composite_ms)
-        } else {
-            String::new()
-        };
+        // Keep composite ms out of this string — it updates every frame and must not
+        // drive statusText / AT-SPI name churn (see Interactive Stability Checklist §14–15).
         format!(
-            "{}×{} · zoom {:.0}% · {} ({}) · {} · {} · {} · {} layers · {}{}",
+            "{}×{} · zoom {:.0}% · {} ({}) · {} · {} · {} · {} layers · {}",
             self.size.width,
             self.size.height,
             self.camera.zoom * 100.0,
@@ -816,7 +813,6 @@ impl SessionState {
             pixel,
             layers,
             self.active_tool,
-            comp
         )
     }
 }
@@ -891,6 +887,10 @@ mod tests {
         s.mask_edit_layer = Some(active);
         assert_eq!(s.paint_target(), PaintTarget::LayerMask);
         assert!(s.status_summary().contains("mask"));
+        assert!(
+            !s.status_summary().contains("composite"),
+            "composite ms must stay out of status_summary to avoid AT-SPI thrash"
+        );
     }
 
     #[test]
