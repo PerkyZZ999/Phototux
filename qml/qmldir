@@ -1,0 +1,4 @@
+singleton Theme 1.0 Theme.qml
+Main 1.0 Main.qml
+NewDocumentDialog 1.0 NewDocumentDialog.qml
+WelcomeDialog 1.0 WelcomeDialog.qml

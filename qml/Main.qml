@@ -239,9 +239,11 @@ ApplicationWindow {
     function toolStripCapacity(stripHeight) {
         // Dense packing: 2px gaps match toolColumn.spacing so a 900px shell fits the
         // full essentials tool set without forcing overflow.
+        // Literal hit size: Theme.toolHit can resolve to 0 under PHOTOTUX_QML.
         var gap = 2
-        var row = Theme.toolHit + gap
-        var reserve = Theme.toolHit + Theme.spaceSm
+        var hit = 40
+        var row = hit + gap
+        var reserve = hit + 8
         return Math.max(1, Math.floor((stripHeight - reserve - gap) / row))
     }
 
@@ -1315,7 +1317,7 @@ ApplicationWindow {
             anchors.bottom: parent.bottom
             // Literal widths avoid Theme size tokens resolving to 0 under PHOTOTUX_QML.
             width: 48
-            color: Theme.surface
+            color: "#2B2B30"
             Accessible.role: Accessible.ToolBar
             Accessible.name: qsTr("Tools")
 
@@ -1344,13 +1346,14 @@ ApplicationWindow {
                 anchors.top: parent.top
                 anchors.topMargin: 2
                 spacing: 2
-                width: parent.width - Theme.spaceXs * 2
+                // Literal width: Theme.spaceXs can be 0/NaN under filesystem QML.
+                width: parent.width - 8
 
                 Repeater {
                     model: toolStrip.stripVisible
                     delegate: Item {
                         width: toolColumn.width
-                        height: Theme.toolHit
+                        height: 40
                         readonly property string toolId: modelData.id
                         readonly property string toolGroup: modelData.group || ""
                         readonly property string prevGroup: index > 0
@@ -1363,7 +1366,7 @@ ApplicationWindow {
                             anchors.top: parent.top
                             width: parent.width - 8
                             height: 1
-                            y: -Theme.spaceXs / 2
+                            y: -2
                             color: Theme.border
                         }
 

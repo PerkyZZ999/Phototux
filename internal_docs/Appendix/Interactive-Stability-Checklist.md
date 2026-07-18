@@ -244,12 +244,12 @@ Handbook: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 ### 7.2 Text
 
-- [ ] Text tool + canvas click creates text layer
-- [ ] On-canvas editor visible; typing updates layer
-- [ ] Character panel: font list, size, tracking, leading, align, color
-- [ ] Frame W/H / wrap
-- [ ] Bake Text → raster; editor dismisses
-- [ ] Shortcut yield while editing text
+- [x] Text tool + canvas click creates text layer — kwinmcp: Text tool strip hit → canvas click; history `Add text layer · graph`; status `text · …`
+- [x] On-canvas editor visible; typing updates layer — AT `On-canvas text editor`; Character field typed `PhotoTux` (focus + commit)
+- [x] Character panel: font list, size, tracking, leading, align, color — Character section: Noto Sans, Size/Tracking/Leading spins; align/color controls present
+- [x] Frame W/H / wrap — Frame W/H spins + Wrap checkbox in Character chrome (handbook §18)
+- [x] Bake Text → raster; editor dismisses — palette `Bake Text` → status `Text baked to pixels — editable text discarded`
+- [x] Shortcut yield while editing text — Character field focused; Ctrl+Z did not push Undo into history (input yield)
 
 ### 7.3 Shapes & paths
 
