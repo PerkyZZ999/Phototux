@@ -145,9 +145,9 @@ Handbook: [06](../06-Toolbar-System.md), [14](../14-Brush-Engine.md), [12](../12
 
 ### 4.1 Navigation
 
-- [ ] Pan tool / space-drag (if mapped) pans view
-- [ ] Zoom tool / wheel zoom; Fit and 100% buttons
-- [ ] Rapid zoom/pan does not hang or desync Navigator
+- [x] Pan tool / space-drag (if mapped) pans view — middle-drag pan on canvas; Pan tool in strip
+- [x] Zoom tool / wheel zoom; Fit and 100% buttons — wheel changes zoom %; View → Zoom to Fit (`Ctrl+Shift+J`); Fit/100% AT buttons present
+- [~] Rapid zoom/pan does not hang or desync Navigator — Navigator present; stress pass deferred
 
 ### 4.2 Brush / eraser
 
@@ -414,6 +414,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-18 | agent (kwinmcp) | Wayland kept-home | §2.3 keymap + conflict | T-019 | prefs scroll; Save F9 persist; chord steal |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.5 context menus | T-020 | canvas/selection menus; clamped popup helper |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §3 workspace/panels | — | Compact/Essentials; Navigator toggle; no dirty |
+| 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §4.1 pan/zoom | — | wheel zoom; Fit shortcut; middle-drag pan |
 
 ---
 
