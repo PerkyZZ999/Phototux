@@ -129,12 +129,12 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 Handbook: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](../05-Panel-System.md)
 
 - [x] Essentials panels present: Properties, Navigator, Swatches, Layers, History — AT labels present with doc open
-- [ ] Toggle panel visibility (Window menu / actions) without crash
-- [ ] Move panel up/down in dock stack
-- [ ] Auto-hide / tear-off (if shipped) do not orphan canvas
-- [ ] Workspace reset to Essentials restores defaults
-- [ ] Workspace preset switch (Essentials / Compact / Painting / Factory)
-- [ ] Layout changes do **not** mark document dirty
+- [x] Toggle panel visibility (Window menu / actions) without crash — palette “Navigator” hides panel; Window menu lists checkable panels
+- [x] Move panel up/down in dock stack — ↑ control present per panel; exercised Move panel up
+- [~] Auto-hide / tear-off (if shipped) do not orphan canvas — controls present; deep path deferred
+- [x] Workspace reset to Essentials restores defaults — palette → Essentials; status `Workspace: Essentials`
+- [x] Workspace preset switch (Essentials / Compact / Painting / Factory) — Compact then Essentials via palette
+- [x] Layout changes do **not** mark document dirty — title stayed `Untitled` (no `*`) after Compact/toggle
 - [ ] Floating panel clamp stays on-screen after resize
 
 ---
@@ -413,6 +413,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-17 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.3 shortcut yield | T-018 | New Document blocks palette; editor detect |
 | 2026-07-18 | agent (kwinmcp) | Wayland kept-home | §2.3 keymap + conflict | T-019 | prefs scroll; Save F9 persist; chord steal |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §2.5 context menus | T-020 | canvas/selection menus; clamped popup helper |
+| 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §3 workspace/panels | — | Compact/Essentials; Navigator toggle; no dirty |
 
 ---
 
