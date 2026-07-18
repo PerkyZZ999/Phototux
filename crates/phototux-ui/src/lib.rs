@@ -4860,8 +4860,9 @@ impl AppSession {
     #[qslot]
     fn copy_selection(&mut self) {
         // Prefer selection coverage when a pixel selection is active (handbook §21).
+        // Also capture masked pixels so Paste as New Layer has an RGBA payload.
         if self.engine.selection.active {
-            self.copy_selection_mask();
+            self.copy_active_selection_payload();
             return;
         }
         let Ok((width, height, pixels)) = phototux_canvas::read_composite_rgba() else {
@@ -4882,6 +4883,69 @@ impl AppSession {
             "Copied (app clipboard only)".to_owned()
         };
         self.status_text_changed();
+    }
+
+    /// Copy selection coverage plus active-layer (or composite) pixels masked by it.
+    fn copy_active_selection_payload(&mut self) {
+        let Ok(r8) = phototux_canvas::selection_snapshot() else {
+            self.status_text = "Copy selection failed: no mask".to_owned();
+            self.status_text_changed();
+            return;
+        };
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let width = graph.size.width;
+        let height = graph.size.height;
+        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
+        let px_count = (width as usize).saturating_mul(height as usize);
+        if r8.len() != px_count {
+            self.status_text = "Copy selection failed: size mismatch".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        if r8.len() > MAX_CLIPBOARD_BYTES {
+            self.status_text = "Copy refused: clipboard size limit".to_owned();
+            self.status_text_changed();
+            return;
+        }
+
+        let rgba_result = self
+            .active_id()
+            .and_then(|id| phototux_canvas::read_layer_rgba(id).ok())
+            .or_else(|| phototux_canvas::read_composite_rgba().ok());
+        let Some((rw, rh, mut pixels)) = rgba_result else {
+            // Coverage-only fallback so Paste as Selection still works.
+            self.copy_selection_mask();
+            return;
+        };
+        if rw != width || rh != height || pixels.len() != px_count.saturating_mul(4) {
+            self.copy_selection_mask();
+            return;
+        }
+        if pixels.len() > MAX_CLIPBOARD_BYTES {
+            self.status_text = "Copy refused: clipboard size limit".to_owned();
+            self.status_text_changed();
+            return;
+        }
+
+        for (i, &cov) in r8.iter().enumerate() {
+            let a = u16::from(pixels[i * 4 + 3]);
+            pixels[i * 4 + 3] = ((a * u16::from(cov)) / 255) as u8;
+        }
+
+        let os_ok = Self::push_os_clipboard_rgba(width, height, &pixels).is_ok();
+        self.clipboard_selection_r8 = Some((width, height, r8));
+        self.clipboard_rgba = Some((width, height, pixels));
+        self.engine.announce("Selection copied");
+        self.status_text = if os_ok {
+            "Copied selection pixels (app + system clipboard)".to_owned()
+        } else {
+            "Copied selection pixels (app clipboard)".to_owned()
+        };
+        self.status_text_changed();
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
     }
 
     #[qslot]

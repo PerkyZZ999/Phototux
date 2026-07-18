@@ -222,10 +222,10 @@ Handbook: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 
 Handbook: [01](../01-Information-Architecture.md), [12](../12-Selection-System.md)
 
-- [ ] Pixel selection active ≠ layer selection ≠ keyboard focus (independently observable)
-- [ ] Object selection label updates
-- [ ] Invert / feather / expand selection commands if shipped
-- [ ] Copy/paste selection or layer per clipboard policy ([21](../21-Clipboard.md))
+- [x] Pixel selection active ≠ layer selection ≠ keyboard focus (independently observable) — kwinmcp 1440×900: Ctrl+A → `pixel selection active`; Ctrl+Shift+N → `object: Layer 2` while selection stayed; click Layer 1 → `object: Layer 1` + selection still active
+- [x] Object selection label updates — Properties shows `Object selection: Layer N` / status `object: …` tracking layer clicks
+- [x] Invert / feather / expand selection commands if shipped — palette: Invert Selection, Feather…, Expand; history: `Invert selection`, `Selection feather`, `Selection expand`
+- [x] Copy/paste selection or layer per clipboard policy ([21](../21-Clipboard.md)) — with selection, Ctrl+C fills RGBA + R8; Ctrl+V creates **Pasted** layer (fixed: copy no longer coverage-only)
 
 ---
 
