@@ -316,10 +316,10 @@ Handbook: [24](../24-Preferences.md), [25](../25-Themes.md), [28](../28-UX-Guide
 
 Handbook: [10](../10-Document-Model.md), overlays in shell
 
-- [ ] Show/hide grid; overlay redraws on pan/zoom
-- [ ] Dirty-rect grid clip does not leave stale lines
-- [ ] Guides add / clear; snap when enabled
-- [ ] Overlay view generation bumps on camera change
+- [x] Show/hide grid; overlay redraws on pan/zoom — `Show Grid` toggles overlay; pan (Hand) + zoom redraw grid without stale chrome
+- [x] Dirty-rect grid clip does not leave stale lines — `gridOverlay` clips to `dirtyRectJson` when view gen unchanged; view bump clears full canvas
+- [x] Guides add / clear; snap when enabled — `New Vertical Guide` → status `Guide added at 960px`; `Clear Guides` → `Guides cleared`; snap pref on
+- [x] Overlay view generation bumps on camera change — pan/zoom path increments `overlayViewGeneration` (grid `viewBump` full redraw)
 
 ---
 
