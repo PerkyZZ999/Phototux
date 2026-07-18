@@ -1,5 +1,7 @@
 # PhotoTux Interactive Testing Checklist
 
+> **Superseded as master suite:** use [`internal_docs/Appendix/Interactive-Stability-Checklist.md`](../../../internal_docs/Appendix/Interactive-Stability-Checklist.md). This journal keeps pass-1/2 results only.
+
 **Started:** 2026-07-17  
 **Updated:** 2026-07-17 (pass 2)  
 **Goal:** Exercise shipped UI/spines; find and fix edge cases until smoke + depth paths are green.

@@ -67,6 +67,7 @@ internal_docs/
     ├── Thread-Ownership-Map.md
     ├── Performance-Budget-Ledger.md
     ├── Accessibility-Checklist.md
+    ├── Interactive-Stability-Checklist.md
     ├── Decision-Register.md
     ├── Codebase-Handbook-Gap-Analysis.md
     ├── Alignment-Roadmap.md
@@ -114,6 +115,7 @@ Exact filenames are listed in [Appendix/Cross-Reference-Index.md](Appendix/Cross
 | [Thread Ownership Map](Appendix/Thread-Ownership-Map.md) | Concurrency and ownership |
 | [Performance Budget Ledger](Appendix/Performance-Budget-Ledger.md) | Latency/memory gates |
 | [Accessibility Checklist](Appendix/Accessibility-Checklist.md) | A11y review and release evidence |
+| [Interactive Stability Checklist](Appendix/Interactive-Stability-Checklist.md) | Living GUI / edge-case QA suite |
 | [Decision Register](Appendix/Decision-Register.md) | Architectural decision index |
 | [Codebase–Handbook Gap Analysis](Appendix/Codebase-Handbook-Gap-Analysis.md) | Diff vs live crates |
 | [Alignment Roadmap](Appendix/Alignment-Roadmap.md) | Alignment complete (contracts) |

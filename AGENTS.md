@@ -252,6 +252,7 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 | `internal_docs/Appendix/Alignment-Roadmap.md` | Alignment complete (contracts) |
 | `internal_docs/Appendix/Handbook-Parity-Roadmap.md` | Product phases to full handbook parity |
 | `internal_docs/Appendix/Handbook-Parity-Checklist.md` | Living product slice tracker |
+| `internal_docs/Appendix/Interactive-Stability-Checklist.md` | Living GUI / edge-case QA suite |
 | `internal_docs/Appendix/Implementation-Checklist.md` | Alignment history (Phases 0–4) |
 | `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
 | `archive/docs/` | Archived former `/docs/` (ADRs, journals, old IA) |

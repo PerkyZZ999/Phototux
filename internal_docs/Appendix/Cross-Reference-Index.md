@@ -230,6 +230,7 @@ All status values are **Present**.
 | Thread Ownership Map | [Thread-Ownership-Map.md](Thread-Ownership-Map.md) | Role threads and ownership |
 | Performance Budget Ledger | [Performance-Budget-Ledger.md](Performance-Budget-Ledger.md) | Budget index and owners |
 | Accessibility Checklist | [Accessibility-Checklist.md](Accessibility-Checklist.md) | Conformance checklist |
+| Interactive Stability Checklist | [Interactive-Stability-Checklist.md](Interactive-Stability-Checklist.md) | Living GUI / edge-case QA suite |
 | Decision Register | [Decision-Register.md](Decision-Register.md) | Architectural decisions |
 | Codebase–Handbook Gap Analysis | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) | Live crates vs handbook |
 | Alignment Roadmap | [Alignment-Roadmap.md](Alignment-Roadmap.md) | Alignment complete (contracts) |
@@ -358,6 +359,7 @@ docs/
     ├── Thread-Ownership-Map.md
     ├── Performance-Budget-Ledger.md
     ├── Accessibility-Checklist.md
+    ├── Interactive-Stability-Checklist.md
     ├── Decision-Register.md
     ├── Codebase-Handbook-Gap-Analysis.md
     ├── Alignment-Roadmap.md

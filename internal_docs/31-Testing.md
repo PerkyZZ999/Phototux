@@ -425,6 +425,8 @@ UI tests verify semantic presentation, not screenshot coordinates alone. Stable 
 
 Tests wait for semantic revisions, operation terminal states, or frame identities. Coordinate clicks are reserved for canvas spatial behavior and native integration where semantics require geometry. Screenshots supplement assertions for layout, focus, clipping, contrast, and visual goldens.
 
+Until automated UI suites cover the pyramid, living **manual / agent-driven** GUI verification uses [Interactive Stability Checklist](Appendix/Interactive-Stability-Checklist.md) (boot, chrome, tools, layers/masks, creative engines, color, history, I/O, a11y smoke, conflict cases). That checklist does not replace headless invariants or the [Accessibility Checklist](Appendix/Accessibility-Checklist.md).
+
 Toolkit-independent presentation models receive headless tests. Toolkit/native smoke tests remain smaller. This keeps deferred toolkit choice replaceable and avoids encoding widget hierarchy as architecture.
 
 ## Accessibility Testing
@@ -773,5 +775,7 @@ Remote device farms may supplement evidence only if local/offline alternatives a
 - [29 — Accessibility](29-Accessibility.md) — semantic and manual accessibility matrix.
 - [30 — Performance](30-Performance.md) — budgets, corpus, profiling, and regression gates.
 - [32 — Developer Guide](32-Developer-Guide.md) — implementation and review workflow.
+- [Interactive Stability Checklist](Appendix/Interactive-Stability-Checklist.md) — living GUI / edge-case QA suite.
+- [Accessibility Checklist](Appendix/Accessibility-Checklist.md) — a11y conformance matrix.
 - [Glossary](Appendix/Glossary.md) — canonical terminology.
 - [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.

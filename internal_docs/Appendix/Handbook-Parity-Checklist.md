@@ -3,6 +3,8 @@
 Living tracker for [Handbook-Parity-Roadmap.md](Handbook-Parity-Roadmap.md).  
 Prerequisite: [Alignment Roadmap](Alignment-Roadmap.md) complete; [Implementation-Checklist.md](Implementation-Checklist.md) is **alignment history** (do not reopen Phase 0–4 there).
 
+Runtime GUI / edge-case verification (not implementation slices): [Interactive-Stability-Checklist.md](Interactive-Stability-Checklist.md).
+
 Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]` post-gate / optional depth · `[N]` never (out of product)
 
 **Stack frozen:** [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase).  

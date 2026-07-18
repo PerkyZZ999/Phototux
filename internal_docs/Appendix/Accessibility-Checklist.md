@@ -221,5 +221,6 @@ A release claiming accessibility readiness SHOULD include:
 - [26 — Dialogs](../26-Dialogs.md)
 - [28 — UX Guidelines](../28-UX-Guidelines.md)
 - [31 — Testing](../31-Testing.md)
+- [Interactive Stability Checklist](Interactive-Stability-Checklist.md) — GUI smoke includes a11y subset
 - [Event Catalog](Event-Catalog.md)
 - [Performance Budget Ledger](Performance-Budget-Ledger.md)
