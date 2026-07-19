@@ -2,15 +2,19 @@
 
 | Field | Value |
 | --- | --- |
-| Date | 2026-07-16 |
+| Date | **2026-07-18** (refresh; prior snapshot 2026-07-16) |
 | Handbook | [`internal_docs/`](../README.md) (authoritative Engineering Handbook) |
 | Codebase | workspace crates under `crates/` as of this date |
-| Archived prior docs | [`archive/docs/`](../../archive/docs/) (former `/docs/`; retain until explicit delete) |
-| Goal | Align handbook and code **without** a rewrite mess |
+| Living product tracker | [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) |
+| Alignment history | [Implementation-Checklist.md](Implementation-Checklist.md) (Phases 0–4 — do not reopen) |
+| Interactive QA | [Interactive-Stability-Checklist.md](Interactive-Stability-Checklist.md) |
+| Archived prior docs | [`archive/docs/`](../../archive/docs/) |
 
-**Verdict first:** Keep the **shipping codebase spine** (Qt 6 + qtbridge + wgpu zero-copy canvas, `phototux_engine` graph, `.ptx` / PSD adapters). Treat the handbook as the **target architecture and contracts**. Close gaps with **incremental refactors and Decision Register promotions** — do **not** big-bang rewrite to the proposed 18-crate layout or defer Qt.
+**Verdict first:** **Spine parity is shipped.** Keep the shipping stack (Qt 6 + qtbridge + wgpu zero-copy, `phototux_engine` graph, `.ptx` / PSD). Treat the handbook as contracts + depth target. Remaining work is **DR-028 chapter depth**, **DR-029 gated scale/plugins**, and **ungated polish `[~]`** — not architecture rewrites.
 
-**Locked 2026-07-16:** Tech stack frozen to codebase ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)). All other alignment calls + phases: **[Alignment-Roadmap.md](Alignment-Roadmap.md)**. Living tracker: [Implementation-Checklist.md](Implementation-Checklist.md).
+**Stack locked:** [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase).  
+**Depth deferral:** [DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices).  
+**Scale/plugin gates:** [DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl).
 
 ---
 
@@ -18,18 +22,28 @@
 
 Compared:
 
-- Handbook charter, IA, lifecycle, workspace/docking/panels, command system, document/layers, render, history, I/O, plugins, preferences, Decision Register, developer guide.
-- Live crates: `phototux`, `phototux_ui`, `phototux_engine`, `phototux_gpu`, `phototux_canvas`, `phototux_io` (+ spike).
-- Archived ADRs in `archive/docs/01-decisions/` (historical locks that still describe what the code implements).
+- Handbook chapters 00–32 + Decision Register + parity checklist (2026-07-17 status snapshot).
+- Live crates: `phototux`, `phototux_ui`, `phototux_engine`, `phototux_gpu`, `phototux_canvas`, `phototux_io`.
+- Interactive stability pass (issues T-009–T-016 closed).
 
-Legend for severity:
+Legend:
 
 | Severity | Meaning |
 | --- | --- |
-| **A — Architecture** | Ownership / mutation / truth model differs; alignment needs deliberate design work |
-| **F — Feature gap** | Handbook requires capability code lacks (or only stubs) |
-| **C — Contract** | Naming, crate topology, deferred vs locked decisions disagree |
-| **P — Process** | Docs/ops (ADR vs DR, checklists, evidence) not hooked to handbook |
+| **A — Architecture** | Ownership / mutation / truth model differs |
+| **F — Feature gap** | Handbook capability missing or stub-only |
+| **C — Contract** | Naming / Provisional evidence / deferred encoding |
+| **P — Process** | Docs/ops hygiene |
+
+Status column for open rows:
+
+| Status | Meaning |
+| --- | --- |
+| **Closed (v1)** | Shipping spine matches handbook Accepted v1 |
+| **Partial** | Spine shipped; residual polish or chapter depth |
+| **Deferred (DR-028)** | Explicit engine/CMS/depth deferral |
+| **Gated (DR-029)** | No impl until evidence / product need |
+| **Open** | Ungated polish still worth shipping |
 
 ---
 
@@ -37,194 +51,157 @@ Legend for severity:
 
 | Area | Handbook | Codebase |
 | --- | --- | --- |
-| Local-first, no cloud/AI product | DR-001, 00 | Matches product surface |
-| Document as editable truth (intent) | DR-002 | `DocumentGraph` / GPU layer textures are authority for pixels; UI projects |
-| wgpu GPU path | DR-006 | `phototux_gpu` + Vulkan-first canvas present |
-| Portable engine vs UI | DR-007 (spirit) | `phototux_engine` has no Qt; UI in `phototux_ui` |
-| Layered raster stack | 10 / 11 / DR-027 | Raster, Group, Text, Adjustment, **Shape**; masks, clip, opacity, blends |
-| Command spine (document commits) | DR-003, 08 | `SessionState::invoke` + `command_id::*`; AppSession host adapter |
-| Snapshot leases (v1) | DR-005 | Document generation + `DocumentSnapshotLease` / `mark_persisted` |
-| Color assign/convert foundation | DR-012, 16 | `document.assign-profile` / `document.convert-profile` |
-| Preferences dialog | 24 | XDG `preferences.json` + Preferences UI |
-| `.ptx` v2 chunks | DR-026 | Typed `MANI`/`RASL`/`MASK` + CRC; v1 read |
-| Guides / Character chrome | 03 / 18 | View guides/grid/rulers/snap; Character Properties + text bake |
-| Undo / history panel | DR-004 (partial) | `HistoryService` + stroke/transform/selection stacks |
-| Staged / atomic save | DR-014 | `.ptx` atomic write path in `phototux_io` |
-| Interchange ≠ native | DR-013 (spirit) | PSD behind adapter + compatibility report |
-| Desktop Linux host | 00, 02 | Wayland / Qt 6 app; no web/CLI product |
-| Vendor-neutral naming (direction) | DR-019 | UI strings mostly generic; handbook is stricter |
+| Local-first, no cloud/AI | DR-001, 00 | Product surface matches |
+| Document owns truth | DR-002 | `DocumentGraph` + GPU textures; UI projects |
+| wgpu GPU path | DR-006 | `phototux_gpu` Vulkan-first + canvas present |
+| Portable engine vs UI | DR-007 | Engine has no Qt; UI in `phototux_ui` |
+| Layered stack | 10 / 11 / DR-027 | Raster/Group/Text/Adjustment/Shape/Fill; masks, clip, blends |
+| Command spine | DR-003, 08 | `SessionState::invoke` + taxonomy; host-only exemptions |
+| Snapshot leases + pixel publish | DR-005 | Generation + leases + `SnapshotPublisher` (64 MiB) |
+| Color assign/convert + soft-proof | DR-012, 16 | Commands + Image menu + display ICC discovery |
+| Preferences / Theme packs | 24, 25 | XDG prefs schema 5+; `Theme.qml` density/contrast |
+| `.ptx` v2 | DR-026 | Typed chunks + CRC diagnostics; v1 read |
+| Guides / Character chrome | 03 / 18 | View guides/grid/rulers; Character + text bake |
+| History timeline | DR-004 | Unified timeline + jump + retention UI |
+| Atomic save | DR-014 | `.ptx` staged write |
+| Multi-doc tabs | DR-024 v2 | `DocumentRegistry` + TabBar (max 8) |
+| Docking tear-off / auto-hide | 04, DR-015 | Topology model + QML floating + persist |
+| Action chrome | 06–09 | Descriptors → menus / strip / shortcuts / palette |
+| A11y projection | 29, DR-016 | `accessibilityTreeJson` + AT-SPI projection + Qt Accessible |
+| Clipboard | 21 | RGBA + selection/mask R8 + OS image; 64 MiB refuse |
+| Verification | DR-022, 31 | `command_conformance` + soft CI / Tier M proxies |
+| Desktop Linux host | 00, 02 | Wayland / Qt 6; no web/CLI product |
 
-These are assets. Alignment must **not** discard zero-copy present, working brush path, or `.ptx` round-trip without a measured replacement.
+Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a measured replacement.
 
 ---
 
-## 3. Differences (handbook vs code)
+## 3. Differences (handbook vs code) — current
 
 ### 3.1 Architecture / mutation spine — **A**
 
-| # | Handbook says | Code has | Severity |
+| # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
-| A1 | Every **document-authoritative** mutation enters a **named command** (DR-003, 08 Accepted v1) | **Shipped:** `SessionState::invoke` covers history/layer/view/document/selection/mask/filter/style/text/shape/raster commits. Host-only: previews, paint stream, prefs chrome, I/O adapters. GPU-then-commit for canvas ops. | **Closed (v1)** |
-| A2 | Render consumes **immutable versioned snapshots / deltas** (DR-005, 17) | **Partial / Accepted v1:** generation + metadata leases; full pixel snapshot publisher **Provisional** (Phase 5) | **A** (deferred depth) |
-| A3 | Workspace / docking / panels with **workspace transactions** (03–05, DR-015) | **Accepted v1:** shell descriptors + prefs + Essentials reset; QML-hardcoded menus/shortcuts. Full topology **target** | **A** (deferred depth) |
-| A4 | Lifecycle orchestrates session, multi-window, recovery, renderer generations (02) | App start → New Document / open; recovery APIs partial; no formal lifecycle controller | **A** |
-| A5 | Per-document mutation serialization; multi-doc first-class (DR-010, 02–03) | **Single document** session ([DR-024](Decision-Register.md#dr-024--single-document-session-v1)); no doc registry until DR amend | **Deferred (DR-024)** |
-| A6 | GPU-first **with mandatory CPU reference/fallback** + tiling / pyramid (DR-006, 17) | GPU interactive + **CPU composite reference** for tests; tiling/pyramid **Phase 5 / Provisional** | **A** (Phase 5) |
-| A7 | UI toolkit | **Superseded:** DR-008 → [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) Qt 6 + qtbridge | **Closed** |
-| A8 | Proposed crate split (32) | Coarse crates locked ([DR-025](Decision-Register.md#dr-025--crate-topology-coarse-workspace)); §32 = ownership map | **Closed (DR-025)** |
-| A9 | Extension seams + capability model now; ABI deferred (DR-009, 23) | No plugin host; seams after command spine — **Deferred** product | **F** / **Deferred** |
+| A1 | Named commands for document mutations (DR-003) | `SessionState::invoke` + host-only exemptions | **Closed (v1)** |
+| A2 | Immutable snapshots / deltas (DR-005, 17) | Leases + bounded pixel publisher; dense deltas Provisional | **Closed (v1)**; dense deltas → **Deferred (DR-028)** |
+| A3 | Workspace / docking transactions (03–05, DR-015) | Descriptors + tear-off/auto-hide + builtins + **user-named presets**; split-graph polish | **Closed (v1)**; split graph → **Partial** |
+| A4 | Lifecycle controller, recovery, renderer gens (02) | Autosave + restore chooser + safe-start + `renderer_generation`; no formal controller type | **Closed (v1)**; formal controller → **Deferred (DR-028)** |
+| A5 | Multi-doc first-class (DR-010 / DR-024) | Tabs Accepted (DR-024 v2); multi-window / multi-view open | **Closed (v1)** tabs; multi-window → **Open** (not DR-029) |
+| A6 | GPU-first + CPU ref + tiling (DR-006) | CPU composite ref + parity fixtures; tiling ungated only with evidence | CPU ref **Closed (v1)**; tiling → **Gated (DR-029)** |
+| A7 | UI toolkit | DR-023 Qt 6 + qtbridge | **Closed** |
+| A8 | Fine crate split (32) | Coarse crates (DR-025); §32 = ownership map | **Closed (DR-025)** |
+| A9 | Extension seams; ABI deferred (DR-009) | `extension_data` opaque seam; no host/ABI | Seam **Closed (v1)**; ABI → **Gated (DR-029)** |
 
 ### 3.2 Document / layers / engines — **F** / **A**
 
-| # | Handbook says | Code has | Severity |
+| # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
-| D1 | Rich document aggregate: resources, profiles, version vectors, opaque extension objects (10, 27) | `DocumentGraph` + color + `embedded_icc` + `extension_data`; full resource registry depth **Deferred** | **F** (depth) |
-| D2 | Shape engine + Shape layers; text bake (18, 19, DR-020/027) | **Shipped v1:** `LayerKind::Shape` (rect/ellipse/line), path stroke, text bake + Character chrome; full boolean Shape **Deferred** | **F** (depth) |
-| D3 | Color management: assign ≠ convert; soft-proof (16, DR-012) | **Shipped:** assign/convert tags; soft-proof; ICC embed/validate/persist/PNG export; display discovery + lcms2 **Deferred** (DR-028) | **F** (depth) |
-| D4 | Filter engine as declarative plans + CPU/GPU executors (15) | Adjustments + Gaussian/Motion/Emboss + EffectPass styles; full filter graph **target** | **F** (depth) |
-| D5 | Selection concepts distinct: object vs pixel vs focus vs edit target (DR-011, 12) | Pixel selection + active layer; concepts collapsed in UI | **A** / **F** |
-| D6 | Mask system with vector masks, refine, apply semantics (13) | Raster layer masks + clipping; no vector mask / refine | **F** |
-| D7 | History = transaction records with retention budgets / spill (20) | Mixed: graph undo commands + GPU pixel snapshots for strokes/transforms | **A** |
-| D8 | Native container: chunked, integrity, sparse/incremental (27, DR-013/026) | **Shipped:** `.ptx` **v2 write / v1 read** + integrity diagnostics UX. Tile-sparse / incremental → P11 | **A** (sparse) |
+| D1 | Rich resources / version vectors (10, 27) | Graph + ICC + `extension_data`; full resource registry depth | **Deferred (DR-028)** |
+| D2 | Shape/text engines (18, 19) | Shape kinds, boolean, live vector, path-edit, text frame/wrap | **Closed (v1)**; GPU live tiles / curves → **Deferred (DR-028)** |
+| D3 | Full CMS / lcms2 (16) | Assign/convert tags, soft-proof, embed, display discovery | Soft-proof **Closed (v1)**; lcms2 → **Deferred (DR-028)** |
+| D4 | Filter plans + gallery (15) | `FilterPlan` + gallery + cancel + GPU pack | **Closed (v1)**; fuller adjustment set → **Deferred (DR-028)** |
+| D5 | Object vs pixel vs edit target (DR-011) | Distinct chrome + status; multi-object polish residual | **Closed (v1)**; multi-object → **Partial** |
+| D6 | Vector masks / refine / apply (13) | Vector mask create + apply/refine attrs; deep path-edit residual | **Partial** |
+| D7 | History retention + spill (20) | Retention UI shipped; spill-to-disk | Retention **Closed (v1)**; spill → **Gated (DR-029)** |
+| D8 | `.ptx` integrity + sparse (27) | v2 write / v1 read + diagnostics; sparse/incremental | Integrity **Closed (v1)**; sparse → **Gated (DR-029)** |
 
 ### 3.3 Shell / UX systems — **F**
 
-| # | Handbook says | Code has | Severity |
+| # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
-| U1 | Docking system with tear-off, auto-hide, topology validation (04) | Fixed multi-pane layout | **F** |
-| U2 | Panel system descriptors (05) | **Partial v1:** `shell` panel descriptors + prefs visibility; QML still hardcodes chrome (Accepted v1 / DR-015) | **F** (target registry) |
-| U3 | Toolbar / tool options as registry-driven (06) | Tool descriptors exist; strip still hardcoded QML (Accepted v1) | **F** |
-| U4 | Context menus from action/command registry (07) | Hardcoded menus → commands (Accepted v1) | **F** |
-| U5 | Shortcut system with customizable bindings (09) | Partial hardcoded shortcuts (Accepted v1) | **F** |
-| U6 | Preferences + themes as persisted services (24, 25) | **Shipped:** XDG prefs + Preferences dialog; theme tokens in QML | **Closed (v1)** / theme depth **F** |
-| U7 | Dialogs / command search / workspace presets (03, 26) | New/Export/About/unsaved; no workspace manager | **F** |
-| U8 | Accessibility semantic tree projection + AT-SPI host (29, DR-016) | Basic Qt a11y; no handbook descriptor projection | **F** |
+| U1 | Dock tear-off / auto-hide / topology (04) | Shipped + persisted | **Closed (v1)** |
+| U2 | Panel descriptors (05) | `panels_json` + visibility/titles; Paths/Character body depth | **Closed (v1)**; panel body parity → **Partial** |
+| U3 | Registry-driven tools (06) | `tools_json` strip + overflow; options/edit-target polish | **Closed (v1)**; options bar → **Partial** |
+| U4 | Context menus from actions (07) | Layer/canvas/selection/mask from registry | **Closed (v1)**; path context / selection-preserve → **Partial** |
+| U5 | Customizable shortcuts (09) | Action map + conflict UI + persist + yield | **Closed (v1)** |
+| U6 | Themes / density / contrast (25) | `Theme.qml` packs | **Closed (v1)**; full token audit → **Partial** |
+| U7 | Dialogs / palette / workspace presets (03, 26) | Palette + builtins + last-saved + **user-named save/delete** | **Closed (v1)** |
+| U8 | A11y tree + AT-SPI (29) | Semantic JSON + projection + Qt Accessible | **Closed (v1)**; custom D-Bus tree → **Deferred (DR-028)** |
 
 ### 3.4 I/O / formats / clipboard — **F** / **C**
 
-| # | Handbook says | Code has | Severity |
+| # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
-| I1 | Format adapters with hard allocation limits, loss disclosure (22) | Rasters + PSD subset + report; limits uneven | **F** |
-| I2 | Clipboard as capability-scoped host bridge (21) | **Shipped spine:** RGBA + selection/mask R8 payloads + OS image; SVG/rich layer MIME **Deferred** | **F** (depth) |
-| I3 | Recovery bound (~60s) + lifecycle restore (02, 00) | Recovery helpers exist; UX incomplete | **F** |
+| I1 | Hard limits + loss disclosure (22) | Dimension/byte limits; PSD truncation messages; codec set PNG/JPEG/WebP/TIFF/BMP/GIF | Limits **Closed (v1)**; broader loss reports → **Partial** |
+| I2 | Capability clipboard (21) | RGBA + selection/mask + OS image | **Closed (v1)**; SVG/layer MIME → **Deferred (DR-028)** |
+| I3 | Recovery ~60s + restore UX (02) | Autosave + startup chooser + safe-start | **Closed (v1)** |
 
 ### 3.5 Performance / testing / process — **C** / **P**
 
-| # | Handbook says | Code has | Severity |
+| # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
-| P1 | Budgets **Provisional** until fixtures promote gates (DR-017, 30) | Archived ADR-008 hard gates; some measured (composite, boot, FPS) | **C** |
-| P2 | Headless core command tests mandatory (DR-022, 31) | Engine unit tests yes; no command-router conformance suite | **F** / **P** |
-| P3 | Decision Register is index; high-cost locks via DR/ADR process | Handbook DRs vs archived ADRs **diverge** (toolkit, format, single-doc) | **P** |
-| P4 | Handbook README directory map still says `docs/` | Lives in `internal_docs/` | **P** (doc hygiene) |
+| P1 | Promote Provisional budgets with fixtures (DR-017, 30) | Soft CI + Tier M CPU proxies Accepted; interactive present still Provisional | **Partial** |
+| P2 | Headless command conformance (DR-022) | `command_conformance` suite | **Closed (v1)** |
+| P3 | Decision Register vs archived ADRs | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) + live DRs | **Closed (v1)** |
+| P4 | Handbook under `internal_docs/` | Normative tree + archive; root bridges | **Closed (v1)** |
 
 ---
 
-## 4. Code (or archived ADRs) not reflected / contradicted by handbook
+## 4. Code / archive items once contradictory — resolved
 
-| Item | Where | Handbook stance | Note |
-| --- | --- | --- | --- |
-| Qt 6 + qtbridge + QML AOT | `phototux_ui`, `phototux` | DR-023 **Accepted** (DR-008 superseded) | **Resolved** |
-| Zero-copy Vulkan present only | archived ADR-005, canvas | Allows CPU fallback for correctness; present path not spelled as ADR-005 | Compatible if CPU is **non-interactive** path |
-| Single document v1 | archived ADR-013 | Lifecycle/workspace assume multi-doc | Promote single-doc as **Provisional** or amend DR |
-| Concrete `.ptx` format | `phototux_io`, ADR-016 | Native bytes **Deferred** (DR-013) | Promote `.ptx` as Provisional/Accepted with migration story |
-| Phosphor icons, new-doc presets, zoom-to-fit | UI + ADR-013 | Not contradicted; under-specified in handbook | Keep; document under prefs/IA |
-| `phototux-spike-interop` | crates | Spike done historically | Keep as evidence; handbook wants measured spikes before freezes |
-| Root `SPEC.md` / `CONSTRAINTS.md` / `AGENTS.md` | repo root | Not part of handbook series | Need re-home or “bridge” docs |
-| Production checklist / FEATURES_TODO | `archive/docs/` | No living checklist in handbook | Need handbook-linked checklist or revive under `internal_docs/` |
-
----
-
-## 5. Decision conflicts (must resolve explicitly)
-
-| Topic | Archived ADR / code | Handbook DR | Recommendation |
-| --- | --- | --- | --- |
-| UI toolkit | Qt 6 Accepted (ADR-002/003) | DR-008 Deferred | **Promote Qt+qtbridge to Accepted** in Decision Register with measured evidence (boot, FPS, a11y baseline). Do not “unchoose” Qt. |
-| Multi-document | Single-doc (ADR-013) | Multi-doc lifecycle/workspace | Keep **single-doc Provisional** until intentional ADR/DR amend; delay tabs. |
-| Native format | `.ptx` locked (ADR-016) | Bytes deferred (DR-013) | **Accept `.ptx` v1** as Provisional container; evolve toward chunk/tile model without breaking open. |
-| Zero-copy present | ADR-005 ship gate | GPU-first + CPU fallback | Keep zero-copy **interactive** present; add CPU path for tests/degraded only. |
-| Plugin ABI | Deferred / forbidden product store | DR-009 seams now, ABI later | Align: seams OK later; no marketplace. |
-| Shape layers | ADR-017 kinds exclude Shape | Shape engine Accepted (DR-020) | Amend graph kinds when Paths/Shapes slice starts. |
-| Crate topology | Coarse workspace | Fine-grained proposal (32) | Treat 32 as **target modularization**, not immediate split. |
-
----
-
-## 6. Recommendations (how to align without a mess)
-
-### 6.1 Strategic choice
-
-**Hybrid: codebase direction for platform + present path; handbook direction for contracts and future systems.**
-
-| Stick with codebase | Adopt from handbook |
+| Item | Resolution |
 | --- | --- |
-| Qt 6 / qtbridge / QML shell | Command spine (route mutations through named commands) |
-| wgpu Vulkan zero-copy canvas | Immutable snapshot/delta for render invalidation (incremental) |
-| Current crate set (split only when pain is real) | Workspace/docking/panel **models** before full tear-off UI |
-| `.ptx` + raster/PSD adapters | Chunk/tile evolution of `.ptx`; stronger import limits |
-| Single-doc until deliberate multi-doc project | Selection/focus/target concept hygiene |
-| Shipping vertical features | Decision Register as living ADR index |
-
-**Do not:** pause features for an 18-crate rewrite, replace Qt, or throw away GPU document ownership for a paper-pure snapshot design overnight.
-
-### 6.2 Immediate process (this week)
-
-1. **Handbook is authoritative** for engineering intent (`internal_docs/`).
-2. Keep `archive/docs/` read-only historical; delete only after DR migration + owner OK.
-3. Update root `AGENTS.md` / `README.md` to point at handbook; conflict log → `internal_docs/Appendix/` or journal under archive.
-4. **Migrate decisions:** for each Accepted archived ADR that code implements, add/update a Decision Register entry (or mark DR-008/DR-013 accordingly).
-5. Add a living **implementation checklist** under `internal_docs/` (or Appendix) that replaces `archive/docs/03-checklists/development.md` as the work tracker.
-
-### 6.3 Implementation alignment order (low mess → high leverage)
-
-Phase α — **Contracts without UI rewrite**
-
-1. Introduce a thin **command registry + router** in `phototux_engine` (or `phototux_commands` module): wrap existing ops (layer opacity, undo, fill, etc.) as named commands; keep AppSession as host adapter that *invokes* commands.
-2. Document **version / dirty / save receipt** on `DocumentGraph` closer to handbook language.
-3. Snapshot **handle** (even if initially “clone metadata + generation counter”) for recomposite invalidation — full immutable pixel snapshots later.
-
-Phase β — **Shell systems as models**
-
-4. Extract panel/tool **descriptors** from `Main.qml` (IDs, titles, default docks) matching 05/06 — still Qt presentation.
-5. Preferences service + dialog (24) wired to disk under XDG paths.
-6. Context menus + shortcut map driven by action IDs (07/09).
-
-Phase γ — **Engine depth toward handbook**
-
-7. CPU reference composite for tests (subset of blend modes).
-8. Color assign/convert foundation (16).
-9. Paths → then Shape kind DR amend (19).
-10. Tile/sparse storage only when large-doc benchmarks demand it (do not invent tiling early).
-
-Phase δ — **Multi-doc / plugins**
-
-11. Multi-doc only after DR/ADR amend + session registry.
-12. Extension seams after command spine is real; ABI stays deferred.
-
-### 6.4 What “done aligning” means
-
-- Every shipped mutation path listed in Command Taxonomy (or explicitly exempted as transient preview).
-- Decision Register matches reality (Qt, `.ptx`, single-doc, zero-copy).
-- Handbook MUST requirements either: implemented, Provisional with evidence plan, or consciously Deferred with DR.
-- No second competing “official” doc tree outside `internal_docs/` + thin root bridges (`README`, `AGENTS`, `SPEC`/`CONSTRAINTS` until absorbed).
+| Qt 6 + qtbridge | **DR-023 Accepted**; DR-008 superseded |
+| Zero-copy interactive present | Kept; CPU = tests/degraded only |
+| Single-doc → multi-doc tabs | **DR-024 v2 Accepted** (tabs); multi-window still open |
+| `.ptx` bytes | **DR-026 Accepted**; sparse gated DR-029 |
+| Shape layer kind | Shipped under DR-027 / DR-020 |
+| Crate topology | **DR-025** coarse; §32 ownership map |
+| Root `SPEC` / `CONSTRAINTS` / `AGENTS` | Non-normative bridges → handbook + DR |
+| Production checklist | [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) |
 
 ---
 
-## 7. Risk if we pick the wrong extreme
+## 5. Decision conflicts — closed (historical)
 
-| Extreme | Risk |
-| --- | --- |
-| **Handbook purity first** | Months of crate/workspace rewrite; lose working editor; DR-008 thrash |
-| **Codebase only, ignore handbook** | Shell/features grow as one-off QML; harder multi-doc, a11y, plugins, large docs later |
-| **Hybrid (recommended)** | Some dual-writing during transition; managed via command adapter + DR promotions |
+Alignment choices from 2026-07-16 are **done**. Do not reopen toolkit, `.ptx`, or crate topology. Live gates:
+
+| Topic | Binding DR | Note |
+| --- | --- | --- |
+| Tiling / pyramid / brush tile planner | DR-029 + DR-006 | Evidence before impl |
+| History spill | DR-029 + DR-004 | Memory-pressure evidence |
+| Sparse / incremental `.ptx` | DR-029 + DR-026 | Spike before freeze |
+| Plugin ABI / marketplace | DR-009 / DR-029 | Seams only; no product need |
+| Engine chapter depth (curves, lcms2, …) | DR-028 | Per-engine milestones |
+| Present-path FPS / cold-boot promotion | DR-017 | Device evidence packs |
 
 ---
 
-## 8. Owner decisions (resolved 2026-07-16)
+## 6. Open backlog (ungated, ranked)
 
-1. **Qt 6 + qtbridge** → **Accepted** ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)); DR-008 superseded.
-2. **`.ptx` v1** → **Accepted** ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)); evolve encoding in place.
-3. **Single-document** v1 → **Accepted** ([DR-024](Decision-Register.md#dr-024--single-document-session-v1)).
-4. **Zero-copy interactive present** stays hard; CPU = tests/degraded only (roadmap Phase 4.1).
-5. Production tracker → [Implementation-Checklist.md](Implementation-Checklist.md); plan → [Alignment-Roadmap.md](Alignment-Roadmap.md).
+Prefer these over gated P11/P12 work. Sync checklist checkboxes when closing a row.
+
+| Priority | Gap / checklist | Why | Suggested slice |
+| --- | --- | --- | --- |
+| **1** | U3 tool-options ↔ edit-target | Mask vs layer still easy to miss while painting | Mirror edit-target chip on options bar |
+| **2** | U2 Paths / Character body parity | Navigator has a body; Paths/Character still thin vs descriptors | One real Paths list or Character completeness pass |
+| **3** | D6 vector-mask path-edit depth | Create/apply exist; deep edit residual | Path-edit ↔ vector mask round-trip |
+| **4** | I1 / P8 codec + loss-report polish | Codecs already in `phototux_io`; broaden disclosure UX | Structured loss dialog for PSD/export |
+| **5** | P1 DR-017 evidence | Soft CI green; present budgets Provisional | Release cold-boot + zoom/pan FPS pack |
+| **6** | Assign ≠ convert disclosures | Distinct actions exist; handbook wants consequence copy | ToolTips / announce strings on Image menu |
+| — | P11 tiling / spill / sparse | Large-doc / memory evidence | **Do not start** (DR-029) |
+| — | P12 plugin host | No product need | **Do not start** (DR-029) |
+
+**Closed this refresh:** U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6).
+
+---
+
+## 7. How to keep this file honest
+
+1. After each parity slice: update the matching row status here **and** [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md).
+2. When promoting a Provisional budget or Deferred depth: amend Decision Register first, then close the row.
+3. Do not mark gated rows Closed without DR-029 evidence.
+4. Prefer measured shipping code + promoted DR over silent drift (AGENTS.md).
+
+---
+
+## 8. Owner decisions (resolved 2026-07-16; still binding)
+
+1. **Qt 6 + qtbridge** → **Accepted** ([DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase)).
+2. **`.ptx`** → **Accepted** ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)); sparse gated.
+3. **Document session** → **DR-024 v2 tabs Accepted** (2026-07-17); multi-window open.
+4. **Zero-copy interactive present** stays hard; CPU = tests/degraded only.
+5. Product tracker → [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md); alignment history → [Implementation-Checklist.md](Implementation-Checklist.md).
 
 ---
 
@@ -232,6 +209,7 @@ Phase δ — **Multi-doc / plugins**
 
 - Handbook index: [README](../README.md)
 - Decision Register: [Decision-Register.md](Decision-Register.md)
-- Developer guide (crate proposal): [32-Developer-Guide.md](../32-Developer-Guide.md)
-- Archived ADRs / old IA / checklists: [`archive/docs/`](../../archive/docs/)
-- This analysis should be updated when a DR is promoted or a Phase α–δ slice lands.
+- Parity roadmap: [Handbook-Parity-Roadmap.md](Handbook-Parity-Roadmap.md)
+- Archived ADR map: [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md)
+- Developer guide: [32-Developer-Guide.md](../32-Developer-Guide.md)
+- Interactive stability: [Interactive-Stability-Checklist.md](Interactive-Stability-Checklist.md)

@@ -38,6 +38,9 @@ pub struct Preferences {
     /// Last explicitly saved layout snapshot (visibility + dock JSON object).
     #[serde(default)]
     pub last_saved_workspace_json: String,
+    /// User-named workspace presets JSON array ([`phototux_engine::WorkspacePreset`]).
+    #[serde(default)]
+    pub user_workspace_presets_json: String,
     /// Persisted brush preset library JSON (schema 4+).
     #[serde(default)]
     pub brush_presets_json: String,
@@ -96,6 +99,7 @@ impl Default for Preferences {
             panel_visibility: ws.panel_visibility.clone(),
             dock_topology_json: ws.dock.to_json().unwrap_or_default(),
             last_saved_workspace_json: String::new(),
+            user_workspace_presets_json: String::new(),
             brush_presets_json: phototux_engine::BrushPresetLibrary::with_defaults()
                 .to_json()
                 .unwrap_or_default(),
@@ -105,7 +109,7 @@ impl Default for Preferences {
             safe_start_next: false,
             history_retention_limit: default_history_retention(),
             keymap: BTreeMap::new(),
-            schema_version: 5,
+            schema_version: 6,
         }
     }
 }
@@ -172,7 +176,16 @@ impl Preferences {
             self.ui_density = default_ui_density();
         }
         self.history_retention_limit = clamp_history_retention(self.history_retention_limit);
-        self.schema_version = self.schema_version.max(5);
+        if self.user_workspace_presets_json.is_empty() {
+            self.user_workspace_presets_json = "[]".into();
+        } else {
+            // Re-serialize so corrupt / over-cap entries are dropped on load.
+            let cleaned =
+                phototux_engine::parse_user_workspace_presets(&self.user_workspace_presets_json);
+            self.user_workspace_presets_json =
+                phototux_engine::user_workspace_presets_json(&cleaned);
+        }
+        self.schema_version = self.schema_version.max(6);
     }
 
     fn sync_legacy_bools_from_map(&mut self) {
@@ -223,6 +236,54 @@ impl Preferences {
         ws.active_preset_id = snap.active_preset_id;
         ws.revision = 0;
         Some(ws)
+    }
+
+    pub fn user_workspace_presets(&self) -> Vec<phototux_engine::WorkspacePreset> {
+        phototux_engine::parse_user_workspace_presets(&self.user_workspace_presets_json)
+    }
+
+    /// Insert or replace a user preset by id. Returns false if at capacity and id is new.
+    pub fn upsert_user_workspace_preset(
+        &mut self,
+        preset: phototux_engine::WorkspacePreset,
+    ) -> Result<(), String> {
+        if !preset.is_user_preset() {
+            return Err("user presets must use workspace.preset.user.* ids".into());
+        }
+        if preset.title.trim().is_empty() {
+            return Err("preset title is required".into());
+        }
+        if let Err(err) = preset.dock.validate() {
+            return Err(err.to_owned());
+        }
+        let mut list = self.user_workspace_presets();
+        if let Some(existing) = list.iter_mut().find(|p| p.id == preset.id) {
+            *existing = preset;
+        } else {
+            if list.len() >= phototux_engine::MAX_USER_WORKSPACE_PRESETS {
+                return Err(format!(
+                    "at most {} user workspace presets",
+                    phototux_engine::MAX_USER_WORKSPACE_PRESETS
+                ));
+            }
+            list.push(preset);
+        }
+        self.user_workspace_presets_json = phototux_engine::user_workspace_presets_json(&list);
+        Ok(())
+    }
+
+    pub fn delete_user_workspace_preset(&mut self, id: &str) -> bool {
+        if !phototux_engine::is_user_workspace_preset_id(id) {
+            return false;
+        }
+        let mut list = self.user_workspace_presets();
+        let before = list.len();
+        list.retain(|p| p.id != id);
+        if list.len() == before {
+            return false;
+        }
+        self.user_workspace_presets_json = phototux_engine::user_workspace_presets_json(&list);
+        true
     }
 
     pub fn load_dock_topology(&self) -> DockTopology {
@@ -287,7 +348,7 @@ mod tests {
         p.panel_navigator = false;
         p.migrate_panel_visibility();
         assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
-        assert_eq!(p.schema_version, 5);
+        assert_eq!(p.schema_version, 6);
     }
 
     #[test]
@@ -295,6 +356,25 @@ mod tests {
         assert_eq!(clamp_history_retention(1), HISTORY_RETENTION_MIN);
         assert_eq!(clamp_history_retention(9999), HISTORY_RETENTION_MAX);
         assert_eq!(clamp_history_retention(128), 128);
+    }
+
+    #[test]
+    fn user_workspace_preset_upsert_and_delete() {
+        let mut p = Preferences::default();
+        let mut ws = WorkspaceState::essentials();
+        assert!(ws.set_visible("panel.history", false));
+        let preset = phototux_engine::WorkspacePreset::from_workspace(
+            format!("{}desk", phototux_engine::USER_WORKSPACE_PRESET_PREFIX),
+            "Desk",
+            &ws,
+        );
+        p.upsert_user_workspace_preset(preset).expect("upsert");
+        assert_eq!(p.user_workspace_presets().len(), 1);
+        assert!(p.delete_user_workspace_preset(&format!(
+            "{}desk",
+            phototux_engine::USER_WORKSPACE_PRESET_PREFIX
+        )));
+        assert!(p.user_workspace_presets().is_empty());
     }
 
     #[test]

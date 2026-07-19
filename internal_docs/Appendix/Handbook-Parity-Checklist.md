@@ -18,7 +18,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | Phase | Exit | Notes |
 | --- | --- | --- |
 | P1 Action chrome | **Met** | Remaining `[~]` = polish |
-| P2 Workspace / docking | **Met** | Split graph / user presets / list virtualization polish |
+| P2 Workspace / docking | **Met** | Split graph polish; user-named workspace presets shipped |
 | P3 Selection targets | **Met** | Multi-object select polish deferred |
 | P4 Masks / layers | **Met** | Multi-select ops, fill layers, effect reorder, clip break, mask apply/attrs UI, OuterGlow/ColorOverlay; mask contrast/shift refine shipped |
 | P5 Creative engines | **Met** | Gallery + path-edit + text frame/wrap; texture tip, noise/exposure, fonts/on-canvas, polygon/gradient/live vector + vector boolean partner shipped (DR-028 depth) |
@@ -39,7 +39,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 
 - [x] Update this file when starting/finishing a slice (living practice)
 - [x] Add/update `command_id` + [Command-Taxonomy.md](Command-Taxonomy.md) for document commits
-- [~] Close matching rows in [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) — keep in sync on each slice
+- [x] Close matching rows in [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) — refreshed 2026-07-18; keep in sync on each slice
 - [x] `./scripts/check-rust.sh` green (gate on every commit)
 - [x] No paragraph-long workaround comments
 - [x] Journal phase exits under `archive/docs/04-journal/`
@@ -117,7 +117,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 
 - [x] Semantic workspace state separate from document (DR-015)
 - [x] Workspace transaction / undo policy (layout changes ≠ document dirty)
-- [x] Named workspace presets (built-in Essentials/Compact/Painting/Factory; user presets deferred)
+- [x] Named workspace presets (built-in Essentials/Compact/Painting/Factory + **user-named** save/delete in Preferences)
 - [x] Reset scopes: Essentials / last saved / factory
 - [x] Active view / focus / panel context as distinct fields
 
@@ -137,7 +137,7 @@ Chapters: [03](../03-Workspace-System.md), [04](../04-Docking-System.md), [05](.
 - [x] Placeholder / contribution slots for future panels
 - [~] Paths / Character / Navigator parity with descriptor catalog (Navigator body + Paths/Character placeholders)
 
-**P2 exit:** **Met.** Split graph / user presets remain polish; Layers/History virtualized.
+**P2 exit:** **Met.** Split graph remains polish; user-named presets + Layers/History virtualized.
 
 ---
 
@@ -312,7 +312,7 @@ Chapters: [01](../01-Information-Architecture.md), [24](../24-Preferences.md), [
 
 ### P9.1 Preferences
 
-- [~] Handbook preference schema coverage — schema 4: brush presets, density, contrast, motion
+- [~] Handbook preference schema coverage — schema 6: brush presets, density, contrast, motion, user workspace presets
 - [x] Versioned migrations (schema → 4 on load)
 - [x] Effective-value precedence where document vs user differs — `resolve_layered` + `prefEffectiveJson` spine
 - [~] Reset field / domain / all — workspace Essentials/factory; full domain reset deferred

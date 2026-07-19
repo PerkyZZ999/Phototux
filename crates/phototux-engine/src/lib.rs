@@ -112,7 +112,11 @@ pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, Transfor
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 pub use workspace::{WorkspaceFocus, WorkspaceState};
 pub use workspace_preset::{
-    WorkspacePreset, builtin_workspace_presets, workspace_preset_by_id, workspace_presets_json,
+    MAX_USER_WORKSPACE_PRESETS, USER_WORKSPACE_PRESET_PREFIX, WorkspacePreset,
+    builtin_workspace_presets, is_user_workspace_preset_id, merged_workspace_presets,
+    merged_workspace_presets_json, parse_user_workspace_presets, resolve_workspace_preset,
+    slugify_workspace_preset_title, user_workspace_presets_json, workspace_preset_by_id,
+    workspace_presets_json,
 };
 
 use serde::{Deserialize, Serialize};

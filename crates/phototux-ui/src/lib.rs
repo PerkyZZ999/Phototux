@@ -1317,6 +1317,7 @@ impl AppSession {
         self.workspace = WorkspaceState::from_visibility_map(self.prefs.panel_visibility.clone());
         let _ = self.workspace.set_dock(self.prefs.load_dock_topology());
         self.sync_pref_fields_from_store();
+        self.refresh_workspace_presets_json();
         self.refresh_shortcut_maps();
         self.engine.guides.show_guides = self.prefs.show_guides;
         self.engine.guides.show_grid = self.prefs.show_grid;
@@ -1330,6 +1331,15 @@ impl AppSession {
                 },
             );
         }
+    }
+
+    fn refresh_workspace_presets_json(&mut self) {
+        self.workspace_presets_json =
+            phototux_engine::merged_workspace_presets_json(&self.prefs.user_workspace_presets_json);
+    }
+
+    fn emit_workspace_presets_json(&mut self) {
+        self.workspace_presets_json_changed();
     }
 
     fn refresh_shortcut_maps(&mut self) {
@@ -3776,7 +3786,10 @@ impl AppSession {
 
     #[qslot]
     fn apply_workspace_preset(&mut self, preset_id: String) {
-        let Some(preset) = phototux_engine::workspace_preset_by_id(&preset_id) else {
+        let Some(preset) = phototux_engine::resolve_workspace_preset(
+            &preset_id,
+            &self.prefs.user_workspace_presets_json,
+        ) else {
             self.status_text = format!("Unknown workspace preset: {preset_id}");
             self.status_text_changed();
             return;
@@ -3784,6 +3797,49 @@ impl AppSession {
         self.workspace.apply_preset(&preset);
         self.persist_workspace_visibility();
         self.status_text = format!("Workspace: {}", preset.title);
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn save_user_workspace_preset(&mut self, title: String) {
+        let title = title.trim().to_owned();
+        if title.is_empty() {
+            self.status_text = "Workspace preset name is required".to_owned();
+            self.status_text_changed();
+            return;
+        }
+        let slug = phototux_engine::slugify_workspace_preset_title(&title);
+        let id = format!("{}{slug}", phototux_engine::USER_WORKSPACE_PRESET_PREFIX);
+        let preset = phototux_engine::WorkspacePreset::from_workspace(id, title, &self.workspace);
+        if let Err(err) = self.prefs.upsert_user_workspace_preset(preset.clone()) {
+            self.status_text = err;
+            self.status_text_changed();
+            return;
+        }
+        self.workspace.active_preset_id = preset.id.clone();
+        self.refresh_workspace_presets_json();
+        self.persist_workspace_visibility();
+        self.emit_workspace_presets_json();
+        self.status_text = format!("Saved workspace preset “{}”", preset.title);
+        self.status_text_changed();
+    }
+
+    #[qslot]
+    fn delete_user_workspace_preset(&mut self, preset_id: String) {
+        if !self.prefs.delete_user_workspace_preset(&preset_id) {
+            self.status_text = format!("Not a user workspace preset: {preset_id}");
+            self.status_text_changed();
+            return;
+        }
+        if self.workspace.active_preset_id == preset_id {
+            self.workspace.active_preset_id.clear();
+        }
+        self.refresh_workspace_presets_json();
+        self.persist_prefs();
+        self.sync_panel_visibility_from_workspace();
+        self.active_workspace_preset_id_changed();
+        self.emit_workspace_presets_json();
+        self.status_text = "Deleted user workspace preset".to_owned();
         self.status_text_changed();
     }
 

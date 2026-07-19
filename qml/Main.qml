@@ -5462,6 +5462,36 @@ ApplicationWindow {
                     font.pixelSize: Theme.fontLabel
                     font.weight: Font.DemiBold
                 }
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Built-ins plus your saved layouts. Saving stores the current panel visibility and dock layout (not the document).")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                    wrapMode: Text.WordWrap
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceSm
+                    TextField {
+                        id: userWorkspacePresetName
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Name for current layout")
+                        Accessible.name: qsTr("User workspace preset name")
+                        onAccepted: {
+                            AppSession.saveUserWorkspacePreset(text)
+                            text = ""
+                        }
+                    }
+                    Button {
+                        text: qsTr("Save")
+                        enabled: userWorkspacePresetName.text.trim().length > 0
+                        Accessible.name: qsTr("Save user workspace preset")
+                        onClicked: {
+                            AppSession.saveUserWorkspacePreset(userWorkspacePresetName.text)
+                            userWorkspacePresetName.text = ""
+                        }
+                    }
+                }
                 Repeater {
                     model: {
                         try {
@@ -5470,12 +5500,28 @@ ApplicationWindow {
                             return []
                         }
                     }
-                    delegate: Button {
+                    delegate: RowLayout {
                         required property var modelData
                         Layout.fillWidth: true
-                        text: qsTr(modelData.title || modelData.id)
-                        highlighted: AppSession.activeWorkspacePresetId === modelData.id
-                        onClicked: AppSession.applyWorkspacePreset(modelData.id)
+                        spacing: Theme.spaceXs
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr(modelData.title || modelData.id)
+                            highlighted: AppSession.activeWorkspacePresetId === modelData.id
+                            Accessible.name: qsTr("Apply workspace %1").arg(modelData.title || modelData.id)
+                            onClicked: AppSession.applyWorkspacePreset(modelData.id)
+                        }
+                        ToolButton {
+                            visible: {
+                                var id = modelData.id || ""
+                                return id.indexOf("workspace.preset.user.") === 0
+                            }
+                            text: "⌫"
+                            Accessible.name: qsTr("Delete workspace preset %1").arg(modelData.title || modelData.id)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Delete user preset")
+                            onClicked: AppSession.deleteUserWorkspacePreset(modelData.id)
+                        }
                     }
                 }
                 Button {
