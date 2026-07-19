@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import phototux_ui
 
-/// Dense panel-header chrome: reorder / auto-hide / tear-off (Phosphor glyphs).
+/// Dense panel-header chrome — Phosphor icons only, uniform 16×16 box.
 RowLayout {
     id: root
     spacing: 0
@@ -19,16 +19,27 @@ RowLayout {
 
     component HeaderIconButton: ToolButton {
         id: btn
+
         implicitWidth: Theme.panelHeaderBtn
         implicitHeight: Theme.panelHeaderBtn
         padding: 0
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
+        display: AbstractButton.IconOnly
         icon.width: Theme.iconMd
         icon.height: Theme.iconMd
-        contentItem: ThemedIcon {
-            anchors.centerIn: parent
-            source: btn.icon.source
-            size: Theme.iconMd
-            color: btn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+
+        contentItem: Item {
+            implicitWidth: Theme.iconMd
+            implicitHeight: Theme.iconMd
+            ThemedIcon {
+                anchors.centerIn: parent
+                source: btn.icon.source
+                size: Theme.iconMd
+                color: btn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+            }
         }
         background: Rectangle {
             radius: Theme.radiusXs
@@ -38,7 +49,7 @@ RowLayout {
 
     HeaderIconButton {
         enabled: root.canMoveUp
-        icon.source: Theme.iconUrl(AppSession.iconRoot, "caret-up")
+        icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-up")
         Accessible.name: qsTr("Move panel up")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
@@ -46,14 +57,14 @@ RowLayout {
     }
     HeaderIconButton {
         enabled: root.canMoveDown
-        icon.source: Theme.iconUrl(AppSession.iconRoot, "caret-down")
+        icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-down")
         Accessible.name: qsTr("Move panel down")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
         onClicked: root.moveDownRequested()
     }
     HeaderIconButton {
-        icon.source: Theme.iconUrl(AppSession.iconRoot, "minus")
+        icon.source: Theme.iconUrl(AppSession.iconRoot, "minus-square")
         Accessible.name: qsTr("Auto-hide panel")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name

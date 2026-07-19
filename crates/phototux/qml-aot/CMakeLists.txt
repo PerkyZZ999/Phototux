@@ -22,8 +22,10 @@ set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular"
 set(ICON_NAMES
     arrow-clockwise
     arrow-counter-clockwise
+    arrow-down
     arrow-elbow-down-right
     arrow-square-out
+    arrow-up
     arrows-left-right
     arrows-out
     arrows-out-cardinal
@@ -51,6 +53,7 @@ set(ICON_NAMES
     lasso
     magnifying-glass
     minus
+    minus-square
     monitor
     paint-brush
     paint-bucket
