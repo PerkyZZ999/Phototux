@@ -16,11 +16,13 @@ QtObject {
     readonly property color surfaceOverlay: "#232328"
     readonly property color surfaceContainer: "#1F1F23"
     readonly property color surfaceContainerHigh: "#2A2A2E"
-    readonly property color border: "#3D3D45"
-    readonly property color borderSubtle: "#2F2F36"
+    // Borders ≥ 3:1 vs surface / surfaceRaised (WCAG 2.1 non-text UI).
+    readonly property color border: "#7B7B81"
+    readonly property color borderSubtle: "#7B7B81"
+    // Text ≥ 4.5:1 vs surface / background (WCAG 2.1 AA).
     readonly property color colorOnSurface: "#EFF0F1"
-    readonly property color colorOnSurfaceMuted: "#A0A0A8"
-    readonly property color colorOnSurfaceVariant: "#BEC8D1"
+    readonly property color colorOnSurfaceMuted: "#A8A8B0"
+    readonly property color colorOnSurfaceVariant: "#C4CCD4"
     readonly property color colorOnSurfaceDisabled: "#9A9AA3"
     readonly property color focusRing: "#3DAEE9"
     readonly property color success: "#2ECC71"
@@ -37,6 +39,9 @@ QtObject {
     readonly property color tabInactive: "#1A1A1E"
     /// Soft success wash for status chips (GPU path healthy).
     readonly property color successSubtle: "#2ECC712E"
+    /// Symbolic icons on dark chrome (white; ≥ 3:1 non-text).
+    readonly property color iconOnSurface: "#FFFFFF"
+    readonly property color iconDisabled: "#9A9AA3"
 
     readonly property int radiusXs: 2
     readonly property int radiusSm: 4
@@ -63,8 +68,10 @@ QtObject {
     property bool reducedMotion: false
     property string uiDensity: "dense"
     readonly property real densityScale: uiDensity === "comfortable" ? 1.15 : 1.0
-    readonly property color borderEffective: highContrast ? "#8A8A96" : border
+    readonly property color borderEffective: highContrast ? "#B0B0BA" : border
     readonly property color colorOnSurfaceEffective: highContrast ? "#FFFFFF" : colorOnSurface
+    readonly property color iconOnSurfaceEffective: highContrast ? "#FFFFFF" : iconOnSurface
+    readonly property color iconDisabledEffective: highContrast ? "#C0C0C8" : iconDisabled
 
     readonly property int fontWindow: Math.round(13 * densityScale)
     readonly property int fontHeadline: Math.round(16 * densityScale)

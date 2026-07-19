@@ -671,6 +671,7 @@ ApplicationWindow {
             checkable: root.actionIsCheckable(modelData.id)
             checked: root.actionIsChecked(modelData.id)
             icon.source: modelData.icon_key ? root.iconUrl(modelData.icon_key) : ""
+            icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
             onTriggered: {
                 if (checkable)
                     root.applyCheckableAction(modelData.id, checked)
@@ -741,6 +742,7 @@ ApplicationWindow {
                 text: modelData.label
                 enabled: root.actionIsEnabled(modelData.id)
                 icon.source: modelData.icon_key ? root.iconUrl(modelData.icon_key) : ""
+                icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                 onTriggered: {
                     if (layerContextMenu.targetIndex >= 0)
                         AppSession.setActiveLayer(layerContextMenu.targetIndex)
@@ -773,6 +775,8 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
+        // Fusion paints a light menubar and ignores custom backgrounds here.
+        // Keep default dark labels (WCAG ≥ 4.5:1 on that light bar).
         Menu {
             id: fileMenu
             title: qsTr("&File")
@@ -1070,16 +1074,19 @@ ApplicationWindow {
     }
 
     // —— Top chrome ——
-    header: ToolBar {
+    header: Rectangle {
+        id: mainToolBar
+        implicitHeight: Theme.toolbarHeight
         height: Theme.toolbarHeight
-        background: Rectangle {
-            color: Theme.surface
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: Theme.border
-            }
+        color: Theme.surface
+        Accessible.role: Accessible.ToolBar
+        Accessible.name: qsTr("Main toolbar")
+
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: Theme.borderEffective
         }
 
         RowLayout {
@@ -1106,14 +1113,11 @@ ApplicationWindow {
             }
 
             ToolSeparator {
-                contentItem: Rectangle { implicitWidth: 1; color: Theme.border }
+                contentItem: Rectangle { implicitWidth: 1; color: Theme.borderEffective }
             }
 
-            ToolButton {
+            ChromeIconToolButton {
                 icon.source: root.iconUrl("file-plus")
-                display: AbstractButton.IconOnly
-                icon.width: 18
-                icon.height: 18
                 enabled: root.actionIsEnabled("action.file.new")
                 onClicked: root.runAction("action.file.new")
                 ToolTip.visible: hovered
@@ -1121,11 +1125,8 @@ ApplicationWindow {
                 Accessible.name: ToolTip.text
             }
 
-            ToolButton {
+            ChromeIconToolButton {
                 icon.source: root.iconUrl("folder-open")
-                display: AbstractButton.IconOnly
-                icon.width: 18
-                icon.height: 18
                 enabled: root.actionIsEnabled("action.file.open")
                 onClicked: root.runAction("action.file.open")
                 ToolTip.visible: hovered
@@ -1133,11 +1134,8 @@ ApplicationWindow {
                 Accessible.name: ToolTip.text
             }
 
-            ToolButton {
+            ChromeIconToolButton {
                 icon.source: root.iconUrl("export")
-                display: AbstractButton.IconOnly
-                icon.width: 18
-                icon.height: 18
                 enabled: root.actionIsEnabled("action.file.export")
                 onClicked: root.runAction("action.file.export")
                 ToolTip.visible: hovered
@@ -1146,25 +1144,19 @@ ApplicationWindow {
             }
 
             ToolSeparator {
-                contentItem: Rectangle { implicitWidth: 1; color: Theme.border }
+                contentItem: Rectangle { implicitWidth: 1; color: Theme.borderEffective }
             }
 
-            ToolButton {
+            ChromeIconToolButton {
                 icon.source: root.iconUrl("arrow-counter-clockwise")
-                display: AbstractButton.IconOnly
-                icon.width: 18
-                icon.height: 18
                 enabled: root.actionIsEnabled("action.edit.undo")
                 onClicked: root.runAction("action.edit.undo")
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Undo")
                 Accessible.name: ToolTip.text
             }
-            ToolButton {
+            ChromeIconToolButton {
                 icon.source: root.iconUrl("arrow-clockwise")
-                display: AbstractButton.IconOnly
-                icon.width: 18
-                icon.height: 18
                 enabled: root.actionIsEnabled("action.edit.redo")
                 onClicked: root.runAction("action.edit.redo")
                 ToolTip.visible: hovered
@@ -1188,12 +1180,10 @@ ApplicationWindow {
                 font.pixelSize: Theme.fontBodySm
             }
 
-            ToolButton {
+            ChromeIconToolButton {
                 implicitWidth: 28
                 implicitHeight: 28
                 icon.source: root.iconUrl("question")
-                icon.width: 18
-                icon.height: 18
                 onClicked: aboutDialog.open()
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("About PhotoTux")
@@ -1202,17 +1192,19 @@ ApplicationWindow {
         }
     }
 
-    footer: ToolBar {
+    footer: Rectangle {
+        id: statusToolBar
+        implicitHeight: root.statusHeight
         height: root.statusHeight
+        color: Theme.surfaceContainer
+        Accessible.role: Accessible.ToolBar
         Accessible.name: qsTr("Status")
-        background: Rectangle {
-            color: Theme.surfaceContainer
-            Rectangle {
-                anchors.top: parent.top
-                width: parent.width
-                height: 1
-                color: Theme.border
-            }
+
+        Rectangle {
+            anchors.top: parent.top
+            width: parent.width
+            height: 1
+            color: Theme.borderEffective
         }
         RowLayout {
             anchors.fill: parent
@@ -1243,9 +1235,10 @@ ApplicationWindow {
             RowLayout {
                 visible: AppSession.dirty
                 spacing: Theme.spaceXs
-                Image {
+                ThemedIcon {
                     source: root.iconUrl("circle-notch")
-                    sourceSize: Qt.size(12, 12)
+                    size: 12
+                    color: Theme.warning
                     Layout.preferredWidth: 12
                     Layout.preferredHeight: 12
                 }
@@ -1452,12 +1445,11 @@ ApplicationWindow {
                                 color: Theme.primary
                             }
 
-                            Image {
+                            ThemedIcon {
                                 anchors.centerIn: parent
                                 source: root.iconUrl(root.toolIconStem(modelData.icon_key))
-                                width: 20
-                                height: 20
-                                sourceSize: Qt.size(20, 20)
+                                size: 20
+                                color: Theme.iconOnSurfaceEffective
                             }
 
                             HoverHandler { id: toolHover }
@@ -1493,6 +1485,16 @@ ApplicationWindow {
                 icon.source: root.iconUrl("dots-three")
                 icon.width: 18
                 icon.height: 18
+                contentItem: ThemedIcon {
+                    anchors.centerIn: parent
+                    source: toolOverflowBtn.icon.source
+                    size: 18
+                    color: toolOverflowBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                }
+                background: Rectangle {
+                    radius: Theme.radiusSm
+                    color: toolOverflowBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                }
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("More tools")
                 // Defer open so the activating press is not treated as PressOutside
@@ -1553,12 +1555,11 @@ ApplicationWindow {
                                 anchors.leftMargin: 8
                                 spacing: 8
 
-                                Image {
+                                ThemedIcon {
                                     anchors.verticalCenter: parent.verticalCenter
                                     source: root.iconUrl(root.toolIconStem(modelData.icon_key))
-                                    width: 18
-                                    height: 18
-                                    sourceSize: Qt.size(18, 18)
+                                    size: 18
+                                    color: Theme.iconOnSurfaceEffective
                                 }
 
                                 Text {
@@ -2956,8 +2957,15 @@ ApplicationWindow {
                                         checkable: true
                                         checked: AppSession.selectionCombine === modelData.id
                                         icon.source: root.iconUrl(modelData.stem)
+                                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                                         icon.width: 16
                                         icon.height: 16
+                                        contentItem: ThemedIcon {
+                                            anchors.centerIn: parent
+                                            source: parent.icon.source
+                                            size: parent.icon.height
+                                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                        }
                                         enabled: AppSession.hasDocument
                                         onClicked: AppSession.setSelectionCombine(modelData.id)
                                         ToolTip.visible: hovered
@@ -3603,8 +3611,15 @@ ApplicationWindow {
                                         implicitHeight: 22
                                         padding: 0
                                         icon.source: root.iconUrl("caret-up")
+                                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                                         icon.width: 12
                                         icon.height: 12
+                                        contentItem: ThemedIcon {
+                                            anchors.centerIn: parent
+                                            source: parent.icon.source
+                                            size: parent.icon.height
+                                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                        }
                                         enabled: index > 0
                                         onClicked: AppSession.reorderActiveEffect(
                                                        Number(effectId), index - 1)
@@ -3617,8 +3632,15 @@ ApplicationWindow {
                                         implicitHeight: 22
                                         padding: 0
                                         icon.source: root.iconUrl("caret-down")
+                                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                                         icon.width: 12
                                         icon.height: 12
+                                        contentItem: ThemedIcon {
+                                            anchors.centerIn: parent
+                                            source: parent.icon.source
+                                            size: parent.icon.height
+                                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                        }
                                         enabled: index < effectsRepeater.count - 1
                                         onClicked: AppSession.reorderActiveEffect(
                                                        Number(effectId), index + 1)
@@ -3869,8 +3891,15 @@ ApplicationWindow {
                                     implicitWidth: 28
                                     implicitHeight: 28
                                     icon.source: root.iconUrl("rectangle-dashed")
+                                    icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                                     icon.width: 16
                                     icon.height: 16
+                                    contentItem: ThemedIcon {
+                                        anchors.centerIn: parent
+                                        source: parent.icon.source
+                                        size: parent.icon.height
+                                        color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                    }
                                     checkable: true
                                     checked: AppSession.maskEditActive
                                     onClicked: AppSession.setMaskEditTarget(checked)
@@ -4353,8 +4382,15 @@ ApplicationWindow {
                             implicitWidth: 22
                             implicitHeight: 22
                             icon.source: root.iconUrl("arrows-left-right")
+                            icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                             icon.width: 14
                             icon.height: 14
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: parent.icon.source
+                                size: parent.icon.height
+                                color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                            }
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Swap foreground / background")
                             onClicked: AppSession.swapFgBg()
@@ -4556,36 +4592,69 @@ ApplicationWindow {
                                                                        root.x + root.width - 360, root.y + 200, 320, 360)
                         }
                         ToolButton {
+                            id: addLayerBtn
                             implicitWidth: 22
                             implicitHeight: 22
                             icon.source: root.iconUrl("plus")
                             icon.width: 14
                             icon.height: 14
                             enabled: AppSession.hasDocument
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: addLayerBtn.icon.source
+                                size: 14
+                                color: addLayerBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusXs
+                                color: addLayerBtn.hovered && addLayerBtn.enabled ? Theme.surfaceContainerHigh : "transparent"
+                            }
                             onClicked: AppSession.addLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Add layer")
                             Accessible.name: qsTr("Add layer")
                         }
                         ToolButton {
+                            id: addGroupBtn
                             implicitWidth: 22
                             implicitHeight: 22
                             icon.source: root.iconUrl("folder")
                             icon.width: 14
                             icon.height: 14
                             enabled: AppSession.hasDocument
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: addGroupBtn.icon.source
+                                size: 14
+                                color: addGroupBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusXs
+                                color: addGroupBtn.hovered && addGroupBtn.enabled ? Theme.surfaceContainerHigh : "transparent"
+                            }
                             onClicked: AppSession.addGroupLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Add group")
                             Accessible.name: qsTr("Add group")
                         }
                         ToolButton {
+                            id: delLayerBtn
                             implicitWidth: 22
                             implicitHeight: 22
                             icon.source: root.iconUrl("trash")
                             icon.width: 14
                             icon.height: 14
                             enabled: AppSession.hasDocument && AppSession.layerCount > 1
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: delLayerBtn.icon.source
+                                size: 14
+                                color: delLayerBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusXs
+                                color: delLayerBtn.hovered && delLayerBtn.enabled ? Theme.surfaceContainerHigh : "transparent"
+                            }
                             onClicked: AppSession.deleteActiveLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Delete layer")
@@ -4659,6 +4728,16 @@ ApplicationWindow {
                                 icon.source: root.iconUrl(layerVis ? "eye" : "eye-slash")
                                 icon.width: 16
                                 icon.height: 16
+                                contentItem: ThemedIcon {
+                                    anchors.centerIn: parent
+                                    source: layerVisButton.icon.source
+                                    size: 16
+                                    color: Theme.iconOnSurfaceEffective
+                                }
+                                background: Rectangle {
+                                    radius: Theme.radiusXs
+                                    color: layerVisButton.hovered ? Theme.surfaceContainerHigh : "transparent"
+                                }
                                 onClicked: AppSession.toggleLayerVisible(stackIndex)
                                 Accessible.name: layerVis
                                                  ? qsTr("Hide %1").arg(layerName)
@@ -4722,13 +4801,12 @@ ApplicationWindow {
                                     }
                                 }
 
-                                Image {
+                                ThemedIcon {
                                     visible: hasMask
                                     source: root.iconUrl(maskEnabled ? "eye" : "eye-slash")
-                                    width: 14
-                                    height: 14
-                                    sourceSize: Qt.size(14, 14)
-                                    opacity: maskEnabled ? 1.0 : 0.55
+                                    size: 14
+                                    color: maskEnabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                    opacity: maskEnabled ? 1.0 : 0.85
                                     z: 2
                                     MouseArea {
                                         anchors.fill: parent
@@ -4744,12 +4822,11 @@ ApplicationWindow {
                                     }
                                 }
 
-                                Image {
+                                ThemedIcon {
                                     visible: clipsToBelow
                                     source: root.iconUrl("arrow-elbow-down-right")
-                                    width: 14
-                                    height: 14
-                                    sourceSize: Qt.size(14, 14)
+                                    size: 14
+                                    color: Theme.primary
                                     Accessible.name: qsTr("Clipped to layer below")
                                     ToolTip.visible: clipHover.hovered
                                     ToolTip.text: qsTr("Clipped to layer below — delete base releases clip")

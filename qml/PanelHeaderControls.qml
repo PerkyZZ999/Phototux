@@ -17,52 +17,51 @@ RowLayout {
     signal autoHideRequested()
     signal tearOffRequested()
 
-    ToolButton {
+    component HeaderIconButton: ToolButton {
+        id: btn
         implicitWidth: 22
         implicitHeight: 22
         padding: 0
-        enabled: root.canMoveUp
-        icon.source: Theme.iconUrl(AppSession.iconRoot, "caret-up")
         icon.width: 12
         icon.height: 12
+        contentItem: ThemedIcon {
+            anchors.centerIn: parent
+            source: btn.icon.source
+            size: 12
+            color: btn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+        }
+        background: Rectangle {
+            radius: Theme.radiusXs
+            color: btn.hovered && btn.enabled ? Theme.surfaceContainerHigh : "transparent"
+        }
+    }
+
+    HeaderIconButton {
+        enabled: root.canMoveUp
+        icon.source: Theme.iconUrl(AppSession.iconRoot, "caret-up")
         Accessible.name: qsTr("Move panel up")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
         onClicked: root.moveUpRequested()
     }
-    ToolButton {
-        implicitWidth: 22
-        implicitHeight: 22
-        padding: 0
+    HeaderIconButton {
         enabled: root.canMoveDown
         icon.source: Theme.iconUrl(AppSession.iconRoot, "caret-down")
-        icon.width: 12
-        icon.height: 12
         Accessible.name: qsTr("Move panel down")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
         onClicked: root.moveDownRequested()
     }
-    ToolButton {
-        implicitWidth: 22
-        implicitHeight: 22
-        padding: 0
+    HeaderIconButton {
         icon.source: Theme.iconUrl(AppSession.iconRoot, "minus")
-        icon.width: 12
-        icon.height: 12
         Accessible.name: qsTr("Auto-hide panel")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
         onClicked: root.autoHideRequested()
     }
-    ToolButton {
-        implicitWidth: 22
-        implicitHeight: 22
-        padding: 0
+    HeaderIconButton {
         enabled: root.canTearOff
         icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-square-out")
-        icon.width: 12
-        icon.height: 12
         Accessible.name: qsTr("Tear off panel")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name

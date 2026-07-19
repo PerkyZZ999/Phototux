@@ -114,11 +114,22 @@ Popup {
                 Item { Layout.fillWidth: true }
 
                 ToolButton {
+                    id: closeNewDocBtn
                     implicitWidth: 28
                     implicitHeight: 28
                     icon.source: Theme.iconUrl(AppSession.iconRoot, "x")
                     icon.width: 16
                     icon.height: 16
+                    contentItem: ThemedIcon {
+                        anchors.centerIn: parent
+                        source: closeNewDocBtn.icon.source
+                        size: 16
+                        color: Theme.iconOnSurfaceEffective
+                    }
+                    background: Rectangle {
+                        radius: Theme.radiusSm
+                        color: closeNewDocBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                    }
                     onClicked: dialog.close()
                     ToolTip.text: qsTr("Close")
                     ToolTip.visible: hovered
@@ -205,13 +216,13 @@ Popup {
                                                           ? Theme.primary : Theme.border
                                             radius: Theme.radiusXs
 
-                                            Image {
+                                            ThemedIcon {
                                                 anchors.centerIn: parent
                                                 source: Theme.iconUrl(AppSession.iconRoot, "monitor")
-                                                width: 18
-                                                height: 18
-                                                sourceSize: Qt.size(18, 18)
-                                                opacity: dialog.selectedPreset === modelData.label ? 1.0 : 0.55
+                                                size: 18
+                                                color: dialog.selectedPreset === modelData.label
+                                                       ? Theme.iconOnSurfaceEffective
+                                                       : Theme.iconDisabledEffective
                                             }
                                         }
 

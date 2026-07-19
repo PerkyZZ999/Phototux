@@ -165,12 +165,11 @@ Popup {
                                 anchors.centerIn: parent
                                 spacing: Theme.spaceSm
 
-                                Image {
+                                ThemedIcon {
                                     Layout.alignment: Qt.AlignHCenter
                                     source: Theme.iconUrl(AppSession.iconRoot, "file-plus")
-                                    width: 28
-                                    height: 28
-                                    sourceSize: Qt.size(28, 28)
+                                    size: 28
+                                    color: Theme.primaryOn
                                 }
 
                                 Label {
@@ -208,12 +207,11 @@ Popup {
                                 anchors.centerIn: parent
                                 spacing: Theme.spaceSm
 
-                                Image {
+                                ThemedIcon {
                                     Layout.alignment: Qt.AlignHCenter
                                     source: Theme.iconUrl(AppSession.iconRoot, "folder-open")
-                                    width: 28
-                                    height: 28
-                                    sourceSize: Qt.size(28, 28)
+                                    size: 28
+                                    color: Theme.iconOnSurfaceEffective
                                 }
 
                                 Label {
@@ -270,13 +268,11 @@ Popup {
                                 anchors.centerIn: parent
                                 spacing: Theme.spaceSm
 
-                                Image {
+                                ThemedIcon {
                                     Layout.alignment: Qt.AlignHCenter
                                     source: Theme.iconUrl(AppSession.iconRoot, "image-square")
-                                    width: 32
-                                    height: 32
-                                    sourceSize: Qt.size(32, 32)
-                                    opacity: 0.45
+                                    size: 32
+                                    color: Theme.iconDisabledEffective
                                 }
 
                                 Label {
