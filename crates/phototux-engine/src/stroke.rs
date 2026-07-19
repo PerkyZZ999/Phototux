@@ -158,17 +158,23 @@ impl StrokeBuilder {
             return Vec::new();
         }
         let spacing = self.params.spacing();
-        let mut dabs = Vec::new();
-        let mut traveled = self.remainder;
         let ux = dx / dist;
         let uy = dy / dist;
-        while traveled + spacing <= dist {
-            traveled += spacing;
-            let px = lx + ux * traveled;
-            let py = ly + uy * traveled;
-            dabs.push(self.make_dab(px, py, pressure));
+
+        // `remainder` is distance traveled since the last dab. Short mouse
+        // segments must accumulate across moves until they reach `spacing`.
+        let mut dabs = Vec::new();
+        let mut along = spacing - self.remainder;
+        while along <= dist + f32::EPSILON {
+            dabs.push(self.make_dab(lx + ux * along, ly + uy * along, pressure));
+            along += spacing;
         }
-        self.remainder = dist - traveled;
+        self.remainder = if dabs.is_empty() {
+            self.remainder + dist
+        } else {
+            // Distance from the last placed dab to the end of this segment.
+            dist - (along - spacing)
+        };
         self.last = Some((x, y));
         dabs
     }
@@ -348,6 +354,48 @@ mod tests {
         assert_eq!(first.len(), 1);
         let mid = s.move_to(100.0, 0.0, 1.0);
         assert!(mid.len() >= 10, "dabs={}", mid.len());
+    }
+
+    #[test]
+    fn short_segments_accumulate_into_dabs() {
+        // Default size 12 → spacing 3. Ten steps of 1px must yield dabs once
+        // cumulative distance crosses spacing (regression: remainder oscilated).
+        let mut s = StrokeBuilder::new(BrushParams {
+            size: 12.0,
+            spacing_ratio: 0.25,
+            ..Default::default()
+        });
+        assert!((s.params.spacing() - 3.0).abs() < f32::EPSILON);
+        let _ = s.begin(0.0, 0.0, 1.0);
+        let mut total_move_dabs = 0usize;
+        for i in 1..=20 {
+            let dabs = s.move_to(i as f32, 0.0, 1.0);
+            total_move_dabs += dabs.len();
+        }
+        assert!(
+            total_move_dabs >= 5,
+            "expected continuous dabs from short moves, got {total_move_dabs}"
+        );
+    }
+
+    #[test]
+    fn large_brush_short_moves_still_paint() {
+        // Large brush → large spacing; mouse deltas are often << spacing.
+        let mut s = StrokeBuilder::new(BrushParams {
+            size: 100.0,
+            spacing_ratio: 0.25,
+            ..Default::default()
+        });
+        let spacing = s.params.spacing();
+        assert!(spacing > 20.0);
+        let _ = s.begin(0.0, 0.0, 1.0);
+        let mut total = 0usize;
+        let step = 8.0_f32;
+        let steps = ((spacing * 3.0) / step).ceil() as i32 + 2;
+        for i in 1..=steps {
+            total += s.move_to(step * f32::from(i as u16), 0.0, 1.0).len();
+        }
+        assert!(total >= 2, "large-brush drag must emit dabs, got {total}");
     }
 
     #[test]

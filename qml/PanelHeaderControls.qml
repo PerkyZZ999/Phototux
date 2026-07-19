@@ -19,15 +19,15 @@ RowLayout {
 
     component HeaderIconButton: ToolButton {
         id: btn
-        implicitWidth: 22
-        implicitHeight: 22
+        implicitWidth: Theme.panelHeaderBtn
+        implicitHeight: Theme.panelHeaderBtn
         padding: 0
-        icon.width: 12
-        icon.height: 12
+        icon.width: Theme.iconMd
+        icon.height: Theme.iconMd
         contentItem: ThemedIcon {
             anchors.centerIn: parent
             source: btn.icon.source
-            size: 12
+            size: Theme.iconMd
             color: btn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
         }
         background: Rectangle {

@@ -62,6 +62,9 @@ QtObject {
     readonly property int panelHeaderHeight: 28
     readonly property int controlHeight: 28
     readonly property int toolHit: 40
+    /// Panel-header Phosphor glyphs (uniform optical box).
+    readonly property int iconMd: 16
+    readonly property int panelHeaderBtn: 24
 
     // Density / a11y packs (prefs → AppSession); Theme remains single token source.
     property bool highContrast: false

@@ -22,12 +22,18 @@ set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular"
 set(ICON_NAMES
     arrow-clockwise
     arrow-counter-clockwise
+    arrow-elbow-down-right
+    arrow-square-out
+    arrows-left-right
     arrows-out
     arrows-out-cardinal
+    caret-down
+    caret-up
     circle-dashed
     circle-notch
     corners-in
     crop
+    dots-three
     eraser
     export
     eye
@@ -35,6 +41,7 @@ set(ICON_NAMES
     eyedropper
     file-plus
     floppy-disk
+    folder
     folder-open
     gear
     gradient
@@ -43,6 +50,7 @@ set(ICON_NAMES
     info
     lasso
     magnifying-glass
+    minus
     monitor
     paint-brush
     paint-bucket
@@ -50,6 +58,7 @@ set(ICON_NAMES
     plus
     polygon
     question
+    rectangle-dashed
     selection
     shapes
     text-t

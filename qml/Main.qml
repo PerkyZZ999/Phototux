@@ -4379,16 +4379,16 @@ ApplicationWindow {
                                                                        root.x + root.width - 360, root.y + 160, 320, 280)
                         }
                         ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
+                            implicitWidth: Theme.panelHeaderBtn
+                            implicitHeight: Theme.panelHeaderBtn
                             icon.source: root.iconUrl("arrows-left-right")
                             icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                            icon.width: 14
-                            icon.height: 14
+                            icon.width: Theme.iconMd
+                            icon.height: Theme.iconMd
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
                                 source: parent.icon.source
-                                size: parent.icon.height
+                                size: Theme.iconMd
                                 color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                             }
                             ToolTip.visible: hovered
@@ -4593,16 +4593,16 @@ ApplicationWindow {
                         }
                         ToolButton {
                             id: addLayerBtn
-                            implicitWidth: 22
-                            implicitHeight: 22
+                            implicitWidth: Theme.panelHeaderBtn
+                            implicitHeight: Theme.panelHeaderBtn
                             icon.source: root.iconUrl("plus")
-                            icon.width: 14
-                            icon.height: 14
+                            icon.width: Theme.iconMd
+                            icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
                                 source: addLayerBtn.icon.source
-                                size: 14
+                                size: Theme.iconMd
                                 color: addLayerBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                             }
                             background: Rectangle {
@@ -4616,16 +4616,16 @@ ApplicationWindow {
                         }
                         ToolButton {
                             id: addGroupBtn
-                            implicitWidth: 22
-                            implicitHeight: 22
+                            implicitWidth: Theme.panelHeaderBtn
+                            implicitHeight: Theme.panelHeaderBtn
                             icon.source: root.iconUrl("folder")
-                            icon.width: 14
-                            icon.height: 14
+                            icon.width: Theme.iconMd
+                            icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
                                 source: addGroupBtn.icon.source
-                                size: 14
+                                size: Theme.iconMd
                                 color: addGroupBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                             }
                             background: Rectangle {
@@ -4639,16 +4639,16 @@ ApplicationWindow {
                         }
                         ToolButton {
                             id: delLayerBtn
-                            implicitWidth: 22
-                            implicitHeight: 22
+                            implicitWidth: Theme.panelHeaderBtn
+                            implicitHeight: Theme.panelHeaderBtn
                             icon.source: root.iconUrl("trash")
-                            icon.width: 14
-                            icon.height: 14
+                            icon.width: Theme.iconMd
+                            icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument && AppSession.layerCount > 1
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
                                 source: delLayerBtn.icon.source
-                                size: 14
+                                size: Theme.iconMd
                                 color: delLayerBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                             }
                             background: Rectangle {
