@@ -97,8 +97,8 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 - [x] Essentials tools visible or reachable (Brush … Zoom)
 - [x] Active tool highlight matches status `tool.*` — Brush / Eraser verified
 - [x] Tool switch cancels in-progress transform/crop when required — T-017; Esc app Shortcut; strip→Brush/Eraser clears session
-- [~] Overflow “More tools” lists remaining tools when strip is short — button appears at 520px height (T-016 Instantiator + `menu:` attach)
-- [~] Narrow window: tools remain reachable via overflow / palette — More tools present; menu open re-verify after T-016
+- [x] Overflow “More tools” lists remaining tools when strip is short — T-016; 520px height; deferred open + settled CloseOnPressOutside; readable Item rows
+- [x] Narrow window: tools remain reachable via overflow / palette — open stays under EIS; Eyedropper/Zoom pick closes menu + activates
 - [x] Each tool button has Accessible name (AT tree)
 
 ### 2.3 Shortcuts
@@ -391,7 +391,7 @@ Mark `[N]` unless Decision Register amends:
 | T-013 | high | §1.3 | New/Open on dirty doc showed discard dialog instead of parking tab (DR-024) | Paint → Ctrl+N / toolbar New | **fixed** — `host:document.new` / `.open` open dialogs without `requestDestructiveAction` |
 | T-014 | high | §1.3 | At document limit, `prepare_new_document_tab` parked then failed `begin_active`, leaving no active doc | Open max tabs → New → Create | **fixed** — `can_open_another` before park; status surfaces limit; optional `PHOTOTUX_MAX_OPEN_DOCUMENTS` |
 | T-015 | med | §2.4 | Disabled actions (Save with no doc) failed silently via shortcut/palette | Ctrl+S on Welcome | **fixed** — `invoke_action` sets status `Action unavailable: …` |
-| T-016 | med | §2.2 | Tool overflow Menu `Repeater`/`menu:` crash or empty; items never listed | Short window → More tools | **partial** — Popup+Repeater boots; More tools button AT-visible; open path still flaky under EIS |
+| T-016 | med | §2.2 | Tool overflow Menu `Repeater`/`menu:` crash or empty; items never listed; EIS open immediately closed | Short window → More tools | **fixed** — `Qt.callLater` open; outside-close after settle; Theme-colored Item rows; close-before-activate |
 | T-017 | high | §2.2 / §4.4 | `set_active_tool` notified QML without mirroring engine `active_tool`/`status_text`; transform chrome stuck after leave; tool switch cancel unreliable | Transform → Esc or strip leave | **fixed** — mirror props after `VIEW_SET_TOOL`; cancel on leave; app Esc cancels session |
 | T-018 | med | §2.3 | App shortcuts fired while New Document / spin editors active (`instanceof TextInput` miss + no dialog yield) | New Document → Ctrl+Shift+P | **fixed** — SpinBox/TextField/TextEdit detect; `newDocDialog.opened` yields; hex/FG focus arms yield |
 | T-019 | med | §2.3 | Preferences Flickable did not scroll (Keyboard unreachable); keymap capture needs F-keys | Prefs → Keyboard | **fixed** — Flickable sized to `availableWidth/Height` + AlwaysOn scrollbar; Save→F9 persisted |
@@ -418,6 +418,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §3 workspace/panels | — | Compact/Essentials; Navigator toggle; no dirty |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §4.1 pan/zoom | — | wheel zoom; Fit shortcut; middle-drag pan |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §15 conflicts/races | — | undo spam; gallery Esc/close; host markers; Esc modals |
+| 2026-07-18 | agent (kwinmcp) | Wayland isolated 900×520 | §2.2 More tools overflow | T-016 | deferred open; settled outside-close; Theme rows; pick closes |
 
 ---
 

@@ -1442,53 +1442,104 @@ ApplicationWindow {
                 id: toolOverflowBtn
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: Theme.spaceSm
+                anchors.bottomMargin: 8
                 implicitWidth: 36
                 implicitHeight: 36
                 visible: toolStrip.stripOverflow.length > 0
                 Accessible.name: qsTr("More tools")
+                Accessible.description: qsTr("Show tools that do not fit in the strip")
                 icon.source: root.iconUrl("dots-three")
                 icon.width: 18
                 icon.height: 18
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("More tools")
-                onClicked: toolOverflowPopup.open()
+                // Defer open so the activating press is not treated as PressOutside
+                // (CloseOnPressOutside) — required for reliable EIS / AT clicks.
+                onClicked: Qt.callLater(toolOverflowPopup.open)
+            }
 
-                Popup {
-                    id: toolOverflowPopup
-                    parent: Overlay.overlay
-                    modal: true
-                    focus: true
-                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                    padding: Theme.spaceSm
-                    x: {
-                        var origin = toolOverflowBtn.mapToItem(Overlay.overlay, 0, 0)
-                        return origin.x
-                    }
-                    y: {
-                        var origin = toolOverflowBtn.mapToItem(Overlay.overlay, 0, 0)
-                        return Math.max(0, origin.y - implicitHeight)
-                    }
-                    background: Rectangle {
-                        color: Theme.surfaceContainer
-                        border.color: Theme.border
-                        radius: Theme.radiusSm
-                    }
-                    Column {
-                        spacing: 2
-                        Repeater {
-                            model: toolStrip.stripOverflow
-                            delegate: ToolButton {
-                                required property var modelData
-                                width: 160
-                                text: modelData.title
-                                icon.source: root.iconUrl(root.toolIconStem(modelData.icon_key))
-                                display: AbstractButton.TextBesideIcon
-                                checkable: true
-                                checked: AppSession.activeTool === modelData.id
+            Popup {
+                id: toolOverflowPopup
+                parent: Overlay.overlay
+                modal: true
+                focus: true
+                padding: 4
+                // Enable outside-close only after the opening click has settled.
+                property int settledClosePolicy: Popup.CloseOnEscape
+                closePolicy: settledClosePolicy
+                onOpened: Qt.callLater(function () {
+                    settledClosePolicy = Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                })
+                onClosed: settledClosePolicy = Popup.CloseOnEscape
+                x: {
+                    var origin = toolOverflowBtn.mapToItem(Overlay.overlay, 0, 0)
+                    return origin.x
+                }
+                y: {
+                    var origin = toolOverflowBtn.mapToItem(Overlay.overlay, 0, 0)
+                    return Math.max(0, origin.y - implicitHeight)
+                }
+                background: Rectangle {
+                    color: Theme.surfaceContainer
+                    border.color: Theme.border
+                    radius: Theme.radiusSm
+                }
+                Accessible.role: Accessible.PopupMenu
+                Accessible.name: qsTr("More tools")
+
+                Column {
+                    spacing: 2
+                    Repeater {
+                        model: toolStrip.stripOverflow
+                        delegate: Item {
+                            required property var modelData
+                            width: 168
+                            height: 36
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.radiusSm
+                                color: AppSession.activeTool === modelData.id
+                                       ? Theme.toolActiveBg
+                                       : (overflowItemHover.hovered
+                                          ? Theme.surfaceContainerHigh : "transparent")
+                            }
+
+                            Row {
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                spacing: 8
+
+                                Image {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    source: root.iconUrl(root.toolIconStem(modelData.icon_key))
+                                    width: 18
+                                    height: 18
+                                    sourceSize: Qt.size(18, 18)
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.title
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBody
+                                }
+                            }
+
+                            HoverHandler { id: overflowItemHover }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                Accessible.role: Accessible.MenuItem
+                                Accessible.name: modelData.title
+                                Accessible.description: modelData.id
+                                Accessible.checkable: true
+                                Accessible.checked: AppSession.activeTool === modelData.id
                                 onClicked: {
-                                    root.activateToolFromStrip(modelData.id)
+                                    var toolId = modelData.id
                                     toolOverflowPopup.close()
+                                    root.activateToolFromStrip(toolId)
                                 }
                             }
                         }
