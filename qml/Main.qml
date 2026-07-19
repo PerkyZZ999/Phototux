@@ -1112,8 +1112,8 @@ ApplicationWindow {
             ToolButton {
                 icon.source: root.iconUrl("file-plus")
                 display: AbstractButton.IconOnly
-                icon.width: 16
-                icon.height: 16
+                icon.width: 18
+                icon.height: 18
                 enabled: root.actionIsEnabled("action.file.new")
                 onClicked: root.runAction("action.file.new")
                 ToolTip.visible: hovered
@@ -1124,8 +1124,8 @@ ApplicationWindow {
             ToolButton {
                 icon.source: root.iconUrl("folder-open")
                 display: AbstractButton.IconOnly
-                icon.width: 16
-                icon.height: 16
+                icon.width: 18
+                icon.height: 18
                 enabled: root.actionIsEnabled("action.file.open")
                 onClicked: root.runAction("action.file.open")
                 ToolTip.visible: hovered
@@ -1136,8 +1136,8 @@ ApplicationWindow {
             ToolButton {
                 icon.source: root.iconUrl("export")
                 display: AbstractButton.IconOnly
-                icon.width: 16
-                icon.height: 16
+                icon.width: 18
+                icon.height: 18
                 enabled: root.actionIsEnabled("action.file.export")
                 onClicked: root.runAction("action.file.export")
                 ToolTip.visible: hovered
@@ -1152,8 +1152,8 @@ ApplicationWindow {
             ToolButton {
                 icon.source: root.iconUrl("arrow-counter-clockwise")
                 display: AbstractButton.IconOnly
-                icon.width: 16
-                icon.height: 16
+                icon.width: 18
+                icon.height: 18
                 enabled: root.actionIsEnabled("action.edit.undo")
                 onClicked: root.runAction("action.edit.undo")
                 ToolTip.visible: hovered
@@ -1163,8 +1163,8 @@ ApplicationWindow {
             ToolButton {
                 icon.source: root.iconUrl("arrow-clockwise")
                 display: AbstractButton.IconOnly
-                icon.width: 16
-                icon.height: 16
+                icon.width: 18
+                icon.height: 18
                 enabled: root.actionIsEnabled("action.edit.redo")
                 onClicked: root.runAction("action.edit.redo")
                 ToolTip.visible: hovered
@@ -1192,8 +1192,8 @@ ApplicationWindow {
                 implicitWidth: 28
                 implicitHeight: 28
                 icon.source: root.iconUrl("question")
-                icon.width: 16
-                icon.height: 16
+                icon.width: 18
+                icon.height: 18
                 onClicked: aboutDialog.open()
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("About PhotoTux")
@@ -1288,13 +1288,21 @@ ApplicationWindow {
                 Accessible.ignored: true
             }
 
-            Label {
-                text: qsTr("GPU ACCELERATED")
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontMono
-                font.family: "Noto Sans Mono"
-                opacity: 0.7
+            Rectangle {
+                radius: Theme.radiusXs
+                color: Theme.successSubtle
+                width: gpuBadge.implicitWidth + Theme.spaceSm
+                height: Theme.controlHeight - 6
                 Accessible.ignored: true
+                Label {
+                    id: gpuBadge
+                    anchors.centerIn: parent
+                    text: qsTr("GPU ACCELERATED")
+                    color: Theme.success
+                    font.pixelSize: Theme.fontMono
+                    font.family: "Noto Sans Mono"
+                    font.weight: Font.DemiBold
+                }
             }
         }
     }
@@ -1321,6 +1329,40 @@ ApplicationWindow {
                     checked: modelData.active === true
                     Accessible.name: text
                     onClicked: AppSession.activateDocumentTab(Number(modelData.id))
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.checked ? Theme.colorOnSurface : Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: parent.checked ? Font.DemiBold : Font.Normal
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+                    background: Item {
+                        id: tabBg
+                        implicitHeight: Theme.panelHeaderHeight
+                        readonly property bool tabChecked: parent && parent.checked
+                        Rectangle {
+                            anchors.fill: parent
+                            color: tabBg.tabChecked ? Theme.surface : Theme.tabInactive
+                        }
+                        Rectangle {
+                            visible: tabBg.tabChecked
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: 2
+                            color: Theme.primary
+                        }
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: 1
+                            color: Theme.borderSubtle
+                        }
+                    }
                 }
             }
         }
@@ -1338,9 +1380,9 @@ ApplicationWindow {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            // Literal widths avoid Theme size tokens resolving to 0 under PHOTOTUX_QML.
+            // Literal width avoids Theme size tokens resolving to 0 under PHOTOTUX_QML.
             width: 48
-            color: "#2B2B30"
+            color: Theme.surface
             Accessible.role: Accessible.ToolBar
             Accessible.name: qsTr("Tools")
 
@@ -1854,7 +1896,7 @@ ApplicationWindow {
                 radius: width / 2
                 color: "transparent"
                 border.color: AppSession.activeTool === "tool.eraser"
-                              ? "#E06060" : root.primary
+                              ? Theme.error : root.primary
                 border.width: 1
                 x: canvasInput.mouseX - width / 2
                 y: canvasInput.mouseY - height / 2
@@ -2640,47 +2682,21 @@ ApplicationWindow {
                             font.weight: Font.Medium
                             Layout.fillWidth: true
                         }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↑"
-                            enabled: root.dockStackRow("panel.properties") > 0
-                            onClicked: AppSession.movePanelInStack("panel.properties", -1)
-                            Accessible.name: qsTr("Move panel up")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↓"
-                            enabled: root.dockStackRow("panel.properties") >= 0
-                                     && root.dockStackRow("panel.properties") < root.dockRightStack.length - 1
-                            onClicked: AppSession.movePanelInStack("panel.properties", 1)
-                            Accessible.name: qsTr("Move panel down")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "–"
-                            onClicked: AppSession.togglePanelAutoHide("panel.properties")
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Auto-hide panel")
-                            Accessible.name: qsTr("Auto-hide panel")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "⧉"
-                            enabled: root.dockRightStack.length > 1
-                            onClicked: root.tearOffAndClamp("panel.properties",
-                                                               root.x + root.width - 360, root.y + 80, 320, 400)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Tear off panel")
-                            Accessible.name: qsTr("Tear off panel")
+                        PanelHeaderControls {
+                            canMoveUp: root.dockStackRow("panel.properties") > 0
+                            canMoveDown: root.dockStackRow("panel.properties") >= 0
+                                         && root.dockStackRow("panel.properties") < root.dockRightStack.length - 1
+                            canTearOff: root.dockRightStack.length > 1
+                            onMoveUpRequested: AppSession.movePanelInStack("panel.properties", -1)
+                            onMoveDownRequested: AppSession.movePanelInStack("panel.properties", 1)
+                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.properties")
+                            onTearOffRequested: root.tearOffAndClamp("panel.properties",
+                                                                       root.x + root.width - 360, root.y + 80, 320, 400)
                         }
                     }
                     MouseArea {
                         anchors.fill: parent
-                        // Leave room for ↑↓ auto-hide tear-off so they receive clicks.
+                        // Leave room for panel chrome controls so they receive clicks.
                         anchors.rightMargin: 110
                         z: -1
                         property real pressY: 0
@@ -2728,84 +2744,188 @@ ApplicationWindow {
                         spacing: Theme.spaceMd
 
                         // Edit target + selection context (distinct chrome)
-                        ColumnLayout {
+                        Rectangle {
+                            Layout.fillWidth: true
+                            visible: AppSession.hasDocument
+                            radius: Theme.radiusSm
+                            color: Theme.surfaceContainerHigh
+                            border.color: Theme.borderSubtle
+                            border.width: 1
+                            implicitHeight: editTargetCol.implicitHeight + Theme.spaceSm * 2
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                width: 2
+                                color: Theme.primary
+                                radius: 1
+                            }
+
+                            ColumnLayout {
+                                id: editTargetCol
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: Theme.spaceSm + 2
+                                anchors.rightMargin: Theme.spaceSm
+                                spacing: Theme.spaceXs
+
+                                Label {
+                                    text: qsTr("Edit target")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                    font.weight: Font.DemiBold
+                                }
+                                Label {
+                                    text: {
+                                        var kind = AppSession.activeLayerKind.length > 0
+                                                   ? AppSession.activeLayerKind
+                                                   : qsTr("layer")
+                                        var obj = AppSession.objectSelectionLabel.length > 0
+                                                  ? qsTr("object: %1").arg(AppSession.objectSelectionLabel)
+                                                  : qsTr("no object selection")
+                                        var sel = AppSession.pixelSelectionActive
+                                                  ? qsTr("pixel selection active")
+                                                  : qsTr("no pixel selection")
+                                        return qsTr("%1 · %2 · %3 · %4")
+                                               .arg(kind)
+                                               .arg(AppSession.editTargetLabel)
+                                               .arg(obj)
+                                               .arg(sel)
+                                    }
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    Button {
+                                        text: qsTr("Layer pixels")
+                                        checkable: true
+                                        checked: AppSession.editTarget === "layer"
+                                        Layout.fillWidth: true
+                                        Accessible.name: qsTr("Edit layer pixels")
+                                        onClicked: AppSession.setMaskEditTarget(false)
+                                        background: Rectangle {
+                                            radius: Theme.radiusSm
+                                            color: parent.checked
+                                                   ? Theme.toolActiveBg
+                                                   : (parent.hovered ? Theme.surfaceRaised : Theme.surfaceContainer)
+                                            border.color: parent.checked ? Theme.primary : Theme.borderSubtle
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: parent.checked ? Theme.colorOnSurface : Theme.colorOnSurfaceMuted
+                                            font.pixelSize: Theme.fontLabel
+                                            font.weight: parent.checked ? Font.DemiBold : Font.Normal
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                    }
+                                    Button {
+                                        text: qsTr("Layer mask")
+                                        checkable: true
+                                        checked: AppSession.editTarget === "mask"
+                                        enabled: root.activeLayerHasMask
+                                        Layout.fillWidth: true
+                                        Accessible.name: qsTr("Edit layer mask")
+                                        onClicked: AppSession.setMaskEditTarget(true)
+                                        background: Rectangle {
+                                            radius: Theme.radiusSm
+                                            color: parent.enabled
+                                                   ? (parent.checked
+                                                      ? Theme.toolActiveBg
+                                                      : (parent.hovered ? Theme.surfaceRaised : Theme.surfaceContainer))
+                                                   : Theme.surfaceSunken
+                                            border.color: parent.checked ? Theme.primary : Theme.borderSubtle
+                                            border.width: 1
+                                            opacity: parent.enabled ? 1.0 : 0.55
+                                        }
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: parent.checked ? Theme.colorOnSurface : Theme.colorOnSurfaceMuted
+                                            font.pixelSize: Theme.fontLabel
+                                            font.weight: parent.checked ? Font.DemiBold : Font.Normal
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Label {
+                            visible: AppSession.hasDocument && AppSession.lastAnnounce.length > 0
+                            text: AppSession.lastAnnounce
+                            color: Theme.colorOnSurfaceVariant
+                            font.pixelSize: Theme.fontLabelSm
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            Accessible.name: AppSession.lastAnnounce
+                        }
+                        RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
                             visible: AppSession.hasDocument
-                            Label {
-                                text: qsTr("Edit target")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            Label {
-                                text: {
-                                    var kind = AppSession.activeLayerKind.length > 0
-                                               ? AppSession.activeLayerKind
-                                               : qsTr("layer")
-                                    var obj = AppSession.objectSelectionLabel.length > 0
-                                              ? qsTr("object: %1").arg(AppSession.objectSelectionLabel)
-                                              : qsTr("no object selection")
-                                    var sel = AppSession.pixelSelectionActive
-                                              ? qsTr("pixel selection active")
-                                              : qsTr("no pixel selection")
-                                    return qsTr("%1 · %2 · %3 · %4")
-                                           .arg(kind)
-                                           .arg(AppSession.editTargetLabel)
-                                           .arg(obj)
-                                           .arg(sel)
+                            Button {
+                                text: qsTr("Lock px")
+                                Layout.fillWidth: true
+                                onClicked: root.runAction("action.layer.lock-pixels")
+                                background: Rectangle {
+                                    radius: Theme.radiusSm
+                                    color: parent.down || parent.hovered
+                                           ? Theme.surfaceRaised : Theme.surfaceContainer
+                                    border.color: Theme.borderSubtle
+                                    border.width: 1
                                 }
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                            Label {
-                                visible: AppSession.lastAnnounce.length > 0
-                                text: AppSession.lastAnnounce
-                                color: Theme.colorOnSurfaceVariant
-                                font.pixelSize: Theme.fontLabelSm
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                                Accessible.name: AppSession.lastAnnounce
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.spaceXs
-                                Button {
-                                    text: qsTr("Layer pixels")
-                                    checkable: true
-                                    checked: AppSession.editTarget === "layer"
-                                    enabled: AppSession.hasDocument
-                                    Layout.fillWidth: true
-                                    onClicked: AppSession.setMaskEditTarget(false)
-                                }
-                                Button {
-                                    text: qsTr("Layer mask")
-                                    checkable: true
-                                    checked: AppSession.editTarget === "mask"
-                                    enabled: AppSession.hasDocument && root.activeLayerHasMask
-                                    Layout.fillWidth: true
-                                    onClicked: AppSession.setMaskEditTarget(true)
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontLabel
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
-                            RowLayout {
+                            Button {
+                                text: qsTr("Lock pos")
                                 Layout.fillWidth: true
-                                spacing: Theme.spaceXs
-                                visible: AppSession.hasDocument
-                                Button {
-                                    text: qsTr("Lock px")
-                                    Layout.fillWidth: true
-                                    onClicked: root.runAction("action.layer.lock-pixels")
+                                onClicked: root.runAction("action.layer.lock-position")
+                                background: Rectangle {
+                                    radius: Theme.radiusSm
+                                    color: parent.down || parent.hovered
+                                           ? Theme.surfaceRaised : Theme.surfaceContainer
+                                    border.color: Theme.borderSubtle
+                                    border.width: 1
                                 }
-                                Button {
-                                    text: qsTr("Lock pos")
-                                    Layout.fillWidth: true
-                                    onClicked: root.runAction("action.layer.lock-position")
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontLabel
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
-                                Button {
-                                    text: qsTr("Lock all")
-                                    Layout.fillWidth: true
-                                    onClicked: root.runAction("action.layer.lock-all")
+                            }
+                            Button {
+                                text: qsTr("Lock all")
+                                Layout.fillWidth: true
+                                onClicked: root.runAction("action.layer.lock-all")
+                                background: Rectangle {
+                                    radius: Theme.radiusSm
+                                    color: parent.down || parent.hovered
+                                           ? Theme.surfaceRaised : Theme.surfaceContainer
+                                    border.color: Theme.borderSubtle
+                                    border.width: 1
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontLabel
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
                         }
@@ -3481,20 +3601,30 @@ ApplicationWindow {
                                     ToolButton {
                                         implicitWidth: 22
                                         implicitHeight: 22
-                                        text: "↑"
+                                        padding: 0
+                                        icon.source: root.iconUrl("caret-up")
+                                        icon.width: 12
+                                        icon.height: 12
                                         enabled: index > 0
                                         onClicked: AppSession.reorderActiveEffect(
                                                        Number(effectId), index - 1)
                                         Accessible.name: qsTr("Move effect up")
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: Accessible.name
                                     }
                                     ToolButton {
                                         implicitWidth: 22
                                         implicitHeight: 22
-                                        text: "↓"
+                                        padding: 0
+                                        icon.source: root.iconUrl("caret-down")
+                                        icon.width: 12
+                                        icon.height: 12
                                         enabled: index < effectsRepeater.count - 1
                                         onClicked: AppSession.reorderActiveEffect(
                                                        Number(effectId), index + 1)
                                         Accessible.name: qsTr("Move effect down")
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: Accessible.name
                                     }
                                 }
                             }
@@ -4061,42 +4191,16 @@ ApplicationWindow {
                             font.weight: Font.Medium
                             Layout.fillWidth: true
                         }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↑"
-                            enabled: root.dockStackRow("panel.navigator") > 0
-                            onClicked: AppSession.movePanelInStack("panel.navigator", -1)
-                            Accessible.name: qsTr("Move panel up")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↓"
-                            enabled: root.dockStackRow("panel.navigator") >= 0
-                                     && root.dockStackRow("panel.navigator") < root.dockRightStack.length - 1
-                            onClicked: AppSession.movePanelInStack("panel.navigator", 1)
-                            Accessible.name: qsTr("Move panel down")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "–"
-                            onClicked: AppSession.togglePanelAutoHide("panel.navigator")
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Auto-hide panel")
-                            Accessible.name: qsTr("Auto-hide panel")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "⧉"
-                            enabled: root.dockRightStack.length > 1
-                            onClicked: root.tearOffAndClamp("panel.navigator",
-                                                               root.x + root.width - 360, root.y + 120, 320, 280)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Tear off panel")
-                            Accessible.name: qsTr("Tear off panel")
+                        PanelHeaderControls {
+                            canMoveUp: root.dockStackRow("panel.navigator") > 0
+                            canMoveDown: root.dockStackRow("panel.navigator") >= 0
+                                         && root.dockStackRow("panel.navigator") < root.dockRightStack.length - 1
+                            canTearOff: root.dockRightStack.length > 1
+                            onMoveUpRequested: AppSession.movePanelInStack("panel.navigator", -1)
+                            onMoveDownRequested: AppSession.movePanelInStack("panel.navigator", 1)
+                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.navigator")
+                            onTearOffRequested: root.tearOffAndClamp("panel.navigator",
+                                                                       root.x + root.width - 360, root.y + 120, 320, 280)
                         }
                     }
                     MouseArea {
@@ -4234,42 +4338,16 @@ ApplicationWindow {
                             font.weight: Font.Medium
                             Layout.fillWidth: true
                         }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↑"
-                            enabled: root.dockStackRow("panel.swatches") > 0
-                            onClicked: AppSession.movePanelInStack("panel.swatches", -1)
-                            Accessible.name: qsTr("Move panel up")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↓"
-                            enabled: root.dockStackRow("panel.swatches") >= 0
-                                     && root.dockStackRow("panel.swatches") < root.dockRightStack.length - 1
-                            onClicked: AppSession.movePanelInStack("panel.swatches", 1)
-                            Accessible.name: qsTr("Move panel down")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "–"
-                            onClicked: AppSession.togglePanelAutoHide("panel.swatches")
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Auto-hide panel")
-                            Accessible.name: qsTr("Auto-hide panel")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "⧉"
-                            enabled: root.dockRightStack.length > 1
-                            onClicked: root.tearOffAndClamp("panel.swatches",
-                                                               root.x + root.width - 360, root.y + 160, 320, 280)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Tear off panel")
-                            Accessible.name: qsTr("Tear off panel")
+                        PanelHeaderControls {
+                            canMoveUp: root.dockStackRow("panel.swatches") > 0
+                            canMoveDown: root.dockStackRow("panel.swatches") >= 0
+                                         && root.dockStackRow("panel.swatches") < root.dockRightStack.length - 1
+                            canTearOff: root.dockRightStack.length > 1
+                            onMoveUpRequested: AppSession.movePanelInStack("panel.swatches", -1)
+                            onMoveDownRequested: AppSession.movePanelInStack("panel.swatches", 1)
+                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.swatches")
+                            onTearOffRequested: root.tearOffAndClamp("panel.swatches",
+                                                                       root.x + root.width - 360, root.y + 160, 320, 280)
                         }
                         ToolButton {
                             implicitWidth: 22
@@ -4466,42 +4544,16 @@ ApplicationWindow {
                             font.weight: Font.Medium
                             Layout.fillWidth: true
                         }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↑"
-                            enabled: root.dockStackRow("panel.layers") > 0
-                            onClicked: AppSession.movePanelInStack("panel.layers", -1)
-                            Accessible.name: qsTr("Move panel up")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↓"
-                            enabled: root.dockStackRow("panel.layers") >= 0
-                                     && root.dockStackRow("panel.layers") < root.dockRightStack.length - 1
-                            onClicked: AppSession.movePanelInStack("panel.layers", 1)
-                            Accessible.name: qsTr("Move panel down")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "–"
-                            onClicked: AppSession.togglePanelAutoHide("panel.layers")
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Auto-hide panel")
-                            Accessible.name: qsTr("Auto-hide panel")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "⧉"
-                            enabled: root.dockRightStack.length > 1
-                            onClicked: root.tearOffAndClamp("panel.layers",
-                                                               root.x + root.width - 360, root.y + 200, 320, 360)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Tear off panel")
-                            Accessible.name: qsTr("Tear off panel")
+                        PanelHeaderControls {
+                            canMoveUp: root.dockStackRow("panel.layers") > 0
+                            canMoveDown: root.dockStackRow("panel.layers") >= 0
+                                         && root.dockStackRow("panel.layers") < root.dockRightStack.length - 1
+                            canTearOff: root.dockRightStack.length > 1
+                            onMoveUpRequested: AppSession.movePanelInStack("panel.layers", -1)
+                            onMoveDownRequested: AppSession.movePanelInStack("panel.layers", 1)
+                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.layers")
+                            onTearOffRequested: root.tearOffAndClamp("panel.layers",
+                                                                       root.x + root.width - 360, root.y + 200, 320, 360)
                         }
                         ToolButton {
                             implicitWidth: 22
@@ -4692,11 +4744,13 @@ ApplicationWindow {
                                     }
                                 }
 
-                                Label {
+                                Image {
                                     visible: clipsToBelow
-                                    text: "↳"
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontBody
+                                    source: root.iconUrl("arrow-elbow-down-right")
+                                    width: 14
+                                    height: 14
+                                    sourceSize: Qt.size(14, 14)
+                                    Accessible.name: qsTr("Clipped to layer below")
                                     ToolTip.visible: clipHover.hovered
                                     ToolTip.text: qsTr("Clipped to layer below — delete base releases clip")
                                     HoverHandler { id: clipHover }
@@ -4755,42 +4809,16 @@ ApplicationWindow {
                             font.weight: Font.Medium
                             Layout.fillWidth: true
                         }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↑"
-                            enabled: root.dockStackRow("panel.history") > 0
-                            onClicked: AppSession.movePanelInStack("panel.history", -1)
-                            Accessible.name: qsTr("Move panel up")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "↓"
-                            enabled: root.dockStackRow("panel.history") >= 0
-                                     && root.dockStackRow("panel.history") < root.dockRightStack.length - 1
-                            onClicked: AppSession.movePanelInStack("panel.history", 1)
-                            Accessible.name: qsTr("Move panel down")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "–"
-                            onClicked: AppSession.togglePanelAutoHide("panel.history")
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Auto-hide panel")
-                            Accessible.name: qsTr("Auto-hide panel")
-                        }
-                        ToolButton {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            text: "⧉"
-                            enabled: root.dockRightStack.length > 1
-                            onClicked: root.tearOffAndClamp("panel.history",
-                                                               root.x + root.width - 360, root.y + 240, 320, 240)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Tear off panel")
-                            Accessible.name: qsTr("Tear off panel")
+                        PanelHeaderControls {
+                            canMoveUp: root.dockStackRow("panel.history") > 0
+                            canMoveDown: root.dockStackRow("panel.history") >= 0
+                                         && root.dockStackRow("panel.history") < root.dockRightStack.length - 1
+                            canTearOff: root.dockRightStack.length > 1
+                            onMoveUpRequested: AppSession.movePanelInStack("panel.history", -1)
+                            onMoveDownRequested: AppSession.movePanelInStack("panel.history", 1)
+                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.history")
+                            onTearOffRequested: root.tearOffAndClamp("panel.history",
+                                                                       root.x + root.width - 360, root.y + 240, 320, 240)
                         }
                     }
                     MouseArea {

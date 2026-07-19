@@ -29,6 +29,14 @@ QtObject {
     readonly property color selection: "#3DAEE933"
     readonly property color canvasLetterbox: "#0C0C0E"
     readonly property color toolActiveBg: "#3DAEE940"
+    /// Modal overlay scrim (welcome / dialogs).
+    readonly property color scrimModal: "#000000B8"
+    /// Soft primary wash for logo wells and selected chrome accents.
+    readonly property color primarySubtle: "#3DAEE91A"
+    /// Inactive document tab fill (keeps dark shell coherent).
+    readonly property color tabInactive: "#1A1A1E"
+    /// Soft success wash for status chips (GPU path healthy).
+    readonly property color successSubtle: "#2ECC712E"
 
     readonly property int radiusXs: 2
     readonly property int radiusSm: 4

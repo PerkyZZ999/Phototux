@@ -22,7 +22,7 @@ Popup {
     }
 
     Overlay.modal: Rectangle {
-        color: "#000000CC"
+        color: Theme.scrimModal
     }
 
     RowLayout {
@@ -65,7 +65,7 @@ Popup {
                         Rectangle {
                             anchors.fill: parent
                             gradient: Gradient {
-                                GradientStop { position: 0.0; color: "#3DAEE91A" }
+                                GradientStop { position: 0.0; color: Theme.primarySubtle }
                                 GradientStop { position: 1.0; color: "transparent" }
                             }
                         }
@@ -124,10 +124,11 @@ Popup {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         text: qsTr("GPU ACCELERATED")
-                        color: Theme.colorOnSurfaceMuted
-                        opacity: 0.5
+                        color: Theme.success
+                        opacity: 0.85
                         font.pixelSize: Theme.fontMono
                         font.family: "Noto Sans Mono"
+                        font.weight: Font.Medium
                     }
                 }
             }

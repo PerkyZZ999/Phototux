@@ -78,7 +78,7 @@ Popup {
     }
 
     Overlay.modal: Rectangle {
-        color: "#00000099"
+        color: Theme.scrimModal
     }
 
     ColumnLayout {
