@@ -14,6 +14,9 @@ set(QML_FILES
     "${QML_ROOT}/NewDocumentDialog.qml"
     "${QML_ROOT}/WelcomeDialog.qml"
     "${QML_ROOT}/Theme.qml"
+    "${QML_ROOT}/PanelHeaderControls.qml"
+    "${QML_ROOT}/ThemedIcon.qml"
+    "${QML_ROOT}/ChromeIconToolButton.qml"
 )
 set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular")
 set(ICON_NAMES
@@ -87,6 +90,18 @@ set_source_files_properties(
     PROPERTIES
         QT_RESOURCE_ALIAS "Theme.qml"
         QT_QML_SINGLETON_TYPE TRUE
+)
+set_source_files_properties(
+    "${QML_ROOT}/PanelHeaderControls.qml"
+    PROPERTIES QT_RESOURCE_ALIAS "PanelHeaderControls.qml"
+)
+set_source_files_properties(
+    "${QML_ROOT}/ThemedIcon.qml"
+    PROPERTIES QT_RESOURCE_ALIAS "ThemedIcon.qml"
+)
+set_source_files_properties(
+    "${QML_ROOT}/ChromeIconToolButton.qml"
+    PROPERTIES QT_RESOURCE_ALIAS "ChromeIconToolButton.qml"
 )
 
 qt_add_qml_module(phototux_qml

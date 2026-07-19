@@ -80,6 +80,9 @@ fn main() {
     println!("cargo:rerun-if-changed=../../qml/NewDocumentDialog.qml");
     println!("cargo:rerun-if-changed=../../qml/WelcomeDialog.qml");
     println!("cargo:rerun-if-changed=../../qml/Theme.qml");
+    println!("cargo:rerun-if-changed=../../qml/PanelHeaderControls.qml");
+    println!("cargo:rerun-if-changed=../../qml/ThemedIcon.qml");
+    println!("cargo:rerun-if-changed=../../qml/ChromeIconToolButton.qml");
     println!("cargo:rerun-if-changed=../../assets/icons/phosphor/regular");
     println!("cargo:rerun-if-changed=../../assets/logo-ui.png");
 
