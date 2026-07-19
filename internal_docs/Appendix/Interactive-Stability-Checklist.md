@@ -8,7 +8,7 @@ Living **interactive / GUI** verification checklist for PhotoTux. Use this to hu
 - Implementation slice tracker — [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md)
 - Accessibility conformance matrix — [Accessibility-Checklist.md](Accessibility-Checklist.md)
 
-**Related history:** pass journals under `archive/docs/04-journal/*interactive-testing*`.
+**Related history:** pass log in this file; former interactive journals under `archive/docs/` were removed 2026-07-18.
 
 **Stack:** Linux / Wayland, Qt 6 QML + `qtbridge`, wgpu Vulkan ([DR-023](Decision-Register.md)).  
 **Gates:** P11 tiling/spill/sparse and P12 plugin ABI remain gated ([DR-029](Decision-Register.md)) — mark those rows `[N]` or `[!]` until Decision Register amends.

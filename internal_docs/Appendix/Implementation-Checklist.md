@@ -13,7 +13,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 
 ## Phase 0 — Documentation lock
 
-- [x] Archive former `/docs/` → `archive/docs/`
+- [x] Former `/docs/` tree retired (once archived, then removed 2026-07-18; handbook is sole normative tree)
 - [x] Handbook authoritative (`internal_docs/`)
 - [x] Gap analysis written
 - [x] Alignment roadmap + DR-023…026
@@ -47,7 +47,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 - [x] Panel / tool descriptors (`shell.rs` + JSON props)
 - [x] Preferences service + dialog (XDG `preferences.json`)
 - [x] Window menu panel toggles + layer context menu v1
-- [x] Theme tokens documented in `Theme.qml` (archived DESIGN.md source)
+- [x] Theme tokens documented in `Theme.qml` (handbook Themes)
 - [x] Workspace Reset → Essentials panel visibility
 
 ---

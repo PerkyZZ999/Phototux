@@ -31,7 +31,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 | P12 Plugin seams | **Partial** | `extension_data` seam; ABI Deferred; no product need |
 | P13 Verification | **Met** | Soft CI harness; Tier M B1/B2 CPU proxies; interactive present still Provisional |
 
-**Spine parity** for P1–P10/P13 shipped concepts is in place. DR-028 chapter-depth and DR-017 device evidence remain open. Journals: `archive/docs/04-journal/*handbook-parity*`.
+**Spine parity** for P1–P10/P13 shipped concepts is in place. DR-028 chapter-depth and DR-017 device evidence remain open. Track progress in this checklist + Decision Register (phase journals under former `archive/docs/` were removed 2026-07-18).
 
 ---
 
@@ -42,7 +42,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 - [x] Close matching rows in [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) — refreshed 2026-07-18; keep in sync on each slice
 - [x] `./scripts/check-rust.sh` green (gate on every commit)
 - [x] No paragraph-long workaround comments
-- [x] Journal phase exits under `archive/docs/04-journal/`
+- [x] Journal phase exits recorded in checklist / Decision Register (former `archive/docs/04-journal/` removed)
 
 ---
 
@@ -440,7 +440,7 @@ Chapters: [30](../30-Performance.md), [31](../31-Testing.md), [32](../32-Develop
 - [x] All P11/P12 items either `[x]` after gates **or** `[!]`/`[P]`/`[N]` with DR — gated via DR-029; P12 opaque seam `[x]`
 - [~] Gap analysis has no silent MUST contradictions — keep closing rows with slices
 - [~] Roadmap §1 “full parity” — **spine parity** reached; DR-028 depth + device budget evidence open
-- [x] Phase journals under `archive/docs/04-journal/` — full `handbook-parity-complete` when DR-028 depth + DR-017 device promotion close
+- [x] Phase progress recorded in this checklist / Decision Register — full `handbook-parity-complete` when DR-028 depth + DR-017 device promotion close
 
 ---
 

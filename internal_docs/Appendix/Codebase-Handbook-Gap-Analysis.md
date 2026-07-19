@@ -8,7 +8,7 @@
 | Living product tracker | [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) |
 | Alignment history | [Implementation-Checklist.md](Implementation-Checklist.md) (Phases 0–4 — do not reopen) |
 | Interactive QA | [Interactive-Stability-Checklist.md](Interactive-Stability-Checklist.md) |
-| Archived prior docs | [`archive/docs/`](../../archive/docs/) |
+| Former ADR map | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) (index only; source files removed) |
 
 **Verdict first:** **Spine parity is shipped.** Keep the shipping stack (Qt 6 + qtbridge + wgpu zero-copy, `phototux_engine` graph, `.ptx` / PSD). Treat the handbook as contracts + depth target. Remaining work is **DR-028 chapter depth**, **DR-029 gated scale/plugins**, and **ungated polish `[~]`** — not architecture rewrites.
 
@@ -133,7 +133,7 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | P1 | Promote Provisional budgets with fixtures (DR-017, 30) | Soft CI + Tier M CPU proxies Accepted; interactive present still Provisional | **Partial** |
 | P2 | Headless command conformance (DR-022) | `command_conformance` suite | **Closed (v1)** |
 | P3 | Decision Register vs archived ADRs | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) + live DRs | **Closed (v1)** |
-| P4 | Handbook under `internal_docs/` | Normative tree + archive; root bridges | **Closed (v1)** |
+| P4 | Handbook under `internal_docs/` | Normative tree; root bridges; former `/docs/` removed | **Closed (v1)** |
 
 ---
 

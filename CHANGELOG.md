@@ -2,6 +2,16 @@
 
 All notable decision milestones and project state changes.
 
+## [docs-archive-removed] — 2026-07-18
+
+### Docs
+
+- Removed `archive/` (former `/docs/` ADRs, journals, checklists, design mockups).
+- Handbook (`internal_docs/`) is the sole normative documentation tree.
+- Kept [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md) as an index of former ADR ids → live Decision Register entries.
+
+---
+
 ## [alignment-roadmap] — 2026-07-16
 
 ### Docs
@@ -21,7 +31,7 @@ Stack = codebase. Contracts (commands, snapshots, workspace models, engine depth
 ### Docs
 
 - Adopted `internal_docs/` as the authoritative Engineering Handbook.
-- Archived former `/docs/` → `archive/docs/` (historical ADRs, journals, checklists).
+- Former `/docs/` was temporarily archived under `archive/docs/` (historical ADRs, journals, checklists); later removed — see `[docs-archive-removed]`.
 - Added `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` (code vs handbook diffs + hybrid alignment plan).
 - Pointed `README.md` / `AGENTS.md` at handbook; root `SPEC.md` / `CONSTRAINTS.md` remain bridge docs.
 

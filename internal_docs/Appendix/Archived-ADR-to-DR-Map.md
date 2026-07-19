@@ -1,15 +1,15 @@
-# Archived ADR → Decision Register Map
+# Former ADR → Decision Register Map
 
 | Field | Value |
 | --- | --- |
 | Status | Accepted (hygiene) |
-| Date | 2026-07-16 |
+| Date | 2026-07-16 (files removed 2026-07-18) |
 | Live index | [Decision-Register.md](Decision-Register.md) |
-| Archive | [`archive/docs/01-decisions/`](../../archive/docs/01-decisions/) |
+| Source files | Removed — former `/docs/01-decisions/` then `archive/docs/01-decisions/`; this map is the remaining index |
 
-Archived ADRs are **historical evidence**, not the live decision index. Prefer Decision Register (DR) status when they disagree. New architecture locks amend the Decision Register (and Alignment Roadmap when stack-affecting).
+Historical ADR ids are **not** a second authority. Prefer Decision Register (DR) status. New architecture locks amend the Decision Register (and Alignment Roadmap when stack-affecting).
 
-| Archived ADR | Topic | Live DR / status |
+| Former ADR | Topic | Live DR / status |
 | --- | --- | --- |
 | ADR-001 | Linux / Wayland platform | [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) (stack); platform spirit in DR-007 |
 | ADR-002 | Qt 6 QML UI | DR-023; [DR-008](Decision-Register.md#dr-008--ui-toolkit-and-application-runtime-deferred) **Superseded** |
@@ -23,11 +23,11 @@ Archived ADRs are **historical evidence**, not the live decision index. Prefer D
 | ADR-010 | Interop spike | Evidence only; production canvas shipped on stack |
 | ADR-011 | Document model timing | [DR-002](Decision-Register.md) / graph chapters; graph v2 in engine |
 | ADR-012 | License GPL-3.0-or-later | DR-023 workspace license |
-| ADR-013 | Product prefs / single doc / icons | [DR-024](Decision-Register.md#dr-024--single-document-session-v1); prefs in ch.24 Accepted v1 |
+| ADR-013 | Product prefs / single doc / icons | [DR-024](Decision-Register.md#dr-024--document-session-model) (v2 tabs); prefs in ch.24 |
 | ADR-014 | Desktop GUI only | DR-023 product surface |
 | ADR-015 | Raster I/O boundary | [DR-013](Decision-Register.md#dr-013--native-format-vs-interchange-adapters) / ch.22 |
 | ADR-016 | Native `.ptx` | [DR-026](Decision-Register.md#dr-026--native-ptx-container-v1) (v2 write / v1 read) |
 | ADR-017 | Graph v2 + history | Document/history chapters; [DR-004](Decision-Register.md); Shape via [DR-027](Decision-Register.md#dr-027--graph-kind-set-includes-shape) |
 | ADR-018 | PSD interchange subset | DR-013 adapters + ch.22/27 |
 
-**Rule for agents:** implement against handbook + Decision Register. Cite archived ADRs only as evidence or migration notes, never as a second authoritative MUST set.
+**Rule for agents:** implement against handbook + Decision Register. Cite former ADR ids only via this map, never as a second authoritative MUST set.

@@ -15,7 +15,7 @@
 | GPU API path | `wgpu` → Vulkan preferred | Medium | Portable GPU; Vulkan native on Linux |
 | Render strategy | Zero-copy GPU texture shared into Qt RHI / QSGTexture | Hard (product pillar) | No full-frame FFI pixel copies |
 | Packaging target (later) | Desktop Linux app | Soft | Flatpak/AppImage/distro packages deferred |
-| Product surface (v1) | **Desktop GUI only** | Hard for v1 | No CLI product, no TUI, no web (DR-023 / archived ADR-014) |
+| Product surface (v1) | **Desktop GUI only** | Hard for v1 | No CLI product, no TUI, no web (DR-023) |
 
 ## Resource Constraints
 

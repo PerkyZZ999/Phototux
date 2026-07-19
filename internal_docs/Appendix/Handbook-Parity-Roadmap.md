@@ -8,7 +8,7 @@
 | Gap inventory | [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) |
 | Decisions | [Decision-Register.md](Decision-Register.md) — esp. [DR-023](Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase), [DR-028](Decision-Register.md#dr-028--engine-depth-deferred-beyond-p5p10-slices), [DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl) |
 | Stack | Frozen (DR-023) — no toolkit/GPU/shell rewrite |
-| Journals | `archive/docs/04-journal/*handbook-parity*` |
+| Journals | Record exits in [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) + Decision Register |
 
 This roadmap is the plan to bring the **shipping editor** to **full parity** with the Engineering Handbook (`internal_docs/` chapters 00–32 + appendices). Alignment already made the handbook a trustworthy build guide; this plan is the remaining **product and systems work**.
 
@@ -255,7 +255,7 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 4. **Gates are real:** Do not “just start” multi-doc or tiling (DR-029).
 5. **Update checklist** when starting/finishing a slice; close gap-analysis rows in the same change set.
 6. **Quality:** `./scripts/check-rust.sh` green; no paragraph-long workaround comments.
-7. **Journal:** Phase exits → `archive/docs/04-journal/`.
+7. **Journal:** Phase exits → update [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) + Decision Register as needed.
 8. **Depth deferral:** Prefer vertical spines; mark unfinished MUST depth `[~]`/`[P]` or amend DR-028 — never silent gaps.
 
 ---

@@ -7,7 +7,7 @@ Canonical mapping of **UI tools & actions** → **Phosphor SVG** files vendored 
 | **Pack** | Phosphor Icons (`@phosphor-icons/core` 2.1.1) |
 | **Path pattern** | `assets/icons/phosphor/{weight}/{name}.svg` |
 | **Default weight** | `regular` (dense chrome) |
-| **Active / selected tool** | Prefer `fill/{name}-fill.svg` when available, else `regular` + selection chrome from `DESIGN.md` |
+| **Active / selected tool** | Prefer `fill/{name}-fill.svg` when available, else `regular` + selection chrome from `qml/Theme.qml` |
 | **Small 16–18px glyphs** | Consider `bold` if regular reads thin |
 | **Tint** | SVGs use `currentColor` — colorize in QML |
 | **Naming in code** | Stable **Action IDs** → resolve via this map only |

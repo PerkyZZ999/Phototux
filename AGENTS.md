@@ -3,14 +3,13 @@
 Agent-facing constitution for **PhotoTux**.
 
 **Authoritative engineering docs:** [`internal_docs/`](internal_docs/README.md) (Engineering Handbook).  
-**Historical docs:** [`archive/docs/`](archive/docs/README.md) (former `/docs/` — ADRs, journals, checklists).  
 **Alignment (complete):** [`internal_docs/Appendix/Alignment-Roadmap.md`](internal_docs/Appendix/Alignment-Roadmap.md) (stack frozen — [DR-023](internal_docs/Appendix/Decision-Register.md)).  
 **Product roadmap (handbook parity):** [`internal_docs/Appendix/Handbook-Parity-Roadmap.md`](internal_docs/Appendix/Handbook-Parity-Roadmap.md).  
 **Product checklist:** [`internal_docs/Appendix/Handbook-Parity-Checklist.md`](internal_docs/Appendix/Handbook-Parity-Checklist.md).  
 **Gap inventory:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).  
 **Alignment checklist (history):** [`internal_docs/Appendix/Implementation-Checklist.md`](internal_docs/Appendix/Implementation-Checklist.md).
 
-If handbook Decision Register conflicts with archived ADRs or code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` are **non-normative bridges** → handbook + Decision Register. Archived ADR map: [`internal_docs/Appendix/Archived-ADR-to-DR-Map.md`](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
+If handbook Decision Register conflicts with code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` are **non-normative bridges** → handbook + Decision Register. Former ADR ids → live DRs: [`internal_docs/Appendix/Archived-ADR-to-DR-Map.md`](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
 
 ---
 
@@ -27,11 +26,11 @@ PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor w
 | Present | Zero-copy interactive; debug readback only | Keep; CPU = tests/degraded only |
 | Crates | Multi-crate `phototux_*` | DR-025 coarse; handbook 32 = ownership map |
 | Threads | Paint queue + `SessionState::invoke` document spine | Document commits routed; paint stream host-only until stroke-end |
-| Doc model | Graph v2 layers in engine | Single doc v1 (DR-024) until DR amend |
+| Doc model | Graph v2 layers in engine | Multi-doc tabs (DR-024 v2); multi-window open |
 | License | GPL-3.0-or-later | |
 | Surface | **Desktop GUI only** | No CLI/TUI/web product |
 
-**Design tokens (historical):** `archive/docs/DESIGN.md` until migrated into handbook Themes/UX.  
+**Design tokens:** [`qml/Theme.qml`](qml/Theme.qml) + handbook [25 — Themes](internal_docs/25-Themes.md).  
 **Product form:** windowed desktop editor. `cargo` / tests = developer tooling.
 
 ---
@@ -76,7 +75,7 @@ crates/phototux-ui/      # package: phototux_ui  — qtbridge only, no wgpu
 crates/phototux-engine/  # package: phototux_engine — pure Rust, no Qt
 crates/phototux-gpu/     # package: phototux_gpu — Phase 2+
 crates/phototux-canvas/  # package: phototux_canvas — interop ± thin C++
-qml/                     # QML; tokens from archive/docs/DESIGN.md until handbook Themes migrate
+qml/                     # QML; tokens from Theme.qml + handbook Themes
 assets/icons/phosphor/   # Phosphor Icons MIT (core 2.1.1); default weight regular
 ```
 
@@ -113,10 +112,10 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 
 | Skill | Desktop adaptation |
 |-------|--------------------|
-| `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `archive/docs/DESIGN.md` / handbook Themes; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
+| `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `qml/Theme.qml` / handbook Themes; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
 | `iconography-frontend-ui` | Icons from `assets/icons/phosphor/`; **map:** `assets/icons/ICON_MAP.md`; function over decoration; labels+tooltips; contrast; states; size on grid (tool strip ~36px hit) |
 
-**Never** invent a second palette or spacing scale—extend archived `DESIGN.md` or handbook Themes.
+**Never** invent a second palette or spacing scale—extend `qml/Theme.qml` or handbook Themes.
 
 ---
 
@@ -127,7 +126,7 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 - No long apology comments for hacks, race paper-overs, or “temporary” CPU uploads.
 - Fix architecture, types, or boundaries instead.
 - Short `// SAFETY:` / one-line `reason` on `expect` lints are fine; essays are a smell.
-- Forbidden product path: steady-state full-frame **CPU canvas upload** (ADR-005).
+- Forbidden product path: steady-state full-frame **CPU canvas upload** (DR-023 / zero-copy present).
 
 ---
 
@@ -190,44 +189,44 @@ cargo test -p phototux_gpu --features gpu-tests
 
 ### QML / UI
 
-- Controls 2; Breeze-dark / archived `DESIGN.md` tokens (migrate to handbook Themes).
+- Controls 2; Breeze-dark / handbook Themes tokens (`qml/Theme.qml`).
 - Layout per handbook IA (`internal_docs/01-Information-Architecture.md`) + workspace chapters.
 - New document: **ask + presets** 720p / 1080p / 2K / 4K.
-- Single document v1 until Decision Register amend; **zoom-to-fit** on open/new.
+- Multi-doc tabs (DR-024 v2); **zoom-to-fit** on open/new.
 - Strings user-facing: `qsTr(...)`.
 
 ### Git / commits
 
 - Atomic commits; conventional-ish subjects (`feat:`, `fix:`, `docs:`, `chore:`).
-- Reference ADRs when changing architecture.
+- Reference Decision Register entries when changing architecture.
 - Do not commit secrets, `target/`, or large binaries without need.
 
 ---
 
 ## Decision boundaries
 
-### Allowed without new ADR
+### Allowed without new DR
 
 `qtbridge` 0.2.x, `wgpu` 30.x, `tracing`, `thiserror`, `serde`, small pure-Rust utils, Phosphor SVGs under `assets/icons/phosphor/`.
 
-### Requires ADR amendment
+### Requires Decision Register amendment
 
-UI toolkit change, primary FFI switch, abandoning zero-copy, multi-doc, non-Linux v1, spreading handwritten C++ beyond canvas or ADR-003's QML AOT anchor, new major subsystems (cloud, plugins store).
+UI toolkit change, primary FFI switch, abandoning zero-copy, multi-window, non-Linux v1, spreading handwritten C++ beyond canvas or QML AOT anchor, new major subsystems (cloud, plugins store).
 
 ### Forbidden
 
-Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU full-frame canvas as default, Kirigami in Phase 1–2, silent scope to Windows/macOS, paragraph-length workaround comments instead of fixes.
+Electron/web shell, **CLI or TUI as product** (DR-023), GTK as main UI, CPU full-frame canvas as default, Kirigami in Phase 1–2, silent scope to Windows/macOS, paragraph-length workaround comments instead of fixes.
 
 ---
 
 ## Revisit triggers
 
-1. qtbridge blocks custom item → ADR-003  
-2. Zero-copy fails two real approaches → ADR-005 (+ spike report)  
-3. wgpu/Qt share fails → ADR-004 interop  
-4. RefCell re-entrancy forces model change → ADR-007  
-5. SLO unachievable on reference hardware → ADR-008  
-6. New major dependency → ADR  
+1. qtbridge blocks custom item → amend DR-023 / FFI notes  
+2. Zero-copy fails two real approaches → amend DR-023 (+ spike report)  
+3. wgpu/Qt share fails → amend DR-006 / DR-023  
+4. RefCell re-entrancy forces model change → amend DR-010  
+5. SLO unachievable on reference hardware → amend DR-017  
+6. New major dependency → Decision Register entry  
 
 ---
 
@@ -255,9 +254,8 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 | `internal_docs/Appendix/Interactive-Stability-Checklist.md` | Living GUI / edge-case QA suite |
 | `internal_docs/Appendix/Implementation-Checklist.md` | Alignment history (Phases 0–4) |
 | `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
-| `archive/docs/` | Archived former `/docs/` (ADRs, journals, old IA) |
 | `SPEC.md` / `CONSTRAINTS.md` | Non-normative bridges → handbook + Decision Register |
-| `internal_docs/Appendix/Archived-ADR-to-DR-Map.md` | Archived ADR → live DR |
+| `internal_docs/Appendix/Archived-ADR-to-DR-Map.md` | Former ADR ids → live DR (index only) |
 | `scripts/check-rust.sh` | Quality gate |
 | `.githooks/pre-commit` | Commit gate |
 
@@ -267,7 +265,7 @@ Electron/web shell, **CLI or TUI as product** (ADR-014), GTK as main UI, CPU ful
 
 - [ ] `./scripts/check-rust.sh` green (when Rust workspace exists)
 - [ ] Tests for engine logic touched
-- [ ] UI matches handbook UX / Themes (historical tokens in `archive/docs/DESIGN.md` until migrated)
+- [ ] UI matches handbook UX / Themes (`qml/Theme.qml`)
 - [ ] No forbidden steady-state CPU canvas upload
 - [ ] Gap analysis / Decision Register updated if architecture changes
 - [ ] No paragraph-long workaround comments

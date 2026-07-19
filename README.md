@@ -62,7 +62,7 @@ See [CONSTRAINTS.md](CONSTRAINTS.md). Product intent and architecture pillars: [
 | [CONSTRAINTS.md](CONSTRAINTS.md) | Bridge: hard/soft constraints |
 | [AGENTS.md](AGENTS.md) | Agent coding constitution |
 | [CHANGELOG.md](CHANGELOG.md) | Decision milestones |
-| [archive/docs/](archive/docs/README.md) | Archived former `/docs/` (ADRs, journals, old IA/checklists) |
+| [internal_docs/Appendix/Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md) | Former ADR ids → live DR (index only) |
 
 **Status:** Foundation editor ships GPU canvas, layers/masks, selections, transforms, brush, `.ptx`/PSD subset, adjustments/filters core, fill/gradient. **Tech stack frozen to codebase** (Qt/qtbridge/wgpu/crates/`.ptx`). Handbook owns contracts; alignment phases in [Alignment-Roadmap.md](internal_docs/Appendix/Alignment-Roadmap.md).
 

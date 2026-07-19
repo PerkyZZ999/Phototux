@@ -1,7 +1,7 @@
 pragma Singleton
 import QtQuick
 
-// Chrome tokens (handbook Phase 3) — dense KDE Plasma–aligned; values from archived DESIGN.md.
+// Chrome tokens (handbook Phase 3) — dense KDE Plasma–aligned; values from handbook Themes.
 QtObject {
     readonly property color primary: "#3DAEE9"
     readonly property color primaryHover: "#5CB8ED"

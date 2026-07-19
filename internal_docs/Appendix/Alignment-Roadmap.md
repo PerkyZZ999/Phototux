@@ -58,7 +58,7 @@ Owner asked for agent decisions beyond the tech stack. Summary: **handbook owns 
 | Single vs multi document | **Codebase (v1)** | Single document until explicit multi-doc project ([DR-024](Decision-Register.md#dr-024--single-document-session-v1)) |
 | Workspace / docking / panels | **Handbook** | Semantic models + descriptors; Qt implements presentation |
 | Toolbars / shortcuts / context menus | **Handbook** | Action/command IDs drive chrome |
-| Preferences / themes | **Handbook** | Services + dialogs; tokens may migrate from archived `DESIGN.md` |
+| Preferences / themes | **Handbook** | Services + dialogs; tokens in `qml/Theme.qml` + ch.25 |
 | Color management | **Handbook** | Assign ≠ convert; ship foundation after command spine |
 | Paths / shapes / text bake | **Handbook** | Paths first; Shape kind when graph amended; text bake before Character panel |
 | Native format evolution | **Hybrid** | Keep `.ptx` identity; evolve toward chunked/integrity handbook model without greenfield rename ([DR-026](Decision-Register.md#dr-026--native-ptx-container-v1)) |
@@ -73,7 +73,7 @@ Owner asked for agent decisions beyond the tech stack. Summary: **handbook owns 
 
 - **Command spine / snapshots / workspace models** prevent the QML shell from becoming the second source of truth — highest long-term leverage, fits Qt without replacing it.
 - **Single-doc + coarse crates** avoid rewriting a working editor for paper purity.
-- **`.ptx` keep + evolve** protects user files and ADR-016 investment.
+- **`.ptx` keep + evolve** protects user files and native-format investment.
 - **CPU reference** unlocks headless conformance without touching the interactive present path.
 - **Plugins last** — handbook agrees ABI is deferred; seams need a real command router first.
 
@@ -81,7 +81,7 @@ Owner asked for agent decisions beyond the tech stack. Summary: **handbook owns 
 
 ## 3. Phased roadmap
 
-Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR updates, gap-analysis row closures, and a short journal note under `archive/docs/04-journal/` (or a future `internal_docs/journal/` if created).
+Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR updates, gap-analysis row closures, and checklist notes in [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) / Decision Register.
 
 ### Phase 0 — Documentation lock (this delivery)
 
@@ -142,7 +142,7 @@ Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR update
 | 3.1 | Panel / tool descriptors (IDs, titles, default region) | Driven list; `Main.qml` consumes |
 | 3.2 | Preferences service + dialog (XDG) | Survives restart |
 | 3.3 | Action-driven menus / shortcuts / context menus v1 | Layer + canvas + selection |
-| 3.4 | Theme tokens: migrate archived `DESIGN.md` → handbook Themes + QML | One token source |
+| 3.4 | Theme tokens: handbook Themes + `qml/Theme.qml` | One token source |
 | 3.5 | Workspace preset record (even if only Reset + Essentials) | Layout restore without doc history pollution |
 
 **Do not:** full tear-off docking in first pass; topology model may precede drag UX.
@@ -168,7 +168,7 @@ Order is priority, not parallel forever.
 | 4.9 | Guides / grid / rulers / snap | View chrome |
 | 4.10 | `.ptx` chunk/integrity evolution | DR-026; open old files |
 
-**Status:** Complete including follow-ups (2026-07-16) — GPU styles/filters, color convert, Shape (DR-027), `.ptx` v2. Journals under `archive/docs/04-journal/2026-07-16-*.md`.
+**Status:** Complete including follow-ups (2026-07-16) — GPU styles/filters, color convert, Shape (DR-027), `.ptx` v2.
 
 ---
 
@@ -181,7 +181,7 @@ Order is priority, not parallel forever.
 | 5.3 Plugin capability seams | Phase 1 solid; product need | Manifests only; ABI still deferred |
 | 5.4 History spill / budgets | Memory pressure evidence | Retention policy UX |
 
-**Status:** Deferred / gated (2026-07-16). Journal: `archive/docs/04-journal/2026-07-16-alignment-phase5-gated.md`.
+**Status:** Deferred / gated (2026-07-16). See [DR-029](Decision-Register.md#dr-029--p11p12-remain-gated-no-ungated-impl).
 
 ---
 
@@ -192,9 +192,9 @@ Order is priority, not parallel forever.
 | Decision Register authoritative for stack + session model | **Done** | `Decision-Register.md` |
 | Close / relabel gap-analysis rows to shipped v1 | **Done** | `Codebase-Handbook-Gap-Analysis.md` |
 | Living implementation checklist | **Done** | `Implementation-Checklist.md` |
-| Archived ADRs → DR map (evidence only) | **Done** | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) |
+| Former ADR → DR map (index only) | **Done** | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) |
 | Root `SPEC.md` / `CONSTRAINTS.md` demoted to bridges | **Done** | root banners → handbook |
-| Journal phase exits | **Ongoing** | `archive/docs/04-journal/` |
+| Phase exit recording | **Done** | Checklist + Decision Register (archive journals removed) |
 
 ---
 
@@ -249,4 +249,4 @@ Former “alignment Phase 5” gates (tiling, multi-doc, plugins, history spill)
 - [10-Document-Model.md](../10-Document-Model.md)
 - [17-Rendering-Engine.md](../17-Rendering-Engine.md)
 - [32-Developer-Guide.md](../32-Developer-Guide.md)
-- Archived ADRs: [`archive/docs/01-decisions/`](../../archive/docs/01-decisions/)
+- Former ADR ids → [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md)

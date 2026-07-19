@@ -44,7 +44,7 @@ That file is the source of truth for wiring QML `iconSource(actionId)`. Examples
 ## Usage notes (Qt Quick)
 
 - Prefer **SVG + `currentColor`-style tinting** via Qt (e.g. colorized `Image` / icon engines) so dark theme works without duplicate assets.
-- Keep tool icons on a **consistent size grid** (e.g. 20–24px glyph in 36px hit target per `DESIGN.md`).
+- Keep tool icons on a **consistent size grid** (e.g. 20–24px glyph in 36px hit target per `qml/Theme.qml` / handbook Themes).
 - Do not mix a second icon family for tools without an ADR amendment.
 - **Do not** recolor by editing thousands of SVGs — tint at runtime.
 

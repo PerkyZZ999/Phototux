@@ -4,7 +4,7 @@
 
 This handbook (`internal_docs/`) is the **authoritative Engineering Handbook** for **PhotoTux**, a Linux-native, local-first professional raster editor. It defines product boundaries, subsystem contracts, ownership, concurrency, persistence, accessibility, performance, and verification expectations for core engineers, host/UI engineers, format engineers, and extension authors.
 
-Prior documentation under `/docs/` is archived at [`archive/docs/`](../archive/docs/) (historical ADRs, journals, checklists). Do not treat the archive as normative. Codebase ↔ handbook gaps and alignment plan: [Appendix/Codebase-Handbook-Gap-Analysis.md](Appendix/Codebase-Handbook-Gap-Analysis.md).
+Former standalone `/docs/` trees (ADRs, journals, checklists) were removed after handbook parity absorbed their content. Live decisions: [Appendix/Decision-Register.md](Appendix/Decision-Register.md). Former ADR ids → [Appendix/Archived-ADR-to-DR-Map.md](Appendix/Archived-ADR-to-DR-Map.md). Codebase ↔ handbook gaps: [Appendix/Codebase-Handbook-Gap-Analysis.md](Appendix/Codebase-Handbook-Gap-Analysis.md).
 
 Normative force uses **MUST** / **SHOULD** / **MAY** as defined in [Appendix/Requirement-Keywords.md](Appendix/Requirement-Keywords.md). Shared vocabulary lives in [Appendix/Glossary.md](Appendix/Glossary.md). Navigation and dependencies live in [Appendix/Cross-Reference-Index.md](Appendix/Cross-Reference-Index.md).
 
