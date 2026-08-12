@@ -51,7 +51,7 @@ const SELECTION_UNDO_LIMIT: usize = 64;
 const TRANSFORM_UNDO_LIMIT: usize = 32;
 use phototux_io::{
     CompatibilityIssue, PtxDocument, Raster, RasterFormat, discard_recovery, format_report,
-    list_recoverable, load_recovery, write_stroke_journal,
+    list_recoverable, load_recovery,
 };
 use qtbridge::qobject;
 
@@ -4256,7 +4256,14 @@ impl AppSession {
                 false
             }
             EngineEvent::StrokeJournaled(entry) => {
-                let _ = write_stroke_journal(&entry);
+                // Off the UI thread: this arrives in the frame tick at pen-up,
+                // and serializing a few thousand dabs and writing them to disk
+                // is not work to do in the frame the user is watching.
+                let _ = self
+                    .file_worker
+                    .send(crate::file_worker::FileCommand::JournalStroke(Box::new(
+                        entry,
+                    )));
                 false
             }
             EngineEvent::StrokeEnded => {

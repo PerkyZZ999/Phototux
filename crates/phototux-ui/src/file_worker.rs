@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
-use phototux_engine::{CancelToken, DocumentGraph, LayerId};
+use phototux_engine::{CancelToken, DocumentGraph, JournalStroke, LayerId};
 use phototux_io::{
     CompatibilityIssue, PtxDocument, Raster, RasterFormat, export_psd_path, import_psd_path,
-    load_ptx_with_diagnostics, save_ptx_atomic, write_autosave,
+    load_ptx_with_diagnostics, save_ptx_atomic, write_autosave, write_stroke_journal,
 };
 
 pub(crate) enum FileCommand {
@@ -33,6 +33,11 @@ pub(crate) enum FileCommand {
         graph: DocumentGraph,
         original: Option<PathBuf>,
     },
+    /// Persist a completed stroke for crash recovery.
+    ///
+    /// Serializing and writing this ran on the UI thread inside the frame tick,
+    /// at the exact moment the user lifted the pen.
+    JournalStroke(Box<JournalStroke>),
     Shutdown,
 }
 
@@ -173,6 +178,14 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
             FileCommand::SavePtx { path, graph } => save_document(path, graph, &cancel),
             FileCommand::Autosave { graph, original } => {
                 autosave_document(graph, original, &cancel)
+            }
+            FileCommand::JournalStroke(stroke) => {
+                // Recovery bookkeeping: a failure here must not interrupt
+                // painting, and there is nothing for the user to act on.
+                if let Err(error) = write_stroke_journal(&stroke) {
+                    eprintln!("[phototux] stroke journal: {error}");
+                }
+                continue;
             }
             FileCommand::Export { path, format, icc } => {
                 export_document(path, format, icc, &cancel)

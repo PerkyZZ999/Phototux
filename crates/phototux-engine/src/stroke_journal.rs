@@ -221,8 +221,11 @@ impl StrokeJournal {
         serde_json::to_string_pretty(&self.committed)
     }
 
+    /// Compact rather than pretty: this is written once per stroke and only
+    /// ever read back by recovery, so the indentation was paying bytes and
+    /// serialization time for a file nobody opens.
     pub fn stroke_to_json(stroke: &JournalStroke) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(stroke)
+        serde_json::to_string(stroke)
     }
 }
 

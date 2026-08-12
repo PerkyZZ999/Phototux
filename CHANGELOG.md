@@ -21,6 +21,7 @@ never shows and the user always waits for.
 
 ### Fixes
 
+- **The stroke journal no longer writes to disk on the UI thread.** `StrokeJournaled` arrives in the frame tick at pen-up, and its handler did `create_dir_all` plus `fs::write` of a pretty-printed record of every sample and dab — a few hundred KB for a long stroke — synchronously, in the frame the user is watching. It now goes to the existing `FileWorker`, and the record serializes compactly since only recovery reads it.
 - **The History panel omitted brush strokes.** A stroke pushes a history entry, but `raster.paint-stroke` reports no layer sync, so `emit_layer_fields` — the only emitter of `historyLabels` / `historyEntryIds` / `historyKinds` — never ran for it, and `emit_poll_dirty_changes` did not emit them either. The panel silently stayed stale until some unrelated edit refreshed it. Now emitted whenever the entry list changes.
 
 ---
