@@ -191,17 +191,22 @@ pub fn cpu_gaussian_rgba(pixels: &mut [u8], width: u32, height: u32, radius: f32
     }
 
     let mut temp = pixels.to_vec();
-    // Horizontal
+    convolve_separable_pass(pixels, &mut temp, w, h, &weights, support, true);
+    convolve_separable_pass(&temp, pixels, w, h, &weights, support, false);
+}
+
+fn convolve_separable_pass(
+    src: &[u8],
+    dst: &mut [u8],
+    w: usize,
+    h: usize,
+    weights: &[f32],
+    support: usize,
+    horizontal: bool,
+) {
     for y in 0..h {
         for x in 0..w {
-            let mut acc = [0.0_f32; 4];
-            for (k, &weight) in weights.iter().enumerate() {
-                let ox = (x as i32 + k as i32 - support as i32).clamp(0, w as i32 - 1) as usize;
-                let idx = (y * w + ox) * 4;
-                for c in 0..4 {
-                    acc[c] += f32::from(pixels[idx + c]) * weight;
-                }
-            }
+            let acc = convolve_pixel(src, w, h, x, y, weights, support, horizontal);
             let out = (y * w + x) * 4;
             for c in 0..4 {
                 #[expect(
@@ -210,35 +215,39 @@ pub fn cpu_gaussian_rgba(pixels: &mut [u8], width: u32, height: u32, radius: f32
                     reason = "blur accumulator clamped to byte"
                 )]
                 {
-                    temp[out + c] = acc[c].round().clamp(0.0, 255.0) as u8;
+                    dst[out + c] = acc[c].round().clamp(0.0, 255.0) as u8;
                 }
             }
         }
     }
-    // Vertical
-    for y in 0..h {
-        for x in 0..w {
-            let mut acc = [0.0_f32; 4];
-            for (k, &weight) in weights.iter().enumerate() {
-                let oy = (y as i32 + k as i32 - support as i32).clamp(0, h as i32 - 1) as usize;
-                let idx = (oy * w + x) * 4;
-                for c in 0..4 {
-                    acc[c] += f32::from(temp[idx + c]) * weight;
-                }
-            }
-            let out = (y * w + x) * 4;
-            for c in 0..4 {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "blur accumulator clamped to byte"
-                )]
-                {
-                    pixels[out + c] = acc[c].round().clamp(0.0, 255.0) as u8;
-                }
-            }
+}
+
+fn convolve_pixel(
+    src: &[u8],
+    w: usize,
+    h: usize,
+    x: usize,
+    y: usize,
+    weights: &[f32],
+    support: usize,
+    horizontal: bool,
+) -> [f32; 4] {
+    let max_x = w as i32 - 1;
+    let max_y = h as i32 - 1;
+    let mut acc = [0.0_f32; 4];
+    for (k, &weight) in weights.iter().enumerate() {
+        let offset = k as i32 - support as i32;
+        let (sx, sy) = if horizontal {
+            ((x as i32 + offset).clamp(0, max_x) as usize, y)
+        } else {
+            (x, (y as i32 + offset).clamp(0, max_y) as usize)
+        };
+        let idx = (sy * w + sx) * 4;
+        for c in 0..4 {
+            acc[c] += f32::from(src[idx + c]) * weight;
         }
     }
+    acc
 }
 
 /// CPU reference directional motion blur.
@@ -262,26 +271,65 @@ pub fn cpu_motion_blur_rgba(
     let src = pixels.to_vec();
     for y in 0..h {
         for x in 0..w {
-            let mut acc = [0.0_f32; 4];
-            let mut count = 0.0_f32;
-            for i in -steps..=steps {
-                let t = i as f32 / steps as f32;
-                let sx = (x as f32 + dx * t * distance).round() as i32;
-                let sy = (y as f32 + dy * t * distance).round() as i32;
-                if sx < 0 || sy < 0 || sx >= w as i32 || sy >= h as i32 {
-                    continue;
-                }
-                let idx = (sy as usize * w + sx as usize) * 4;
-                for c in 0..4 {
-                    acc[c] += f32::from(src[idx + c]);
-                }
-                count += 1.0;
-            }
-            let out = (y * w + x) * 4;
-            if count > 0.0 {
-                for c in 0..4 {
-                    pixels[out + c] = (acc[c] / count).round().clamp(0.0, 255.0) as u8;
-                }
+            write_motion_blur_pixel(
+                pixels,
+                &src,
+                w,
+                h,
+                MotionSample {
+                    x,
+                    y,
+                    dx,
+                    dy,
+                    distance,
+                    steps,
+                },
+            );
+        }
+    }
+}
+
+struct MotionSample {
+    x: usize,
+    y: usize,
+    dx: f32,
+    dy: f32,
+    distance: f32,
+    steps: i32,
+}
+
+fn write_motion_blur_pixel(
+    pixels: &mut [u8],
+    src: &[u8],
+    w: usize,
+    h: usize,
+    sample: MotionSample,
+) {
+    let mut acc = [0.0_f32; 4];
+    let mut count = 0.0_f32;
+    for i in -sample.steps..=sample.steps {
+        let t = i as f32 / sample.steps as f32;
+        let sx = (sample.x as f32 + sample.dx * t * sample.distance).round() as i32;
+        let sy = (sample.y as f32 + sample.dy * t * sample.distance).round() as i32;
+        if sx < 0 || sy < 0 || sx >= w as i32 || sy >= h as i32 {
+            continue;
+        }
+        let idx = (sy as usize * w + sx as usize) * 4;
+        for c in 0..4 {
+            acc[c] += f32::from(src[idx + c]);
+        }
+        count += 1.0;
+    }
+    let out = (sample.y * w + sample.x) * 4;
+    if count > 0.0 {
+        for c in 0..4 {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "motion blur accumulator clamped to byte"
+            )]
+            {
+                pixels[out + c] = (acc[c] / count).round().clamp(0.0, 255.0) as u8;
             }
         }
     }

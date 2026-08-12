@@ -312,22 +312,26 @@ pub fn feather_mask_r8(
     let mut out = vec![0_u8; expected];
     for y in 0..h as i32 {
         for x in 0..w as i32 {
-            let mut sum = 0_u32;
-            let mut count = 0_u32;
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    let xx = x + dx;
-                    let yy = y + dy;
-                    if xx >= 0 && yy >= 0 && (xx as usize) < w && (yy as usize) < h {
-                        sum += u32::from(mask[yy as usize * w + xx as usize]);
-                        count += 1;
-                    }
-                }
-            }
-            out[y as usize * w + x as usize] = sum.checked_div(count).map(|v| v as u8).unwrap_or(0);
+            out[y as usize * w + x as usize] = feather_neighborhood(mask, w, h, x, y, r);
         }
     }
     Ok(out)
+}
+
+fn feather_neighborhood(mask: &[u8], w: usize, h: usize, x: i32, y: i32, r: i32) -> u8 {
+    let mut sum = 0_u32;
+    let mut count = 0_u32;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let xx = x + dx;
+            let yy = y + dy;
+            if xx >= 0 && yy >= 0 && (xx as usize) < w && (yy as usize) < h {
+                sum += u32::from(mask[yy as usize * w + xx as usize]);
+                count += 1;
+            }
+        }
+    }
+    sum.checked_div(count).map(|v| v as u8).unwrap_or(0)
 }
 
 /// Morphological expand (dilate) of an R8 selection mask.
@@ -376,32 +380,53 @@ fn morph_mask_r8(
     let mut out = vec![0_u8; expected];
     for y in 0..h as i32 {
         for x in 0..w as i32 {
-            let mut best = if dilate { 0_u8 } else { 255_u8 };
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    if dx * dx + dy * dy > r * r {
-                        continue;
-                    }
-                    let xx = x + dx;
-                    let yy = y + dy;
-                    if xx < 0 || yy < 0 || (xx as usize) >= w || (yy as usize) >= h {
-                        if !dilate {
-                            best = 0;
-                        }
-                        continue;
-                    }
-                    let v = mask[yy as usize * w + xx as usize];
-                    if dilate {
-                        best = best.max(v);
-                    } else {
-                        best = best.min(v);
-                    }
-                }
-            }
-            out[y as usize * w + x as usize] = best;
+            out[y as usize * w + x as usize] = morph_neighborhood(mask, w, h, x, y, r, dilate);
         }
     }
     Ok(out)
+}
+
+fn morph_neighborhood(mask: &[u8], w: usize, h: usize, x: i32, y: i32, r: i32, dilate: bool) -> u8 {
+    let mut best = if dilate { 0_u8 } else { 255_u8 };
+    let tap = MorphTap {
+        mask,
+        w,
+        h,
+        r,
+        dilate,
+    };
+    for dy in -r..=r {
+        for dx in -r..=r {
+            apply_morph_sample(&tap, x + dx, y + dy, dx, dy, &mut best);
+        }
+    }
+    best
+}
+
+struct MorphTap<'a> {
+    mask: &'a [u8],
+    w: usize,
+    h: usize,
+    r: i32,
+    dilate: bool,
+}
+
+fn apply_morph_sample(tap: &MorphTap<'_>, xx: i32, yy: i32, dx: i32, dy: i32, best: &mut u8) {
+    if dx * dx + dy * dy > tap.r * tap.r {
+        return;
+    }
+    if xx < 0 || yy < 0 || (xx as usize) >= tap.w || (yy as usize) >= tap.h {
+        if !tap.dilate {
+            *best = 0;
+        }
+        return;
+    }
+    let v = tap.mask[yy as usize * tap.w + xx as usize];
+    if tap.dilate {
+        *best = (*best).max(v);
+    } else {
+        *best = (*best).min(v);
+    }
 }
 
 #[cfg(test)]

@@ -16,63 +16,11 @@ fn main() {
     println!("cargo:rerun-if-changed=shaders/canvas.vert");
     println!("cargo:rerun-if-changed=shaders/canvas.frag");
 
-    // Bake .vert/.frag → .qsb for QShader::fromSerialized
-    let qsb = PathBuf::from("/usr/lib/qt6/bin/qsb");
-    for name in ["canvas.vert", "canvas.frag"] {
-        let src = shader_dir.join(name);
-        let dst = out.join(format!("{name}.qsb"));
-        let status = Command::new(&qsb)
-            .args(["--glsl", "440,300 es", "--hlsl", "50", "--msl", "12", "-o"])
-            .arg(&dst)
-            .arg(&src)
-            .status()
-            .unwrap_or_else(|e| panic!("run qsb for {name}: {e}"));
-        assert!(status.success(), "qsb failed for {name}");
-    }
-
-    let moc = PathBuf::from("/usr/lib/qt6/moc");
-    let header = cpp_dir.join("phototux_canvas_item.h");
-    let moc_out = out.join("moc_phototux_canvas_item.cpp");
-
-    let status = Command::new(&moc)
-        .arg(&header)
-        .arg("-o")
-        .arg(&moc_out)
-        .arg("-I/usr/include/qt6")
-        .arg("-I/usr/include/qt6/QtCore")
-        .arg("-I/usr/include/qt6/QtGui")
-        .arg("-I/usr/include/qt6/QtQuick")
-        .status()
-        .expect("run moc");
-    assert!(status.success(), "moc failed");
-
-    let mut qt_headers = String::from("/usr/include/qt6");
-    if let Ok(out_q) = Command::new("/usr/lib/qt6/bin/qmake")
-        .args(["-query", "QT_INSTALL_HEADERS"])
-        .output()
-    {
-        qt_headers = String::from_utf8_lossy(&out_q.stdout).trim().to_string();
-    }
-
-    // Versioned private RHI headers (QQuickRhiItem lives in public QtQuick).
-    let mut ver_gui = None;
-    let mut ver_quick = None;
-    if let Ok(entries) = std::fs::read_dir(format!("{qt_headers}/QtGui")) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() && p.join("QtGui/rhi/qrhi.h").is_file() {
-                ver_gui = Some(p);
-            }
-        }
-    }
-    if let Ok(entries) = std::fs::read_dir(format!("{qt_headers}/QtQuick")) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() && p.join("QtQuick").is_dir() {
-                ver_quick = Some(p);
-            }
-        }
-    }
+    bake_qsb_shaders(&shader_dir, &out);
+    let moc_out = run_moc(&cpp_dir, &out);
+    let qt_headers = query_qt_headers();
+    let ver_gui = find_versioned_include(&qt_headers, "QtGui", "QtGui/rhi/qrhi.h");
+    let ver_quick = find_versioned_include(&qt_headers, "QtQuick", "QtQuick");
 
     let shader_define = format!("PHOTOTUX_SHADER_DIR=\"{}\"", out.display());
 
@@ -115,4 +63,62 @@ fn main() {
     println!("cargo:rustc-link-lib=Qt6Qml");
     println!("cargo:rustc-link-lib=Qt6Quick");
     println!("cargo:rustc-link-search=native=/usr/lib");
+}
+
+fn bake_qsb_shaders(shader_dir: &std::path::Path, out: &std::path::Path) {
+    let qsb = PathBuf::from("/usr/lib/qt6/bin/qsb");
+    for name in ["canvas.vert", "canvas.frag"] {
+        let src = shader_dir.join(name);
+        let dst = out.join(format!("{name}.qsb"));
+        let status = Command::new(&qsb)
+            .args(["--glsl", "440,300 es", "--hlsl", "50", "--msl", "12", "-o"])
+            .arg(&dst)
+            .arg(&src)
+            .status()
+            .unwrap_or_else(|e| panic!("run qsb for {name}: {e}"));
+        assert!(status.success(), "qsb failed for {name}");
+    }
+}
+
+fn run_moc(cpp_dir: &std::path::Path, out: &std::path::Path) -> PathBuf {
+    let moc = PathBuf::from("/usr/lib/qt6/moc");
+    let header = cpp_dir.join("phototux_canvas_item.h");
+    let moc_out = out.join("moc_phototux_canvas_item.cpp");
+    let status = Command::new(&moc)
+        .arg(&header)
+        .arg("-o")
+        .arg(&moc_out)
+        .arg("-I/usr/include/qt6")
+        .arg("-I/usr/include/qt6/QtCore")
+        .arg("-I/usr/include/qt6/QtGui")
+        .arg("-I/usr/include/qt6/QtQuick")
+        .status()
+        .expect("run moc");
+    assert!(status.success(), "moc failed");
+    moc_out
+}
+
+fn query_qt_headers() -> String {
+    let mut qt_headers = String::from("/usr/include/qt6");
+    if let Ok(out_q) = Command::new("/usr/lib/qt6/bin/qmake")
+        .args(["-query", "QT_INSTALL_HEADERS"])
+        .output()
+    {
+        qt_headers = String::from_utf8_lossy(&out_q.stdout).trim().to_string();
+    }
+    qt_headers
+}
+
+fn find_versioned_include(qt_headers: &str, module: &str, marker: &str) -> Option<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(format!("{qt_headers}/{module}")) else {
+        return None;
+    };
+    let mut found = None;
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() && p.join(marker).exists() {
+            found = Some(p);
+        }
+    }
+    found
 }

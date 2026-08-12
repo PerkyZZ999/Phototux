@@ -236,54 +236,76 @@ fn stroke_outline(
     for y in 0..h {
         for x in 0..w {
             let i = (y as usize * width as usize + x as usize) * 4;
-            if src[i + 3] == 0 {
+            if src[i + 3] == 0 || !is_alpha_edge(src, width, w, h, x, y) {
                 continue;
             }
-            let mut edge = false;
-            for oy in -1..=1 {
-                for ox in -1..=1 {
-                    if ox == 0 && oy == 0 {
-                        continue;
-                    }
-                    let nx = x + ox;
-                    let ny = y + oy;
-                    if nx < 0 || ny < 0 || nx >= w || ny >= h {
-                        edge = true;
-                        break;
-                    }
-                    let ni = (ny as usize * width as usize + nx as usize) * 4;
-                    if src[ni + 3] == 0 {
-                        edge = true;
-                        break;
-                    }
-                }
-                if edge {
-                    break;
-                }
-            }
-            if !edge {
+            stamp_stroke_disk(
+                dst,
+                width,
+                w,
+                h,
+                StrokeDisk {
+                    x,
+                    y,
+                    r,
+                    cr,
+                    cg,
+                    cb,
+                    opacity,
+                },
+            );
+        }
+    }
+}
+
+fn is_alpha_edge(src: &[u8], width: u32, w: i32, h: i32, x: i32, y: i32) -> bool {
+    for oy in -1..=1 {
+        for ox in -1..=1 {
+            if ox == 0 && oy == 0 {
                 continue;
             }
-            for oy in -r..=r {
-                for ox in -r..=r {
-                    if ox * ox + oy * oy > r * r {
-                        continue;
-                    }
-                    let px = x + ox;
-                    let py = y + oy;
-                    if px < 0 || py < 0 || px >= w || py >= h {
-                        continue;
-                    }
-                    let di = (py as usize * width as usize + px as usize) * 4;
-                    let cover = opacity;
-                    dst[di] = mix_u8(dst[di], cr, cover);
-                    dst[di + 1] = mix_u8(dst[di + 1], cg, cover);
-                    dst[di + 2] = mix_u8(dst[di + 2], cb, cover);
-                    dst[di + 3] = mix_u8(dst[di + 3], 255, cover);
-                }
+            let nx = x + ox;
+            let ny = y + oy;
+            if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                return true;
+            }
+            let ni = (ny as usize * width as usize + nx as usize) * 4;
+            if src[ni + 3] == 0 {
+                return true;
             }
         }
     }
+    false
+}
+
+fn stamp_stroke_disk(dst: &mut [u8], width: u32, w: i32, h: i32, disk: StrokeDisk) {
+    for oy in -disk.r..=disk.r {
+        for ox in -disk.r..=disk.r {
+            if ox * ox + oy * oy > disk.r * disk.r {
+                continue;
+            }
+            let px = disk.x + ox;
+            let py = disk.y + oy;
+            if px < 0 || py < 0 || px >= w || py >= h {
+                continue;
+            }
+            let di = (py as usize * width as usize + px as usize) * 4;
+            dst[di] = mix_u8(dst[di], disk.cr, disk.opacity);
+            dst[di + 1] = mix_u8(dst[di + 1], disk.cg, disk.opacity);
+            dst[di + 2] = mix_u8(dst[di + 2], disk.cb, disk.opacity);
+            dst[di + 3] = mix_u8(dst[di + 3], 255, disk.opacity);
+        }
+    }
+}
+
+struct StrokeDisk {
+    x: i32,
+    y: i32,
+    r: i32,
+    cr: u8,
+    cg: u8,
+    cb: u8,
+    opacity: f32,
 }
 
 fn over_straight(dst: &mut [u8], src: &[u8]) {

@@ -255,65 +255,104 @@ pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, para
     let hard = params.hardness;
     let tex_s = params.texture_strength;
     let use_noise = matches!(params.texture, BrushTextureKind::Noise) && tex_s > 0.001;
+    let stamp = DabStamp {
+        cx,
+        cy,
+        radius,
+        hard,
+        alpha,
+        use_noise,
+        tex_s,
+    };
     for y in y0..=y1 {
         for x in x0..=x1 {
-            let dx = x as f32 + 0.5 - cx;
-            let dy = y as f32 + 0.5 - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
-            let mut cover = dab_coverage(dist, radius, hard) * alpha;
-            if use_noise {
-                let n = tip_noise(x as u32, y as u32);
-                cover *= 1.0 - tex_s + tex_s * n;
-            }
-            if cover <= 0.001 {
-                continue;
-            }
-            let idx = ((y as u32 * width + x as u32) * 4) as usize;
-            if params.eraser {
-                let dst_a = f32::from(pixels[idx + 3]) / 255.0;
-                let out_a = (dst_a * (1.0 - cover)).clamp(0.0, 1.0);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "alpha byte after clamp"
-                )]
-                {
-                    pixels[idx + 3] = (out_a * 255.0).round() as u8;
-                }
-                if out_a < 0.001 {
-                    pixels[idx] = 0;
-                    pixels[idx + 1] = 0;
-                    pixels[idx + 2] = 0;
-                }
-            } else {
-                let src_a = cover;
-                let dst_a = f32::from(pixels[idx + 3]) / 255.0;
-                let out_a = src_a + dst_a * (1.0 - src_a);
-                if out_a < 0.001 {
-                    continue;
-                }
-                let dr = f32::from(pixels[idx]) / 255.0;
-                let dg = f32::from(pixels[idx + 1]) / 255.0;
-                let db = f32::from(pixels[idx + 2]) / 255.0;
-                let sr = params.color[0];
-                let sg = params.color[1];
-                let sb = params.color[2];
-                let or = (sr * src_a + dr * dst_a * (1.0 - src_a)) / out_a;
-                let og = (sg * src_a + dg * dst_a * (1.0 - src_a)) / out_a;
-                let ob = (sb * src_a + db * dst_a * (1.0 - src_a)) / out_a;
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "RGBA bytes after clamp"
-                )]
-                {
-                    pixels[idx] = (or * 255.0).round().clamp(0.0, 255.0) as u8;
-                    pixels[idx + 1] = (og * 255.0).round().clamp(0.0, 255.0) as u8;
-                    pixels[idx + 2] = (ob * 255.0).round().clamp(0.0, 255.0) as u8;
-                    pixels[idx + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-                }
-            }
+            stamp_dab_pixel(pixels, width, x, y, stamp, &params);
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DabStamp {
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    hard: f32,
+    alpha: f32,
+    use_noise: bool,
+    tex_s: f32,
+}
+
+fn stamp_dab_pixel(
+    pixels: &mut [u8],
+    width: u32,
+    x: i32,
+    y: i32,
+    stamp: DabStamp,
+    params: &BrushParams,
+) {
+    let dx = x as f32 + 0.5 - stamp.cx;
+    let dy = y as f32 + 0.5 - stamp.cy;
+    let dist = (dx * dx + dy * dy).sqrt();
+    let mut cover = dab_coverage(dist, stamp.radius, stamp.hard) * stamp.alpha;
+    if stamp.use_noise {
+        let n = tip_noise(x as u32, y as u32);
+        cover *= 1.0 - stamp.tex_s + stamp.tex_s * n;
+    }
+    if cover <= 0.001 {
+        return;
+    }
+    let idx = ((y as u32 * width + x as u32) * 4) as usize;
+    if params.eraser {
+        stamp_erase_pixel(pixels, idx, cover);
+    } else {
+        stamp_paint_pixel(pixels, idx, cover, params);
+    }
+}
+
+fn stamp_erase_pixel(pixels: &mut [u8], idx: usize, cover: f32) {
+    let dst_a = f32::from(pixels[idx + 3]) / 255.0;
+    let out_a = (dst_a * (1.0 - cover)).clamp(0.0, 1.0);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "alpha byte after clamp"
+    )]
+    {
+        pixels[idx + 3] = (out_a * 255.0).round() as u8;
+    }
+    if out_a < 0.001 {
+        pixels[idx] = 0;
+        pixels[idx + 1] = 0;
+        pixels[idx + 2] = 0;
+    }
+}
+
+fn stamp_paint_pixel(pixels: &mut [u8], idx: usize, cover: f32, params: &BrushParams) {
+    let src_a = cover;
+    let dst_a = f32::from(pixels[idx + 3]) / 255.0;
+    let out_a = src_a + dst_a * (1.0 - src_a);
+    if out_a < 0.001 {
+        return;
+    }
+    let dr = f32::from(pixels[idx]) / 255.0;
+    let dg = f32::from(pixels[idx + 1]) / 255.0;
+    let db = f32::from(pixels[idx + 2]) / 255.0;
+    let sr = params.color[0];
+    let sg = params.color[1];
+    let sb = params.color[2];
+    let or = (sr * src_a + dr * dst_a * (1.0 - src_a)) / out_a;
+    let og = (sg * src_a + dg * dst_a * (1.0 - src_a)) / out_a;
+    let ob = (sb * src_a + db * dst_a * (1.0 - src_a)) / out_a;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "RGBA bytes after clamp"
+    )]
+    {
+        pixels[idx] = (or * 255.0).round().clamp(0.0, 255.0) as u8;
+        pixels[idx + 1] = (og * 255.0).round().clamp(0.0, 255.0) as u8;
+        pixels[idx + 2] = (ob * 255.0).round().clamp(0.0, 255.0) as u8;
+        pixels[idx + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
     }
 }
 

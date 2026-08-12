@@ -58,6 +58,51 @@ pub fn import_psd_path(path: &Path) -> Result<PsdImport, PsdError> {
 /// # Errors
 /// Returns [`PsdError`] on signature/header/decode failure.
 pub fn import_psd_bytes(bytes: &[u8], name_hint: Option<&str>) -> Result<PsdImport, PsdError> {
+    let header = parse_psd_file_header(bytes)?;
+    let mut report = vec![
+        CompatibilityIssue {
+            code: "psd.subset".into(),
+            message: "Layered PSD import uses the documented PhotoTux subset; unsupported features are disclosed here.".into(),
+        },
+        CompatibilityIssue {
+            code: "psd.effects".into(),
+            message: "Layer styles / smart filters / vector masks are not imported; rasterize in the source app for fidelity.".into(),
+        },
+    ];
+
+    let name = name_hint.unwrap_or("Imported PSD").to_owned();
+    let mut cursor = Cursor::new(bytes);
+    cursor.set_position(26);
+    skip_length_prefixed_block(&mut cursor)?; // color mode data
+    skip_length_prefixed_block(&mut cursor)?; // image resources
+
+    let (mut graph, mut layer_rasters) =
+        ingest_layer_block(&mut cursor, header.width, header.height, &name, &mut report)?;
+    let flattened = decode_or_report_composite(
+        &mut cursor,
+        header.width,
+        header.height,
+        header.channels,
+        &mut graph,
+        &mut layer_rasters,
+        &mut report,
+    )?;
+
+    Ok(PsdImport {
+        graph,
+        flattened,
+        layer_rasters,
+        report,
+    })
+}
+
+struct PsdFileHeader {
+    channels: u16,
+    width: u32,
+    height: u32,
+}
+
+fn parse_psd_file_header(bytes: &[u8]) -> Result<PsdFileHeader, PsdError> {
     if bytes.len() < 26 {
         return Err(PsdError::BadSignature);
     }
@@ -84,60 +129,85 @@ pub fn import_psd_bytes(bytes: &[u8], name_hint: Option<&str>) -> Result<PsdImpo
         )));
     }
 
-    let mut report = vec![
-        CompatibilityIssue {
-            code: "psd.subset".into(),
-            message: "Layered PSD import uses the documented PhotoTux subset; unsupported features are disclosed here.".into(),
-        },
-        CompatibilityIssue {
-            code: "psd.effects".into(),
-            message: "Layer styles / smart filters / vector masks are not imported; rasterize in the source app for fidelity.".into(),
-        },
-    ];
+    Ok(PsdFileHeader {
+        channels,
+        width: width.clamp(1, MAX_DIMENSION),
+        height: height.clamp(1, MAX_DIMENSION),
+    })
+}
 
-    let width = width.clamp(1, MAX_DIMENSION);
-    let height = height.clamp(1, MAX_DIMENSION);
-    let name = name_hint.unwrap_or("Imported PSD").to_owned();
-
-    let mut cursor = Cursor::new(bytes);
-    cursor.set_position(26);
-    skip_length_prefixed_block(&mut cursor)?; // color mode data
-    skip_length_prefixed_block(&mut cursor)?; // image resources
-
-    let layer_block_len = read_u32_cursor(&mut cursor)?;
+fn ingest_layer_block(
+    cursor: &mut Cursor<&[u8]>,
+    width: u32,
+    height: u32,
+    name: &str,
+    report: &mut Vec<CompatibilityIssue>,
+) -> Result<(DocumentGraph, Vec<(LayerId, Raster)>), PsdError> {
+    let layer_block_len = read_u32_cursor(cursor)?;
     let layer_block_end = cursor.position().saturating_add(u64::from(layer_block_len));
-
     let mut layer_rasters = Vec::new();
-    let mut graph = DocumentGraph::new_flattened(DocumentSize::new(width, height), name.clone());
+    let mut graph = DocumentGraph::new_flattened(DocumentSize::new(width, height), name.to_owned());
 
     if layer_block_len > 0 {
-        match parse_layer_and_mask_info(&mut cursor, width, height, &mut report) {
-            Ok(parsed) if !parsed.is_empty() => {
-                let built = build_graph_from_layers(width, height, &name, &parsed, &mut report)?;
-                graph = built.0;
-                layer_rasters = built.1;
-            }
-            Ok(_) => {
-                report.push(CompatibilityIssue {
-                    code: "psd.layers".into(),
-                    message: "No raster layers were decoded; using flattened composite.".into(),
-                });
-            }
-            Err(error) => {
-                report.push(CompatibilityIssue {
-                    code: "psd.layers".into(),
-                    message: format!(
-                        "Layer section parse incomplete ({error}); using flattened composite."
-                    ),
-                });
-            }
-        }
+        apply_parsed_layers(
+            parse_layer_and_mask_info(cursor, width, height, report),
+            width,
+            height,
+            name,
+            report,
+            &mut graph,
+            &mut layer_rasters,
+        )?;
         if cursor.position() < layer_block_end {
             cursor.set_position(layer_block_end);
         }
     }
+    Ok((graph, layer_rasters))
+}
 
-    let flattened = match decode_composite_image(&mut cursor, width, height, channels) {
+fn apply_parsed_layers(
+    parsed: Result<Vec<ParsedLayer>, PsdError>,
+    width: u32,
+    height: u32,
+    name: &str,
+    report: &mut Vec<CompatibilityIssue>,
+    graph: &mut DocumentGraph,
+    layer_rasters: &mut Vec<(LayerId, Raster)>,
+) -> Result<(), PsdError> {
+    match parsed {
+        Ok(parsed) if !parsed.is_empty() => {
+            let built = build_graph_from_layers(width, height, name, &parsed, report)?;
+            *graph = built.0;
+            *layer_rasters = built.1;
+        }
+        Ok(_) => {
+            report.push(CompatibilityIssue {
+                code: "psd.layers".into(),
+                message: "No raster layers were decoded; using flattened composite.".into(),
+            });
+        }
+        Err(error) => {
+            report.push(CompatibilityIssue {
+                code: "psd.layers".into(),
+                message: format!(
+                    "Layer section parse incomplete ({error}); using flattened composite."
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn decode_or_report_composite(
+    cursor: &mut Cursor<&[u8]>,
+    width: u32,
+    height: u32,
+    channels: u16,
+    graph: &mut DocumentGraph,
+    layer_rasters: &mut Vec<(LayerId, Raster)>,
+    report: &mut Vec<CompatibilityIssue>,
+) -> Result<Option<Raster>, PsdError> {
+    match decode_composite_image(cursor, width, height, channels) {
         Ok(raster) => {
             if layer_rasters.is_empty() {
                 let layer_id = graph
@@ -146,7 +216,7 @@ pub fn import_psd_bytes(bytes: &[u8], name_hint: Option<&str>) -> Result<PsdImpo
                     .ok_or_else(|| PsdError::Parse("graph has no layer".into()))?;
                 layer_rasters.push((layer_id, raster.clone()));
             }
-            Some(raster)
+            Ok(Some(raster))
         }
         Err(error) => {
             report.push(CompatibilityIssue {
@@ -158,16 +228,9 @@ pub fn import_psd_bytes(bytes: &[u8], name_hint: Option<&str>) -> Result<PsdImpo
             if layer_rasters.is_empty() {
                 return Err(error);
             }
-            None
+            Ok(None)
         }
-    };
-
-    Ok(PsdImport {
-        graph,
-        flattened,
-        layer_rasters,
-        report,
-    })
+    }
 }
 
 /// Export a documented PSD v1 RGB8 subset (Raw compression).
@@ -291,96 +354,13 @@ fn parse_layer_and_mask_info(
 
     let mut headers = Vec::with_capacity(take);
     for _ in 0..layer_count {
-        let top = read_i32_cursor(cursor)?;
-        let left = read_i32_cursor(cursor)?;
-        let bottom = read_i32_cursor(cursor)?;
-        let right = read_i32_cursor(cursor)?;
-        let channel_count = read_u16_cursor(cursor)? as usize;
-        let mut channel_meta = Vec::with_capacity(channel_count);
-        for _ in 0..channel_count {
-            let id = read_i16_cursor(cursor)?;
-            let len = read_u32_cursor(cursor)?;
-            channel_meta.push((id, len));
-        }
-        let mut sig = [0_u8; 4];
-        cursor
-            .read_exact(&mut sig)
-            .map_err(|e| PsdError::Parse(e.to_string()))?;
-        if &sig != b"8BIM" {
-            return Err(PsdError::Parse("missing 8BIM blend signature".into()));
-        }
-        let mut blend_key = [0_u8; 4];
-        cursor
-            .read_exact(&mut blend_key)
-            .map_err(|e| PsdError::Parse(e.to_string()))?;
-        let opacity = read_u8_cursor(cursor)?;
-        let _clipping = read_u8_cursor(cursor)?;
-        let flags = read_u8_cursor(cursor)?;
-        let _filler = read_u8_cursor(cursor)?;
-        let extra_len = read_u32_cursor(cursor)?;
-        let extra_end = cursor.position().saturating_add(u64::from(extra_len));
-        // Skip layer mask + blending ranges.
-        let mask_len = read_u32_cursor(cursor)?;
-        cursor.set_position(cursor.position().saturating_add(u64::from(mask_len)));
-        let blend_ranges_len = read_u32_cursor(cursor)?;
-        cursor.set_position(
-            cursor
-                .position()
-                .saturating_add(u64::from(blend_ranges_len)),
-        );
-        let name = read_pascal_name(cursor)?;
-        if cursor.position() < extra_end {
-            cursor.set_position(extra_end);
-        }
-
-        let visible = (flags & 0x02) == 0;
-        let blend = blend_from_key(&blend_key);
-        if blend.is_none() {
-            report.push(CompatibilityIssue {
-                code: "psd.blend".into(),
-                message: format!(
-                    "Blend mode {:?} on layer '{name}' mapped to Normal.",
-                    String::from_utf8_lossy(&blend_key)
-                ),
-            });
-        }
-        headers.push((
-            ParsedLayer {
-                name,
-                top,
-                left,
-                bottom,
-                right,
-                opacity,
-                blend: blend.unwrap_or(BlendMode::Normal),
-                visible,
-                channels: Vec::new(),
-            },
-            channel_meta,
-        ));
+        headers.push(read_layer_header(cursor, report)?);
     }
 
     // Channel image data in file order for all layers.
     let mut parsed = Vec::new();
     for (mut layer, channel_meta) in headers.into_iter().take(take) {
-        let lw = (layer.right - layer.left).max(0) as u32;
-        let lh = (layer.bottom - layer.top).max(0) as u32;
-        for (id, declared_len) in channel_meta {
-            let start = cursor.position();
-            let data = if lw == 0 || lh == 0 || declared_len == 0 {
-                Vec::new()
-            } else {
-                decode_channel_image_data(cursor, lw, lh)?
-            };
-            let consumed = cursor.position().saturating_sub(start);
-            let declared = u64::from(declared_len);
-            if consumed < declared {
-                cursor.set_position(start.saturating_add(declared));
-            } else if consumed > declared && declared > 0 {
-                // Some writers under-declare; keep decoded data.
-            }
-            layer.channels.push((id, data));
-        }
+        read_layer_channels(cursor, &mut layer, channel_meta)?;
         let _ = (doc_w, doc_h);
         parsed.push(layer);
     }
@@ -390,6 +370,106 @@ fn parse_layer_and_mask_info(
     }
     // Remaining global mask info inside layer_block is ignored by caller positioning.
     Ok(parsed)
+}
+
+fn read_layer_header(
+    cursor: &mut Cursor<&[u8]>,
+    report: &mut Vec<CompatibilityIssue>,
+) -> Result<(ParsedLayer, Vec<(i16, u32)>), PsdError> {
+    let top = read_i32_cursor(cursor)?;
+    let left = read_i32_cursor(cursor)?;
+    let bottom = read_i32_cursor(cursor)?;
+    let right = read_i32_cursor(cursor)?;
+    let channel_count = read_u16_cursor(cursor)? as usize;
+    let mut channel_meta = Vec::with_capacity(channel_count);
+    for _ in 0..channel_count {
+        let id = read_i16_cursor(cursor)?;
+        let len = read_u32_cursor(cursor)?;
+        channel_meta.push((id, len));
+    }
+    let mut sig = [0_u8; 4];
+    cursor
+        .read_exact(&mut sig)
+        .map_err(|e| PsdError::Parse(e.to_string()))?;
+    if &sig != b"8BIM" {
+        return Err(PsdError::Parse("missing 8BIM blend signature".into()));
+    }
+    let mut blend_key = [0_u8; 4];
+    cursor
+        .read_exact(&mut blend_key)
+        .map_err(|e| PsdError::Parse(e.to_string()))?;
+    let opacity = read_u8_cursor(cursor)?;
+    let _clipping = read_u8_cursor(cursor)?;
+    let flags = read_u8_cursor(cursor)?;
+    let _filler = read_u8_cursor(cursor)?;
+    let extra_len = read_u32_cursor(cursor)?;
+    let extra_end = cursor.position().saturating_add(u64::from(extra_len));
+    skip_mask_and_blend_ranges(cursor)?;
+    let name = read_pascal_name(cursor)?;
+    if cursor.position() < extra_end {
+        cursor.set_position(extra_end);
+    }
+    let visible = (flags & 0x02) == 0;
+    let blend = blend_from_key(&blend_key);
+    if blend.is_none() {
+        report.push(CompatibilityIssue {
+            code: "psd.blend".into(),
+            message: format!(
+                "Blend mode {:?} on layer '{name}' mapped to Normal.",
+                String::from_utf8_lossy(&blend_key)
+            ),
+        });
+    }
+    Ok((
+        ParsedLayer {
+            name,
+            top,
+            left,
+            bottom,
+            right,
+            opacity,
+            blend: blend.unwrap_or(BlendMode::Normal),
+            visible,
+            channels: Vec::new(),
+        },
+        channel_meta,
+    ))
+}
+
+fn skip_mask_and_blend_ranges(cursor: &mut Cursor<&[u8]>) -> Result<(), PsdError> {
+    let mask_len = read_u32_cursor(cursor)?;
+    cursor.set_position(cursor.position().saturating_add(u64::from(mask_len)));
+    let blend_ranges_len = read_u32_cursor(cursor)?;
+    cursor.set_position(
+        cursor
+            .position()
+            .saturating_add(u64::from(blend_ranges_len)),
+    );
+    Ok(())
+}
+
+fn read_layer_channels(
+    cursor: &mut Cursor<&[u8]>,
+    layer: &mut ParsedLayer,
+    channel_meta: Vec<(i16, u32)>,
+) -> Result<(), PsdError> {
+    let lw = (layer.right - layer.left).max(0) as u32;
+    let lh = (layer.bottom - layer.top).max(0) as u32;
+    for (id, declared_len) in channel_meta {
+        let start = cursor.position();
+        let data = if lw == 0 || lh == 0 || declared_len == 0 {
+            Vec::new()
+        } else {
+            decode_channel_image_data(cursor, lw, lh)?
+        };
+        let consumed = cursor.position().saturating_sub(start);
+        let declared = u64::from(declared_len);
+        if consumed < declared {
+            cursor.set_position(start.saturating_add(declared));
+        }
+        layer.channels.push((id, data));
+    }
+    Ok(())
 }
 
 fn build_graph_from_layers(

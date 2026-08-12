@@ -913,66 +913,12 @@ impl SessionState {
         if targets.len() >= graph.layer_count() {
             return Err(CommandError::Rejected("cannot delete all layers"));
         }
-        for id in &targets {
-            let Some(layer) = graph.get(*id) else {
-                return Err(CommandError::Rejected("layer missing"));
-            };
-            if layer.locks.all {
-                return Err(CommandError::Rejected("layer is locked"));
-            }
-        }
+        reject_locked_layers(graph, &targets)?;
 
-        // Break clips whose base is being deleted (nearest non-clipping layer below).
-        let mut batch = Vec::new();
-        let order = graph.stack_order();
-        for (idx, id) in order.iter().enumerate() {
-            let Some(layer) = graph.get(*id) else {
-                continue;
-            };
-            if !layer.clips_to_below || targets.contains(id) {
-                continue;
-            }
-            let old_base = order[..idx]
-                .iter()
-                .rev()
-                .find(|below| graph.get(**below).is_some_and(|l| !l.clips_to_below));
-            if old_base.is_some_and(|b| targets.contains(b)) {
-                if let Some(true) = graph.set_clips_to_below(*id, false) {
-                    batch.push(crate::GraphCommand::SetClipsToBelow {
-                        id: *id,
-                        prev: true,
-                        next: false,
-                    });
-                }
-            }
-        }
-
-        let prev_active = graph.active_id();
+        let mut batch = break_clips_whose_base_deleted(graph, &targets);
         let broke = batch.len();
-        // Delete top→bottom so recorded indices match removal order.
-        let mut deletes = Vec::with_capacity(targets.len());
-        for id in targets.iter().rev() {
-            let Some((index, layer)) = graph.remove_layer(*id) else {
-                for cmd in deletes.iter().rev() {
-                    if let crate::GraphCommand::DeleteLayer { index, layer, .. } = cmd {
-                        graph.insert_layer_at(*index, layer.clone());
-                    }
-                }
-                for cmd in batch.iter().rev() {
-                    if let crate::GraphCommand::SetClipsToBelow { id, prev, .. } = cmd {
-                        let _ = graph.set_clips_to_below(*id, *prev);
-                    }
-                }
-                return Err(CommandError::Rejected("delete layer failed"));
-            };
-            deletes.push(crate::GraphCommand::DeleteLayer {
-                id: *id,
-                index,
-                layer,
-                prev_active,
-            });
-        }
-        deletes.reverse();
+        let prev_active = graph.active_id();
+        let deletes = delete_layers_recording(graph, &targets, prev_active, &batch)?;
         batch.extend(deletes);
         graph.bump_generation();
         let generation = graph.generation;
@@ -1139,23 +1085,7 @@ impl SessionState {
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        for id in &targets {
-            let Some(layer) = graph.get(*id) else {
-                return Err(CommandError::Rejected("layer missing"));
-            };
-            if layer.locks.all {
-                return Err(CommandError::Rejected("layer is locked"));
-            }
-            if layer.kind == LayerKind::Group {
-                for other in &targets {
-                    if *other != *id && graph.get(*other).is_some_and(|l| l.parent == Some(*id)) {
-                        return Err(CommandError::Rejected(
-                            "cannot group a group with its children",
-                        ));
-                    }
-                }
-            }
-        }
+        reject_group_targets(graph, &targets)?;
         if graph.layer_count() >= MAX_LAYERS {
             return Err(CommandError::Document(DocumentError::layer_limit(
                 MAX_LAYERS,
@@ -1171,24 +1101,7 @@ impl SessionState {
         let group_id = graph.add_group_top(Some("Group".into()))?;
         let _ = graph.move_layer(group_id, insert_at);
         let group_index = graph.index_of(group_id).unwrap_or(0);
-
-        let mut parent_cmds = Vec::new();
-        for id in &targets {
-            let Some(prev) = graph.set_parent(*id, Some(group_id)) else {
-                for cmd in parent_cmds.iter().rev() {
-                    if let crate::GraphCommand::SetParent { id, prev, .. } = cmd {
-                        let _ = graph.set_parent(*id, *prev);
-                    }
-                }
-                let _ = graph.remove_layer(group_id);
-                return Err(CommandError::Rejected("set parent failed"));
-            };
-            parent_cmds.push(crate::GraphCommand::SetParent {
-                id: *id,
-                prev,
-                next: Some(group_id),
-            });
-        }
+        let parent_cmds = reparent_into_group(graph, &targets, group_id)?;
 
         let mut batch = vec![crate::GraphCommand::AddLayer {
             id: group_id,
@@ -2979,6 +2892,153 @@ impl SessionState {
             generation,
         })
     }
+}
+
+fn reject_locked_layers(
+    graph: &crate::DocumentGraph,
+    targets: &[LayerId],
+) -> Result<(), CommandError> {
+    for id in targets {
+        let Some(layer) = graph.get(*id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.locks.all {
+            return Err(CommandError::Rejected("layer is locked"));
+        }
+    }
+    Ok(())
+}
+
+fn break_clips_whose_base_deleted(
+    graph: &mut crate::DocumentGraph,
+    targets: &[LayerId],
+) -> Vec<crate::GraphCommand> {
+    let mut batch = Vec::new();
+    let order = graph.stack_order();
+    for (idx, id) in order.iter().enumerate() {
+        let Some(layer) = graph.get(*id) else {
+            continue;
+        };
+        if !layer.clips_to_below || targets.contains(id) {
+            continue;
+        }
+        let old_base = order[..idx]
+            .iter()
+            .rev()
+            .find(|below| graph.get(**below).is_some_and(|l| !l.clips_to_below));
+        if old_base.is_some_and(|b| targets.contains(b))
+            && let Some(true) = graph.set_clips_to_below(*id, false)
+        {
+            batch.push(crate::GraphCommand::SetClipsToBelow {
+                id: *id,
+                prev: true,
+                next: false,
+            });
+        }
+    }
+    batch
+}
+
+fn rollback_clip_breaks(graph: &mut crate::DocumentGraph, batch: &[crate::GraphCommand]) {
+    for cmd in batch.iter().rev() {
+        if let crate::GraphCommand::SetClipsToBelow { id, prev, .. } = cmd {
+            let _ = graph.set_clips_to_below(*id, *prev);
+        }
+    }
+}
+
+fn delete_layers_recording(
+    graph: &mut crate::DocumentGraph,
+    targets: &[LayerId],
+    prev_active: Option<LayerId>,
+    clip_batch: &[crate::GraphCommand],
+) -> Result<Vec<crate::GraphCommand>, CommandError> {
+    let mut deletes = Vec::with_capacity(targets.len());
+    for id in targets.iter().rev() {
+        let Some((index, layer)) = graph.remove_layer(*id) else {
+            for cmd in deletes.iter().rev() {
+                if let crate::GraphCommand::DeleteLayer { index, layer, .. } = cmd {
+                    graph.insert_layer_at(*index, layer.clone());
+                }
+            }
+            rollback_clip_breaks(graph, clip_batch);
+            return Err(CommandError::Rejected("delete layer failed"));
+        };
+        deletes.push(crate::GraphCommand::DeleteLayer {
+            id: *id,
+            index,
+            layer,
+            prev_active,
+        });
+    }
+    deletes.reverse();
+    Ok(deletes)
+}
+
+fn reject_group_targets(
+    graph: &crate::DocumentGraph,
+    targets: &[LayerId],
+) -> Result<(), CommandError> {
+    for id in targets {
+        let Some(layer) = graph.get(*id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.locks.all {
+            return Err(CommandError::Rejected("layer is locked"));
+        }
+        if layer.kind == LayerKind::Group {
+            reject_grouping_group_with_children(graph, *id, targets)?;
+        }
+    }
+    Ok(())
+}
+
+fn reject_grouping_group_with_children(
+    graph: &crate::DocumentGraph,
+    group_id: LayerId,
+    targets: &[LayerId],
+) -> Result<(), CommandError> {
+    for other in targets {
+        if *other != group_id
+            && graph
+                .get(*other)
+                .is_some_and(|l| l.parent == Some(group_id))
+        {
+            return Err(CommandError::Rejected(
+                "cannot group a group with its children",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn rollback_parent_cmds(graph: &mut crate::DocumentGraph, cmds: &[crate::GraphCommand]) {
+    for cmd in cmds.iter().rev() {
+        if let crate::GraphCommand::SetParent { id, prev, .. } = cmd {
+            let _ = graph.set_parent(*id, *prev);
+        }
+    }
+}
+
+fn reparent_into_group(
+    graph: &mut crate::DocumentGraph,
+    targets: &[LayerId],
+    group_id: LayerId,
+) -> Result<Vec<crate::GraphCommand>, CommandError> {
+    let mut parent_cmds = Vec::new();
+    for id in targets {
+        let Some(prev) = graph.set_parent(*id, Some(group_id)) else {
+            rollback_parent_cmds(graph, &parent_cmds);
+            let _ = graph.remove_layer(group_id);
+            return Err(CommandError::Rejected("set parent failed"));
+        };
+        parent_cmds.push(crate::GraphCommand::SetParent {
+            id: *id,
+            prev,
+            next: Some(group_id),
+        });
+    }
+    Ok(parent_cmds)
 }
 
 #[cfg(test)]

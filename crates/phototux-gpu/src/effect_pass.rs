@@ -390,270 +390,259 @@ impl EffectPass {
             },
         );
 
-        if plan.gaussian > 0.01 {
-            let cur = if use_a {
-                &self.scratch_a
-            } else {
-                &self.scratch_b
-            };
-            let blurred = blur.blur(ctx, encoder, cur, plan.gaussian).clone();
-            let dst = if use_a {
-                &self.scratch_b
-            } else {
-                &self.scratch_a
-            };
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &blurred,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: dst,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: src.width(),
-                    height: src.height(),
-                    depth_or_array_layers: 1,
-                },
-            );
-            use_a = !use_a;
-        }
-
-        if let Some((distance, angle)) = plan.motion {
-            let (from, to) = if use_a {
-                (&self.scratch_a, &self.scratch_b)
-            } else {
-                (&self.scratch_b, &self.scratch_a)
-            };
-            self.run(
-                ctx,
-                encoder,
-                from,
-                &self.black,
-                to,
-                EffectUniformsGpu {
-                    mode: 1,
-                    p0: distance,
-                    p1: angle,
-                    p2: 0.0,
-                    color: [0.0; 4],
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = !use_a;
-        }
-
-        if let Some((strength, angle)) = plan.emboss {
-            let (from, to) = if use_a {
-                (&self.scratch_a, &self.scratch_b)
-            } else {
-                (&self.scratch_b, &self.scratch_a)
-            };
-            self.run(
-                ctx,
-                encoder,
-                from,
-                &self.black,
-                to,
-                EffectUniformsGpu {
-                    mode: 2,
-                    p0: strength,
-                    p1: angle,
-                    p2: 0.0,
-                    color: [0.0; 4],
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = !use_a;
-        }
-
-        if let Some(amount) = plan.sharpen {
-            let (from, to) = if use_a {
-                (&self.scratch_a, &self.scratch_b)
-            } else {
-                (&self.scratch_b, &self.scratch_a)
-            };
-            self.run(
-                ctx,
-                encoder,
-                from,
-                &self.black,
-                to,
-                EffectUniformsGpu {
-                    mode: 7,
-                    p0: amount,
-                    p1: 0.0,
-                    p2: 0.0,
-                    color: [0.0; 4],
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = !use_a;
-        }
-
-        if let Some(amount) = plan.noise {
-            let (from, to) = if use_a {
-                (&self.scratch_a, &self.scratch_b)
-            } else {
-                (&self.scratch_b, &self.scratch_a)
-            };
-            self.run(
-                ctx,
-                encoder,
-                from,
-                &self.black,
-                to,
-                EffectUniformsGpu {
-                    mode: 9,
-                    p0: amount,
-                    p1: 0.0,
-                    p2: 0.0,
-                    color: [0.0; 4],
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = !use_a;
-        }
-
-        let content = if use_a {
-            self.scratch_a.clone()
-        } else {
-            self.scratch_b.clone()
-        };
-
-        if let Some(shadow) = plan.drop_shadow {
-            let blur_r = shadow.blur.max(0.5);
-            let blurred = blur.blur(ctx, encoder, &content, blur_r).clone();
-            // Tint offset shadow into scratch_c
-            self.run(
-                ctx,
-                encoder,
-                &blurred,
-                &self.black,
-                &self.scratch_c,
-                EffectUniformsGpu {
-                    mode: 3,
-                    p0: shadow.opacity,
-                    p1: 0.0,
-                    p2: 0.0,
-                    color: shadow.color_rgba,
-                    offset: [shadow.offset_x, shadow.offset_y],
-                    _pad: [0.0; 2],
-                },
-            );
-            // content over shadow → scratch_a
-            self.run(
-                ctx,
-                encoder,
-                &content,
-                &self.scratch_c,
-                &self.scratch_a,
-                EffectUniformsGpu {
-                    mode: 5,
-                    p0: 0.0,
-                    p1: 0.0,
-                    p2: 0.0,
-                    color: [0.0; 4],
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = true;
-        }
-
-        if let Some(overlay) = plan.color_overlay {
-            let src = if use_a {
-                self.scratch_a.clone()
-            } else {
-                self.scratch_b.clone()
-            };
-            let dst = if use_a {
-                &self.scratch_b
-            } else {
-                &self.scratch_a
-            };
-            self.run(
-                ctx,
-                encoder,
-                &src,
-                &self.black,
-                dst,
-                EffectUniformsGpu {
-                    mode: 8,
-                    p0: overlay.opacity,
-                    p1: 0.0,
-                    p2: 0.0,
-                    color: overlay.color_rgba,
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = !use_a;
-        }
-
-        if let Some(stroke) = plan.stroke {
-            let base = if use_a {
-                self.scratch_a.clone()
-            } else {
-                self.scratch_b.clone()
-            };
-            // Ring into scratch_c
-            self.run(
-                ctx,
-                encoder,
-                &base,
-                &self.black,
-                &self.scratch_c,
-                EffectUniformsGpu {
-                    mode: 4,
-                    p0: stroke.width,
-                    p1: stroke.opacity,
-                    p2: 0.0,
-                    color: stroke.color_rgba,
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            // stroke over base → opposite scratch
-            let dst = if use_a {
-                &self.scratch_b
-            } else {
-                &self.scratch_a
-            };
-            // Stroke ring (src) over base (under).
-            self.run(
-                ctx,
-                encoder,
-                &self.scratch_c,
-                &base,
-                dst,
-                EffectUniformsGpu {
-                    mode: 5,
-                    p0: 0.0,
-                    p1: 0.0,
-                    p2: 0.0,
-                    color: [0.0; 4],
-                    offset: [0.0; 2],
-                    _pad: [0.0; 2],
-                },
-            );
-            use_a = !use_a;
-        }
+        self.apply_gaussian(ctx, encoder, blur, plan.gaussian, &mut use_a);
+        self.apply_pair_filter(ctx, encoder, 1, plan.motion, &mut use_a);
+        self.apply_pair_filter(ctx, encoder, 2, plan.emboss, &mut use_a);
+        self.apply_amount_filter(ctx, encoder, 7, plan.sharpen, &mut use_a);
+        self.apply_amount_filter(ctx, encoder, 9, plan.noise, &mut use_a);
+        self.apply_drop_shadow(ctx, encoder, blur, plan.drop_shadow, &mut use_a);
+        self.apply_color_overlay(ctx, encoder, plan.color_overlay, &mut use_a);
+        self.apply_stroke_style(ctx, encoder, plan.stroke, &mut use_a);
 
         if use_a {
             self.scratch_a.clone()
         } else {
             self.scratch_b.clone()
         }
+    }
+
+    fn ping_pong(&self, use_a: bool) -> (&wgpu::Texture, &wgpu::Texture) {
+        if use_a {
+            (&self.scratch_a, &self.scratch_b)
+        } else {
+            (&self.scratch_b, &self.scratch_a)
+        }
+    }
+
+    fn copy_full(encoder: &mut wgpu::CommandEncoder, src: &wgpu::Texture, dst: &wgpu::Texture) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: src,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: dst,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: src.width(),
+                height: src.height(),
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn apply_gaussian(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        blur: &mut SeparableBlur,
+        gaussian: f32,
+        use_a: &mut bool,
+    ) {
+        if gaussian <= 0.01 {
+            return;
+        }
+        let (cur, dst) = self.ping_pong(*use_a);
+        let blurred = blur.blur(ctx, encoder, cur, gaussian).clone();
+        Self::copy_full(encoder, &blurred, dst);
+        *use_a = !*use_a;
+    }
+
+    fn apply_pair_filter(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        mode: u32,
+        params: Option<(f32, f32)>,
+        use_a: &mut bool,
+    ) {
+        let Some((p0, p1)) = params else {
+            return;
+        };
+        let (from, to) = self.ping_pong(*use_a);
+        self.run(
+            ctx,
+            encoder,
+            from,
+            &self.black,
+            to,
+            EffectUniformsGpu {
+                mode,
+                p0,
+                p1,
+                p2: 0.0,
+                color: [0.0; 4],
+                offset: [0.0; 2],
+                _pad: [0.0; 2],
+            },
+        );
+        *use_a = !*use_a;
+    }
+
+    fn apply_amount_filter(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        mode: u32,
+        amount: Option<f32>,
+        use_a: &mut bool,
+    ) {
+        let Some(p0) = amount else {
+            return;
+        };
+        self.apply_pair_filter(ctx, encoder, mode, Some((p0, 0.0)), use_a);
+    }
+
+    fn apply_drop_shadow(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        blur: &mut SeparableBlur,
+        shadow: Option<ShadowPlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(shadow) = shadow else {
+            return;
+        };
+        let content = if *use_a {
+            self.scratch_a.clone()
+        } else {
+            self.scratch_b.clone()
+        };
+        let blur_r = shadow.blur.max(0.5);
+        let blurred = blur.blur(ctx, encoder, &content, blur_r).clone();
+        self.run(
+            ctx,
+            encoder,
+            &blurred,
+            &self.black,
+            &self.scratch_c,
+            EffectUniformsGpu {
+                mode: 3,
+                p0: shadow.opacity,
+                p1: 0.0,
+                p2: 0.0,
+                color: shadow.color_rgba,
+                offset: [shadow.offset_x, shadow.offset_y],
+                _pad: [0.0; 2],
+            },
+        );
+        self.run(
+            ctx,
+            encoder,
+            &content,
+            &self.scratch_c,
+            &self.scratch_a,
+            EffectUniformsGpu {
+                mode: 5,
+                p0: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                color: [0.0; 4],
+                offset: [0.0; 2],
+                _pad: [0.0; 2],
+            },
+        );
+        *use_a = true;
+    }
+
+    fn apply_color_overlay(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        overlay: Option<ColorOverlayPlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(overlay) = overlay else {
+            return;
+        };
+        let src = if *use_a {
+            self.scratch_a.clone()
+        } else {
+            self.scratch_b.clone()
+        };
+        let dst = if *use_a {
+            &self.scratch_b
+        } else {
+            &self.scratch_a
+        };
+        self.run(
+            ctx,
+            encoder,
+            &src,
+            &self.black,
+            dst,
+            EffectUniformsGpu {
+                mode: 8,
+                p0: overlay.opacity,
+                p1: 0.0,
+                p2: 0.0,
+                color: overlay.color_rgba,
+                offset: [0.0; 2],
+                _pad: [0.0; 2],
+            },
+        );
+        *use_a = !*use_a;
+    }
+
+    fn apply_stroke_style(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        stroke: Option<StrokePlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(stroke) = stroke else {
+            return;
+        };
+        let base = if *use_a {
+            self.scratch_a.clone()
+        } else {
+            self.scratch_b.clone()
+        };
+        self.run(
+            ctx,
+            encoder,
+            &base,
+            &self.black,
+            &self.scratch_c,
+            EffectUniformsGpu {
+                mode: 4,
+                p0: stroke.width,
+                p1: stroke.opacity,
+                p2: 0.0,
+                color: stroke.color_rgba,
+                offset: [0.0; 2],
+                _pad: [0.0; 2],
+            },
+        );
+        let dst = if *use_a {
+            &self.scratch_b
+        } else {
+            &self.scratch_a
+        };
+        self.run(
+            ctx,
+            encoder,
+            &self.scratch_c,
+            &base,
+            dst,
+            EffectUniformsGpu {
+                mode: 5,
+                p0: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                color: [0.0; 4],
+                offset: [0.0; 2],
+                _pad: [0.0; 2],
+            },
+        );
+        *use_a = !*use_a;
     }
 }
 

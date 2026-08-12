@@ -594,6 +594,121 @@ impl LayerCompositeEngine {
         Ok(())
     }
 
+    fn layer_params_gpu(&self, layer: &Layer) -> LayerParamsGpu {
+        let _ = self.layer_index.get(&layer.id);
+        let (a, b, c, d, tx, ty) = inverse_affine_coeffs(layer.transform, self.width, self.height);
+        let (has_mask, mask_enabled, mask_inverted) = match &layer.mask {
+            Some(m) if self.mask_tex.contains_key(&layer.id) => {
+                (1u32, u32::from(m.enabled), u32::from(m.inverted))
+            }
+            _ => (0, 0, 0),
+        };
+        let (kind, adj_op, mut p0, mut p1, p2, mut p3) = adjustment_gpu_params(layer);
+        if kind == 0 {
+            if let Some(m) = layer.mask.as_ref() {
+                p0 = m.contrast.clamp(-1.0, 1.0);
+                p1 = m.shift.clamp(-1.0, 1.0);
+                p3 = m.density.clamp(0.0, 1.0);
+            } else {
+                p3 = 1.0;
+            }
+        }
+        LayerParamsGpu {
+            opacity: layer.opacity.clamp(0.0, 1.0),
+            mode: layer.blend.as_u32(),
+            visible: u32::from(layer.visible),
+            has_mask,
+            a,
+            b,
+            c,
+            d,
+            tx,
+            ty,
+            mask_enabled,
+            mask_inverted,
+            clips_to_below: u32::from(layer.clips_to_below),
+            kind,
+            adj_op,
+            _pad0: 0,
+            p0,
+            p1,
+            p2,
+            p3,
+        }
+    }
+
+    fn pack_all_layer_slices(
+        &mut self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), String> {
+        self.layer_index.clear();
+        let mut pack = Vec::with_capacity(self.stack_order.len().min(MAX_LAYERS));
+        for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
+            let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
+            pack.push((*id, slice));
+        }
+        for (id, slice) in pack {
+            self.layer_index.insert(id, slice);
+            self.copy_layer_slice(ctx, encoder, id, slice)?;
+        }
+        Ok(())
+    }
+
+    fn pack_dirty_layer_slices(
+        &mut self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), String> {
+        let dirty: Vec<(LayerId, u32)> = self
+            .dirty_slices
+            .iter()
+            .filter_map(|&slice| {
+                self.stack_order
+                    .get(slice as usize)
+                    .copied()
+                    .map(|id| (id, slice))
+            })
+            .collect();
+        for (id, slice) in dirty {
+            self.copy_layer_slice(ctx, encoder, id, slice)?;
+        }
+        Ok(())
+    }
+
+    fn pack_all_mask_slices(&mut self, encoder: &mut wgpu::CommandEncoder) -> Result<(), String> {
+        for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
+            let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
+            self.copy_mask_slice(encoder, *id, slice);
+        }
+        Ok(())
+    }
+
+    fn pack_dirty_mask_slices(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        for &slice in &self.dirty_mask_slices {
+            let Some(id) = self.stack_order.get(slice as usize).copied() else {
+                continue;
+            };
+            self.copy_mask_slice(encoder, id, slice);
+        }
+    }
+
+    fn copy_mask_slice(&self, encoder: &mut wgpu::CommandEncoder, id: LayerId, slice: u32) {
+        let src = self
+            .mask_tex
+            .get(&id)
+            .map(LayerMaskChannel::texture)
+            .unwrap_or(&self.mask_white);
+        copy_slice_2d(
+            encoder,
+            src,
+            &self.mask_array_tex,
+            slice,
+            self.width,
+            self.height,
+        );
+    }
+
     fn copy_layer_slice(
         &mut self,
         ctx: &GpuContext,
@@ -641,68 +756,15 @@ impl LayerCompositeEngine {
             });
 
         if self.array_dirty {
-            self.layer_index.clear();
-            let mut pack = Vec::with_capacity(self.stack_order.len().min(MAX_LAYERS));
-            for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
-                let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
-                pack.push((*id, slice));
-            }
-            for (id, slice) in pack {
-                self.layer_index.insert(id, slice);
-                self.copy_layer_slice(ctx, &mut encoder, id, slice)?;
-            }
+            self.pack_all_layer_slices(ctx, &mut encoder)?;
         } else {
-            let dirty: Vec<(LayerId, u32)> = self
-                .dirty_slices
-                .iter()
-                .filter_map(|&slice| {
-                    self.stack_order
-                        .get(slice as usize)
-                        .copied()
-                        .map(|id| (id, slice))
-                })
-                .collect();
-            for (id, slice) in dirty {
-                self.copy_layer_slice(ctx, &mut encoder, id, slice)?;
-            }
+            self.pack_dirty_layer_slices(ctx, &mut encoder)?;
         }
 
         if self.mask_dirty {
-            for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
-                let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
-                let src = self
-                    .mask_tex
-                    .get(id)
-                    .map(LayerMaskChannel::texture)
-                    .unwrap_or(&self.mask_white);
-                copy_slice_2d(
-                    &mut encoder,
-                    src,
-                    &self.mask_array_tex,
-                    slice,
-                    self.width,
-                    self.height,
-                );
-            }
+            self.pack_all_mask_slices(&mut encoder)?;
         } else {
-            for &slice in &self.dirty_mask_slices {
-                let Some(id) = self.stack_order.get(slice as usize).copied() else {
-                    continue;
-                };
-                let src = self
-                    .mask_tex
-                    .get(&id)
-                    .map(LayerMaskChannel::texture)
-                    .unwrap_or(&self.mask_white);
-                copy_slice_2d(
-                    &mut encoder,
-                    src,
-                    &self.mask_array_tex,
-                    slice,
-                    self.width,
-                    self.height,
-                );
-            }
+            self.pack_dirty_mask_slices(&mut encoder);
         }
 
         ctx.queue.submit(Some(encoder.finish()));
@@ -711,48 +773,52 @@ impl LayerCompositeEngine {
             .map_err(|error| format!("GPU poll failed during array repack: {error:?}"))?;
 
         if self.array_dirty || self.mask_dirty || self.bind_group.is_none() {
-            let array_view = self.array_tex.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("array-view"),
-                format: None,
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..Default::default()
-            });
-            let mask_view = self
-                .mask_array_tex
-                .create_view(&wgpu::TextureViewDescriptor {
-                    label: Some("mask-array-view"),
-                    format: None,
-                    dimension: Some(wgpu::TextureViewDimension::D2Array),
-                    ..Default::default()
-                });
-            self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("composite-bg"),
-                layout: &self.bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&array_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&mask_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: self.uniform_buf.as_entire_binding(),
-                    },
-                ],
-            }));
+            self.rebuild_composite_bind_group(ctx);
         }
         self.array_dirty = false;
         self.mask_dirty = false;
         self.dirty_slices.clear();
         self.dirty_mask_slices.clear();
         Ok(())
+    }
+
+    fn rebuild_composite_bind_group(&mut self, ctx: &GpuContext) {
+        let array_view = self.array_tex.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("array-view"),
+            format: None,
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let mask_view = self
+            .mask_array_tex
+            .create_view(&wgpu::TextureViewDescriptor {
+                label: Some("mask-array-view"),
+                format: None,
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+        self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("composite-bg"),
+            layout: &self.bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&array_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&mask_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.uniform_buf.as_entire_binding(),
+                },
+            ],
+        }));
     }
 
     /// Composite layers bottom→top in one full-screen pass. Returns host-measured ms (submit+poll).
@@ -797,48 +863,7 @@ impl LayerCompositeEngine {
         };
 
         for (i, layer) in layers_bottom_to_top.iter().take(count).enumerate() {
-            let _ = self.layer_index.get(&layer.id);
-            let (a, b, c, d, tx, ty) =
-                inverse_affine_coeffs(layer.transform, self.width, self.height);
-            let (has_mask, mask_enabled, mask_inverted) = match &layer.mask {
-                Some(m) if self.mask_tex.contains_key(&layer.id) => {
-                    (1u32, u32::from(m.enabled), u32::from(m.inverted))
-                }
-                _ => (0, 0, 0),
-            };
-            let (kind, adj_op, mut p0, mut p1, p2, mut p3) = adjustment_gpu_params(layer);
-            // Non-adjustment layers: mask contrast/shift in p0/p1, density in p3.
-            if kind == 0 {
-                if let Some(m) = layer.mask.as_ref() {
-                    p0 = m.contrast.clamp(-1.0, 1.0);
-                    p1 = m.shift.clamp(-1.0, 1.0);
-                    p3 = m.density.clamp(0.0, 1.0);
-                } else {
-                    p3 = 1.0;
-                }
-            }
-            uniforms.layers[i] = LayerParamsGpu {
-                opacity: layer.opacity.clamp(0.0, 1.0),
-                mode: layer.blend.as_u32(),
-                visible: u32::from(layer.visible),
-                has_mask,
-                a,
-                b,
-                c,
-                d,
-                tx,
-                ty,
-                mask_enabled,
-                mask_inverted,
-                clips_to_below: u32::from(layer.clips_to_below),
-                kind,
-                adj_op,
-                _pad0: 0,
-                p0,
-                p1,
-                p2,
-                p3,
-            };
+            uniforms.layers[i] = self.layer_params_gpu(layer);
         }
 
         ctx.queue

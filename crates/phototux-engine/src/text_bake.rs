@@ -137,42 +137,53 @@ fn glyph_bits(ch: u8) -> Option<[u8; GLYPH_H]> {
 fn layout_lines(text: &str, wrap: bool, max_cols: usize) -> Vec<String> {
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
-        if !wrap || max_cols == 0 {
-            lines.push(paragraph.to_owned());
-            continue;
-        }
-        let mut current = String::new();
-        for word in paragraph.split_whitespace() {
-            if current.is_empty() {
-                if word.chars().count() > max_cols {
-                    let mut buf = String::new();
-                    for ch in word.chars() {
-                        if buf.chars().count() >= max_cols {
-                            lines.push(std::mem::take(&mut buf));
-                        }
-                        buf.push(ch);
-                    }
-                    current = buf;
-                } else {
-                    current = word.to_owned();
-                }
-                continue;
-            }
-            let next_len = current.chars().count() + 1 + word.chars().count();
-            if next_len <= max_cols {
-                current.push(' ');
-                current.push_str(word);
-            } else {
-                lines.push(std::mem::take(&mut current));
-                current = word.to_owned();
-            }
-        }
-        lines.push(current);
+        wrap_paragraph(paragraph, wrap, max_cols, &mut lines);
     }
     if lines.is_empty() {
         lines.push(String::new());
     }
     lines
+}
+
+fn wrap_paragraph(paragraph: &str, wrap: bool, max_cols: usize, lines: &mut Vec<String>) {
+    if !wrap || max_cols == 0 {
+        lines.push(paragraph.to_owned());
+        return;
+    }
+    let mut current = String::new();
+    for word in paragraph.split_whitespace() {
+        append_wrapped_word(word, max_cols, &mut current, lines);
+    }
+    lines.push(current);
+}
+
+fn append_wrapped_word(word: &str, max_cols: usize, current: &mut String, lines: &mut Vec<String>) {
+    if current.is_empty() {
+        *current = split_long_word(word, max_cols, lines);
+        return;
+    }
+    let next_len = current.chars().count() + 1 + word.chars().count();
+    if next_len <= max_cols {
+        current.push(' ');
+        current.push_str(word);
+    } else {
+        lines.push(std::mem::take(current));
+        *current = word.to_owned();
+    }
+}
+
+fn split_long_word(word: &str, max_cols: usize, lines: &mut Vec<String>) -> String {
+    if word.chars().count() <= max_cols {
+        return word.to_owned();
+    }
+    let mut buf = String::new();
+    for ch in word.chars() {
+        if buf.chars().count() >= max_cols {
+            lines.push(std::mem::take(&mut buf));
+        }
+        buf.push(ch);
+    }
+    buf
 }
 
 /// Bake `content` into a straight RGBA8 buffer sized `width × height`.
@@ -230,39 +241,98 @@ pub fn bake_text_rgba8(content: &TextContent, width: u32, height: u32) -> Result
         if pen_y >= frame_h - margin {
             break;
         }
-        let mut pen_x = margin;
-        for ch in line.chars() {
-            let byte = if ch.is_ascii() { ch as u8 } else { b'?' };
-            if let Some(rows) = glyph_bits(byte) {
-                for (row_i, row) in rows.iter().enumerate() {
-                    for col in 0..GLYPH_W {
-                        let on = (row >> (GLYPH_W - 1 - col)) & 1 == 1;
-                        if !on {
-                            continue;
-                        }
-                        for sy in 0..scale {
-                            for sx in 0..scale {
-                                let x = pen_x + col as i32 * scale + sx;
-                                let y = pen_y + row_i as i32 * scale + sy;
-                                if x < 0 || y < 0 || x >= w || y >= h {
-                                    continue;
-                                }
-                                let o = (y as usize * width as usize + x as usize) * 4;
-                                out[o] = color[0];
-                                out[o + 1] = color[1];
-                                out[o + 2] = color[2];
-                                out[o + 3] = color[3];
-                            }
-                        }
-                    }
-                }
-            }
-            let track = (content.tracking * scale as f32).round() as i32;
-            pen_x += cell_w + track;
-        }
+        let mut buf = GlyphBuffer {
+            out: &mut out,
+            width,
+            w,
+            h,
+        };
+        stamp_line(
+            &mut buf,
+            margin,
+            pen_y,
+            scale,
+            cell_w,
+            content.tracking,
+            &line,
+            color,
+        );
         pen_y += cell_h;
     }
     Ok(out)
+}
+
+struct GlyphBuffer<'a> {
+    out: &'a mut [u8],
+    width: u32,
+    w: i32,
+    h: i32,
+}
+
+fn stamp_line(
+    buf: &mut GlyphBuffer<'_>,
+    margin: i32,
+    pen_y: i32,
+    scale: i32,
+    cell_w: i32,
+    tracking: f32,
+    line: &str,
+    color: [u8; 4],
+) {
+    let mut pen_x = margin;
+    for ch in line.chars() {
+        let byte = if ch.is_ascii() { ch as u8 } else { b'?' };
+        stamp_glyph(buf, pen_x, pen_y, scale, byte, color);
+        let track = (tracking * scale as f32).round() as i32;
+        pen_x += cell_w + track;
+    }
+}
+
+fn stamp_glyph(
+    buf: &mut GlyphBuffer<'_>,
+    pen_x: i32,
+    pen_y: i32,
+    scale: i32,
+    byte: u8,
+    color: [u8; 4],
+) {
+    let Some(rows) = glyph_bits(byte) else {
+        return;
+    };
+    for (row_i, row) in rows.iter().enumerate() {
+        for col in 0..GLYPH_W {
+            let on = (row >> (GLYPH_W - 1 - col)) & 1 == 1;
+            if !on {
+                continue;
+            }
+            stamp_scaled_dot(buf, pen_x, pen_y, scale, col as i32, row_i as i32, color);
+        }
+    }
+}
+
+fn stamp_scaled_dot(
+    buf: &mut GlyphBuffer<'_>,
+    pen_x: i32,
+    pen_y: i32,
+    scale: i32,
+    col: i32,
+    row_i: i32,
+    color: [u8; 4],
+) {
+    for sy in 0..scale {
+        for sx in 0..scale {
+            let x = pen_x + col * scale + sx;
+            let y = pen_y + row_i * scale + sy;
+            if x < 0 || y < 0 || x >= buf.w || y >= buf.h {
+                continue;
+            }
+            let o = (y as usize * buf.width as usize + x as usize) * 4;
+            buf.out[o] = color[0];
+            buf.out[o + 1] = color[1];
+            buf.out[o + 2] = color[2];
+            buf.out[o + 3] = color[3];
+        }
+    }
 }
 
 #[cfg(test)]

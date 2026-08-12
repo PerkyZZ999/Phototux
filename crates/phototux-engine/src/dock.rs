@@ -262,34 +262,9 @@ impl DockTopology {
         }
         let known: Vec<_> = default_panels().into_iter().map(|p| p.id).collect();
         let mut seen = std::collections::HashSet::new();
-        for id in &self.right_stack {
-            if !known.iter().any(|k| k == id) {
-                return Err("unknown panel id in right_stack");
-            }
-            if !seen.insert(id.as_str()) {
-                return Err("duplicate panel id in right_stack");
-            }
-        }
-        for panel in &self.floating {
-            if !known.iter().any(|k| k == &panel.id) {
-                return Err("unknown panel id in floating");
-            }
-            if !seen.insert(panel.id.as_str()) {
-                return Err("panel both docked and floating");
-            }
-            if panel.width < 200 || panel.height < 120 {
-                return Err("floating geometry too small");
-            }
-        }
-        let mut auto_seen = std::collections::HashSet::new();
-        for id in &self.auto_hidden {
-            if !self.is_docked(id) {
-                return Err("auto-hidden panel must be docked");
-            }
-            if !auto_seen.insert(id.as_str()) {
-                return Err("duplicate auto-hidden panel");
-            }
-        }
+        validate_right_stack(&self.right_stack, &known, &mut seen)?;
+        validate_floating(&self.floating, &known, &mut seen)?;
+        validate_auto_hidden(&self.auto_hidden, |id| self.is_docked(id))?;
         Ok(())
     }
 
@@ -303,6 +278,57 @@ impl DockTopology {
         topo.validate().map_err(str::to_owned)?;
         Ok(topo)
     }
+}
+
+fn validate_right_stack<'a>(
+    right_stack: &'a [String],
+    known: &[String],
+    seen: &mut std::collections::HashSet<&'a str>,
+) -> Result<(), &'static str> {
+    for id in right_stack {
+        if !known.iter().any(|k| k == id) {
+            return Err("unknown panel id in right_stack");
+        }
+        if !seen.insert(id.as_str()) {
+            return Err("duplicate panel id in right_stack");
+        }
+    }
+    Ok(())
+}
+
+fn validate_floating<'a>(
+    floating: &'a [FloatingPanelPlacement],
+    known: &[String],
+    seen: &mut std::collections::HashSet<&'a str>,
+) -> Result<(), &'static str> {
+    for panel in floating {
+        if !known.iter().any(|k| k == &panel.id) {
+            return Err("unknown panel id in floating");
+        }
+        if !seen.insert(panel.id.as_str()) {
+            return Err("panel both docked and floating");
+        }
+        if panel.width < 200 || panel.height < 120 {
+            return Err("floating geometry too small");
+        }
+    }
+    Ok(())
+}
+
+fn validate_auto_hidden(
+    auto_hidden: &[String],
+    is_docked: impl Fn(&str) -> bool,
+) -> Result<(), &'static str> {
+    let mut auto_seen = std::collections::HashSet::new();
+    for id in auto_hidden {
+        if !is_docked(id) {
+            return Err("auto-hidden panel must be docked");
+        }
+        if !auto_seen.insert(id.as_str()) {
+            return Err("duplicate auto-hidden panel");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

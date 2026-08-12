@@ -5,6 +5,7 @@ mod file_worker;
 mod fonts;
 mod prefs;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -49,8 +50,8 @@ struct TransformSnapshot {
 const SELECTION_UNDO_LIMIT: usize = 64;
 const TRANSFORM_UNDO_LIMIT: usize = 32;
 use phototux_io::{
-    PtxDocument, RasterFormat, discard_recovery, format_report, list_recoverable, load_recovery,
-    write_stroke_journal,
+    CompatibilityIssue, PtxDocument, Raster, RasterFormat, discard_recovery, format_report,
+    list_recoverable, load_recovery, write_stroke_journal,
 };
 use qtbridge::qobject;
 
@@ -569,44 +570,52 @@ impl AppSession {
         self.clear_selection_stacks();
         self.clear_transform_stacks();
         match phototux_canvas::open_document(graph.size, graph.layers()) {
-            Ok(ms) => {
-                for (id, raster) in rasters {
-                    if let Err(error) =
-                        phototux_canvas::write_layer_rgba(LayerId(id), raster.pixels())
-                    {
-                        self.fail_io("Open", &error);
-                        return;
-                    }
-                }
-                for (id, mask) in masks {
-                    let r8: Vec<u8> = mask.pixels().chunks_exact(4).map(|rgba| rgba[0]).collect();
-                    if let Err(error) = phototux_canvas::write_mask_r8(LayerId(id), &r8) {
-                        self.fail_io("Open", &error);
-                        return;
-                    }
-                }
-                self.engine.replace_graph(graph);
-                self.engine.document_path = Some(path.display().to_string());
-                self.engine.set_composite_ms(ms);
-                self.document_name = title;
-                self.dirty = true;
-                self.io_busy = false;
-                self.compatibility_report.clear();
-                self.publish_pixel_snapshot_from_gpu();
-                self.sync_from_engine();
-                self.emit_doc_fields();
-                self.compatibility_report_changed();
-                self.refresh_document_tabs_json();
-                if let Ok(export_path) = std::env::var("PHOTOTUX_DESKTOP_EXPORT") {
-                    let url = if export_path.starts_with("file:") {
-                        export_path
-                    } else {
-                        format!("file://{export_path}")
-                    };
-                    self.export_raster_file(url);
-                }
-            }
+            Ok(ms) => self.finish_opened_ptx(path, title, graph, rasters, masks, ms),
             Err(error) => self.fail_io("Open", &error),
+        }
+    }
+
+    fn finish_opened_ptx(
+        &mut self,
+        path: PathBuf,
+        title: String,
+        graph: DocumentGraph,
+        rasters: HashMap<u64, Raster>,
+        masks: HashMap<u64, Raster>,
+        ms: f32,
+    ) {
+        for (id, raster) in rasters {
+            if let Err(error) = phototux_canvas::write_layer_rgba(LayerId(id), raster.pixels()) {
+                self.fail_io("Open", &error);
+                return;
+            }
+        }
+        for (id, mask) in masks {
+            let r8: Vec<u8> = mask.pixels().chunks_exact(4).map(|rgba| rgba[0]).collect();
+            if let Err(error) = phototux_canvas::write_mask_r8(LayerId(id), &r8) {
+                self.fail_io("Open", &error);
+                return;
+            }
+        }
+        self.engine.replace_graph(graph);
+        self.engine.document_path = Some(path.display().to_string());
+        self.engine.set_composite_ms(ms);
+        self.document_name = title;
+        self.dirty = true;
+        self.io_busy = false;
+        self.compatibility_report.clear();
+        self.publish_pixel_snapshot_from_gpu();
+        self.sync_from_engine();
+        self.emit_doc_fields();
+        self.compatibility_report_changed();
+        self.refresh_document_tabs_json();
+        if let Ok(export_path) = std::env::var("PHOTOTUX_DESKTOP_EXPORT") {
+            let url = if export_path.starts_with("file:") {
+                export_path
+            } else {
+                format!("file://{export_path}")
+            };
+            self.export_raster_file(url);
         }
     }
 
@@ -4215,194 +4224,234 @@ impl AppSession {
         let events = self.worker.poll_events();
         let mut dirty = false;
         for ev in events {
-            match ev {
-                EngineEvent::CompositeDone { ms } => {
-                    // Telemetry only — do not full-sync (status/AT thrash freezes AT-SPI).
-                    self.engine.set_composite_ms(ms);
-                    self.composite_ms = ms;
-                    self.composite_ms_changed();
-                }
-                EngineEvent::StrokeLatency { ms } => {
-                    self.engine.set_stroke_latency_ms(ms);
-                    self.stroke_latency_ms = ms;
-                    self.stroke_latency_ms_changed();
-                }
-                EngineEvent::StrokeJournaled(entry) => {
-                    // Best-effort recovery hook; never fail the stroke on journal I/O.
-                    let _ = write_stroke_journal(&entry);
-                }
-                EngineEvent::StrokeEnded => {
-                    let label = if self.mask_edit_active {
-                        "Mask stroke"
-                    } else {
-                        "Brush stroke"
-                    };
-                    let _ = self.invoke_command(
-                        command_id::RASTER_PAINT_STROKE,
-                        CommandArgs::RasterPaintStroke {
-                            label: label.to_owned(),
-                        },
-                    );
-                    dirty = true;
-                }
-                EngineEvent::Error(e) => {
-                    self.report_gpu("paint worker", &e);
-                }
-            }
+            dirty |= self.handle_engine_event(ev);
         }
         for event in self.file_worker.poll_events() {
-            match event {
-                FileEvent::Opened { path, raster } => {
-                    let size = DocumentSize::new(raster.width(), raster.height());
-                    let layer_name = path
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "Image".to_owned());
-                    if let Err(error) = self.prepare_new_document_tab(&layer_name) {
-                        self.fail_io("Open", &error);
-                        continue;
-                    }
-                    let graph = DocumentGraph::new_flattened(size, layer_name.clone());
-                    let Some(target_layer) = graph.active_id() else {
-                        self.fail_io("Open", "decoded document has no layer");
-                        continue;
-                    };
-                    self.clear_selection_stacks();
-                    self.clear_transform_stacks();
-                    match phototux_canvas::open_raster_document(
-                        size,
-                        graph.layers(),
-                        target_layer,
-                        raster.pixels(),
-                    ) {
-                        Ok(ms) => {
-                            self.engine.replace_graph(graph);
-                            self.engine.set_composite_ms(ms);
-                            self.document_name = layer_name;
-                            self.dirty = false;
-                            self.io_busy = false;
-                            self.publish_pixel_snapshot_from_gpu();
-                            self.sync_from_engine();
-                            self.emit_doc_fields();
-                            self.refresh_document_tabs_json();
-                        }
-                        Err(error) => self.fail_io("Open", &error),
-                    }
-                }
-                FileEvent::PtxOpened { path, document } => {
-                    self.apply_opened_ptx(path, document);
-                    self.dirty = false;
-                    self.dirty_changed();
-                }
-                FileEvent::PsdOpened {
-                    path,
-                    graph,
-                    layer_rasters,
-                    flattened,
-                    report,
-                } => {
-                    let title = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "Imported.psd".into());
-                    if let Err(error) = self.prepare_new_document_tab(&title) {
-                        self.fail_io("Open", &error);
-                        continue;
-                    }
-                    self.clear_selection_stacks();
-                    self.clear_transform_stacks();
-                    let open_result = if !layer_rasters.is_empty() {
-                        phototux_canvas::open_document(graph.size, graph.layers()).and_then(|ms| {
-                            for (id, raster) in &layer_rasters {
-                                phototux_canvas::write_layer_rgba(*id, raster.pixels())?;
-                            }
-                            Ok(ms)
-                        })
-                    } else if let Some(raster) = flattened.as_ref() {
-                        let Some(target_layer) = graph.active_id() else {
-                            self.fail_io("Open", "PSD import has no layer");
-                            continue;
-                        };
-                        phototux_canvas::open_raster_document(
-                            graph.size,
-                            graph.layers(),
-                            target_layer,
-                            raster.pixels(),
-                        )
-                    } else {
-                        self.fail_io("Open", "PSD import produced no pixel data");
-                        continue;
-                    };
-                    match open_result {
-                        Ok(ms) => {
-                            self.engine.replace_graph(graph);
-                            self.engine.set_composite_ms(ms);
-                            self.document_name = title;
-                            self.dirty = true;
-                            self.io_busy = false;
-                            self.compatibility_report = format_report(&report);
-                            self.publish_pixel_snapshot_from_gpu();
-                            self.sync_from_engine();
-                            self.emit_doc_fields();
-                            self.compatibility_report_changed();
-                            self.refresh_document_tabs_json();
-                        }
-                        Err(error) => self.fail_io("Open", &error),
-                    }
-                }
-                FileEvent::Saved { path } => {
-                    self.io_busy = false;
-                    if let Some(pinned) = self.pending_save_generation.take() {
-                        let clean = self.engine.mark_persisted(pinned);
-                        self.dirty = !clean;
-                    } else {
-                        self.dirty = false;
-                    }
-                    self.engine.document_path = Some(path.display().to_string());
-                    self.document_name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "Document.ptx".into());
-                    self.status_text = format!("Saved {}", path.display());
-                    self.sync_from_engine();
-                    self.emit_doc_fields();
-                }
-                FileEvent::Autosaved => {
-                    self.status_text = "Autosave written".to_owned();
-                    self.status_text_changed();
-                }
-                FileEvent::Exported { path } => {
-                    self.io_busy = false;
-                    self.status_text = format!("Exported {}", path.display());
-                    self.io_busy_changed();
-                    self.status_text_changed();
-                }
-                FileEvent::Cancelled { operation } => {
-                    self.io_busy = false;
-                    self.status_text = format!("{operation} cancelled");
-                    self.io_busy_changed();
-                    self.status_text_changed();
-                }
-                FileEvent::Failed { operation, message } => {
-                    self.fail_io(operation, &message);
-                }
-            }
+            self.handle_file_event(event);
         }
         if dirty {
-            let prev_status = self.status_text.clone();
-            let prev_a11y = self.accessibility_tree_json.clone();
-            self.sync_from_engine();
-            self.can_undo_changed();
-            self.can_redo_changed();
-            self.dirty_changed();
-            if self.status_text != prev_status {
-                self.status_text_changed();
+            self.emit_poll_dirty_changes();
+        }
+    }
+
+    fn handle_engine_event(&mut self, ev: EngineEvent) -> bool {
+        match ev {
+            EngineEvent::CompositeDone { ms } => {
+                self.engine.set_composite_ms(ms);
+                self.composite_ms = ms;
+                self.composite_ms_changed();
+                false
             }
-            if self.accessibility_tree_json != prev_a11y {
-                self.accessibility_tree_json_changed();
-                self.atspi_projection_json_changed();
+            EngineEvent::StrokeLatency { ms } => {
+                self.engine.set_stroke_latency_ms(ms);
+                self.stroke_latency_ms = ms;
+                self.stroke_latency_ms_changed();
+                false
+            }
+            EngineEvent::StrokeJournaled(entry) => {
+                let _ = write_stroke_journal(&entry);
+                false
+            }
+            EngineEvent::StrokeEnded => {
+                let label = if self.mask_edit_active {
+                    "Mask stroke"
+                } else {
+                    "Brush stroke"
+                };
+                let _ = self.invoke_command(
+                    command_id::RASTER_PAINT_STROKE,
+                    CommandArgs::RasterPaintStroke {
+                        label: label.to_owned(),
+                    },
+                );
+                true
+            }
+            EngineEvent::Error(e) => {
+                self.report_gpu("paint worker", &e);
+                false
             }
         }
+    }
+
+    fn handle_file_event(&mut self, event: FileEvent) {
+        match event {
+            FileEvent::Opened { path, raster } => self.handle_raster_opened(path, raster),
+            FileEvent::PtxOpened { path, document } => {
+                self.apply_opened_ptx(path, document);
+                self.dirty = false;
+                self.dirty_changed();
+            }
+            FileEvent::PsdOpened {
+                path,
+                graph,
+                layer_rasters,
+                flattened,
+                report,
+            } => self.handle_psd_opened(path, graph, layer_rasters, flattened, report),
+            FileEvent::Saved { path } => self.handle_file_saved(path),
+            FileEvent::Autosaved => {
+                self.status_text = "Autosave written".to_owned();
+                self.status_text_changed();
+            }
+            FileEvent::Exported { path } => {
+                self.io_busy = false;
+                self.status_text = format!("Exported {}", path.display());
+                self.io_busy_changed();
+                self.status_text_changed();
+            }
+            FileEvent::Cancelled { operation } => {
+                self.io_busy = false;
+                self.status_text = format!("{operation} cancelled");
+                self.io_busy_changed();
+                self.status_text_changed();
+            }
+            FileEvent::Failed { operation, message } => {
+                self.fail_io(operation, &message);
+            }
+        }
+    }
+
+    fn emit_poll_dirty_changes(&mut self) {
+        let prev_status = self.status_text.clone();
+        let prev_a11y = self.accessibility_tree_json.clone();
+        self.sync_from_engine();
+        self.can_undo_changed();
+        self.can_redo_changed();
+        self.dirty_changed();
+        if self.status_text != prev_status {
+            self.status_text_changed();
+        }
+        if self.accessibility_tree_json != prev_a11y {
+            self.accessibility_tree_json_changed();
+            self.atspi_projection_json_changed();
+        }
+    }
+
+    fn handle_raster_opened(&mut self, path: PathBuf, raster: Raster) {
+        let size = DocumentSize::new(raster.width(), raster.height());
+        let layer_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Image".to_owned());
+        if let Err(error) = self.prepare_new_document_tab(&layer_name) {
+            self.fail_io("Open", &error);
+            return;
+        }
+        let graph = DocumentGraph::new_flattened(size, layer_name.clone());
+        let Some(target_layer) = graph.active_id() else {
+            self.fail_io("Open", "decoded document has no layer");
+            return;
+        };
+        self.clear_selection_stacks();
+        self.clear_transform_stacks();
+        match phototux_canvas::open_raster_document(
+            size,
+            graph.layers(),
+            target_layer,
+            raster.pixels(),
+        ) {
+            Ok(ms) => {
+                self.engine.replace_graph(graph);
+                self.engine.set_composite_ms(ms);
+                self.document_name = layer_name;
+                self.dirty = false;
+                self.io_busy = false;
+                self.publish_pixel_snapshot_from_gpu();
+                self.sync_from_engine();
+                self.emit_doc_fields();
+                self.refresh_document_tabs_json();
+            }
+            Err(error) => self.fail_io("Open", &error),
+        }
+    }
+
+    fn handle_psd_opened(
+        &mut self,
+        path: PathBuf,
+        graph: DocumentGraph,
+        layer_rasters: Vec<(LayerId, Raster)>,
+        flattened: Option<Raster>,
+        report: Vec<CompatibilityIssue>,
+    ) {
+        let title = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Imported.psd".into());
+        if let Err(error) = self.prepare_new_document_tab(&title) {
+            self.fail_io("Open", &error);
+            return;
+        }
+        self.clear_selection_stacks();
+        self.clear_transform_stacks();
+        let Some(ms) = self.open_psd_pixels(&graph, &layer_rasters, flattened.as_ref()) else {
+            return;
+        };
+        self.engine.replace_graph(graph);
+        self.engine.set_composite_ms(ms);
+        self.document_name = title;
+        self.dirty = true;
+        self.io_busy = false;
+        self.compatibility_report = format_report(&report);
+        self.publish_pixel_snapshot_from_gpu();
+        self.sync_from_engine();
+        self.emit_doc_fields();
+        self.compatibility_report_changed();
+        self.refresh_document_tabs_json();
+    }
+
+    fn open_psd_pixels(
+        &mut self,
+        graph: &DocumentGraph,
+        layer_rasters: &[(LayerId, Raster)],
+        flattened: Option<&Raster>,
+    ) -> Option<f32> {
+        let result = if !layer_rasters.is_empty() {
+            phototux_canvas::open_document(graph.size, graph.layers()).and_then(|ms| {
+                for (id, raster) in layer_rasters {
+                    phototux_canvas::write_layer_rgba(*id, raster.pixels())?;
+                }
+                Ok(ms)
+            })
+        } else if let Some(raster) = flattened {
+            let Some(target_layer) = graph.active_id() else {
+                self.fail_io("Open", "PSD import has no layer");
+                return None;
+            };
+            phototux_canvas::open_raster_document(
+                graph.size,
+                graph.layers(),
+                target_layer,
+                raster.pixels(),
+            )
+        } else {
+            self.fail_io("Open", "PSD import produced no pixel data");
+            return None;
+        };
+        match result {
+            Ok(ms) => Some(ms),
+            Err(error) => {
+                self.fail_io("Open", &error);
+                None
+            }
+        }
+    }
+
+    fn handle_file_saved(&mut self, path: PathBuf) {
+        self.io_busy = false;
+        if let Some(pinned) = self.pending_save_generation.take() {
+            let clean = self.engine.mark_persisted(pinned);
+            self.dirty = !clean;
+        } else {
+            self.dirty = false;
+        }
+        self.engine.document_path = Some(path.display().to_string());
+        self.document_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Document.ptx".into());
+        self.status_text = format!("Saved {}", path.display());
+        self.sync_from_engine();
+        self.emit_doc_fields();
     }
 
     fn now_ms() -> f64 {

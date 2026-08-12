@@ -142,47 +142,7 @@ impl SelectionMask {
     ) {
         for y in 0..self.height {
             for x in 0..self.width {
-                let hit = inside(x, y);
-                let Some(idx) = (y as usize)
-                    .checked_mul(self.width as usize)
-                    .and_then(|row| row.checked_add(x as usize))
-                else {
-                    continue;
-                };
-                let Some(slot) = self.cpu.get_mut(idx) else {
-                    continue;
-                };
-                let prev = *slot;
-                *slot = match combine {
-                    SelectionCombine::Replace => {
-                        if hit {
-                            255
-                        } else {
-                            0
-                        }
-                    }
-                    SelectionCombine::Add => {
-                        if hit {
-                            255
-                        } else {
-                            prev
-                        }
-                    }
-                    SelectionCombine::Subtract => {
-                        if hit {
-                            0
-                        } else {
-                            prev
-                        }
-                    }
-                    SelectionCombine::Intersect => {
-                        if hit && prev > 0 {
-                            255
-                        } else {
-                            0
-                        }
-                    }
-                };
+                apply_predicate_pixel(&mut self.cpu, self.width, x, y, combine, inside(x, y));
             }
         }
         self.upload(ctx);
@@ -239,6 +199,44 @@ impl SelectionMask {
             },
         );
     }
+}
+
+fn apply_predicate_pixel(
+    cpu: &mut [u8],
+    width: u32,
+    x: u32,
+    y: u32,
+    combine: SelectionCombine,
+    hit: bool,
+) {
+    let Some(idx) = (y as usize)
+        .checked_mul(width as usize)
+        .and_then(|row| row.checked_add(x as usize))
+    else {
+        return;
+    };
+    let Some(slot) = cpu.get_mut(idx) else {
+        return;
+    };
+    let prev = *slot;
+    *slot = match combine {
+        SelectionCombine::Replace => u8::from(hit) * 255,
+        SelectionCombine::Add => {
+            if hit {
+                255
+            } else {
+                prev
+            }
+        }
+        SelectionCombine::Subtract => {
+            if hit {
+                0
+            } else {
+                prev
+            }
+        }
+        SelectionCombine::Intersect => u8::from(hit && prev > 0) * 255,
+    };
 }
 
 /// Even-odd point-in-polygon (pixel centers).

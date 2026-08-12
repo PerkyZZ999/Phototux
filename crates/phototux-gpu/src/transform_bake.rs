@@ -13,23 +13,31 @@ pub fn flip_rgba(pixels: &mut [u8], width: u32, height: u32, horizontal: bool) {
         return;
     }
     if horizontal {
-        for y in 0..h {
-            let row = y * w * 4;
-            for x in 0..(w / 2) {
-                let left = row + x * 4;
-                let right = row + (w - 1 - x) * 4;
-                for c in 0..4 {
-                    pixels.swap(left + c, right + c);
-                }
+        flip_rgba_horizontal(pixels, w, h);
+    } else {
+        flip_rgba_vertical(pixels, w, h);
+    }
+}
+
+fn flip_rgba_horizontal(pixels: &mut [u8], w: usize, h: usize) {
+    for y in 0..h {
+        let row = y * w * 4;
+        for x in 0..(w / 2) {
+            let left = row + x * 4;
+            let right = row + (w - 1 - x) * 4;
+            for c in 0..4 {
+                pixels.swap(left + c, right + c);
             }
         }
-    } else {
-        for y in 0..(h / 2) {
-            let top = y * w * 4;
-            let bot = (h - 1 - y) * w * 4;
-            for i in 0..(w * 4) {
-                pixels.swap(top + i, bot + i);
-            }
+    }
+}
+
+fn flip_rgba_vertical(pixels: &mut [u8], w: usize, h: usize) {
+    for y in 0..(h / 2) {
+        let top = y * w * 4;
+        let bot = (h - 1 - y) * w * 4;
+        for i in 0..(w * 4) {
+            pixels.swap(top + i, bot + i);
         }
     }
 }

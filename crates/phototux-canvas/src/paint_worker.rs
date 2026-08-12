@@ -109,12 +109,7 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
     while let Ok(cmd) = rx.recv() {
         match cmd {
             EngineCommand::Shutdown => break,
-            EngineCommand::SetBrush(p) => {
-                st.brush = p.clamped();
-                if let Some(s) = st.stroke.as_mut() {
-                    s.set_params(st.brush);
-                }
-            }
+            EngineCommand::SetBrush(p) => apply_set_brush(&mut st, p),
             EngineCommand::BeginStroke {
                 layer,
                 target,
@@ -122,75 +117,102 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
                 y,
                 pressure,
                 t_ms,
-            } => {
-                if let Err(e) = super::document_gpu::begin_stroke(layer, target) {
-                    let _ = tx_ev.send(EngineEvent::Error(e));
-                    continue;
-                }
-                st.layer = Some(layer);
-                st.target = Some(target);
-                st.first_input_ms = Some(t_ms);
-                st.dabs_since_composite = 0;
-                st.journal
-                    .begin(layer, target, st.brush, x, y, pressure, t_ms);
-                let mut builder = StrokeBuilder::new(st.brush);
-                let dabs = builder.begin(x, y, pressure);
-                st.journal.push_dabs(&dabs);
-                st.stroke = Some(builder);
-                apply_dabs(&mut st, &dabs, true, &tx_ev);
-            }
+            } => handle_begin_stroke(&mut st, &tx_ev, layer, target, x, y, pressure, t_ms),
             EngineCommand::StrokePoint {
                 x,
                 y,
                 pressure,
                 t_ms,
-            } => {
-                if st.first_input_ms.is_none() {
-                    st.first_input_ms = Some(t_ms);
-                }
-                st.journal.sample(x, y, pressure, t_ms);
-                let Some(builder) = st.stroke.as_mut() else {
-                    continue;
-                };
-                let dabs = builder.move_to(x, y, pressure);
-                if !dabs.is_empty() {
-                    st.journal.push_dabs(&dabs);
-                    apply_dabs(&mut st, &dabs, false, &tx_ev);
-                }
-            }
-            EngineCommand::EndStroke => {
-                if let Some(builder) = st.stroke.as_mut() {
-                    builder.end();
-                }
-                st.stroke = None;
-                if let (Some(layer), Some(target)) = (st.layer, st.target) {
-                    if let Err(e) =
-                        super::document_gpu::stamp_dabs(layer, target, &[], st.brush, None, true)
-                    {
-                        let _ = tx_ev.send(EngineEvent::Error(e));
-                    }
-                }
-                if let Err(e) = super::document_gpu::end_stroke() {
-                    let _ = tx_ev.send(EngineEvent::Error(e));
-                }
-                let journaled = st.journal.end();
-                let ms = super::document_gpu::last_composite_ms();
-                let _ = tx_ev.send(EngineEvent::CompositeDone { ms });
-                let lat = super::document_gpu::last_stroke_latency_ms();
-                if lat > 0.0 {
-                    let _ = tx_ev.send(EngineEvent::StrokeLatency { ms: lat });
-                }
-                if let Some(entry) = journaled {
-                    let _ = tx_ev.send(EngineEvent::StrokeJournaled(entry));
-                }
-                let _ = tx_ev.send(EngineEvent::StrokeEnded);
-                st.layer = None;
-                st.target = None;
-                st.first_input_ms = None;
-                st.dabs_since_composite = 0;
-            }
+            } => handle_stroke_point(&mut st, &tx_ev, x, y, pressure, t_ms),
+            EngineCommand::EndStroke => handle_end_stroke(&mut st, &tx_ev),
         }
     }
+}
+
+fn apply_set_brush(st: &mut WorkerState, p: phototux_engine::BrushParams) {
+    st.brush = p.clamped();
+    if let Some(s) = st.stroke.as_mut() {
+        s.set_params(st.brush);
+    }
+}
+
+fn handle_begin_stroke(
+    st: &mut WorkerState,
+    tx_ev: &Sender<EngineEvent>,
+    layer: phototux_engine::LayerId,
+    target: phototux_engine::PaintTarget,
+    x: f32,
+    y: f32,
+    pressure: f32,
+    t_ms: f64,
+) {
+    if let Err(e) = super::document_gpu::begin_stroke(layer, target) {
+        let _ = tx_ev.send(EngineEvent::Error(e));
+        return;
+    }
+    st.layer = Some(layer);
+    st.target = Some(target);
+    st.first_input_ms = Some(t_ms);
+    st.dabs_since_composite = 0;
+    st.journal
+        .begin(layer, target, st.brush, x, y, pressure, t_ms);
+    let mut builder = phototux_engine::StrokeBuilder::new(st.brush);
+    let dabs = builder.begin(x, y, pressure);
+    st.journal.push_dabs(&dabs);
+    st.stroke = Some(builder);
+    apply_dabs(st, &dabs, true, tx_ev);
+}
+
+fn handle_stroke_point(
+    st: &mut WorkerState,
+    tx_ev: &Sender<EngineEvent>,
+    x: f32,
+    y: f32,
+    pressure: f32,
+    t_ms: f64,
+) {
+    if st.first_input_ms.is_none() {
+        st.first_input_ms = Some(t_ms);
+    }
+    st.journal.sample(x, y, pressure, t_ms);
+    let Some(builder) = st.stroke.as_mut() else {
+        return;
+    };
+    let dabs = builder.move_to(x, y, pressure);
+    if !dabs.is_empty() {
+        st.journal.push_dabs(&dabs);
+        apply_dabs(st, &dabs, false, tx_ev);
+    }
+}
+
+fn handle_end_stroke(st: &mut WorkerState, tx_ev: &Sender<EngineEvent>) {
+    if let Some(builder) = st.stroke.as_mut() {
+        builder.end();
+    }
+    st.stroke = None;
+    if let (Some(layer), Some(target)) = (st.layer, st.target) {
+        if let Err(e) = super::document_gpu::stamp_dabs(layer, target, &[], st.brush, None, true) {
+            let _ = tx_ev.send(EngineEvent::Error(e));
+        }
+    }
+    if let Err(e) = super::document_gpu::end_stroke() {
+        let _ = tx_ev.send(EngineEvent::Error(e));
+    }
+    let journaled = st.journal.end();
+    let ms = super::document_gpu::last_composite_ms();
+    let _ = tx_ev.send(EngineEvent::CompositeDone { ms });
+    let lat = super::document_gpu::last_stroke_latency_ms();
+    if lat > 0.0 {
+        let _ = tx_ev.send(EngineEvent::StrokeLatency { ms: lat });
+    }
+    if let Some(entry) = journaled {
+        let _ = tx_ev.send(EngineEvent::StrokeJournaled(entry));
+    }
+    let _ = tx_ev.send(EngineEvent::StrokeEnded);
+    st.layer = None;
+    st.target = None;
+    st.first_input_ms = None;
+    st.dabs_since_composite = 0;
 }
 
 fn apply_dabs(
