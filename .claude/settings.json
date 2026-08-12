@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./**/target/**)",
+      "Read(./**/build/**)",
+      "Read(./**/.qmlcache/**)",
+      "Read(./**/moc_*.cpp)",
+      "Read(./.scannerwork/**)",
+      "Read(./.sonar/**)"
+    ]
+  }
+}

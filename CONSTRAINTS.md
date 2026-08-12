@@ -1,6 +1,6 @@
 # Project Constraints
 
-> **Non-normative bridge.** Hard locks and Accepted decisions are indexed in the handbook [Decision Register](internal_docs/Appendix/Decision-Register.md) ([DR-023](internal_docs/Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) stack, [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--single-document-session-v1) single-doc, [DR-026](internal_docs/Appendix/Decision-Register.md#dr-026--native-ptx-container-v1) `.ptx`). Engineering Handbook: [`internal_docs/`](internal_docs/README.md). Archived ADR evidence: [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
+> **Non-normative bridge.** Hard locks and Accepted decisions are indexed in the handbook [Decision Register](internal_docs/Appendix/Decision-Register.md) ([DR-023](internal_docs/Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) stack, [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--document-session-model) multi-document tabs / multi-window out of scope, [DR-026](internal_docs/Appendix/Decision-Register.md#dr-026--native-ptx-container-v1) `.ptx`). Engineering Handbook: [`internal_docs/`](internal_docs/README.md). Archived ADR evidence: [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
 
 ## Technical Constraints
 

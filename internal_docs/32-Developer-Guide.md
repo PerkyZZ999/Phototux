@@ -445,38 +445,36 @@ flowchart TD
 
 ## Build, Check, and Test Commands
 
-Exact command names remain generic until workspace tooling and task runner are locked. Repository **SHOULD** expose discoverable wrappers or documented native Cargo commands for:
+Qt 6 must be on `PATH` (`/usr/lib/qt6/bin`; host `qmake` is often Qt 5). Set `QMAKE=/usr/lib/qt6/bin/qmake`. Agent-facing command summary: root [`AGENTS.md`](../AGENTS.md).
 
-- format source and documentation;
-- compile/check all default workspace members;
-- lint production, tests, examples, and feature combinations;
-- run the repository quality wrappers (`scripts/check-rust.sh`, optional SonarQube via `scripts/check-sonar.sh`);
-- build optimized desktop and headless targets;
-- run fast unit/headless core suite;
-- run property/model and compatibility suites;
-- run selected fuzz targets/corpus regression;
-- run CPU reference/golden/color tests;
-- enumerate and run wgpu adapter tests;
-- run Linux host and AT-SPI integration;
-- run performance workloads and compare baselines;
-- generate documentation and validate links/Mermaid policy;
-- assemble release evidence.
+Locked wrappers:
 
-Conceptual usage:
-
-```text
-workspace-tool format --check
-workspace-tool check --all-targets
-workspace-tool lint --strict
-workspace-tool test --suite core
-workspace-tool test --suite integration
-workspace-tool test --suite gpu --adapter explicit
-workspace-tool test --suite accessibility
-workspace-tool benchmark --workload brush-standard
-workspace-tool evidence --release-candidate
+```bash
+cargo build -p phototux
+cargo run -p phototux
+cargo test -p phototux_engine
+cargo test --workspace
+cargo test -p phototux_gpu --features gpu-tests   # optional; needs a Vulkan device
+./scripts/check-rust.sh                           # rustfmt + clippy -D warnings (pre-commit)
+./scripts/check-rust.sh --full                    # + rust-doctor + SonarQube
+CHECK_SONAR=0 ./scripts/check-rust.sh --full      # rust-doctor only
+./scripts/check-sonar.sh                          # Clippy JSON + scanner + quality gate
+./scripts/install-git-hooks.sh                    # once per clone → core.hooksPath=.githooks
 ```
 
-These are semantic placeholders for command categories, not promises of an executable named `workspace-tool`. Before tooling lock, contributors inspect repository task documentation and use equivalent Cargo/host commands. Required workflows **MUST** remain runnable locally without a CI vendor. Scripts avoid downloading unpinned executables during ordinary checks.
+SonarQube project key is `phototux` (`sonar-project.properties`). Token via `SONAR_TOKEN` or gitignored `.sonar/scanner-token`. Pre-commit runs fmt + clippy only; rust-doctor and SonarQube stay opt-in.
+
+The repository **SHOULD** also keep discoverable commands (Cargo, scripts, or a later task runner) for:
+
+- property/model and compatibility suites;
+- selected fuzz targets/corpus regression;
+- CPU reference/golden/color tests;
+- Linux host and AT-SPI integration;
+- performance workloads vs baselines;
+- documentation/link/Mermaid validation;
+- release evidence packs.
+
+Required workflows **MUST** remain runnable locally without a CI vendor. Scripts avoid downloading unpinned executables during ordinary checks.
 
 ## Linux Development Environment
 
@@ -835,5 +833,6 @@ Future local automation may invoke stable command schemas under explicit capabil
 - [29 — Accessibility](29-Accessibility.md) — semantic UI, AT-SPI, keyboard, and focus.
 - [30 — Performance](30-Performance.md) — budgets, diagnostics, scheduling, and regression gates.
 - [31 — Testing](31-Testing.md) — test pyramid, matrices, fixtures, and release evidence.
+- Root [`AGENTS.md`](../AGENTS.md) — agent constitution (commands, crate boundaries, quality gate).
 - [Glossary](Appendix/Glossary.md) — canonical terminology.
 - [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.

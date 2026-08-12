@@ -1,282 +1,115 @@
 # AGENTS.md
 
-Agent-facing constitution for **PhotoTux**.
+PhotoTux is a **Linux/Wayland** professional image editor: **Rust + Qt 6 QML** (`qtbridge`), **wgpu/Vulkan** zero-copy canvas, dense KDE Plasma–aligned **desktop GUI**. There is no CLI, TUI, or web product.
 
-**Authoritative engineering docs:** [`internal_docs/`](internal_docs/README.md) (Engineering Handbook).  
-**Alignment (complete):** [`internal_docs/Appendix/Alignment-Roadmap.md`](internal_docs/Appendix/Alignment-Roadmap.md) (stack frozen — [DR-023](internal_docs/Appendix/Decision-Register.md)).  
-**Product roadmap (handbook parity):** [`internal_docs/Appendix/Handbook-Parity-Roadmap.md`](internal_docs/Appendix/Handbook-Parity-Roadmap.md).  
-**Product checklist:** [`internal_docs/Appendix/Handbook-Parity-Checklist.md`](internal_docs/Appendix/Handbook-Parity-Checklist.md).  
-**Gap inventory:** [`internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md`](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md).  
-**Alignment checklist (history):** [`internal_docs/Appendix/Implementation-Checklist.md`](internal_docs/Appendix/Implementation-Checklist.md).
-
-If handbook Decision Register conflicts with code: **surface the conflict** (never silent) → update Decision Register or gap analysis → prefer **measured shipped code + promoted DR** over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` are **non-normative bridges** → handbook + Decision Register. Former ADR ids → live DRs: [`internal_docs/Appendix/Archived-ADR-to-DR-Map.md`](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
+**Authority:** [Engineering Handbook](internal_docs/README.md) and [Decision Register](internal_docs/Appendix/Decision-Register.md) ([DR-023](internal_docs/Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) stack). If handbook and code disagree, **surface the conflict** — then update the Decision Register or [gap analysis](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md). Prefer measured shipped code plus a promoted DR over silent drift. Root `SPEC.md` / `CONSTRAINTS.md` are non-normative bridges. Former ADR ids: [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).
 
 ---
 
-## Project overview
+## Commands
 
-PhotoTux is a **Linux/Wayland**, **Rust + Qt 6 QML** professional image editor with **zero-copy GPU** canvas (`wgpu`/Vulkan) and a dense KDE Plasma–aligned shell.
-
-| Layer | Choice | Notes |
-|-------|--------|-------|
-| Platform | Linux / Wayland v1 | Handbook local-first + Linux host |
-| UI | Qt 6.10+ QML, Controls 2; Kirigami deferred | DR-023 Accepted (DR-008 superseded) |
-| FFI | `qtbridge` 0.2; thin C++ canvas + QML AOT only | DR-023 |
-| GPU | `wgpu` Vulkan-first | DR-006 / DR-023 |
-| Present | Zero-copy interactive; debug readback only | Keep; CPU = tests/degraded only |
-| Crates | Multi-crate `phototux_*` | DR-025 coarse; handbook 32 = ownership map |
-| Threads | Paint queue + `SessionState::invoke` document spine | Document commits routed; paint stream host-only until stroke-end |
-| Doc model | Graph v2 layers in engine | Multi-doc tabs (DR-024 v2); multi-window open |
-| License | GPL-3.0-or-later | |
-| Surface | **Desktop GUI only** | No CLI/TUI/web product |
-
-**Design tokens:** [`qml/Theme.qml`](qml/Theme.qml) + handbook [25 — Themes](internal_docs/25-Themes.md).  
-**Product form:** windowed desktop editor. `cargo` / tests = developer tooling.
-
----
-
-## Setup commands
+Qt 6 must be on `PATH`. Host `qmake` is often Qt 5:
 
 ```bash
-# Host (Arch/CachyOS)
-sudo pacman -S rustup clang cmake qt6-base qt6-declarative vulkan-headers
-rustup component add rustfmt clippy
-cargo install rust-doctor   # or: already on PATH / ~/.bun/bin/rust-doctor
-
-# Qt 6 on PATH (critical: default qmake may be Qt 5)
 export PATH=/usr/lib/qt6/bin:$PATH
 export QMAKE=/usr/lib/qt6/bin/qmake
 
-# Git hooks (fmt + clippy on every commit; rust-doctor + SonarQube opt-in via --full)
-./scripts/install-git-hooks.sh
-
-# When workspace exists:
 cargo build -p phototux
 cargo run -p phototux
 cargo test -p phototux_engine
-./scripts/check-rust.sh              # fmt + clippy (pre-commit default)
-CHECK_RUST_FULL=1 ./scripts/check-rust.sh   # + rust-doctor + SonarQube
-CHECK_SONAR=0 ./scripts/check-rust.sh --full  # rust-doctor only (no scanner)
-./scripts/check-sonar.sh              # Clippy JSON + sonar-scanner + quality gate
+./scripts/check-rust.sh                 # rustfmt + clippy -D warnings (pre-commit)
+./scripts/check-rust.sh --full          # + rust-doctor + SonarQube
+CHECK_SONAR=0 ./scripts/check-rust.sh --full   # rust-doctor only
+./scripts/check-sonar.sh                # Clippy JSON + scanner + quality gate
 ```
 
----
-
-## Development workflow
-
-1. Read relevant handbook chapters + Decision Register before coding; pick slices from [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
-2. Prefer vertical slices toward handbook parity; respect P11/P12 gates (tiling evidence, DR-024, plugin need).
-3. Do not invent a second doc tree under `/docs/` — handbook only; archive is read-only history.
-4. Commit only after `./scripts/check-rust.sh` passes (or pre-commit does).
-
-### Workspace layout (when scaffolded)
-
-```
-crates/phototux/         # binary package name: phototux
-crates/phototux-ui/      # package: phototux_ui  — qtbridge only, no wgpu
-crates/phototux-engine/  # package: phototux_engine — pure Rust, no Qt
-crates/phototux-gpu/     # package: phototux_gpu — Phase 2+
-crates/phototux-canvas/  # package: phototux_canvas — interop ± thin C++
-qml/                     # QML; tokens from Theme.qml + handbook Themes
-assets/icons/phosphor/   # Phosphor Icons MIT (core 2.1.1); default weight regular
-```
-
-Paths **kebab-case**; Cargo package names **`phototux_*` underscores**.
+One-time: `./scripts/install-git-hooks.sh`. Host packages, crate map, and the rest of the quality matrix: [32 — Developer Guide](internal_docs/32-Developer-Guide.md#build-check-and-test-commands).
 
 ---
 
-## Mandatory skill compliance
+## How to work
 
-Agents **must load and apply** these skills when the task matches. Web-oriented wording maps to **desktop QML/Qt** (density, hierarchy, a11y, icons)—not HTML/CSS frameworks.
+1. Before architecture, UX, or crate-boundary work, read the relevant handbook chapter and the Decision Register. Pick product slices from the [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
+2. Extend [`internal_docs/`](internal_docs/README.md). Do not add a second tree under `/docs/` (archive is history).
+3. After non-trivial Rust, `./scripts/check-rust.sh` must pass. Add engine tests for engine logic you touch. Commit only when asked.
 
-### Rust (all Rust edits)
+Cargo workspace: directories kebab-case, packages `phototux_*`. Ownership: Developer Guide [Rust Workspace Boundaries](internal_docs/32-Developer-Guide.md#rust-workspace-boundaries) and [DR-025](internal_docs/Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace).
 
-| Skill | Role |
-|-------|------|
-| `ms-rust` | Microsoft Pragmatic Rust Guidelines — `must` = hard gates; `should` = defaults |
-| `rust` | Performance patterns (allocation, ownership, iterators, async) |
-| `rust-reference` | Language semantics, unsafe, types, macros — when correctness depends on the Reference |
-| `rust-skills` | Broad idiomatic rules (ownership, errors, API, testing, anti-patterns) |
-| `rust-optimise` | Hot-path optimization (mem/own/ds/iter first; micro last) |
-| `rust-doctor` | Health scan tool; opt-in via `CHECK_RUST_FULL=1` — re-scan after large fixes |
-
-**Rust hard defaults for this repo:**
-
-- Prefer **clear ownership** and borrowing over `clone` in hot paths.
-- Engine/public logic: **`Result` + typed errors** (`thiserror` style); no `unwrap`/`expect` in library paths except tests or documented invariants.
-- **`unsafe` only** in `phototux_canvas` / FFI interop; minimal blocks; `// SAFETY:` states the invariant (not a paragraph of excuses).
-- Lint overrides: **`#[expect(..., reason = "...")]`**, not silent `#[allow]` (ms-rust).
-- Structured logging via **`tracing`** with fields, not stringly `format!` spam in hot paths.
-- No artificial “guideline compliant” marker comments in source.
-- American English in comments/docs unless asked otherwise.
-
-### Frontend UI/UX (QML shell, chrome, icons)
-
-| Skill | Desktop adaptation |
-|-------|--------------------|
-| `craft-beautiful-frontend` | Use **dense** density (editor); tokens from `qml/Theme.qml` / handbook Themes; Gestalt/hierarchy/a11y; no web-card padding; canvas-first; motion only for structure (docks), never paint delay |
-| `iconography-frontend-ui` | Icons from `assets/icons/phosphor/`; **map:** `assets/icons/ICON_MAP.md`; function over decoration; labels+tooltips; contrast; states; size on grid (tool strip ~36px hit) |
-
-**Never** invent a second palette or spacing scale—extend `qml/Theme.qml` or handbook Themes.
+| Package | Owns | Stays free of |
+|---------|------|----------------|
+| `phototux_engine` | document, commands, history | Qt, wgpu |
+| `phototux_ui` | qtbridge QObjects | wgpu |
+| `phototux_gpu` | wgpu / Vulkan | Qt |
+| `phototux_canvas` | Qt↔wgpu interop, thin C++ | extra handwritten C++ |
+| `phototux_io` | `.ptx`, raster, PSD subset | Qt, wgpu |
 
 ---
 
-## Engineering doctrine
+## Guardrails
 
-> **If you need a paragraph-long comment to justify why the workaround is OK, the code is wrong — fix the code.**
+Interactive present is **zero-copy GPU**. CPU canvas is tests and degraded mode only.
 
-- No long apology comments for hacks, race paper-overs, or “temporary” CPU uploads.
-- Fix architecture, types, or boundaries instead.
-- Short `// SAFETY:` / one-line `reason` on `expect` lints are fine; essays are a smell.
-- Forbidden product path: steady-state full-frame **CPU canvas upload** (DR-023 / zero-copy present).
+- Library paths: `Result` + typed errors (`thiserror`). `unwrap`/`expect` only in tests or documented invariants.
+- `unsafe` only in `phototux_canvas` / FFI; each block has a one-line `// SAFETY:` invariant.
+- Lint overrides: `#[expect(..., reason = "...")]`, not silent `#[allow]`.
+- Tracing with fields on hot paths, not `format!` spam.
+- QML tokens from [`qml/Theme.qml`](qml/Theme.qml) and handbook [25 — Themes](internal_docs/25-Themes.md). Icons from `assets/icons/phosphor/` via [`assets/icons/ICON_MAP.md`](assets/icons/ICON_MAP.md). User-facing strings: `qsTr(...)`.
+- New document: ask + presets 720p / 1080p / 2K / 4K; zoom-to-fit on open/new. Tabs are [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--document-session-model) v2; **multi-window is out of scope**.
+- If a workaround needs a paragraph of apology, fix the code.
 
----
+**Without a new DR:** qtbridge 0.2.x, wgpu 30.x, tracing, thiserror, serde, small pure-Rust utils, Phosphor SVGs.
 
-## Pre-commit & quality checks
+**Needs a DR:** UI toolkit, primary FFI, abandoning zero-copy, multi-window, non-Linux v1, handwritten C++ beyond canvas or QML AOT, new major subsystems (cloud, plugin store).
 
-| Check | Command / behavior |
-|-------|-------------------|
-| Install hooks | `./scripts/install-git-hooks.sh` → `core.hooksPath=.githooks` |
-| Pre-commit / default | `./scripts/check-rust.sh` → rustfmt + clippy |
-| Full gate | `CHECK_RUST_FULL=1 ./scripts/check-rust.sh` or `--full` → + rust-doctor + SonarQube |
-| Skip Sonar on full | `CHECK_SONAR=0 ./scripts/check-rust.sh --full` → rust-doctor only |
-| Sonar only | `./scripts/check-sonar.sh` or `--sonar` / `CHECK_SONAR=1` |
-| rustfmt | `cargo fmt --all -- --check` |
-| clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| rust-doctor | `rust-doctor . --offline --fail-on error -v` (full gate only) |
-| SonarQube | Clippy JSON import + `sonar-scanner` + quality gate wait (needs local server) |
-
-**Hook behavior:**
-
-- No `Cargo.toml` → skip checks (exit 0), unless staged `*.rs` → fail.
-- Clippy warnings are **errors** (`-D warnings`).
-- rust-doctor and SonarQube are **not** in the pre-commit path; run the full gate manually or in CI when needed.
-- SonarQube project key `phototux` (`sonar-project.properties`, `.sonarlint/connectedMode.json`). Token via `SONAR_TOKEN` or gitignored `.sonar/scanner-token`.
-- Prefer fixing findings over suppressions.
-
-Agents: after non-trivial Rust changes, run `./scripts/check-rust.sh` even if hooks are not installed in the environment.
+**Ship:** Qt 6 QML desktop editor on Linux/Wayland with wgpu present. Not Electron/web, not a CLI/TUI product, not GTK as the main UI, not Kirigami in current phases, not a silent Windows/macOS port.
 
 ---
 
-## Testing instructions
+## Skills
 
-```bash
-cargo test -p phototux_engine          # pure logic (no Qt)
-cargo test --workspace                 # when more crates exist
-# GPU tests (optional, device present):
-cargo test -p phototux_gpu --features gpu-tests
-```
+When the task matches, load the skill. Web-oriented wording maps to **dense desktop QML**, not HTML/CSS.
 
-- Unit tests for engine graph/undo when present (ADR-009).
-- QML: manual checklist early; no requirement for full Qt Test in Phase 1.
-- Do not claim phase exit without ADR-008 SLO evidence when that gate applies.
-
-### Performance gates (ADR-008)
-
-| Gate | Target | From |
-|------|--------|------|
-| Zoom/pan FPS | ≥ 60 | Phase 2 exit |
-| Brush stroke FPS | ≥ 60 | Phase 4 exit |
-| Tablet input→render | < 8 ms | Phase 4 exit |
-| Cold boot interactive | < 1,000 ms gate; < 250 ms stretch | Phase 5 (measure earlier) |
-| 10×4K composite | < 2 ms GPU | Phase 3 exit |
-| Hot path copies | No full-frame CPU upload | Phase 2+ |
+- Rust: `ms-rust` (`must` = hard gates) and `rust-skills`. Language-law: `rust-reference`. Hot path: `rust-optimise`. Health scan: `rust-doctor` via `--full`.
+- QML / chrome / icons: `craft-beautiful-frontend` (dense editor, `Theme.qml`, canvas-first) and `iconography-frontend-ui`.
 
 ---
 
-## Code style & organization
+## Quality
 
-### Rust
+Pre-commit is fmt + clippy only. rust-doctor and SonarQube (project key `phototux`, [localhost:9000](http://localhost:9000/dashboard?id=phototux)) are opt-in via `--full` / `check-sonar.sh`. Token: `SONAR_TOKEN` or gitignored `.sonar/scanner-token`. Prefer fixing findings over suppressions.
 
-- Edition **2024**; `rustfmt.toml` / `clippy.toml` at repo root.
-- Crate boundaries: no Qt in `phototux_engine`; no wgpu in `phototux_ui`.
-- Naming: types `UpperCamelCase`, functions/modules `snake_case`, constants `SCREAMING_SNAKE`.
-- Public API docs on non-trivial exported items; module-level docs on crate roots.
+Clippy cognitive-complexity threshold is **30**; Sonar `S3776` is **15**. Split helpers rather than raising either.
 
-### QML / UI
+Performance budgets: [DR-017](internal_docs/Appendix/Decision-Register.md#dr-017--performance-budgets-provisional) (former ADR-008). Headless core tests: [DR-022](internal_docs/Appendix/Decision-Register.md#dr-022--headless-testability-of-core). GPU tests (device present): `cargo test -p phototux_gpu --features gpu-tests`. GUI edge cases: [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md).
 
-- Controls 2; Breeze-dark / handbook Themes tokens (`qml/Theme.qml`).
-- Layout per handbook IA (`internal_docs/01-Information-Architecture.md`) + workspace chapters.
-- New document: **ask + presets** 720p / 1080p / 2K / 4K.
-- Multi-doc tabs (DR-024 v2); **zoom-to-fit** on open/new.
-- Strings user-facing: `qsTr(...)`.
+Commits: atomic, conventional-ish (`feat:`, `fix:`, `docs:`, `chore:`). Reference DRs when changing architecture. Do not commit secrets, `target/`, or `.sonar/`.
 
-### Git / commits
-
-- Atomic commits; conventional-ish subjects (`feat:`, `fix:`, `docs:`, `chore:`).
-- Reference Decision Register entries when changing architecture.
-- Do not commit secrets, `target/`, or large binaries without need.
+**Cursor** loads this file plus path-scoped `.cursor/rules/*.mdc` and nested `AGENTS.md`. **Claude Code** loads root `CLAUDE.md` (imports this file), path-scoped `.claude/rules/`, nested `CLAUDE.md`, and `.claude/settings.json`. Do not copy this constitution into those files.
 
 ---
 
-## Decision boundaries
+## Pointers
 
-### Allowed without new DR
-
-`qtbridge` 0.2.x, `wgpu` 30.x, `tracing`, `thiserror`, `serde`, small pure-Rust utils, Phosphor SVGs under `assets/icons/phosphor/`.
-
-### Requires Decision Register amendment
-
-UI toolkit change, primary FFI switch, abandoning zero-copy, multi-window, non-Linux v1, spreading handwritten C++ beyond canvas or QML AOT anchor, new major subsystems (cloud, plugins store).
-
-### Forbidden
-
-Electron/web shell, **CLI or TUI as product** (DR-023), GTK as main UI, CPU full-frame canvas as default, Kirigami in Phase 1–2, silent scope to Windows/macOS, paragraph-length workaround comments instead of fixes.
-
----
-
-## Revisit triggers
-
-1. qtbridge blocks custom item → amend DR-023 / FFI notes  
-2. Zero-copy fails two real approaches → amend DR-023 (+ spike report)  
-3. wgpu/Qt share fails → amend DR-006 / DR-023  
-4. RefCell re-entrancy forces model change → amend DR-010  
-5. SLO unachievable on reference hardware → amend DR-017  
-6. New major dependency → Decision Register entry  
+| When | Read |
+|------|------|
+| Stack, crate topology, session model | Decision Register (DR-023, DR-025, DR-024) |
+| Product slice | [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md) / [Roadmap](internal_docs/Appendix/Handbook-Parity-Roadmap.md) |
+| Code vs handbook | [Gap analysis](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) |
+| Shell / IA / tokens | [01](internal_docs/01-Information-Architecture.md), [25](internal_docs/25-Themes.md) |
+| Commands / undo | [08](internal_docs/08-Command-System.md), [20](internal_docs/20-History-Undo.md) |
+| GPU / present | [17](internal_docs/17-Rendering-Engine.md) |
+| Contributor workflow | [32](internal_docs/32-Developer-Guide.md) |
+| GUI QA | [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md) |
 
 ---
 
-## Debugging tips
+## Debug
 
 | Symptom | Check |
 |---------|--------|
-| Build links wrong Qt | `PATH`/`QMAKE` → `/usr/lib/qt6/bin` |
-| QML import missing | Package name of `#[qobject]` crate (`import phototux_ui`) |
-| Pre-commit skip forever | Missing `Cargo.toml` (expected docs-only) |
-| rust-doctor exit 2 | Project does not compile — fix `cargo build` first |
-| sonar-scanner auth fail | `SONAR_TOKEN` or `.sonar/scanner-token`; `sonar auth status` |
-| SonarQube unreachable | local server at `http://localhost:9000`; skip with `CHECK_SONAR=0` |
+| Links wrong Qt | `PATH` / `QMAKE` → `/usr/lib/qt6/bin` |
+| QML import missing | `import phototux_ui` (package of the `#[qobject]` crate) |
+| rust-doctor exit 2 | `cargo build` first |
+| sonar-scanner auth | `sonar auth status`; token as above |
+| SonarQube unreachable | `http://localhost:9000` or `CHECK_SONAR=0` |
 | Hook not running | `./scripts/install-git-hooks.sh`; `git config core.hooksPath` |
-
----
-
-## Key doc map
-
-| Path | Use |
-|------|-----|
-| `internal_docs/` | **Engineering Handbook** (authoritative) |
-| `internal_docs/Appendix/Decision-Register.md` | Architectural decisions index |
-| `internal_docs/Appendix/Alignment-Roadmap.md` | Alignment complete (contracts) |
-| `internal_docs/Appendix/Handbook-Parity-Roadmap.md` | Product phases to full handbook parity |
-| `internal_docs/Appendix/Handbook-Parity-Checklist.md` | Living product slice tracker |
-| `internal_docs/Appendix/Interactive-Stability-Checklist.md` | Living GUI / edge-case QA suite |
-| `internal_docs/Appendix/Implementation-Checklist.md` | Alignment history (Phases 0–4) |
-| `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
-| `SPEC.md` / `CONSTRAINTS.md` | Non-normative bridges → handbook + Decision Register |
-| `internal_docs/Appendix/Archived-ADR-to-DR-Map.md` | Former ADR ids → live DR (index only) |
-| `scripts/check-rust.sh` | Quality gate (fmt + clippy; `--full` adds rust-doctor + Sonar) |
-| `scripts/check-sonar.sh` | SonarQube analysis (Clippy JSON + scanner) |
-| `sonar-project.properties` | SonarQube project key / Clippy report path |
-| `.githooks/pre-commit` | Commit gate |
-
----
-
-## PR / handoff checklist
-
-- [ ] `./scripts/check-rust.sh` green (when Rust workspace exists)
-- [ ] Full gate (`--full`) when changing quality tooling or before a release cut
-- [ ] Tests for engine logic touched
-- [ ] UI matches handbook UX / Themes (`qml/Theme.qml`)
-- [ ] No forbidden steady-state CPU canvas upload
-- [ ] Gap analysis / Decision Register updated if architecture changes
-- [ ] No paragraph-long workaround comments

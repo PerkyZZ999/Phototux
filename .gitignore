@@ -18,7 +18,9 @@
 # IDE / editor
 .idea/
 .vscode/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 *.swp
 *.swo
 *~
@@ -48,3 +50,7 @@ Thumbs.db
 # SonarQube (scanner workdir + local analysis token; keep .sonarlint/)
 .scannerwork/
 .sonar/
+
+# Claude Code local overrides (auto memory stays in ~/.claude/)
+CLAUDE.local.md
+**/.claude/settings.local.json
