@@ -15,17 +15,17 @@ pub fn fallback_font_families_json() -> String {
     serde_json::to_string(FALLBACK_FONTS).unwrap_or_else(|_| "[]".into())
 }
 
-/// Discover installed font family names via `fc-list`.
-///
-/// Returns a JSON array of unique family strings. On failure, returns the
-/// fallback list so the Character panel always has usable entries.
-pub fn discover_font_families_json() -> String {
-    let families = discover_font_families();
-    serde_json::to_string(&families)
+/// Serialize a family list for the Character panel's ComboBox model.
+pub fn font_families_json(families: &[String]) -> String {
+    serde_json::to_string(families)
         .unwrap_or_else(|_| serde_json::to_string(&FALLBACK_FONTS).unwrap_or_else(|_| "[]".into()))
 }
 
-fn discover_font_families() -> Vec<String> {
+/// Discover installed font family names via `fc-list`.
+///
+/// On failure, returns the fallback list so the Character panel always has
+/// usable entries.
+pub fn discover_font_families() -> Vec<String> {
     let output = Command::new("fc-list").args([":", "family"]).output();
     let Ok(output) = output else {
         return FALLBACK_FONTS.iter().map(|s| (*s).to_owned()).collect();
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn discover_returns_json_array() {
-        let json = discover_font_families_json();
+        let json = font_families_json(&discover_font_families());
         let parsed: Vec<String> = serde_json::from_str(&json).expect("json array");
         assert!(!parsed.is_empty());
         assert!(

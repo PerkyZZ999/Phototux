@@ -37,10 +37,13 @@ set(ICON_NAMES
     arrow-elbow-down-right
     arrow-square-out
     arrow-up
+    arrows-in-line-vertical
     arrows-left-right
     arrows-out
     arrows-out-cardinal
+    arrows-out-line-vertical
     caret-down
+    caret-right
     caret-up
     circle-dashed
     circle-notch

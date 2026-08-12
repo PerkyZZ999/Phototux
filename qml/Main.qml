@@ -611,6 +611,50 @@ ApplicationWindow {
     function isTransformTool() {
         return AppSession.activeTool === "tool.transform"
     }
+    function selectionCombineLabel(mode) {
+        if (mode === "add")
+            return qsTr("Add")
+        if (mode === "subtract")
+            return qsTr("Subtract")
+        if (mode === "intersect")
+            return qsTr("Intersect")
+        return qsTr("Replace")
+    }
+
+    // Resolved expansion per registered group (descriptor default merged with
+    // the user's sparse overrides). Drives which way the panel-local toggle goes.
+    readonly property var disclosureOpenMap: {
+        try {
+            return JSON.parse(AppSession.disclosureOpenJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+    readonly property bool anyDisclosureGroupExpanded: {
+        var map = root.disclosureOpenMap
+        for (var id in map) {
+            if (map[id] === true)
+                return true
+        }
+        return false
+    }
+
+    // Adjustment slider bounds come from the engine so the editor and the
+    // out-of-range disclosure badge cannot disagree about what is showable.
+    readonly property var adjustmentRanges: {
+        try {
+            return JSON.parse(AppSession.adjustmentRangesJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+    function adjRange(kind, slot, edge) {
+        var params = root.adjustmentRanges[kind]
+        var bounds = params ? params[slot] : undefined
+        if (!bounds)
+            return edge === 0 ? 0 : 1
+        return bounds[edge]
+    }
     readonly property color colorOnSurface: Theme.colorOnSurface
     readonly property color colorOnSurfaceMuted: Theme.colorOnSurfaceMuted
     readonly property color warning: Theme.warning
@@ -2720,6 +2764,18 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
+                            id: propertiesHeaderControls
+                            // Properties is the only panel whose body is
+                            // disclosure groups, so it is the only one that
+                            // carries the panel-local expand/collapse action.
+                            showsDisclosureToggle: true
+                            anyGroupExpanded: root.anyDisclosureGroupExpanded
+                            onDisclosureToggleRequested: {
+                                if (root.anyDisclosureGroupExpanded)
+                                    AppSession.collapseAllDisclosureGroups()
+                                else
+                                    AppSession.expandAllDisclosureGroups()
+                            }
                             canMoveUp: root.dockStackRow("panel.properties") > 0
                             canMoveDown: root.dockStackRow("panel.properties") >= 0
                                          && root.dockStackRow("panel.properties") < root.dockRightStack.length - 1
@@ -2733,8 +2789,10 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        // Leave room for panel chrome controls so they receive clicks.
-                        anchors.rightMargin: 110
+                        // Leave room for panel chrome controls so they receive
+                        // clicks. Measured, not a literal: the buttons scale
+                        // with density and the Properties header carries five.
+                        anchors.rightMargin: propertiesHeaderControls.width + Theme.spaceXs
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -2763,7 +2821,7 @@ ApplicationWindow {
                         var h = parent.height
                         if (h <= 0)
                             return 0
-                        return Math.min(h * 0.42, Math.max(0, h - 280))
+                        return Math.min(h * 0.42, Math.max(0, h - Theme.dockStackReserve))
                     }
                     contentHeight: propsCol.implicitHeight
                     clip: true
@@ -2972,6 +3030,9 @@ ApplicationWindow {
                             groupId: "inspector.selection"
                             title: qsTr("Selection")
                             visible: root.isSelectTool()
+                            // The combine mode silently changes what the next
+                            // drag does, so it is what the header must confirm.
+                            summary: root.selectionCombineLabel(AppSession.selectionCombine)
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -3031,11 +3092,162 @@ ApplicationWindow {
                             }
                         }
 
+                        DisclosureGroup {
+                            groupId: "inspector.brush"
+                            title: qsTr("Brush")
+                            visible: AppSession.activeTool === "tool.brush"
+                                     || AppSession.activeTool === "tool.eraser"
+                            summary: qsTr("%1 px").arg(Math.round(AppSession.brushSize))
+
+                            ColumnLayout {
+                                spacing: Theme.spaceMd
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: qsTr("Brush Size")
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontBodySm
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: Math.round(brushSlider.value) + " px"
+                                            color: Theme.primary
+                                            font.pixelSize: Theme.fontMono
+                                            font.family: "Noto Sans Mono"
+                                        }
+                                    }
+                                    Slider {
+                                        id: brushSlider
+                                        Layout.fillWidth: true
+                                        from: 1
+                                        to: 200
+                                        value: AppSession.brushSize
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushSize(value)
+                                        // Dragging a Slider breaks its value binding, so host-side
+                                        // changes (presets, new document) need an explicit re-push.
+                                        Connections {
+                                            target: AppSession
+                                            function onBrushSizeChanged() {
+                                                brushSlider.value = AppSession.brushSize
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: qsTr("Hardness")
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontBodySm
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: Math.round(hardnessSlider.value * 100) + " %"
+                                            color: Theme.primary
+                                            font.pixelSize: Theme.fontMono
+                                            font.family: "Noto Sans Mono"
+                                        }
+                                    }
+                                    Slider {
+                                        id: hardnessSlider
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: AppSession.brushHardness
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushHardness(value)
+                                        Connections {
+                                            target: AppSession
+                                            function onBrushHardnessChanged() {
+                                                hardnessSlider.value = AppSession.brushHardness
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: qsTr("Texture")
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontBodySm
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: Math.round(textureSlider.value * 100) + " %"
+                                            color: Theme.primary
+                                            font.pixelSize: Theme.fontMono
+                                            font.family: "Noto Sans Mono"
+                                        }
+                                    }
+                                    Slider {
+                                        id: textureSlider
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: AppSession.brushTextureStrength
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushTextureStrength(value)
+                                        Accessible.name: qsTr("Brush tip texture strength")
+                                        Connections {
+                                            target: AppSession
+                                            function onBrushTextureStrengthChanged() {
+                                                textureSlider.value = AppSession.brushTextureStrength
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    Label {
+                                        text: qsTr("Brush presets")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.spaceXs
+                                        Repeater {
+                                            model: AppSession.brushPresetNames.length > 0
+                                                   ? AppSession.brushPresetNames.split("|") : []
+                                            Button {
+                                                text: modelData
+                                                flat: true
+                                                onClicked: AppSession.applyBrushPreset(index)
+                                                Accessible.name: qsTr("Apply brush preset %1").arg(modelData)
+                                            }
+                                        }
+                                    }
+                                    Button {
+                                        text: qsTr("Save current as preset")
+                                        flat: true
+                                        enabled: AppSession.hasDocument
+                                        onClicked: AppSession.saveCurrentBrushPreset("Custom")
+                                    }
+                                }
+                            }
+                        }
+
                         // Fill layer chrome
                         DisclosureGroup {
                             groupId: "inspector.fill"
                             title: qsTr("Fill")
                             visible: root.activeLayerKind === "fill"
+                            summary: AppSession.fillColorHex
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -3315,6 +3527,9 @@ ApplicationWindow {
                             title: qsTr("Path")
                             visible: AppSession.activeTool === "tool.path-edit"
                                      || root.activeLayerKind === "shape"
+                            summary: AppSession.pathClosed
+                                     ? qsTr("%1 anchors · closed").arg(AppSession.pathAnchorCount)
+                                     : qsTr("%1 anchors · open").arg(AppSession.pathAnchorCount)
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -3364,6 +3579,16 @@ ApplicationWindow {
                             visible: root.isCropTool() || root.isTransformTool()
                                      || AppSession.transformActive
                                      || AppSession.cropPreviewActive
+                            // An uncommitted crop or transform is pending work;
+                            // its extent is what decides whether to expand.
+                            summary: {
+                                if (AppSession.cropPreviewActive)
+                                    return qsTr("%1 × %2").arg(AppSession.cropPreviewW)
+                                                         .arg(AppSession.cropPreviewH)
+                                if (AppSession.transformActive)
+                                    return qsTr("%1°").arg(Math.round(AppSession.transformRot))
+                                return qsTr("idle")
+                            }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -3458,6 +3683,18 @@ ApplicationWindow {
                             visible: AppSession.adjustmentKind === "brightness"
                                      || AppSession.adjustmentKind === "levels"
                                      || AppSession.adjustmentKind === "exposure"
+                            summary: {
+                                if (AppSession.adjustmentKind === "levels")
+                                    return qsTr("%1–%2 γ%3")
+                                           .arg(Math.round(AppSession.adjustmentP0 * 255))
+                                           .arg(Math.round(AppSession.adjustmentP1 * 255))
+                                           .arg(AppSession.adjustmentP2.toFixed(2))
+                                if (AppSession.adjustmentKind === "exposure")
+                                    return qsTr("%1 EV").arg(AppSession.adjustmentP0.toFixed(2))
+                                return qsTr("%1 / %2")
+                                       .arg(Math.round(AppSession.adjustmentP0 * 100))
+                                       .arg(Math.round(AppSession.adjustmentP1 * 100))
+                            }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -3489,8 +3726,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "brightness"
-                                    from: -1
-                                    to: 1
+                                    from: root.adjRange("brightness", "p0", 0)
+                                    to: root.adjRange("brightness", "p0", 1)
                                     value: AppSession.adjustmentP0
                                     onMoved: AppSession.setAdjustmentParams(
                                                  value, AppSession.adjustmentP1, 0)
@@ -3514,8 +3751,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "brightness"
-                                    from: -1
-                                    to: 1
+                                    from: root.adjRange("brightness", "p1", 0)
+                                    to: root.adjRange("brightness", "p1", 1)
                                     value: AppSession.adjustmentP1
                                     onMoved: AppSession.setAdjustmentParams(
                                                  AppSession.adjustmentP0, value, 0)
@@ -3539,8 +3776,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "levels"
-                                    from: 0
-                                    to: 1
+                                    from: root.adjRange("levels", "p0", 0)
+                                    to: root.adjRange("levels", "p0", 1)
                                     value: AppSession.adjustmentP0
                                     onMoved: AppSession.setAdjustmentParams(
                                                  value, AppSession.adjustmentP1, AppSession.adjustmentP2)
@@ -3564,8 +3801,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "levels"
-                                    from: 0
-                                    to: 1
+                                    from: root.adjRange("levels", "p1", 0)
+                                    to: root.adjRange("levels", "p1", 1)
                                     value: AppSession.adjustmentP1
                                     onMoved: AppSession.setAdjustmentParams(
                                                  AppSession.adjustmentP0, value, AppSession.adjustmentP2)
@@ -3589,8 +3826,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "levels"
-                                    from: 0.1
-                                    to: 3
+                                    from: root.adjRange("levels", "p2", 0)
+                                    to: root.adjRange("levels", "p2", 1)
                                     value: AppSession.adjustmentP2
                                     onMoved: AppSession.setAdjustmentParams(
                                                  AppSession.adjustmentP0, AppSession.adjustmentP1, value)
@@ -3614,8 +3851,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "exposure"
-                                    from: -5
-                                    to: 5
+                                    from: root.adjRange("exposure", "p0", 0)
+                                    to: root.adjRange("exposure", "p0", 1)
                                     value: AppSession.adjustmentP0
                                     onMoved: AppSession.setAdjustmentParams(
                                                  value, AppSession.adjustmentP1, 0)
@@ -3639,8 +3876,8 @@ ApplicationWindow {
                                 Slider {
                                     Layout.fillWidth: true
                                     visible: AppSession.adjustmentKind === "exposure"
-                                    from: 0.1
-                                    to: 3
+                                    from: root.adjRange("exposure", "p1", 0)
+                                    to: root.adjRange("exposure", "p1", 1)
                                     value: AppSession.adjustmentP1
                                     onMoved: AppSession.setAdjustmentParams(
                                                  AppSession.adjustmentP0, value, 0)
@@ -3654,6 +3891,11 @@ ApplicationWindow {
                             title: qsTr("Effects")
                             visible: AppSession.hasGaussianBlur
                                      || AppSession.effectsJoined.length > 0
+                            summary: {
+                                var n = AppSession.effectsJoined.length > 0
+                                        ? AppSession.effectsJoined.split("|").length : 0
+                                return n === 1 ? qsTr("1 effect") : qsTr("%1 effects").arg(n)
+                            }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -3758,155 +4000,6 @@ ApplicationWindow {
                             }
                         }
 
-                        DisclosureGroup {
-                            groupId: "inspector.brush"
-                            title: qsTr("Brush")
-                            visible: AppSession.activeTool === "tool.brush"
-                                     || AppSession.activeTool === "tool.eraser"
-                            summary: qsTr("%1 px").arg(Math.round(AppSession.brushSize))
-
-                            ColumnLayout {
-                                spacing: Theme.spaceMd
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spaceXs
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Label {
-                                            text: qsTr("Brush Size")
-                                            color: Theme.colorOnSurface
-                                            font.pixelSize: Theme.fontBodySm
-                                            Layout.fillWidth: true
-                                        }
-                                        Label {
-                                            text: Math.round(brushSlider.value) + " px"
-                                            color: Theme.primary
-                                            font.pixelSize: Theme.fontMono
-                                            font.family: "Noto Sans Mono"
-                                        }
-                                    }
-                                    Slider {
-                                        id: brushSlider
-                                        Layout.fillWidth: true
-                                        from: 1
-                                        to: 200
-                                        value: AppSession.brushSize
-                                        enabled: AppSession.hasDocument
-                                        onMoved: AppSession.setBrushSize(value)
-                                        // Dragging a Slider breaks its value binding, so host-side
-                                        // changes (presets, new document) need an explicit re-push.
-                                        Connections {
-                                            target: AppSession
-                                            function onBrushSizeChanged() {
-                                                brushSlider.value = AppSession.brushSize
-                                            }
-                                        }
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spaceXs
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Label {
-                                            text: qsTr("Hardness")
-                                            color: Theme.colorOnSurface
-                                            font.pixelSize: Theme.fontBodySm
-                                            Layout.fillWidth: true
-                                        }
-                                        Label {
-                                            text: Math.round(hardnessSlider.value * 100) + " %"
-                                            color: Theme.primary
-                                            font.pixelSize: Theme.fontMono
-                                            font.family: "Noto Sans Mono"
-                                        }
-                                    }
-                                    Slider {
-                                        id: hardnessSlider
-                                        Layout.fillWidth: true
-                                        from: 0
-                                        to: 1
-                                        value: AppSession.brushHardness
-                                        enabled: AppSession.hasDocument
-                                        onMoved: AppSession.setBrushHardness(value)
-                                        Connections {
-                                            target: AppSession
-                                            function onBrushHardnessChanged() {
-                                                hardnessSlider.value = AppSession.brushHardness
-                                            }
-                                        }
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spaceXs
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Label {
-                                            text: qsTr("Texture")
-                                            color: Theme.colorOnSurface
-                                            font.pixelSize: Theme.fontBodySm
-                                            Layout.fillWidth: true
-                                        }
-                                        Label {
-                                            text: Math.round(textureSlider.value * 100) + " %"
-                                            color: Theme.primary
-                                            font.pixelSize: Theme.fontMono
-                                            font.family: "Noto Sans Mono"
-                                        }
-                                    }
-                                    Slider {
-                                        id: textureSlider
-                                        Layout.fillWidth: true
-                                        from: 0
-                                        to: 1
-                                        value: AppSession.brushTextureStrength
-                                        enabled: AppSession.hasDocument
-                                        onMoved: AppSession.setBrushTextureStrength(value)
-                                        Accessible.name: qsTr("Brush tip texture strength")
-                                        Connections {
-                                            target: AppSession
-                                            function onBrushTextureStrengthChanged() {
-                                                textureSlider.value = AppSession.brushTextureStrength
-                                            }
-                                        }
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spaceXs
-                                    Label {
-                                        text: qsTr("Brush presets")
-                                        color: Theme.colorOnSurface
-                                        font.pixelSize: Theme.fontBodySm
-                                    }
-                                    Flow {
-                                        Layout.fillWidth: true
-                                        spacing: Theme.spaceXs
-                                        Repeater {
-                                            model: AppSession.brushPresetNames.length > 0
-                                                   ? AppSession.brushPresetNames.split("|") : []
-                                            Button {
-                                                text: modelData
-                                                flat: true
-                                                onClicked: AppSession.applyBrushPreset(index)
-                                                Accessible.name: qsTr("Apply brush preset %1").arg(modelData)
-                                            }
-                                        }
-                                    }
-                                    Button {
-                                        text: qsTr("Save current as preset")
-                                        flat: true
-                                        enabled: AppSession.hasDocument
-                                        onClicked: AppSession.saveCurrentBrushPreset("Custom")
-                                    }
-                                }
-                            }
-                        }
 
                         DisclosureGroup {
                             groupId: "inspector.color"
@@ -3970,8 +4063,10 @@ ApplicationWindow {
                             groupId: "inspector.diagnostics"
                             title: qsTr("Diagnostics")
                             visible: AppSession.hasDocument
-                            badgeText: AppSession.gpuLost ? qsTr("GPU lost") : ""
-                            badgeSeverity: "error"
+                            // GPU-lost reaches the header via inspectorBadgesJson.
+                            summary: AppSession.compositeMs > 0
+                                     ? qsTr("%1 ms").arg(AppSession.compositeMs.toFixed(2))
+                                     : qsTr("no GPU timing")
 
                             ColumnLayout {
                                 spacing: Theme.spaceXs
@@ -4382,6 +4477,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
+                            id: navigatorHeaderControls
                             canMoveUp: root.dockStackRow("panel.navigator") > 0
                             canMoveDown: root.dockStackRow("panel.navigator") >= 0
                                          && root.dockStackRow("panel.navigator") < root.dockRightStack.length - 1
@@ -4395,7 +4491,9 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        anchors.rightMargin: 110
+                        // Leave room for panel chrome controls so they receive
+                        // clicks. Measured, not a literal: buttons scale with density.
+                        anchors.rightMargin: navigatorHeaderControls.width + Theme.spaceXs
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -4529,6 +4627,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
+                            id: swatchesHeaderControls
                             canMoveUp: root.dockStackRow("panel.swatches") > 0
                             canMoveDown: root.dockStackRow("panel.swatches") >= 0
                                          && root.dockStackRow("panel.swatches") < root.dockRightStack.length - 1
@@ -4574,7 +4673,9 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        anchors.rightMargin: 110
+                        // Leave room for panel chrome controls so they receive
+                        // clicks. Measured, not a literal: buttons scale with density.
+                        anchors.rightMargin: swatchesHeaderControls.width + Theme.spaceXs
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -4757,6 +4858,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
+                            id: layersHeaderControls
                             canMoveUp: root.dockStackRow("panel.layers") > 0
                             canMoveDown: root.dockStackRow("panel.layers") >= 0
                                          && root.dockStackRow("panel.layers") < root.dockRightStack.length - 1
@@ -4869,7 +4971,9 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        anchors.rightMargin: 110
+                        // Leave room for panel chrome controls so they receive
+                        // clicks. Measured, not a literal: buttons scale with density.
+                        anchors.rightMargin: layersHeaderControls.width + Theme.spaceXs
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
@@ -5093,6 +5197,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
+                            id: historyHeaderControls
                             canMoveUp: root.dockStackRow("panel.history") > 0
                             canMoveDown: root.dockStackRow("panel.history") >= 0
                                          && root.dockStackRow("panel.history") < root.dockRightStack.length - 1
@@ -5106,7 +5211,9 @@ ApplicationWindow {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        anchors.rightMargin: 110
+                        // Leave room for panel chrome controls so they receive
+                        // clicks. Measured, not a literal: buttons scale with density.
+                        anchors.rightMargin: historyHeaderControls.width + Theme.spaceXs
                         z: -1
                         property real pressY: 0
                         cursorShape: Qt.SizeVerCursor
