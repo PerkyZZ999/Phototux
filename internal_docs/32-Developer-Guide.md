@@ -450,6 +450,7 @@ Exact command names remain generic until workspace tooling and task runner are l
 - format source and documentation;
 - compile/check all default workspace members;
 - lint production, tests, examples, and feature combinations;
+- run the repository quality wrappers (`scripts/check-rust.sh`, optional SonarQube via `scripts/check-sonar.sh`);
 - build optimized desktop and headless targets;
 - run fast unit/headless core suite;
 - run property/model and compatibility suites;

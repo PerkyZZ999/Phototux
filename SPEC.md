@@ -149,7 +149,8 @@ PhotoTux is a **desktop GUI** app (not a CLI/TUI product). Use **Qt 6** `qmake` 
 export PATH=/usr/lib/qt6/bin:$PATH
 export QMAKE=/usr/lib/qt6/bin/qmake
 cargo run -p phototux    # launches the editor window (dev)
-./scripts/check-rust.sh  # rustfmt + clippy + rust-doctor
+./scripts/check-rust.sh              # rustfmt + clippy
+CHECK_RUST_FULL=1 ./scripts/check-rust.sh  # + rust-doctor + SonarQube
 ```
 
 Crate layout and phases: see [`internal_docs/`](internal_docs/README.md), [Alignment Roadmap](internal_docs/Appendix/Alignment-Roadmap.md), and [Implementation Checklist](internal_docs/Appendix/Implementation-Checklist.md). Former ADR ids → [Archived-ADR-to-DR-Map.md](internal_docs/Appendix/Archived-ADR-to-DR-Map.md).

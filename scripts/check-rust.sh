@@ -1,14 +1,33 @@
 #!/usr/bin/env bash
 # PhotoTux Rust quality gate: rustfmt + clippy (fast default for pre-commit).
-# Optional full gate: CHECK_RUST_FULL=1 ./scripts/check-rust.sh  (adds rust-doctor)
+# Full gate: CHECK_RUST_FULL=1 ./scripts/check-rust.sh  (adds rust-doctor + SonarQube)
+# Skip Sonar on the full gate: CHECK_SONAR=0 ./scripts/check-rust.sh --full
+# Sonar only (after fmt/clippy): CHECK_SONAR=1 ./scripts/check-rust.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 FULL=0
-if [[ "${CHECK_RUST_FULL:-0}" == "1" ]] || [[ "${1:-}" == "--full" ]]; then
+SONAR_REQUESTED=0
+SONAR_FORCED_OFF=0
+if [[ "${CHECK_RUST_FULL:-0}" == "1" ]]; then
   FULL=1
+fi
+if [[ "${CHECK_SONAR:-}" == "0" ]]; then
+  SONAR_FORCED_OFF=1
+elif [[ "${CHECK_SONAR:-0}" == "1" ]]; then
+  SONAR_REQUESTED=1
+fi
+for arg in "$@"; do
+  case "$arg" in
+    --full) FULL=1 ;;
+    --sonar) SONAR_REQUESTED=1 ;;
+  esac
+done
+SONAR=0
+if [[ "$SONAR_FORCED_OFF" -eq 0 && ( "$SONAR_REQUESTED" -eq 1 || "$FULL" -eq 1 ) ]]; then
+  SONAR=1
 fi
 
 # Colors only if TTY
@@ -80,6 +99,11 @@ if [[ "$FULL" -eq 1 ]]; then
     2) die "rust-doctor scan failed (compile/discovery). Fix build first." ;;
     *) die "rust-doctor exited $rd_ec" ;;
   esac
+fi
+
+if [[ "$SONAR" -eq 1 ]]; then
+  info "+ SonarQube (Clippy JSON + scanner + quality gate)"
+  "$ROOT/scripts/check-sonar.sh"
 fi
 
 ok "all Rust checks passed"

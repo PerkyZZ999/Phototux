@@ -47,7 +47,7 @@ cargo install rust-doctor   # or: already on PATH / ~/.bun/bin/rust-doctor
 export PATH=/usr/lib/qt6/bin:$PATH
 export QMAKE=/usr/lib/qt6/bin/qmake
 
-# Git hooks (fmt + clippy on every commit; rust-doctor opt-in)
+# Git hooks (fmt + clippy on every commit; rust-doctor + SonarQube opt-in via --full)
 ./scripts/install-git-hooks.sh
 
 # When workspace exists:
@@ -55,7 +55,9 @@ cargo build -p phototux
 cargo run -p phototux
 cargo test -p phototux_engine
 ./scripts/check-rust.sh              # fmt + clippy (pre-commit default)
-CHECK_RUST_FULL=1 ./scripts/check-rust.sh   # + rust-doctor
+CHECK_RUST_FULL=1 ./scripts/check-rust.sh   # + rust-doctor + SonarQube
+CHECK_SONAR=0 ./scripts/check-rust.sh --full  # rust-doctor only (no scanner)
+./scripts/check-sonar.sh              # Clippy JSON + sonar-scanner + quality gate
 ```
 
 ---
@@ -136,16 +138,20 @@ Agents **must load and apply** these skills when the task matches. Web-oriented 
 |-------|-------------------|
 | Install hooks | `./scripts/install-git-hooks.sh` → `core.hooksPath=.githooks` |
 | Pre-commit / default | `./scripts/check-rust.sh` → rustfmt + clippy |
-| Full gate | `CHECK_RUST_FULL=1 ./scripts/check-rust.sh` or `--full` → + rust-doctor |
+| Full gate | `CHECK_RUST_FULL=1 ./scripts/check-rust.sh` or `--full` → + rust-doctor + SonarQube |
+| Skip Sonar on full | `CHECK_SONAR=0 ./scripts/check-rust.sh --full` → rust-doctor only |
+| Sonar only | `./scripts/check-sonar.sh` or `--sonar` / `CHECK_SONAR=1` |
 | rustfmt | `cargo fmt --all -- --check` |
 | clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 | rust-doctor | `rust-doctor . --offline --fail-on error -v` (full gate only) |
+| SonarQube | Clippy JSON import + `sonar-scanner` + quality gate wait (needs local server) |
 
 **Hook behavior:**
 
 - No `Cargo.toml` → skip checks (exit 0), unless staged `*.rs` → fail.
 - Clippy warnings are **errors** (`-D warnings`).
-- rust-doctor is **not** in the pre-commit path; run the full gate manually or in CI when needed.
+- rust-doctor and SonarQube are **not** in the pre-commit path; run the full gate manually or in CI when needed.
+- SonarQube project key `phototux` (`sonar-project.properties`, `.sonarlint/connectedMode.json`). Token via `SONAR_TOKEN` or gitignored `.sonar/scanner-token`.
 - Prefer fixing findings over suppressions.
 
 Agents: after non-trivial Rust changes, run `./scripts/check-rust.sh` even if hooks are not installed in the environment.
@@ -238,6 +244,8 @@ Electron/web shell, **CLI or TUI as product** (DR-023), GTK as main UI, CPU full
 | QML import missing | Package name of `#[qobject]` crate (`import phototux_ui`) |
 | Pre-commit skip forever | Missing `Cargo.toml` (expected docs-only) |
 | rust-doctor exit 2 | Project does not compile — fix `cargo build` first |
+| sonar-scanner auth fail | `SONAR_TOKEN` or `.sonar/scanner-token`; `sonar auth status` |
+| SonarQube unreachable | local server at `http://localhost:9000`; skip with `CHECK_SONAR=0` |
 | Hook not running | `./scripts/install-git-hooks.sh`; `git config core.hooksPath` |
 
 ---
@@ -256,7 +264,9 @@ Electron/web shell, **CLI or TUI as product** (DR-023), GTK as main UI, CPU full
 | `internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md` | Code vs handbook diffs |
 | `SPEC.md` / `CONSTRAINTS.md` | Non-normative bridges → handbook + Decision Register |
 | `internal_docs/Appendix/Archived-ADR-to-DR-Map.md` | Former ADR ids → live DR (index only) |
-| `scripts/check-rust.sh` | Quality gate |
+| `scripts/check-rust.sh` | Quality gate (fmt + clippy; `--full` adds rust-doctor + Sonar) |
+| `scripts/check-sonar.sh` | SonarQube analysis (Clippy JSON + scanner) |
+| `sonar-project.properties` | SonarQube project key / Clippy report path |
 | `.githooks/pre-commit` | Commit gate |
 
 ---
@@ -264,6 +274,7 @@ Electron/web shell, **CLI or TUI as product** (DR-023), GTK as main UI, CPU full
 ## PR / handoff checklist
 
 - [ ] `./scripts/check-rust.sh` green (when Rust workspace exists)
+- [ ] Full gate (`--full`) when changing quality tooling or before a release cut
 - [ ] Tests for engine logic touched
 - [ ] UI matches handbook UX / Themes (`qml/Theme.qml`)
 - [ ] No forbidden steady-state CPU canvas upload

@@ -5,8 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-chmod +x "$ROOT/.githooks/pre-commit" "$ROOT/scripts/check-rust.sh" "$ROOT/scripts/install-git-hooks.sh"
+chmod +x "$ROOT/.githooks/pre-commit" "$ROOT/scripts/check-rust.sh" "$ROOT/scripts/check-sonar.sh" "$ROOT/scripts/install-git-hooks.sh"
 
 git config core.hooksPath .githooks
 echo "ok: core.hooksPath=.githooks"
-echo "    pre-commit runs: scripts/check-rust.sh (fmt + clippy + rust-doctor)"
+echo "    pre-commit runs: scripts/check-rust.sh (fmt + clippy)"
+echo "    full gate:       CHECK_RUST_FULL=1 ./scripts/check-rust.sh ( + rust-doctor + SonarQube)"

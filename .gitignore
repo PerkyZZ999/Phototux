@@ -44,3 +44,7 @@ Thumbs.db
 *.AppImage
 *.flatpak
 **/.rust-doctor-cache.json
+
+# SonarQube (scanner workdir + local analysis token; keep .sonarlint/)
+.scannerwork/
+.sonar/
