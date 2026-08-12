@@ -242,7 +242,11 @@ A collapsible group's header is the group's entire interactive surface and its o
 
 It **SHOULD** show a short value summary while collapsed — the parameter a user most likely wants to confirm before deciding to expand — so the collapsed state still carries information scent.
 
-Keyboard grammar follows the platform disclosure convention: Space and Enter toggle; Right expands a collapsed group; Left collapses an expanded one. Group registration order is stable and **MUST NOT** be reordered by usage frequency.
+Where a summary and a badge compete for the same header width, the **badge wins**: the summary elides first, the badge elides only against a bounded share of the header, and neither may widen the header past a narrow dock. The header's accessible description carries the untruncated badge text regardless of what the glyph shows.
+
+Keyboard grammar follows the platform disclosure convention: Space and Enter toggle; Right expands a collapsed group; Left collapses an expanded one. The collapsed affordance **MUST** point in the direction that expands it, so the glyph and the arrow keys teach the same grammar. Group registration order is stable and **MUST NOT** be reordered by usage frequency.
+
+A panel whose body is disclosure groups **SHOULD** offer expand-all and collapse-all. These are panel-local view actions ([05 — Panel System](05-Panel-System.md)); surfacing them on the panel header does not exempt them from menu and action-search registration.
 
 Group bodies **MAY** be constructed lazily on first expansion, provided the deferral is not observable: control values come from host state rather than widget lifetime, and a body retained after collapse keeps in-progress edits. Deferral **MUST NOT** delay a warning or invalid-value badge, which is computed from host state and therefore remains available while the body does not exist. See [01 — Information Architecture](01-Information-Architecture.md) for the group registry and level assignments.
 

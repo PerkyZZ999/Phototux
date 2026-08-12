@@ -11,11 +11,16 @@ RowLayout {
     property bool canMoveUp: true
     property bool canMoveDown: true
     property bool canTearOff: true
+    /// Panels whose body is disclosure groups (Properties) offer expand/collapse all.
+    property bool showsDisclosureToggle: false
+    /// Drives which direction the toggle offers, per handbook 05 panel-local view actions.
+    property bool anyGroupExpanded: true
 
     signal moveUpRequested()
     signal moveDownRequested()
     signal autoHideRequested()
     signal tearOffRequested()
+    signal disclosureToggleRequested()
 
     component HeaderIconButton: ToolButton {
         id: btn
@@ -47,6 +52,17 @@ RowLayout {
         }
     }
 
+    HeaderIconButton {
+        visible: root.showsDisclosureToggle
+        icon.source: Theme.iconUrl(AppSession.iconRoot,
+                                   root.anyGroupExpanded ? "arrows-in-line-vertical"
+                                                         : "arrows-out-line-vertical")
+        Accessible.name: root.anyGroupExpanded ? qsTr("Collapse all groups")
+                                               : qsTr("Expand all groups")
+        ToolTip.visible: hovered
+        ToolTip.text: Accessible.name
+        onClicked: root.disclosureToggleRequested()
+    }
     HeaderIconButton {
         enabled: root.canMoveUp
         icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-up")

@@ -22,9 +22,12 @@ ColumnLayout {
     /// Summary shown beside the title when collapsed (information scent).
     property string summary: ""
     /// Non-empty when the collapsed group hides a warning or invalid value.
-    property string badgeText: ""
+    ///
+    /// Resolved from host state by group id, so a badge does not depend on the
+    /// body existing. Call sites may override for group-local conditions.
+    property string badgeText: control.hostBadge ? control.hostBadge.text : ""
     /// `warning` | `error`. Drives badge color and the accessible description.
-    property string badgeSeverity: "warning"
+    property string badgeSeverity: control.hostBadge ? control.hostBadge.severity : "warning"
     /// Keep the body instantiated after first expansion (value preservation).
     property bool retain: true
 
@@ -37,6 +40,14 @@ ColumnLayout {
             return ({})
         }
     }
+    readonly property var badgeMap: {
+        try {
+            return JSON.parse(AppSession.inspectorBadgesJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+    readonly property var hostBadge: control.badgeMap[control.groupId] || null
     /// Resolved by the host: descriptor default merged with the user override.
     readonly property bool expanded: disclosureMap[control.groupId] === true
     readonly property bool hasBadge: control.badgeText.length > 0
@@ -85,9 +96,11 @@ ColumnLayout {
         contentItem: RowLayout {
             spacing: Theme.spaceXs
 
+            // Caret direction matches the keyboard grammar below: Right expands
+            // a collapsed group, so a collapsed group points right.
             ThemedIcon {
                 source: Theme.iconUrl(AppSession.iconRoot,
-                                      control.expanded ? "caret-down" : "caret-up")
+                                      control.expanded ? "caret-down" : "caret-right")
                 size: Theme.iconMd
                 color: Theme.iconOnSurfaceEffective
             }
@@ -117,20 +130,26 @@ ColumnLayout {
             }
 
             // Handbook: hidden invalid values MUST surface at the collapsed group.
+            // The badge outranks the summary for space; it elides rather than
+            // pushing the row wider than a narrow dock, and the header's
+            // accessible description still carries the full text.
             Rectangle {
                 visible: control.hasBadge
                 radius: Theme.radiusXs
                 color: control.badgeSeverity === "error" ? Theme.error : Theme.warning
                 implicitWidth: badgeLabel.implicitWidth + Theme.spaceXs * 2
                 implicitHeight: badgeLabel.implicitHeight + Theme.spaceXxs * 2
+                Layout.maximumWidth: header.width * 0.6
 
                 Label {
                     id: badgeLabel
                     anchors.centerIn: parent
+                    width: Math.min(implicitWidth, parent.width - Theme.spaceXs * 2)
                     text: control.badgeText
                     color: Theme.primaryOn
                     font.pixelSize: Theme.fontLabelSm
                     font.weight: Font.DemiBold
+                    elide: Text.ElideRight
                 }
             }
         }

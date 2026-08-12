@@ -476,20 +476,41 @@ Rules:
 
 Collapsible inspector sections are named descriptors, not ad-hoc widgets. Each group declares a stable `id`, a concept `title`, its disclosure `level`, and `open_by_default`. Level 1 content is never collapsible and therefore never registers a group.
 
-| Group id | Level | Open by default |
-| --- | --- | --- |
-| `inspector.selection` | 2 — nearby | yes |
-| `inspector.brush` | 2 — nearby | yes |
-| `inspector.fill` | 2 — nearby | yes |
-| `inspector.text` | 2 — nearby | yes |
-| `inspector.path` | 2 — nearby | yes |
-| `inspector.transform` | 2 — nearby | yes |
-| `inspector.adjustment` | 2 — nearby | yes |
-| `inspector.effects` | 3 — on demand | no |
-| `inspector.color` | 3 — on demand | no |
-| `inspector.diagnostics` | 4 — specialized | no |
+The registry order below is also the **layout order**. The Properties panel **MUST** present groups in registration order, and a conformance test **MUST** compare the presented order against the registry rather than relying on review, since the layout is declarative and carries no runtime handle to assert against.
+
+| Group id | Level | Open by default | Collapsed summary |
+| --- | --- | --- | --- |
+| `inspector.selection` | 2 — nearby | yes | combine mode |
+| `inspector.brush` | 2 — nearby | yes | brush size |
+| `inspector.fill` | 2 — nearby | yes | fill colour |
+| `inspector.text` | 2 — nearby | yes | font family |
+| `inspector.path` | 2 — nearby | yes | anchor count and closure |
+| `inspector.transform` | 2 — nearby | yes | pending crop extent or rotation |
+| `inspector.adjustment` | 2 — nearby | yes | primary parameters |
+| `inspector.effects` | 3 — on demand | no | effect count |
+| `inspector.color` | 3 — on demand | no | soft-proof profile |
+| `inspector.diagnostics` | 4 — specialized | no | composite GPU time |
 
 Groups at level 3 and above **MUST** default to collapsed; levels 1–2 carry the parameters an active tool or layer kind needs to be usable without further interaction.
+
+Every registered group **MUST** declare a collapsed summary. A summary names the parameter a user is most likely to check before deciding to expand, so a collapsed group still carries information scent ([28 — UX Guidelines](28-UX-Guidelines.md#disclosure-group-header)).
+
+### Inspector Badge Rules
+
+Header badges are **derived from host state, never from the group's widgets**. The rules are a pure function of an inspector state snapshot, so a badge is computed identically whether or not the body exists, and each rule is testable without a running shell.
+
+Shipped rules:
+
+| Group | Condition | Severity |
+| --- | --- | --- |
+| `inspector.adjustment` | a stored parameter lies outside the range the editor can represent | warning |
+| `inspector.selection` | an active selection's outline shares no pixel with the canvas | warning |
+| `inspector.text` | the active text layer's font family is absent from the discovered families | warning |
+| `inspector.diagnostics` | the graphics device is lost | error |
+
+A rule **MUST NOT** assert a condition it cannot establish. Font family absence, in particular, is only decidable once font discovery has run; before that the rule stays silent rather than reporting a family as missing on the strength of the fallback list.
+
+**Editor ranges are a registered contract.** The bounds each adjustment parameter can be edited within are declared once and read by both the parameter controls and the out-of-range rule, so the two cannot disagree about what is showable. Editor ranges are narrower than the engine's accepted ranges: a document may legally carry a value this editor cannot reach, and that case **MUST** raise a badge rather than silently pinning the control and misreporting the value. Driving a control to either extreme **MUST NOT** raise a badge, including after the engine re-clamps coupled parameters.
 
 **Presence and disclosure are independent axes.** Presence answers "does this group apply to the current tool, layer kind, and selection?" Disclosure answers "how much of an applicable group is shown?" A group hidden because the eraser is active is not a collapsed group, and re-selecting the brush **MUST NOT** be treated as the user expanding anything. Implementations **MUST NOT** collapse a group as a substitute for hiding an inapplicable one, and **MUST NOT** build a group's body while the group is absent.
 

@@ -69,6 +69,8 @@ QtObject {
     /// Panel-header Phosphor glyphs (uniform optical box).
     readonly property int iconMd: Math.round(16 * densityScale)
     readonly property int panelHeaderBtn: Math.round(24 * densityScale)
+    /// Height the right dock holds back for the panels stacked under Properties.
+    readonly property int dockStackReserve: Math.round(280 * densityScale)
 
     // Density / a11y packs (prefs → AppSession); Theme remains single token source.
     property bool highContrast: false

@@ -115,7 +115,7 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | U4 | Context menus from actions (07) | Layer/canvas/selection/mask from registry | **Closed (v1)**; path context / selection-preserve → **Partial** |
 | U5 | Customizable shortcuts (09) | Action map + conflict UI + persist + yield | **Closed (v1)** |
 | U6 | Themes / density / contrast (25) | `Theme.qml` packs; `densityScale` drives spacing, control heights, hit targets, and chrome extents (not type alone) | **Closed (v1)**; full token audit → **Partial** |
-| U9 | Progressive disclosure, four levels (01, 28) | `default_disclosure_groups()` registry → `DisclosureGroup.qml`; Properties regrouped from a flat `visible:` stack; expansion persisted as prefs schema 7 `disclosure_open` | **Closed (v1)**; per-group badge wiring → **Partial** |
+| U9 | Progressive disclosure, four levels (01, 28) | `default_disclosure_groups()` registry → `DisclosureGroup.qml`; Properties regrouped from a flat `visible:` stack; expansion persisted as prefs schema 7 `disclosure_open`; all ten groups carry a collapsed summary; badges derived host-side by `inspector_badges()`; layout order asserted against the registry; expand/collapse-all on the panel header **and** in the View menu | **Closed (v1)** |
 | U7 | Dialogs / palette / workspace presets (03, 26) | Palette + builtins + last-saved + **user-named save/delete** | **Closed (v1)** |
 | U8 | A11y tree + AT-SPI (29) | Semantic JSON + projection + Qt Accessible | **Closed (v1)**; custom D-Bus tree → **Deferred (DR-028)** |
 
@@ -183,10 +183,12 @@ Prefer these over gated P11/P12 work. Sync checklist checkboxes when closing a r
 | **4** | I1 / P8 codec + loss-report polish | Codecs already in `phototux_io`; broaden disclosure UX | Structured loss dialog for PSD/export |
 | **5** | P1 DR-017 evidence | Soft CI green; present budgets Provisional | Release cold-boot + zoom/pan FPS pack |
 | **6** | Assign ≠ convert disclosures | Distinct actions exist; handbook wants consequence copy | ToolTips / announce strings on Image menu |
+| **7** | Right-dock height distribution | Layers and History collapse to header-only in a ~900 px window and at 200 % scale; the Properties body clips mid-control there. The per-panel reserve is a fixed fraction plus a fixed minimum, so it does not adapt to how many panels are stacked | Distribute the stack by content demand instead of a fixed 42 % cap plus reserve |
+| **8** | Font discovery is lazy and blocking | The missing-font badge cannot fire before `fc-list` has run, so a text layer whose family is uninstalled shows no warning until the Character body is first built | Discover off the UI thread after first frame, then re-evaluate the badge |
 | — | P11 tiling / spill / sparse | Large-doc / memory evidence | **Do not start** (DR-029) |
 | — | P12 plugin host | No product need | **Do not start** (DR-029) |
 
-**Closed this refresh:** U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6).
+**Closed this refresh:** U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6); U9 progressive disclosure (summaries, host-derived badges, registry-order conformance, expand/collapse-all).
 
 ---
 

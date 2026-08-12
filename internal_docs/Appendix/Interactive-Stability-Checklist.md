@@ -396,6 +396,10 @@ Mark `[N]` unless Decision Register amends:
 | T-018 | med | §2.3 | App shortcuts fired while New Document / spin editors active (`instanceof TextInput` miss + no dialog yield) | New Document → Ctrl+Shift+P | **fixed** — SpinBox/TextField/TextEdit detect; `newDocDialog.opened` yields; hex/FG focus arms yield |
 | T-019 | med | §2.3 | Preferences Flickable did not scroll (Keyboard unreachable); keymap capture needs F-keys | Prefs → Keyboard | **fixed** — Flickable sized to `availableWidth/Height` + AlwaysOn scrollbar; Save→F9 persisted |
 | T-020 | med | §2.5 | Layer context `Menu.popup()` near bottom dock opened off-screen / invisible | Right-click Layer 1 | **fixed** — `openContextMenu` clamps to Overlay; canvas/selection use same helper |
+| T-021 | med | §2.1 | Panel-header drag `MouseArea` reserved a literal 110 px for chrome; at `comfortable` the four buttons already span 112 px, so the drag surface overlapped them and swallowed their clicks | Prefs → density `comfortable` → click a panel-header button | **fixed** — every header measures its own `PanelHeaderControls.width`; Properties carries five buttons |
+| T-022 | low | §2.1 | Collapsed disclosure groups drew a caret pointing **up**, contradicting the Right-expands / Left-collapses grammar on the same header | Collapse any Properties group | **fixed** — collapsed points right, expanded points down |
+| T-023 | med | §2.1 | Properties laid out `inspector.brush` ninth though the registry declares it second; handbook 28 forbids reordering registered groups | Compare Properties order to `default_disclosure_groups()` | **fixed** — block moved; `inspector_lays_groups_out_in_registry_order` asserts the two orders match |
+| T-024 | low | §2.1 | Right dock gives Layers and History header-only height in a ~900 px window and at 200 % scale; the Properties body clips mid-control there | 1440×900 window, five panels stacked | **open** — pre-existing distribution model; ranked in gap analysis backlog |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
@@ -419,6 +423,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §4.1 pan/zoom | — | wheel zoom; Fit shortcut; middle-drag pan |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §15 conflicts/races | — | undo spam; gallery Esc/close; host markers; Esc modals |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 900×520 | §2.2 More tools overflow | T-016 | deferred open; settled outside-close; Theme rows; pick closes |
+| 2026-08-12 | agent (spectacle) | Wayland host session, isolated `XDG_CONFIG_HOME` | dense / comfortable / `QT_SCALE_FACTOR=2` | T-021…T-024 | first visual pass on the density work; ten group headers reviewed via a forced-visibility QML override. **Pointer clicks could not be injected** (KWin ignores `ydotool` uinput events), so header-button *state* was verified by seeding `disclosure_open` both ways, not by pressing it |
 
 ---
 

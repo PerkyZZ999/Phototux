@@ -2,6 +2,49 @@
 
 All notable decision milestones and project state changes.
 
+## [prefs-missing-key-defaults] — 2026-08-12
+
+### Fixes
+
+- **A preferences file missing the legacy panel keys started with every right-dock panel hidden.** `Preferences` carries a container-level `#[serde(default)]`, which resolves missing keys against the product default — but the five legacy `panel_*` bools each also carried a *field-level* `#[serde(default)]`, and the field-level attribute wins. Those resolved to `false`, `migrate_panel_visibility()` then filled `panel_visibility` from them, and the shell came up with a blank dock. The redundant attributes are removed, so an absent key now means "not recorded" rather than "the user hid it".
+- Same removal on `high_contrast`, `reduced_motion`, and `safe_start_next`, where the two defaults already agreed. This is a no-op by itself, and it is what makes the remaining attributes legible: every field-level `#[serde(default)]` left on the struct now marks a field whose emptiness is a **load-bearing sentinel** — `panel_visibility` (triggers migration), `dock_topology_json`, `brush_presets_json`, `user_workspace_presets_json`, `last_saved_workspace_json` (trigger backfill or normalization), and `disclosure_open` (sparse by contract). Each says so in its doc comment.
+
+Not reachable from any file the app itself writes, since those always serialize `panel_visibility`. Found by hand-authoring a minimal file for a screenshot harness.
+
+### Tests
+
+- `sparse_file_keeps_product_panel_defaults` deserializes `{"schema_version": 7}` and asserts the essentials panels survive migration; verified to fail against the old attributes.
+- `legacy_file_still_migrates_its_own_choices` pins the other half — an absent `panel_visibility` must keep resolving to empty, or a genuine schema-2 file would skip migration and lose the user's recorded choices.
+- `sparse_file_preserves_backfill_sentinels` covers the remaining sentinel fields.
+
+---
+
+## [inspector-badges-and-visual-pass] — 2026-08-12
+
+Closes the loose ends left by `[inspector-disclosure]`, and gives the density work its first
+verification on a real display.
+
+### UX
+
+- **Header badges are derived from host state.** `inspector_badges()` computes a group id → `{text, severity}` map from an inspector state snapshot, published as `inspectorBadgesJson`; `DisclosureGroup` resolves its own badge by id. Handbook 28 requires an invalid value to reach a collapsed header without the body existing, so the rule cannot live in the widgets that own the value. Shipped rules: an adjustment parameter outside the editor's range, an active selection whose outline misses the canvas, a text layer whose font family is not installed, and GPU loss.
+- **Adjustment editor ranges are a registered contract.** `adjustment_editor_ranges()` is read by both the sliders and the out-of-range rule, so the two cannot disagree about what is showable. Editor bounds stay narrower than the engine's accepted bounds: a document may legally carry a gamma the slider cannot reach, and that now raises a badge instead of silently pinning the control.
+- **All ten groups carry a collapsed summary**, up from three — the parameter worth confirming before expanding. Where a badge and a summary compete for header width the summary elides first, and the badge elides against a bounded share rather than widening the row.
+- **Expand-all / collapse-all are wired.** Registered as `action.view.expand-all-groups` / `action.view.collapse-all-groups` for menu and action-search discovery, and surfaced as a state-reflecting control on the Properties header — offering collapse while any group is expanded, expand otherwise. The `AppSession` slots that had no caller are now the header's handler.
+
+### Fixes
+
+- **Panel-header drag areas swallowed button clicks at `comfortable` density.** All five headers reserved a literal 110 px for chrome, but four buttons already span 112 px at that density. Each header now measures its own `PanelHeaderControls`. The Properties reserve for the panels stacked below it moves from a literal to `Theme.dockStackReserve` for the same reason.
+- **Collapsed groups pointed the caret up**, contradicting the Right-expands / Left-collapses grammar on the same header. Collapsed now points right.
+- **`inspector.brush` was laid out ninth though the registry declares it second.** Handbook 28 forbids reordering registered groups; `inspector_lays_groups_out_in_registry_order` now asserts the layout against the registry, since a declarative layout offers nothing else to assert against.
+
+### Verification
+
+- First visual pass on a real Wayland session: dense, `comfortable`, and `QT_SCALE_FACTOR=2`, plus a forced-visibility QML override that puts all ten group headers on screen at once. Density confirmed to drive layout, not only type.
+- Known limits recorded rather than papered over: the right dock still gives Layers and History header-only height in a ~900 px window and at 200 % scale, and the missing-font badge stays silent until fontconfig discovery has run. Both are ranked in the gap-analysis backlog.
+- Pointer clicks could not be injected on this session (KWin ignores `ydotool` uinput events), so the header control's two states were verified by seeding `disclosure_open` both ways rather than by pressing the button.
+
+---
+
 ## [composite-no-host-wait] — 2026-08-12
 
 ### Decisions

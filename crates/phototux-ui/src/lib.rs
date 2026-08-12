@@ -209,6 +209,10 @@ pub struct AppSession {
     disclosure_open_json: String,
     /// Static [`phototux_engine::DisclosureGroupDescriptor`] list for the inspector.
     disclosure_groups_json: String,
+    /// Group id → `{text, severity}` for values a collapsed group would hide.
+    inspector_badges_json: String,
+    /// Static adjustment slider bounds, so QML and the badge rule agree.
+    adjustment_ranges_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
@@ -293,6 +297,8 @@ pub struct AppSession {
     text_font_family: String,
     /// JSON array of font family names: fallbacks until `fc-list` has run.
     available_fonts_json: String,
+    /// Same list unserialized, for the missing-font disclosure badge.
+    available_font_families: Vec<String>,
     /// True once fontconfig discovery has replaced the fallback list.
     fonts_discovered: bool,
     /// Active text layer origin in document pixels (from layer transform).
@@ -435,6 +441,8 @@ impl AppSession {
             inspector_blend_mixed: false,
             disclosure_open_json: "{}".to_owned(),
             disclosure_groups_json: phototux_engine::disclosure_groups_json(),
+            inspector_badges_json: "{}".to_owned(),
+            adjustment_ranges_json: phototux_engine::adjustment_editor_ranges_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
             pref_history_retention: 128,
@@ -515,6 +523,7 @@ impl AppSession {
             text_body: String::new(),
             text_font_family: "Noto Sans".into(),
             available_fonts_json: fonts::fallback_font_families_json(),
+            available_font_families: Vec::new(),
             fonts_discovered: false,
             text_origin_x: 0.0,
             text_origin_y: 0.0,
@@ -632,6 +641,7 @@ impl AppSession {
         if !self.gpu_lost {
             self.gpu_lost = true;
             self.gpu_lost_changed();
+            self.refresh_inspector_badges();
         }
         self.engine
             .announce("Graphics device lost — document preserved");
@@ -775,6 +785,7 @@ impl AppSession {
         self.sync_guides_fields();
         self.refresh_pref_effective_json();
         self.pref_effective_json_changed();
+        self.refresh_inspector_badges();
         self.status_text = self.engine.status_summary();
     }
 
@@ -1379,6 +1390,39 @@ impl AppSession {
             serde_json::to_string(&resolved).unwrap_or_else(|_| "{}".to_owned());
     }
 
+    /// Recompute the header badges a collapsed inspector group would hide.
+    ///
+    /// Handbook 28 requires the badge to be available while the group's body
+    /// does not exist, so it is derived here from host state rather than from
+    /// the widgets that would otherwise own the invalid value.
+    fn refresh_inspector_badges(&mut self) {
+        let state = phototux_engine::InspectorState {
+            adjustment_kind: &self.adjustment_kind,
+            adjustment_p0: self.adjustment_p0,
+            adjustment_p1: self.adjustment_p1,
+            adjustment_p2: self.adjustment_p2,
+            selection_active: self.selection_active,
+            selection_bounds: self
+                .engine
+                .selection
+                .bounds
+                .map(|b| (b.x, b.y, b.width, b.height)),
+            document_size: (self.engine.size.width, self.engine.size.height),
+            text_layer_active: self.text_layer_active,
+            text_font_family: &self.text_font_family,
+            known_font_families: self
+                .fonts_discovered
+                .then_some(self.available_font_families.as_slice()),
+            gpu_lost: self.gpu_lost,
+        };
+        let next = phototux_engine::inspector_badges_json(&state);
+        if next == self.inspector_badges_json {
+            return;
+        }
+        self.inspector_badges_json = next;
+        self.inspector_badges_json_changed();
+    }
+
     /// Set every registered inspector disclosure group to `open` and persist once.
     fn set_all_disclosure_groups(&mut self, open: bool) {
         for group in phototux_engine::default_disclosure_groups() {
@@ -1664,6 +1708,8 @@ impl AppSession {
                 self.status_text_changed();
             }
             "prefs.open" => self.open_preferences(),
+            "inspector.expand_all" => self.set_all_disclosure_groups(true),
+            "inspector.collapse_all" => self.set_all_disclosure_groups(false),
             "document.embed_icc" => {
                 self.status_text = "host:document.embed_icc".into();
                 self.status_text_changed();
@@ -2136,6 +2182,31 @@ mod tests {
     fn local_file_url_rejects_remote_hosts() {
         assert!(local_path("file://example.com/photo.png").is_err());
     }
+
+    /// Handbook 28: group registration order is stable and MUST NOT be
+    /// reordered, so the inspector must lay groups out in registry order.
+    /// Reading the QML is what makes the two orders comparable at all — the
+    /// layout is declarative and has no runtime handle to assert against.
+    #[test]
+    fn inspector_lays_groups_out_in_registry_order() {
+        let main_qml = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/Main.qml");
+        let source = std::fs::read_to_string(main_qml).expect("read Main.qml");
+        let laid_out: Vec<&str> = source
+            .lines()
+            .filter_map(|line| {
+                let rest = line.trim().strip_prefix("groupId: \"")?;
+                rest.strip_suffix('"')
+            })
+            .collect();
+        let registered: Vec<String> = phototux_engine::default_disclosure_groups()
+            .into_iter()
+            .map(|group| group.id)
+            .collect();
+        assert_eq!(
+            laid_out, registered,
+            "Properties group order diverged from the disclosure registry"
+        );
+    }
 }
 
 #[qobject(Singleton, ConvertToCamelCase)]
@@ -2545,6 +2616,16 @@ impl AppSession {
         "disclosureGroupsJson",
         Member = disclosure_groups_json,
         Notify = disclosure_groups_json_changed
+    );
+    qproperty!(
+        "inspectorBadgesJson",
+        Member = inspector_badges_json,
+        Notify = inspector_badges_json_changed
+    );
+    qproperty!(
+        "adjustmentRangesJson",
+        Member = adjustment_ranges_json,
+        Notify = adjustment_ranges_json_changed
     );
     qproperty!(
         "prefEffectiveJson",
@@ -3061,6 +3142,10 @@ impl AppSession {
     #[qsignal]
     fn disclosure_groups_json_changed(&mut self);
     #[qsignal]
+    fn inspector_badges_json_changed(&mut self);
+    #[qsignal]
+    fn adjustment_ranges_json_changed(&mut self);
+    #[qsignal]
     fn pref_effective_json_changed(&mut self);
     #[qsignal]
     fn pref_safe_start_next_changed(&mut self);
@@ -3259,6 +3344,7 @@ impl AppSession {
             Ok(ms) => {
                 self.gpu_lost = false;
                 self.gpu_lost_changed();
+                self.refresh_inspector_badges();
                 self.engine.set_composite_ms(ms);
                 let gen_after = self
                     .engine
@@ -3651,8 +3737,11 @@ impl AppSession {
             return;
         }
         self.fonts_discovered = true;
-        self.available_fonts_json = fonts::discover_font_families_json();
+        self.available_font_families = fonts::discover_font_families();
+        self.available_fonts_json = fonts::font_families_json(&self.available_font_families);
         self.available_fonts_json_changed();
+        // The Character group can now say whether its family is installed.
+        self.refresh_inspector_badges();
     }
 
     /// Persist an inspector disclosure group's expanded state (handbook 28:

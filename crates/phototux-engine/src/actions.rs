@@ -989,6 +989,30 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
         ),
+        // Panel-local view actions (handbook 05): workspace scope, no document
+        // mutation, so they stay available with no document open.
+        act(
+            "action.view.expand-all-groups",
+            "E&xpand All Property Groups",
+            "view",
+            "always",
+            None,
+            Some("inspector.expand_all"),
+            None,
+            None,
+            Some("arrows-out-line-vertical"),
+        ),
+        act(
+            "action.view.collapse-all-groups",
+            "&Collapse All Property Groups",
+            "view",
+            "always",
+            None,
+            Some("inspector.collapse_all"),
+            None,
+            None,
+            Some("arrows-in-line-vertical"),
+        ),
         // Window
         act(
             "action.window.panel-navigator",
@@ -1383,6 +1407,29 @@ mod tests {
                     a.id
                 );
             }
+        }
+    }
+
+    /// Handbook 28: expert affordances must not remove menu/action-search
+    /// discovery, so the panel-local disclosure actions live in the registry
+    /// rather than only on the Properties header.
+    #[test]
+    fn disclosure_actions_are_menu_discoverable() {
+        let actions = default_actions();
+        for (id, host_op) in [
+            ("action.view.expand-all-groups", "inspector.expand_all"),
+            ("action.view.collapse-all-groups", "inspector.collapse_all"),
+        ] {
+            let action = actions
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{id} is not registered"));
+            assert_eq!(action.menu, "view", "{id} must appear in the View menu");
+            assert_eq!(action.host_op.as_deref(), Some(host_op));
+            assert_eq!(
+                action.enablement, "always",
+                "{id} is workspace scope and needs no document"
+            );
         }
     }
 
