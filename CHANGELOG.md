@@ -14,6 +14,10 @@ never shows and the user always waits for.
 - **Mid-stroke composites are paced against time, not dab count.** The trigger was `dabs_since_composite >= 4`; dab rate is pointer speed over spacing, so it tracked how fast you moved rather than the refresh rate. One constant failed in both directions — a size-4 brush at 1000 doc px/s asked for ~250 composites/s against 60 displayed frames, while a size-200 brush at 100 px/s went 2 s between composites with the stroke stamped but invisible. Now paced at 8 ms, which admits 120 Hz without firing twice per frame at 60 Hz. The worker waits on that gap when dabs are pending, so a stroke that pauses mid-air still lands its tail.
 - **Stroke end composited twice.** The tail flush asked for a composite and `end_stroke` composited again immediately after; the flush no longer does.
 
+### Shell
+
+- **The action table is built once instead of per lookup.** `action_by_id` called `default_actions()`, which allocates ~800 strings across 101 descriptors, then linearly scanned the result — so a single "can I undo?" question constructed the whole table. Around 100 menu items bind to enablement and all of them re-evaluate together whenever an enablement input changes, which includes every pen-up. The table is now a `LazyLock` with an id index, and `action_by_id` borrows from it. `default_shortcut_map` / `default_action_shortcuts`, on the shortcut path, borrow it too.
+
 ---
 
 ## [prefs-missing-key-defaults] — 2026-08-12

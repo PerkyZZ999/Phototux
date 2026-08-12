@@ -3,7 +3,8 @@
 //! Presentations resolve `ActionDescriptor::id` → `command_id` and/or `host_op`.
 //! Document mutations still enter [`crate::SessionState::invoke`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -1230,22 +1231,53 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions
 }
 
+/// The built-in action table, constructed once.
+///
+/// [`default_actions`] allocates roughly 800 strings across 101 descriptors.
+/// Presentations resolve enablement per action per binding evaluation, so a
+/// lookup that rebuilt the table turned a single "can I undo?" question into a
+/// full table construction — and a shell with ~100 bound menu items paid for it
+/// ~100 times whenever an enablement input changed.
+struct ActionTable {
+    actions: Vec<ActionDescriptor>,
+    by_id: HashMap<String, usize>,
+}
+
+static ACTION_TABLE: LazyLock<ActionTable> = LazyLock::new(|| {
+    let actions = default_actions();
+    let by_id = actions
+        .iter()
+        .enumerate()
+        .map(|(index, action)| (action.id.clone(), index))
+        .collect();
+    ActionTable { actions, by_id }
+});
+
+/// Built-in actions, borrowed from the shared table.
+pub fn action_table() -> &'static [ActionDescriptor] {
+    &ACTION_TABLE.actions
+}
+
 /// Look up a built-in action by id.
-pub fn action_by_id(id: &str) -> Option<ActionDescriptor> {
-    default_actions().into_iter().find(|a| a.id == id)
+pub fn action_by_id(id: &str) -> Option<&'static ActionDescriptor> {
+    ACTION_TABLE
+        .by_id
+        .get(id)
+        .and_then(|&index| ACTION_TABLE.actions.get(index))
 }
 
 /// Actions that contribute to a context-menu surface.
 pub fn actions_for_context(ctx: &str) -> Vec<ActionDescriptor> {
-    default_actions()
-        .into_iter()
+    action_table()
+        .iter()
         .filter(|a| a.contexts.iter().any(|c| c == ctx))
+        .cloned()
         .collect()
 }
 
 /// JSON for QML consumption.
 pub fn actions_json() -> String {
-    serde_json::to_string(&default_actions()).unwrap_or_else(|_| "[]".into())
+    serde_json::to_string(action_table()).unwrap_or_else(|_| "[]".into())
 }
 
 /// JSON for a single context-menu surface.
@@ -1287,7 +1319,7 @@ pub fn normalize_shortcut(raw: &str) -> String {
 /// Default chord → action id map from built-in descriptors.
 pub fn default_shortcut_map() -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
-    for action in default_actions() {
+    for action in action_table() {
         let Some(shortcut) = action.shortcut.as_deref() else {
             continue;
         };
@@ -1295,7 +1327,7 @@ pub fn default_shortcut_map() -> BTreeMap<String, String> {
         if chord.is_empty() {
             continue;
         }
-        map.entry(chord).or_insert(action.id);
+        map.entry(chord).or_insert_with(|| action.id.clone());
     }
     map
 }
@@ -1303,13 +1335,13 @@ pub fn default_shortcut_map() -> BTreeMap<String, String> {
 /// Default action id → chord map (for menu / palette display).
 pub fn default_action_shortcuts() -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
-    for action in default_actions() {
+    for action in action_table() {
         let Some(shortcut) = action.shortcut.as_deref() else {
             continue;
         };
         let chord = normalize_shortcut(shortcut);
         if !chord.is_empty() {
-            map.entry(action.id).or_insert(chord);
+            map.entry(action.id.clone()).or_insert(chord);
         }
     }
     map
@@ -1388,6 +1420,30 @@ mod tests {
     use super::*;
     use crate::command_id;
     use std::collections::HashSet;
+
+    /// Enablement is resolved per action per binding evaluation, so the lookup
+    /// must not rebuild the table. Identity of the returned reference is the
+    /// observable difference between borrowing the shared table and
+    /// constructing a fresh one each call.
+    #[test]
+    fn action_lookup_borrows_one_shared_table() {
+        let first = action_by_id("action.edit.undo").expect("undo registered");
+        let second = action_by_id("action.edit.undo").expect("undo registered");
+        assert!(
+            std::ptr::eq(first, second),
+            "action_by_id rebuilt the table instead of borrowing it"
+        );
+        assert!(std::ptr::eq(
+            first,
+            &action_table()[ACTION_TABLE.by_id["action.edit.undo"]]
+        ));
+        assert_eq!(action_by_id("action.does.not.exist"), None);
+    }
+
+    #[test]
+    fn action_table_matches_the_builder() {
+        assert_eq!(action_table(), default_actions().as_slice());
+    }
 
     #[test]
     fn action_ids_unique() {
