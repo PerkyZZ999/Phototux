@@ -24,7 +24,7 @@ All status values are **Present**.
 ### 01 — Information Architecture
 
 - File: [01-Information-Architecture.md](../01-Information-Architecture.md)
-- Role: Mental model, hierarchy, actions, selection/focus/context/active target, menus, progressive disclosure, a11y semantics at IA level.
+- Role: Mental model, hierarchy, actions, selection/focus/context/active target, menus, progressive disclosure and the inspector disclosure/badge registry, a11y semantics at IA level.
 - Depends on: 00
 
 ### 02 — Application Lifecycle
@@ -48,8 +48,8 @@ All status values are **Present**.
 ### 05 — Panel System
 
 - File: [05-Panel-System.md](../05-Panel-System.md)
-- Role: Panel descriptors, follow/pin targets, virtualization, contributions.
-- Depends on: 01, 03, 04
+- Role: Panel descriptors, follow/pin targets, virtualization, contributions, panel-local view actions.
+- Depends on: 01, 03, 04, 08
 
 ### 06 — Toolbar System
 

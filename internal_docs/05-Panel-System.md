@@ -219,6 +219,8 @@ Panels request context menus from [07 — Context Menus](07-Context-Menus.md) us
 
 Panel-local view actions such as Expand All may execute in workspace scope. Mutating actions such as Delete Layer map to command descriptors. Action enablement is advisory and always revalidated.
 
+A panel-local view action **MUST** be registered in the action table even when the panel header exposes it directly, so it keeps menu and action-search discovery and a rebindable shortcut. Because these actions carry no document scope, they stay enabled with no document open. Where a header offers expand-all and collapse-all as a single control, the control **MUST** reflect current state — offering collapse while any group is expanded, expand otherwise — rather than presenting a fixed direction that is sometimes a no-op.
+
 ## Persistence and Versioning
 
 Persistable panel state may include instance ID, descriptor ID/version, context policy, pin target hint, expansion IDs, sorting/filtering, selected inspector section, and bounded UI preferences. It excludes document content, uncommitted field edits, raw snapshots, operation handles, focus object when privacy policy forbids it, and unrestricted extension blobs.

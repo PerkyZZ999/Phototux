@@ -221,6 +221,8 @@ A density mode **MUST** drive the layout scale, not only the type scale. The den
 
 Chrome extents **MUST** read their density-scaled token rather than repeat a literal, otherwise the mode silently skips whichever surfaces were hardcoded.
 
+This applies equally to geometry **derived from** chrome rather than drawn as chrome: space reserved for a control cluster, hit-area insets that keep a drag surface clear of buttons, and minimum heights held back for stacked panels. A literal reserve is a latent overlap — at a larger density factor the chrome it was sized for outgrows it, and the surface underneath begins swallowing clicks meant for the controls on top. Where the reserve exists to clear a specific item, geometry **SHOULD** measure that item rather than restate its size.
+
 ## Iconography
 
 Icons are semantic resources:

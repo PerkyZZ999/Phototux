@@ -2,6 +2,32 @@
 
 All notable decision milestones and project state changes.
 
+## [inspector-badges-and-visual-pass] — 2026-08-12
+
+Closes the loose ends left by `[inspector-disclosure]`, and gives the density work its first
+verification on a real display.
+
+### UX
+
+- **Header badges are derived from host state.** `inspector_badges()` computes a group id → `{text, severity}` map from an inspector state snapshot, published as `inspectorBadgesJson`; `DisclosureGroup` resolves its own badge by id. Handbook 28 requires an invalid value to reach a collapsed header without the body existing, so the rule cannot live in the widgets that own the value. Shipped rules: an adjustment parameter outside the editor's range, an active selection whose outline misses the canvas, a text layer whose font family is not installed, and GPU loss.
+- **Adjustment editor ranges are a registered contract.** `adjustment_editor_ranges()` is read by both the sliders and the out-of-range rule, so the two cannot disagree about what is showable. Editor bounds stay narrower than the engine's accepted bounds: a document may legally carry a gamma the slider cannot reach, and that now raises a badge instead of silently pinning the control.
+- **All ten groups carry a collapsed summary**, up from three — the parameter worth confirming before expanding. Where a badge and a summary compete for header width the summary elides first, and the badge elides against a bounded share rather than widening the row.
+- **Expand-all / collapse-all are wired.** Registered as `action.view.expand-all-groups` / `action.view.collapse-all-groups` for menu and action-search discovery, and surfaced as a state-reflecting control on the Properties header — offering collapse while any group is expanded, expand otherwise. The `AppSession` slots that had no caller are now the header's handler.
+
+### Fixes
+
+- **Panel-header drag areas swallowed button clicks at `comfortable` density.** All five headers reserved a literal 110 px for chrome, but four buttons already span 112 px at that density. Each header now measures its own `PanelHeaderControls`. The Properties reserve for the panels stacked below it moves from a literal to `Theme.dockStackReserve` for the same reason.
+- **Collapsed groups pointed the caret up**, contradicting the Right-expands / Left-collapses grammar on the same header. Collapsed now points right.
+- **`inspector.brush` was laid out ninth though the registry declares it second.** Handbook 28 forbids reordering registered groups; `inspector_lays_groups_out_in_registry_order` now asserts the layout against the registry, since a declarative layout offers nothing else to assert against.
+
+### Verification
+
+- First visual pass on a real Wayland session: dense, `comfortable`, and `QT_SCALE_FACTOR=2`, plus a forced-visibility QML override that puts all ten group headers on screen at once. Density confirmed to drive layout, not only type.
+- Known limits recorded rather than papered over: the right dock still gives Layers and History header-only height in a ~900 px window and at 200 % scale, and the missing-font badge stays silent until fontconfig discovery has run. Both are ranked in the gap-analysis backlog.
+- Pointer clicks could not be injected on this session (KWin ignores `ydotool` uinput events), so the header control's two states were verified by seeding `disclosure_open` both ways rather than by pressing the button.
+
+---
+
 ## [composite-no-host-wait] — 2026-08-12
 
 ### Decisions
