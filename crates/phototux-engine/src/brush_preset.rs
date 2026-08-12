@@ -120,6 +120,9 @@ mod tests {
         let lib = BrushPresetLibrary::with_defaults();
         let json = lib.to_json().expect("json");
         let back = BrushPresetLibrary::from_json(&json).expect("parse");
-        assert_eq!(back.presets.len(), 3);
+        // Compare against the library itself so adding a default preset cannot
+        // leave this assertion stale.
+        assert_eq!(back.presets.len(), lib.presets.len());
+        assert_eq!(back.names_joined(), lib.names_joined());
     }
 }
