@@ -297,6 +297,12 @@ Queues are bounded by sample count, dab count, tile jobs, provisional bytes, and
 
 User-confirmed mutation is never silently dropped. Samples already acknowledged as part of an active stroke either commit, remain represented in pending state, or produce a disclosed partial-stroke outcome at a valid segment boundary.
 
+### Acquiring pressure from the host
+
+Pressure **MUST** be read from a device-aware input path. A toolkit's plain mouse-event type generally carries position and buttons only; reading a pressure field from it yields nothing, and because a missing field reads as absent rather than as an error, the failure is silent — every dab is stamped at full pressure and the dynamics above never see a signal, while the preset UI continues to offer pressure controls that do nothing.
+
+Where the device reports no pressure, the adapter **MUST** substitute the declared fallback of full pressure, so pointer devices behave exactly as they would with the dynamics disabled. An adapter that monitors the pointer alongside the gesture handler **MUST NOT** take an exclusive grab, or it changes which component owns the gesture while only meaning to observe it.
+
 ### Pressure across a segment
 
 Input samples arrive far more slowly than dabs are placed — tens per second against hundreds — so a segment between two samples carries many dabs. Dynamics inputs **MUST** be interpolated across that segment rather than held at the sample value: stamping the arriving pressure on every dab of its segment turns a smooth press into one visible step per input event, and the step count tracks the input rate rather than anything the user did.

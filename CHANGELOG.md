@@ -13,6 +13,11 @@ the engine; it lands first so that wiring a stylus cannot regress anything.
 - **Pressure ramps across a segment.** `move_to` applied the arriving sample's pressure to every dab between it and the previous sample, so a smooth press produced one visible step per input event and the step count tracked the input rate. Pressure now interpolates between the two samples, and spacing tightens with it.
 - Constant-pressure strokes — every mouse stroke until stylus input is wired — place dabs at exactly the same positions as before, pinned by `constant_pressure_spacing_is_unchanged`.
 
+### Input
+
+- **Stylus pressure reaches the brush.** Both stroke calls read `mouse.pressure` off `QQuickMouseEvent`, which has no such property — the check `typeof mouse.pressure === "number"` was always false, so every dab of every stroke was stamped at 1.0 and the engine's pressure dynamics never received a signal. Pressure now comes from a `PointHandler` tracking the same point, which exposes the device's real value. It takes only a passive grab, so the `MouseArea` keeps owning every gesture. Devices without pressure report 0 while held and fall back to full pressure, so a mouse behaves exactly as before.
+- **Not verified on hardware.** No stylus is attached to the development machine and synthetic pointer input cannot be delivered on this session, so the handler is confirmed to instantiate without QML errors and to be a safe superset of the previous behaviour by construction — but nobody has yet drawn a pressure-varying stroke. Worth ten seconds with a tablet before relying on it.
+
 ## [paint-fluidity-1] — 2026-08-12
 
 Canvas fluidity pass, part one: remove work from the stroke path that the display

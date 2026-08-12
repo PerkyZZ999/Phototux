@@ -2265,6 +2265,25 @@ ApplicationWindow {
                         return Qt.BlankCursor
                     return Qt.ArrowCursor
                 }
+                // Pressure source. QQuickMouseEvent carries no pressure — the
+                // property simply does not exist — so reading it off the mouse
+                // event silently produced 1.0 for every dab of every stroke,
+                // and the brush engine's pressure dynamics never saw a signal.
+                // A PointHandler tracks the same point and exposes the device's
+                // real value. It takes only a passive grab, so the MouseArea
+                // above keeps owning every gesture; this contributes nothing
+                // but the number. Devices without pressure report 0 while held,
+                // which falls back to full pressure, so a mouse behaves exactly
+                // as it did before.
+                PointHandler {
+                    id: canvasPoint
+                    acceptedButtons: Qt.LeftButton
+                }
+                function strokePressure() {
+                    var p = canvasPoint.active ? canvasPoint.point.pressure : 0
+                    return p > 0 ? p : 1.0
+                }
+
                 property real lastX: 0
                 property real lastY: 0
                 property bool dragging: false
@@ -2482,10 +2501,8 @@ ApplicationWindow {
                     if (AppSession.activeTool === "tool.brush"
                             || AppSession.activeTool === "tool.eraser") {
                         painting = true
-                        // pressure: tablet via mouse.pressure if available, else 1
-                        var p = (typeof mouse.pressure === "number" && mouse.pressure > 0)
-                                ? mouse.pressure : 1.0
-                        AppSession.strokeBegin(mouse.x, mouse.y, p)
+                        AppSession.strokeBegin(mouse.x, mouse.y,
+                                               canvasInput.strokePressure())
                     }
                 }
                 onReleased: function (mouse) {
@@ -2648,9 +2665,8 @@ ApplicationWindow {
                         var factor = Math.exp(-dy * 0.01)
                         AppSession.zoomAt(factor, mouse.x, mouse.y)
                     } else if (painting) {
-                        var p = (typeof mouse.pressure === "number" && mouse.pressure > 0)
-                                ? mouse.pressure : 1.0
-                        AppSession.strokeMove(mouse.x, mouse.y, p)
+                        AppSession.strokeMove(mouse.x, mouse.y,
+                                              canvasInput.strokePressure())
                     }
                 }
                 onWheel: function (wheel) {
