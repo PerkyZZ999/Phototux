@@ -152,7 +152,7 @@ impl GpuContext {
 
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("phototux-spike-device"),
+                label: Some("phototux-gpu-device"),
                 required_features,
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
@@ -246,7 +246,7 @@ impl GpuContext {
         clear: [f32; 4],
     ) -> wgpu::Texture {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("phototux-spike-tex"),
+            label: Some("phototux-cleared-tex"),
             size: wgpu::Extent3d {
                 width: width.max(1),
                 height: height.max(1),
@@ -267,7 +267,7 @@ impl GpuContext {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("phototux-spike-clear"),
+                label: Some("phototux-clear"),
             });
 
         {

@@ -26,7 +26,7 @@ The following match the live workspace and **MUST NOT** be replaced or “re-def
 | Canvas interop | Thin C++ canvas item + QML AOT registration only | `phototux_canvas`, `phototux` |
 | GPU API | **`wgpu` 30**, Vulkan-first | `phototux_gpu` |
 | Interactive present | **Zero-copy** GPU present (no steady-state full-frame CPU upload) | canvas / GPU |
-| Workspace crates | `phototux`, `phototux_ui`, `phototux_engine`, `phototux_gpu`, `phototux_canvas`, `phototux_io` (+ spike as evidence only) | `Cargo.toml` |
+| Workspace crates | `phototux`, `phototux_ui`, `phototux_engine`, `phototux_gpu`, `phototux_canvas`, `phototux_io` | `Cargo.toml` |
 | Native document | **`.ptx`** as editable persistence (evolve encoding in place) | `phototux_io` |
 | Icons | Phosphor under `assets/icons/phosphor/` | assets |
 

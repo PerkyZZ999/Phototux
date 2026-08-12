@@ -4,7 +4,7 @@
 # Primary quality gate remains scripts/check-rust.sh `--fail-on error`.
 # Scope (owner 2026-07-15): fix first-party correctness/perf/config;
 # retain reviewed exclusions for publication/workspace noise, intentional
-# FFI audit noise, and build/spike paths.
+# FFI audit noise, and build-script paths.
 #
 # Residual noise (accepted, not chaseable via ignore allowlist):
 # - pedantic Clippy from doctor's pass (`must_use_candidate`, …)
@@ -29,8 +29,6 @@ rules = [
     "unsafe-block-audit",
 ]
 # Build scripts may panic when Qt/CMake tooling is missing (expected).
-# Spike crate is throwaway validation (ADR-010), not production surface.
 files = [
     "**/build.rs",
-    "crates/phototux-spike-interop/**",
 ]

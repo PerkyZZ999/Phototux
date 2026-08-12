@@ -31,7 +31,7 @@ Explicitly out of scope for MVP:
 - Non-destructive layer graph, blend-mode compute, undo DAG (Phase 3)
 - Selections, transform tools, color pickers (Phase 4)
 - KDE global menus, XDG portals export polish, HDR path (Phase 5)
-- Vector editing, plugin marketplace, multi-document tabs
+- Vector editing, plugin marketplace, multi-window sessions
 
 Full phase plan lives in [SPEC.md](SPEC.md).
 
@@ -85,6 +85,6 @@ Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p
 
 ## Next Steps
 
-1. Follow [Alignment Roadmap](internal_docs/Appendix/Alignment-Roadmap.md) Phase 1 — command spine.
-2. Track slices in [Implementation Checklist](internal_docs/Appendix/Implementation-Checklist.md).
-3. Multi-doc only after amending [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--single-document-session-v1).
+1. Pick product slices from the [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
+2. Alignment history: [Implementation Checklist](internal_docs/Appendix/Implementation-Checklist.md).
+3. Session model: [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--document-session-model) (tabs in; multi-window out of scope).

@@ -97,8 +97,7 @@ crates/
 ├── phototux-engine       # portable document/commands/history semantics; no Qt
 ├── phototux-gpu          # wgpu pipelines
 ├── phototux-canvas       # Qt↔wgpu canvas interop (± thin C++)
-├── phototux-io           # .ptx + raster/PSD adapters
-└── phototux-spike-interop # historical evidence only
+└── phototux-io           # .ptx + raster/PSD adapters
 ```
 
 Presentation stack is **Qt 6 QML + qtbridge**. GPU stack is **wgpu 30 Vulkan-first** with zero-copy interactive present. Do not invent parallel GUI or GPU stacks.

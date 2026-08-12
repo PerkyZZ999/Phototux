@@ -70,4 +70,4 @@ assets/icons/
 
 ## App brand
 
-Launcher / about art may stay custom (`assets/logo*.png`). **Tool and chrome glyphs** come from this Phosphor pack.
+Launcher / about art may stay custom (`assets/logo-ui.png`). **Tool and chrome glyphs** come from this Phosphor pack.

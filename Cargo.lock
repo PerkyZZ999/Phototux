@@ -1027,16 +1027,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "phototux_spike_interop"
-version = "0.1.0"
-dependencies = [
- "cc",
- "phototux_gpu",
- "pollster",
- "qtbridge",
-]
-
-[[package]]
 name = "phototux_ui"
 version = "0.1.0"
 dependencies = [

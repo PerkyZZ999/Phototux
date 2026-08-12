@@ -6,7 +6,6 @@ members = [
     "crates/phototux-engine",
     "crates/phototux-gpu",
     "crates/phototux-canvas",
-    "crates/phototux-spike-interop",
     "crates/phototux-io",
 ]
 default-members = ["crates/phototux"]
