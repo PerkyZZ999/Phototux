@@ -151,6 +151,8 @@ Readers observe old state/old timeline or new state/new timeline. If history res
 
 The default timeline is linear for user-visible undo/redo. It has an applied prefix and redo suffix. Undo moves the semantic cursor by applying inverse as a new command/version; the historical source records remain ordered. Redo applies forward meaning when valid.
 
+**Every committed entry MUST reach the timeline projection.** A command that pushes history but reports no other invalidation still changed the timeline, and a projection keyed only on layer or selection invalidation will not be told. The observable failure is a history list that omits entries and silently corrects itself at the next unrelated edit, which is worse than a stale list because it reads as authoritative. Entry notification **MUST** be driven by the entry list changing, not inferred from a neighbouring sync flag.
+
 When a new ordinary edit commits after undo, default policy discards the visible redo suffix from active traversal. Retained resources are released subject to snapshots/checkpoints. This is “linear branch replacement.” The discarded branch may remain briefly in a diagnostic tombstone but is not user-reachable history and cannot retain unbounded private data.
 
 ```mermaid

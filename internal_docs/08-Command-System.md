@@ -127,6 +127,8 @@ Provenance identifies user presentation, tool gesture, history operation, recove
 
 One action normally maps to one command. A view-only action may use a workspace command or explicit non-mutating handler when no persisted/shared state changes. One command may be invoked from many actions only when parameterization or presentation differs without changing semantics.
 
+**Descriptor lookup is a hot path and must be constant-cost.** Presentations resolve enablement per action, and every bound action re-resolves together whenever a shared enablement input changes — the surface is the whole menu tree, not one item. A lookup that constructs the descriptor table therefore multiplies one state change by the table size and by the number of bindings. Descriptors are immutable for the process lifetime, so the table **MUST** be built once and looked up by index; helpers that walk it **SHOULD** borrow rather than clone.
+
 ```mermaid
 sequenceDiagram
     participant UI as Presentation

@@ -405,6 +405,17 @@ A pass label includes semantic node family, behavior version, quality, tile coun
 
 GPU occupancy estimates alone cannot prove speed. Small dispatch proliferation, transfer synchronization, pipeline switches, and oversized halos often dominate. Fusion is accepted only with output equivalence, bounded temporary memory, cancellation granularity, and cache effects measured.
 
+## Notification Discipline
+
+A property change signal is a request to re-run every binding that reads it. On the interactive path that cost is paid at the display rate or faster, so signals **MUST** be emitted on a change the user could observe, not on a change of the underlying value.
+
+Two forms of waste recur and both **MUST** be avoided:
+
+- **Sub-visible precision.** A metric rendered rounded, or to fixed decimals, changes far more often than its readout does. Emitting on the raw value relaid out the surrounding row for a number that did not move. Compare at the precision the readout shows.
+- **Unconditional emission on a shared input.** Signals that many bindings depend on — undo/redo availability, dirty state — fan out to the whole menu surface. Emitting them on every commit re-evaluates that surface even when the value is unchanged, which is common: a second consecutive edit of the same kind changes neither redo availability nor dirty state.
+
+Work that is not a projection **MUST NOT** run in the frame tick at all. Serializing and writing recovery artifacts belongs on a worker; a synchronous filesystem write inside the frame handler lands in the one frame the user is most likely to be watching, because it is triggered by the gesture ending.
+
 ## Scheduling, Backpressure, and Cancellation
 
 The scheduler protects user intent and durability:
