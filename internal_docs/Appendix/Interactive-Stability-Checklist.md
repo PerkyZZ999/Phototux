@@ -22,7 +22,7 @@ Living **interactive / GUI** verification checklist for PhotoTux. Use this to hu
 3. Prefer an isolated Wayland session (kwinmcp / clean Plasma) so host chrome does not steal focus.
 4. Mark each item: `[ ]` todo · `[~]` flaky / partial · `[x]` pass · `[!]` fail (log below) · `[N]` skipped / gated
 5. On `[!]`: reproduce once, file a row in **Issues log**, fix, retest, then mark `[x]`.
-6. After a pass: update **Pass log**, commit fixes + checklist deltas, keep `./scripts/check-rust.sh` green.
+6. After a pass: update **Pass log**, commit fixes + checklist deltas, keep `rust-tc quick` green.
 
 **Evidence tips:** status bar text, window title dirty `*`, AT-SPI names (`find_ui_elements` / accessibility tree), app stderr (`[phototux] …`), short screenshot of failure.
 
@@ -434,7 +434,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 - [x] §7 creative engines exercised or explicitly `[N]` with reason
 - [x] §13 a11y smoke green
 - [x] All `[!]` fixed or deferred with Decision Register / gap note
-- [x] `./scripts/check-rust.sh` green for code fixes
+- [x] `rust-tc quick` green for code fixes
 - [x] This checklist + journal updated; commits landed
 
 ---

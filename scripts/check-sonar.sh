@@ -49,7 +49,7 @@ cargo clippy --workspace --all-targets --all-features --message-format=json -- -
   >"$ROOT/target/sonar/clippy-report.json"
 clippy_ec=$?
 set -e
-[[ "$clippy_ec" -eq 0 ]] || die "clippy JSON report failed (exit $clippy_ec). Fix clippy first: ./scripts/check-rust.sh"
+[[ "$clippy_ec" -eq 0 ]] || die "clippy JSON report failed (exit $clippy_ec). Fix clippy first: rust-tc clippy"
 ok "clippy report → target/sonar/clippy-report.json"
 
 info "sonar-scanner (quality gate wait) → $SONAR_HOST_URL"

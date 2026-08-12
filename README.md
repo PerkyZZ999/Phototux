@@ -73,7 +73,8 @@ export PATH=/usr/lib/qt6/bin:$PATH
 export QMAKE=/usr/lib/qt6/bin/qmake
 cargo run -p phototux          # GUI editor window
 cargo test -p phototux_engine
-./scripts/check-rust.sh        # rustfmt + clippy (+ rust-doctor when CHECK_RUST_FULL=1)
+rust-tc quick                  # fmt + check + clippy + tests
+./scripts/check-rust.sh        # pre-commit: rust-tc precommit (fmt + clippy)
 ```
 
 Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p / 1080p / 2K / 4K).
@@ -81,7 +82,7 @@ Requires Qt **6.10+** on PATH. First launch opens **New Document** (presets 720p
 ## Agent & quality gate
 
 - **`AGENTS.md`** — coding constitution (Rust skills, UI skills, ADR stack, doctrine).
-- **Pre-commit:** `./scripts/install-git-hooks.sh` then every commit runs `scripts/check-rust.sh`.
+- **Pre-commit:** `./scripts/install-git-hooks.sh` then every commit runs `rust-tc precommit` (fmt + clippy). Full local gate: `rust-tc doctor`.
 
 ## Next Steps
 

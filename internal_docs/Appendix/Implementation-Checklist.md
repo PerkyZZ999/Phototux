@@ -84,5 +84,5 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked · `[P]` post
 
 - [ ] Update this file when starting/finishing a slice
 - [ ] Update gap analysis rows for closed architecture items
-- [ ] `./scripts/check-rust.sh` green
+- [ ] `rust-tc quick` green
 - [ ] No paragraph-long workaround comments

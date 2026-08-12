@@ -265,7 +265,7 @@ notes: ...
 
 ## Soft CI gates (P13 / DR-017)
 
-Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test` / `./scripts/check-rust.sh`. These are **soft CI gates** (CPU / command-router proxies), not photon/present promotions.
+Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test` / `rust-tc quick`. These are **soft CI gates** (CPU / command-router proxies), not photon/present promotions.
 
 | Budget | Fixture | Soft max | Status |
 | --- | --- | --- | --- |

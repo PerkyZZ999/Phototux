@@ -254,7 +254,7 @@ Phases may overlap when independent. Do not start P11/P12 without gates.
 3. **No stack reopen:** Qt / wgpu / Wayland / zero-copy / coarse crates stay.
 4. **Gates are real:** Do not “just start” multi-doc or tiling (DR-029).
 5. **Update checklist** when starting/finishing a slice; close gap-analysis rows in the same change set.
-6. **Quality:** `./scripts/check-rust.sh` green; no paragraph-long workaround comments.
+6. **Quality:** `rust-tc quick` green; no paragraph-long workaround comments.
 7. **Journal:** Phase exits → update [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) + Decision Register as needed.
 8. **Depth deferral:** Prefer vertical spines; mark unfinished MUST depth `[~]`/`[P]` or amend DR-028 — never silent gaps.
 

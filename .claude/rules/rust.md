@@ -6,10 +6,10 @@ paths:
 
 # Rust
 
-- Edition 2024. Format and lint via `./scripts/check-rust.sh` (clippy `-D warnings`).
+- Edition 2024. Format and lint via `rust-tc quick` (clippy `-D warnings`). Pre-commit is `rust-tc precommit`.
 - Library paths: `Result` + typed errors (`thiserror`). `unwrap`/`expect` only in tests or documented invariants.
 - Lint overrides: `#[expect(..., reason = "...")]`, not silent `#[allow]`.
 - `phototux_engine` / `phototux_io`: no Qt, no wgpu. `phototux_ui`: no wgpu. `phototux_gpu`: no Qt.
 - `unsafe` only in `phototux_canvas` / FFI, with a one-line `// SAFETY:` invariant.
-- After non-trivial edits, `./scripts/check-rust.sh` must pass. Add tests in the crate you changed.
+- After non-trivial edits, `rust-tc quick` must pass. Before finishing substantial work, `rust-tc doctor`. Add tests in the crate you changed.
 - Sonar `S3776` threshold is 15 (clippy cognitive complexity is 30). Split helpers rather than raising either.

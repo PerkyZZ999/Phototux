@@ -454,14 +454,17 @@ cargo run -p phototux
 cargo test -p phototux_engine
 cargo test --workspace
 cargo test -p phototux_gpu --features gpu-tests   # optional; needs a Vulkan device
-./scripts/check-rust.sh                           # rustfmt + clippy -D warnings (pre-commit)
-./scripts/check-rust.sh --full                    # + rust-doctor + SonarQube
-CHECK_SONAR=0 ./scripts/check-rust.sh --full      # rust-doctor only
+rust-tc check                                     # fastest compiler-only feedback
+rust-tc quick                                     # fmt + check + clippy + tests + doctests
+rust-tc doctor                                    # full local Rust-Toolchain gate
+./scripts/check-rust.sh                           # rust-tc precommit (fmt + clippy; git hook)
+./scripts/check-rust.sh --full                    # rust-tc doctor + SonarQube
+CHECK_SONAR=0 ./scripts/check-rust.sh --full      # rust-tc doctor only
 ./scripts/check-sonar.sh                          # Clippy JSON + scanner + quality gate
 ./scripts/install-git-hooks.sh                    # once per clone → core.hooksPath=.githooks
 ```
 
-SonarQube project key is `phototux` (`sonar-project.properties`). Token via `SONAR_TOKEN` or gitignored `.sonar/scanner-token`. Pre-commit runs fmt + clippy only; rust-doctor and SonarQube stay opt-in.
+The public quality CLI is **`rust-tc`** (Rust-Toolchain; wraps `just`). Do not invoke `just` directly. `rust-tc doctor` is not the `rust-doctor` Cargo binary. SonarQube project key is `phototux` (`sonar-project.properties`). Token via `SONAR_TOKEN` or gitignored `.sonar/scanner-token`. Pre-commit runs fmt + clippy only; `rust-tc doctor` and SonarQube stay opt-in.
 
 The repository **SHOULD** also keep discoverable commands (Cargo, scripts, or a later task runner) for:
 

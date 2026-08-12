@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# PhotoTux pre-commit: rustfmt + clippy only (fast path via scripts/check-rust.sh).
-# Full gate (rust-doctor + SonarQube): CHECK_RUST_FULL=1 ./scripts/check-rust.sh
+# PhotoTux pre-commit: rust-tc precommit (fmt + clippy) via scripts/check-rust.sh.
+# Full local gate: rust-tc doctor
+# Full + SonarQube: CHECK_RUST_FULL=1 ./scripts/check-rust.sh
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"

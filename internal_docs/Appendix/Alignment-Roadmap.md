@@ -81,7 +81,7 @@ Owner asked for agent decisions beyond the tech stack. Summary: **handbook owns 
 
 ## 3. Phased roadmap
 
-Each phase ends with: code green (`./scripts/check-rust.sh`), handbook/DR updates, gap-analysis row closures, and checklist notes in [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) / Decision Register.
+Each phase ends with: code green (`rust-tc quick` / `./scripts/check-rust.sh`), handbook/DR updates, gap-analysis row closures, and checklist notes in [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) / Decision Register.
 
 ### Phase 0 — Documentation lock (this delivery)
 

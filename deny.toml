@@ -1,0 +1,51 @@
+# PhotoTux dependency policy (Rust-Toolchain / cargo-deny).
+# Review when adding crates. See https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+]
+all-features = true
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    # Workspace crates (root Cargo.toml).
+    "GPL-3.0-or-later",
+    # qtbridge 0.2 (DR-023 FFI) and its Qt crate graph.
+    "LGPL-3.0-only",
+    # option-ext, pulled by dirs → qtbridge-build-utils.
+    "MPL-2.0",
+]
+unused-allowed-license = "allow"
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path deps omit versions by design (DR-025 crate topology).
+allow-wildcard-paths = true
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

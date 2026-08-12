@@ -40,7 +40,7 @@ Legend: `[ ]` todo · `[~]` partial · `[x]` done · `[!]` blocked/gated · `[P]
 - [x] Update this file when starting/finishing a slice (living practice)
 - [x] Add/update `command_id` + [Command-Taxonomy.md](Command-Taxonomy.md) for document commits
 - [x] Close matching rows in [Codebase-Handbook-Gap-Analysis.md](Codebase-Handbook-Gap-Analysis.md) — refreshed 2026-07-18; keep in sync on each slice
-- [x] `./scripts/check-rust.sh` green (gate on every commit)
+- [x] `rust-tc precommit` / `./scripts/check-rust.sh` green (gate on every commit)
 - [x] No paragraph-long workaround comments
 - [x] Journal phase exits recorded in checklist / Decision Register (former `archive/docs/04-journal/` removed)
 

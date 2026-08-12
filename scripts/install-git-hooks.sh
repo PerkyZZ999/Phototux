@@ -9,5 +9,6 @@ chmod +x "$ROOT/.githooks/pre-commit" "$ROOT/scripts/check-rust.sh" "$ROOT/scrip
 
 git config core.hooksPath .githooks
 echo "ok: core.hooksPath=.githooks"
-echo "    pre-commit runs: scripts/check-rust.sh (fmt + clippy)"
-echo "    full gate:       CHECK_RUST_FULL=1 ./scripts/check-rust.sh ( + rust-doctor + SonarQube)"
+echo "    pre-commit runs: scripts/check-rust.sh → rust-tc precommit (fmt + clippy)"
+echo "    full local gate: rust-tc doctor"
+echo "    full + Sonar:    CHECK_RUST_FULL=1 ./scripts/check-rust.sh"

@@ -17,9 +17,12 @@ export QMAKE=/usr/lib/qt6/bin/qmake
 cargo build -p phototux
 cargo run -p phototux
 cargo test -p phototux_engine
-./scripts/check-rust.sh                 # rustfmt + clippy -D warnings (pre-commit)
-./scripts/check-rust.sh --full          # + rust-doctor + SonarQube
-CHECK_SONAR=0 ./scripts/check-rust.sh --full   # rust-doctor only
+rust-tc check                           # fastest compiler-only feedback
+rust-tc quick                           # fmt + check + clippy + tests + doctests
+rust-tc doctor                          # full local Rust-Toolchain gate
+./scripts/check-rust.sh                 # rust-tc precommit (fmt + clippy; git hook)
+./scripts/check-rust.sh --full          # rust-tc doctor + SonarQube
+CHECK_SONAR=0 ./scripts/check-rust.sh --full   # rust-tc doctor only
 ./scripts/check-sonar.sh                # Clippy JSON + scanner + quality gate
 ```
 
@@ -31,7 +34,7 @@ One-time: `./scripts/install-git-hooks.sh`. Host packages, crate map, and the re
 
 1. Before architecture, UX, or crate-boundary work, read the relevant handbook chapter and the Decision Register. Pick product slices from the [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
 2. Extend [`internal_docs/`](internal_docs/README.md). Do not add a second tree under `/docs/` (archive is history).
-3. After non-trivial Rust, `./scripts/check-rust.sh` must pass. Add engine tests for engine logic you touch. Commit only when asked.
+3. After non-trivial Rust, `rust-tc quick` must pass. Add engine tests for engine logic you touch. Commit only when asked. Before finishing substantial work, `rust-tc doctor`.
 
 Cargo workspace: directories kebab-case, packages `phototux_*`. Ownership: Developer Guide [Rust Workspace Boundaries](internal_docs/32-Developer-Guide.md#rust-workspace-boundaries) and [DR-025](internal_docs/Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace).
 
@@ -69,14 +72,16 @@ Interactive present is **zero-copy GPU**. CPU canvas is tests and degraded mode 
 
 When the task matches, load the skill. Web-oriented wording maps to **dense desktop QML**, not HTML/CSS.
 
-- Rust: `ms-rust` (`must` = hard gates) and `rust-skills`. Language-law: `rust-reference`. Hot path: `rust-optimise`. Health scan: `rust-doctor` via `--full`.
+- Rust: `ms-rust` (`must` = hard gates) and `rust-skills`. Language-law: `rust-reference`. Hot path: `rust-optimise`. Health scan: `rust-tc doctor` (Rust-Toolchain; not the `rust-doctor` crate).
 - QML / chrome / icons: `craft-beautiful-frontend` (dense editor, `Theme.qml`, canvas-first) and `iconography-frontend-ui`.
 
 ---
 
 ## Quality
 
-Pre-commit is fmt + clippy only. rust-doctor and SonarQube (project key `phototux`, [localhost:9000](http://localhost:9000/dashboard?id=phototux)) are opt-in via `--full` / `check-sonar.sh`. Token: `SONAR_TOKEN` or gitignored `.sonar/scanner-token`. Prefer fixing findings over suppressions.
+Pre-commit is `rust-tc precommit` (fmt + clippy). `rust-tc doctor` is the full **local** Rust-Toolchain gate (fmt, clippy, nextest, doctests, cargo-deny, cargo-shear, cargo-hack). It is not the `rust-doctor` Cargo binary. SonarQube (project key `phototux`, [localhost:9000](http://localhost:9000/dashboard?id=phototux)) stays a separate opt-in via `--full` / `check-sonar.sh`. Token: `SONAR_TOKEN` or gitignored `.sonar/scanner-token`. Prefer fixing findings over suppressions.
+
+Do not add `cargo-audit` (`cargo-deny` owns advisories). Do not blanket-allow Clippy to force green. Device-backed GPU tests stay opt-in: `cargo test -p phototux_gpu --features gpu-tests`. Do not run `rust-tc mutants`, `rust-tc miri`, `rust-tc fuzz`, or `rust-tc features-deep` after every edit.
 
 Clippy cognitive-complexity threshold is **30**; Sonar `S3776` is **15**. Split helpers rather than raising either.
 
@@ -109,7 +114,8 @@ Commits: atomic, conventional-ish (`feat:`, `fix:`, `docs:`, `chore:`). Referenc
 |---------|--------|
 | Links wrong Qt | `PATH` / `QMAKE` → `/usr/lib/qt6/bin` |
 | QML import missing | `import phototux_ui` (package of the `#[qobject]` crate) |
-| rust-doctor exit 2 | `cargo build` first |
+| rust-tc / just missing | `rust-tc` and `just` on PATH (`~/.local/bin`) |
+| rust-tc clippy fails to link Qt | `PATH` / `QMAKE` → `/usr/lib/qt6/bin` |
 | sonar-scanner auth | `sonar auth status`; token as above |
 | SonarQube unreachable | `http://localhost:9000` or `CHECK_SONAR=0` |
 | Hook not running | `./scripts/install-git-hooks.sh`; `git config core.hooksPath` |
