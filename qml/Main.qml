@@ -491,12 +491,12 @@ ApplicationWindow {
             return true
         }
         if (text === "host:help.about") {
-            aboutDialog.open()
+            aboutDialogLoader.open()
             AppSession.clearHostStatusMarker()
             return true
         }
         if (text === "host:palette.open") {
-            commandPalette.showPalette()
+            commandPaletteLoader.ensure().showPalette()
             AppSession.clearHostStatusMarker()
             return true
         }
@@ -515,8 +515,6 @@ ApplicationWindow {
         }
     }
 
-    readonly property int toolStripWidth: Theme.toolStripWidth
-    readonly property int dockWidth: Theme.dockWidth
     readonly property int statusHeight: Theme.statusbarHeight
     readonly property color primary: Theme.primary
     readonly property color surface: Theme.surface
@@ -650,7 +648,7 @@ ApplicationWindow {
             AppSession.filterGalleryCancel()
         if (AppSession.dirty) {
             pendingDestructiveAction = action
-            unsavedDialog.open()
+            unsavedDialogLoader.open()
             return
         }
         executeDestructiveAction(action)
@@ -666,7 +664,7 @@ ApplicationWindow {
         if (AppSession.dirty) {
             close.accepted = false
             pendingDestructiveAction = "quit"
-            unsavedDialog.open()
+            unsavedDialogLoader.open()
         }
     }
 
@@ -916,7 +914,7 @@ ApplicationWindow {
         var entries = []
         try { entries = JSON.parse(AppSession.recoveryEntriesJson || "[]") } catch (e) {}
         if (entries.length > 0)
-            recoveryDialog.open()
+            recoveryDialogLoader.open()
         else if (!AppSession.hasDocument && !AppSession.ioBusy)
             welcomeDialog.open()
     }
@@ -930,64 +928,69 @@ ApplicationWindow {
         onTriggered: AppSession.autosaveNow()
     }
 
-    Dialog {
-        id: recoveryDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Recover unsaved work")
-        width: 440
-        standardButtons: Dialog.Close
-        onClosed: {
-            if (!AppSession.hasDocument && !AppSession.ioBusy)
-                welcomeDialog.open()
-        }
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-        contentItem: ColumnLayout {
-            spacing: Theme.spaceSm
-            width: 400
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("PhotoTux found autosaved documents from a previous session.")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontBody
+    LazyDialog {
+        id: recoveryDialogLoader
+
+        Dialog {
+            id: recoveryDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("Recover unsaved work")
+            width: 440
+            standardButtons: Dialog.Close
+            onClosed: {
+                if (!AppSession.hasDocument && !AppSession.ioBusy)
+                    welcomeDialog.open()
             }
-            Repeater {
-                model: {
-                    try {
-                        return JSON.parse(AppSession.recoveryEntriesJson || "[]")
-                    } catch (e) {
-                        return []
-                    }
-                }
-                delegate: RowLayout {
-                    required property var modelData
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
+            }
+            contentItem: ColumnLayout {
+                spacing: Theme.spaceSm
+                width: 400
+                Label {
                     Layout.fillWidth: true
-                    spacing: Theme.spaceSm
-                    Label {
-                        Layout.fillWidth: true
-                        elide: Text.ElideMiddle
-                        text: modelData.original_path && modelData.original_path.length
-                              ? modelData.original_path
-                              : qsTr("Untitled (%1)").arg(modelData.document_id.slice(0, 8))
-                        color: Theme.colorOnSurface
-                        font.pixelSize: Theme.fontBodySm
-                    }
-                    Button {
-                        text: qsTr("Restore")
-                        onClicked: {
-                            AppSession.restoreRecovery(modelData.document_id)
-                            recoveryDialog.close()
+                    wrapMode: Text.WordWrap
+                    text: qsTr("PhotoTux found autosaved documents from a previous session.")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBody
+                }
+                Repeater {
+                    model: {
+                        try {
+                            return JSON.parse(AppSession.recoveryEntriesJson || "[]")
+                        } catch (e) {
+                            return []
                         }
                     }
-                    Button {
-                        text: qsTr("Discard")
-                        flat: true
-                        onClicked: AppSession.discardRecoveryEntry(modelData.document_id)
+                    delegate: RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: Theme.spaceSm
+                        Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideMiddle
+                            text: modelData.original_path && modelData.original_path.length
+                                  ? modelData.original_path
+                                  : qsTr("Untitled (%1)").arg(modelData.document_id.slice(0, 8))
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontBodySm
+                        }
+                        Button {
+                            text: qsTr("Restore")
+                            onClicked: {
+                                AppSession.restoreRecovery(modelData.document_id)
+                                recoveryDialog.close()
+                            }
+                        }
+                        Button {
+                            text: qsTr("Discard")
+                            flat: true
+                            onClicked: AppSession.discardRecoveryEntry(modelData.document_id)
+                        }
                     }
                 }
             }
@@ -1199,7 +1202,7 @@ ApplicationWindow {
                 implicitWidth: 28
                 implicitHeight: 28
                 icon.source: root.iconUrl("question")
-                onClicked: aboutDialog.open()
+                onClicked: aboutDialogLoader.open()
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("About PhotoTux")
                 Accessible.name: ToolTip.text
@@ -1388,8 +1391,7 @@ ApplicationWindow {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            // Literal width avoids Theme size tokens resolving to 0 under PHOTOTUX_QML.
-            width: 48
+            width: Theme.toolStripWidth
             color: Theme.surface
             Accessible.role: Accessible.ToolBar
             Accessible.name: qsTr("Tools")
@@ -2628,7 +2630,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: 280
+            width: Theme.dockWidth
             color: Theme.surface
             z: 10
 
@@ -2966,944 +2968,1065 @@ ApplicationWindow {
                         }
 
                         // Selection combine modes
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
+                        DisclosureGroup {
+                            groupId: "inspector.selection"
+                            title: qsTr("Selection")
                             visible: root.isSelectTool()
-                            Label {
-                                text: qsTr("Pixel selection")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            RowLayout {
+
+                            ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spaceXs
-                                Repeater {
-                                    model: [
-                                        { id: "replace", stem: "selection", tip: qsTr("Replace") },
-                                        { id: "add", stem: "selection-plus", tip: qsTr("Add") },
-                                        { id: "subtract", stem: "minus-circle", tip: qsTr("Subtract") },
-                                        { id: "intersect", stem: "intersect", tip: qsTr("Intersect") }
-                                    ]
-                                    delegate: ToolButton {
-                                        implicitWidth: 32
-                                        implicitHeight: 28
-                                        checkable: true
-                                        checked: AppSession.selectionCombine === modelData.id
-                                        icon.source: root.iconUrl(modelData.stem)
-                                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                        icon.width: 16
-                                        icon.height: 16
-                                        contentItem: ThemedIcon {
-                                            anchors.centerIn: parent
-                                            source: parent.icon.source
-                                            size: parent.icon.height
-                                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                        }
-                                        enabled: AppSession.hasDocument
-                                        onClicked: AppSession.setSelectionCombine(modelData.id)
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: modelData.tip
-                                        background: Rectangle {
-                                            radius: Theme.radiusSm
-                                            color: parent.checked
-                                                   ? Theme.toolActiveBg
-                                                   : (parent.hovered ? Theme.surfaceContainerHigh : "transparent")
-                                            border.color: parent.checked ? Theme.primary : "transparent"
-                                            border.width: 1
+                                Label {
+                                    text: qsTr("Pixel selection")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    Repeater {
+                                        model: [
+                                            { id: "replace", stem: "selection", tip: qsTr("Replace") },
+                                            { id: "add", stem: "selection-plus", tip: qsTr("Add") },
+                                            { id: "subtract", stem: "minus-circle", tip: qsTr("Subtract") },
+                                            { id: "intersect", stem: "intersect", tip: qsTr("Intersect") }
+                                        ]
+                                        delegate: ToolButton {
+                                            implicitWidth: 32
+                                            implicitHeight: 28
+                                            checkable: true
+                                            checked: AppSession.selectionCombine === modelData.id
+                                            icon.source: root.iconUrl(modelData.stem)
+                                            icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                            icon.width: 16
+                                            icon.height: 16
+                                            contentItem: ThemedIcon {
+                                                anchors.centerIn: parent
+                                                source: parent.icon.source
+                                                size: parent.icon.height
+                                                color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                            }
+                                            enabled: AppSession.hasDocument
+                                            onClicked: AppSession.setSelectionCombine(modelData.id)
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: modelData.tip
+                                            background: Rectangle {
+                                                radius: Theme.radiusSm
+                                                color: parent.checked
+                                                       ? Theme.toolActiveBg
+                                                       : (parent.hovered ? Theme.surfaceContainerHigh : "transparent")
+                                                border.color: parent.checked ? Theme.primary : "transparent"
+                                                border.width: 1
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            Label {
-                                text: qsTr("Shift add · Alt subtract · Shift+Alt intersect")
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Shift add · Alt subtract · Shift+Alt intersect")
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
                             }
                         }
 
                         // Fill layer chrome
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
+                        DisclosureGroup {
+                            groupId: "inspector.fill"
+                            title: qsTr("Fill")
                             visible: root.activeLayerKind === "fill"
-                            Label {
-                                text: qsTr("Fill")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            RowLayout {
+
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: Theme.spaceSm
+                                spacing: Theme.spaceXs
                                 Label {
-                                    text: qsTr("Color")
-                                    color: Theme.colorOnSurfaceVariant
-                                    font.pixelSize: Theme.fontLabelSm
+                                    text: qsTr("Fill")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
                                 }
-                                TextField {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: AppSession.fillColorHex
-                                    onEditingFinished: AppSession.setActiveFillHex(text)
-                                }
-                                Rectangle {
-                                    width: 22
-                                    height: 22
-                                    radius: Theme.radiusXs
-                                    color: AppSession.fillColorHex
-                                    border.color: Theme.border
+                                    spacing: Theme.spaceSm
+                                    Label {
+                                        text: qsTr("Color")
+                                        color: Theme.colorOnSurfaceVariant
+                                        font.pixelSize: Theme.fontLabelSm
+                                    }
+                                    TextField {
+                                        Layout.fillWidth: true
+                                        text: AppSession.fillColorHex
+                                        onEditingFinished: AppSession.setActiveFillHex(text)
+                                    }
+                                    Rectangle {
+                                        width: 22
+                                        height: 22
+                                        radius: Theme.radiusXs
+                                        color: AppSession.fillColorHex
+                                        border.color: Theme.border
+                                    }
                                 }
                             }
                         }
 
                         // Character / text layer chrome
-                        ColumnLayout {
-                            id: characterProps
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
+                        DisclosureGroup {
+                            groupId: "inspector.text"
+                            title: qsTr("Character")
                             visible: AppSession.textLayerActive
                                      || AppSession.activeTool === "tool.text"
                                      || root.activeLayerKind === "text"
+                            summary: AppSession.textFontFamily
 
-                            function pushText() {
-                                AppSession.updateActiveText(
-                                            textBodyField.text,
-                                            fontFamilyCombo.currentText,
-                                            fontSizeSpin.value,
-                                            trackingSpin.value,
-                                            lineSpacingSpin.value / 100.0,
-                                            alignCombo.currentIndex,
-                                            textColorField.text)
-                                AppSession.updateActiveTextFrame(
-                                            frameWSpin.value,
-                                            frameHSpin.value,
-                                            wrapCheck.checked)
-                            }
+                            ColumnLayout {
+                                id: characterProps
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
 
-                            Label {
-                                text: qsTr("Character")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            Label {
-                                visible: !AppSession.textLayerActive
-                                text: qsTr("Click the canvas with the Text tool to create a text layer.")
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                wrapMode: Text.Wrap
-                                Layout.fillWidth: true
-                            }
-                            TextField {
-                                id: textBodyField
-                                Layout.fillWidth: true
-                                enabled: AppSession.textLayerActive
-                                text: AppSession.textBody
-                                placeholderText: qsTr("Text")
-                                onEditingFinished: characterProps.pushText()
-                            }
-                            ComboBox {
-                                id: fontFamilyCombo
-                                Layout.fillWidth: true
-                                enabled: AppSession.textLayerActive
-                                model: {
-                                    try {
-                                        return JSON.parse(AppSession.availableFontsJson)
-                                    } catch (e) {
-                                        return ["Noto Sans", "DejaVu Sans"]
+                                function pushText() {
+                                    AppSession.updateActiveText(
+                                                textBodyField.text,
+                                                fontFamilyCombo.currentText,
+                                                fontSizeSpin.value,
+                                                trackingSpin.value,
+                                                lineSpacingSpin.value / 100.0,
+                                                alignCombo.currentIndex,
+                                                textColorField.text)
+                                    AppSession.updateActiveTextFrame(
+                                                frameWSpin.value,
+                                                frameHSpin.value,
+                                                wrapCheck.checked)
+                                }
+
+                                Label {
+                                    text: qsTr("Character")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                Label {
+                                    visible: !AppSession.textLayerActive
+                                    text: qsTr("Click the canvas with the Text tool to create a text layer.")
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
+                                TextField {
+                                    id: textBodyField
+                                    Layout.fillWidth: true
+                                    enabled: AppSession.textLayerActive
+                                    text: AppSession.textBody
+                                    placeholderText: qsTr("Text")
+                                    onEditingFinished: characterProps.pushText()
+                                }
+                                ComboBox {
+                                    id: fontFamilyCombo
+                                    Layout.fillWidth: true
+                                    enabled: AppSession.textLayerActive
+                                    model: {
+                                        try {
+                                            return JSON.parse(AppSession.availableFontsJson)
+                                        } catch (e) {
+                                            return ["Noto Sans", "DejaVu Sans"]
+                                        }
+                                    }
+                                    // Fontconfig discovery is deferred out of cold boot; ask for the
+                                    // real family list the first time this chrome is reachable.
+                                    Component.onCompleted: {
+                                        AppSession.ensureFontsDiscovered()
+                                        var i = model.indexOf(AppSession.textFontFamily)
+                                        currentIndex = i >= 0 ? i : 0
+                                    }
+                                    onPressedChanged: if (pressed) AppSession.ensureFontsDiscovered()
+                                    Connections {
+                                        target: AppSession
+                                        function onTextFontFamilyChanged() {
+                                            var i = fontFamilyCombo.model.indexOf(
+                                                        AppSession.textFontFamily)
+                                            if (i >= 0)
+                                                fontFamilyCombo.currentIndex = i
+                                        }
+                                    }
+                                    onActivated: characterProps.pushText()
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Size")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    SpinBox {
+                                        id: fontSizeSpin
+                                        from: 4
+                                        to: 512
+                                        value: Math.round(AppSession.textFontSize)
+                                        enabled: AppSession.textLayerActive
+                                        onValueModified: characterProps.pushText()
                                     }
                                 }
-                                Component.onCompleted: {
-                                    var i = model.indexOf(AppSession.textFontFamily)
-                                    currentIndex = i >= 0 ? i : 0
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Tracking")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    SpinBox {
+                                        id: trackingSpin
+                                        from: -20
+                                        to: 40
+                                        value: Math.round(AppSession.textTracking)
+                                        enabled: AppSession.textLayerActive
+                                        onValueModified: characterProps.pushText()
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Leading")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    SpinBox {
+                                        id: lineSpacingSpin
+                                        from: 50
+                                        to: 400
+                                        value: Math.round(AppSession.textLineSpacing * 100)
+                                        enabled: AppSession.textLayerActive
+                                        textFromValue: function (v) { return (v / 100).toFixed(2) }
+                                        valueFromText: function (t) { return Math.round(parseFloat(t) * 100) }
+                                        onValueModified: characterProps.pushText()
+                                    }
+                                }
+                                ComboBox {
+                                    id: alignCombo
+                                    Layout.fillWidth: true
+                                    enabled: AppSession.textLayerActive
+                                    model: [qsTr("Left"), qsTr("Center"), qsTr("Right")]
+                                    currentIndex: AppSession.textAlignment
+                                    onActivated: characterProps.pushText()
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Color")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    TextField {
+                                        id: textColorField
+                                        Layout.fillWidth: true
+                                        enabled: AppSession.textLayerActive
+                                        text: AppSession.textColorHex
+                                        onEditingFinished: characterProps.pushText()
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Frame W")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    SpinBox {
+                                        id: frameWSpin
+                                        from: 0
+                                        to: 16384
+                                        value: Math.round(AppSession.textFrameW)
+                                        enabled: AppSession.textLayerActive
+                                        onValueModified: characterProps.pushText()
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Frame H")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    SpinBox {
+                                        id: frameHSpin
+                                        from: 0
+                                        to: 16384
+                                        value: Math.round(AppSession.textFrameH)
+                                        enabled: AppSession.textLayerActive
+                                        onValueModified: characterProps.pushText()
+                                    }
+                                }
+                                CheckBox {
+                                    id: wrapCheck
+                                    text: qsTr("Wrap within frame")
+                                    checked: AppSession.textWrap
+                                    enabled: AppSession.textLayerActive
+                                    onToggled: characterProps.pushText()
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    text: qsTr("Keep editable until you bake. Bake Text converts to pixels and discards the editable text layer.")
+                                }
+                                Button {
+                                    text: qsTr("Bake Text")
+                                    enabled: AppSession.textLayerActive && !AppSession.ioBusy
+                                    onClicked: AppSession.bakeTextLayer()
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    text: qsTr("Keep editable: leave this panel; do not bake.")
                                 }
                                 Connections {
                                     target: AppSession
-                                    function onTextFontFamilyChanged() {
-                                        var i = fontFamilyCombo.model.indexOf(
-                                                    AppSession.textFontFamily)
-                                        if (i >= 0)
-                                            fontFamilyCombo.currentIndex = i
+                                    function onTextBodyChanged() {
+                                        if (!textBodyField.activeFocus)
+                                            textBodyField.text = AppSession.textBody
                                     }
-                                }
-                                onActivated: characterProps.pushText()
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Size")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                SpinBox {
-                                    id: fontSizeSpin
-                                    from: 4
-                                    to: 512
-                                    value: Math.round(AppSession.textFontSize)
-                                    enabled: AppSession.textLayerActive
-                                    onValueModified: characterProps.pushText()
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Tracking")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                SpinBox {
-                                    id: trackingSpin
-                                    from: -20
-                                    to: 40
-                                    value: Math.round(AppSession.textTracking)
-                                    enabled: AppSession.textLayerActive
-                                    onValueModified: characterProps.pushText()
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Leading")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                SpinBox {
-                                    id: lineSpacingSpin
-                                    from: 50
-                                    to: 400
-                                    value: Math.round(AppSession.textLineSpacing * 100)
-                                    enabled: AppSession.textLayerActive
-                                    textFromValue: function (v) { return (v / 100).toFixed(2) }
-                                    valueFromText: function (t) { return Math.round(parseFloat(t) * 100) }
-                                    onValueModified: characterProps.pushText()
-                                }
-                            }
-                            ComboBox {
-                                id: alignCombo
-                                Layout.fillWidth: true
-                                enabled: AppSession.textLayerActive
-                                model: [qsTr("Left"), qsTr("Center"), qsTr("Right")]
-                                currentIndex: AppSession.textAlignment
-                                onActivated: characterProps.pushText()
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Color")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                TextField {
-                                    id: textColorField
-                                    Layout.fillWidth: true
-                                    enabled: AppSession.textLayerActive
-                                    text: AppSession.textColorHex
-                                    onEditingFinished: characterProps.pushText()
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Frame W")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                SpinBox {
-                                    id: frameWSpin
-                                    from: 0
-                                    to: 16384
-                                    value: Math.round(AppSession.textFrameW)
-                                    enabled: AppSession.textLayerActive
-                                    onValueModified: characterProps.pushText()
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Frame H")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                SpinBox {
-                                    id: frameHSpin
-                                    from: 0
-                                    to: 16384
-                                    value: Math.round(AppSession.textFrameH)
-                                    enabled: AppSession.textLayerActive
-                                    onValueModified: characterProps.pushText()
-                                }
-                            }
-                            CheckBox {
-                                id: wrapCheck
-                                text: qsTr("Wrap within frame")
-                                checked: AppSession.textWrap
-                                enabled: AppSession.textLayerActive
-                                onToggled: characterProps.pushText()
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                wrapMode: Text.Wrap
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                text: qsTr("Keep editable until you bake. Bake Text converts to pixels and discards the editable text layer.")
-                            }
-                            Button {
-                                text: qsTr("Bake Text")
-                                enabled: AppSession.textLayerActive && !AppSession.ioBusy
-                                onClicked: AppSession.bakeTextLayer()
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                wrapMode: Text.Wrap
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                text: qsTr("Keep editable: leave this panel; do not bake.")
-                            }
-                            Connections {
-                                target: AppSession
-                                function onTextBodyChanged() {
-                                    if (!textBodyField.activeFocus)
-                                        textBodyField.text = AppSession.textBody
-                                }
-                                function onTextFontSizeChanged() {
-                                    fontSizeSpin.value = Math.round(AppSession.textFontSize)
-                                }
-                                function onTextColorHexChanged() {
-                                    if (!textColorField.activeFocus)
-                                        textColorField.text = AppSession.textColorHex
-                                }
-                                function onTextAlignmentChanged() {
-                                    alignCombo.currentIndex = AppSession.textAlignment
-                                }
-                                function onTextFrameWChanged() {
-                                    frameWSpin.value = Math.round(AppSession.textFrameW)
-                                }
-                                function onTextFrameHChanged() {
-                                    frameHSpin.value = Math.round(AppSession.textFrameH)
-                                }
-                                function onTextWrapChanged() {
-                                    wrapCheck.checked = AppSession.textWrap
+                                    function onTextFontSizeChanged() {
+                                        fontSizeSpin.value = Math.round(AppSession.textFontSize)
+                                    }
+                                    function onTextColorHexChanged() {
+                                        if (!textColorField.activeFocus)
+                                            textColorField.text = AppSession.textColorHex
+                                    }
+                                    function onTextAlignmentChanged() {
+                                        alignCombo.currentIndex = AppSession.textAlignment
+                                    }
+                                    function onTextFrameWChanged() {
+                                        frameWSpin.value = Math.round(AppSession.textFrameW)
+                                    }
+                                    function onTextFrameHChanged() {
+                                        frameHSpin.value = Math.round(AppSession.textFrameH)
+                                    }
+                                    function onTextWrapChanged() {
+                                        wrapCheck.checked = AppSession.textWrap
+                                    }
                                 }
                             }
                         }
 
                         // Path edit chrome
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
+                        DisclosureGroup {
+                            groupId: "inspector.path"
+                            title: qsTr("Path")
                             visible: AppSession.activeTool === "tool.path-edit"
                                      || root.activeLayerKind === "shape"
-                            Label {
-                                text: qsTr("Path Edit")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            Label {
+
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                wrapMode: Text.Wrap
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                text: qsTr("Drag anchors to move. Click empty to add. Delete removes selected. Close toggles the path.")
-                            }
-                            CheckBox {
-                                text: qsTr("Closed")
-                                checked: AppSession.pathClosed
-                                enabled: AppSession.pathAnchorCount >= 2
-                                onToggled: AppSession.pathSetClosed(checked)
-                            }
-                            Label {
-                                text: qsTr("Anchors: %1").arg(AppSession.pathAnchorCount)
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            Label {
-                                visible: AppSession.pathEditSelected >= 0
-                                text: qsTr("Selected: %1").arg(AppSession.pathEditSelected)
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                            }
-                            Button {
-                                text: qsTr("Delete Anchor")
-                                enabled: AppSession.pathEditSelected >= 0
-                                         && AppSession.pathAnchorCount > 2
-                                onClicked: AppSession.pathDeleteSelectedAnchor()
+                                spacing: Theme.spaceXs
+                                Label {
+                                    text: qsTr("Path Edit")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    text: qsTr("Drag anchors to move. Click empty to add. Delete removes selected. Close toggles the path.")
+                                }
+                                CheckBox {
+                                    text: qsTr("Closed")
+                                    checked: AppSession.pathClosed
+                                    enabled: AppSession.pathAnchorCount >= 2
+                                    onToggled: AppSession.pathSetClosed(checked)
+                                }
+                                Label {
+                                    text: qsTr("Anchors: %1").arg(AppSession.pathAnchorCount)
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                Label {
+                                    visible: AppSession.pathEditSelected >= 0
+                                    text: qsTr("Selected: %1").arg(AppSession.pathEditSelected)
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                }
+                                Button {
+                                    text: qsTr("Delete Anchor")
+                                    enabled: AppSession.pathEditSelected >= 0
+                                             && AppSession.pathAnchorCount > 2
+                                    onClicked: AppSession.pathDeleteSelectedAnchor()
+                                }
                             }
                         }
 
                         // Crop / Transform commit chrome
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
+                        DisclosureGroup {
+                            groupId: "inspector.transform"
+                            title: qsTr("Transform and Crop")
                             visible: root.isCropTool() || root.isTransformTool()
                                      || AppSession.transformActive
                                      || AppSession.cropPreviewActive
-                            Label {
-                                text: root.isCropTool() || AppSession.cropPreviewActive
-                                      ? qsTr("Crop") : qsTr("Free Transform")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.spaceXs
-                                Button {
-                                    text: qsTr("Apply")
-                                    enabled: AppSession.hasDocument
-                                             && (AppSession.transformActive
-                                                 || AppSession.cropPreviewActive)
-                                    onClicked: {
-                                        if (AppSession.transformActive)
-                                            AppSession.commitTransform()
-                                        else if (AppSession.cropPreviewActive)
-                                            AppSession.commitCrop(
-                                                        AppSession.cropPreviewX,
-                                                        AppSession.cropPreviewY,
-                                                        AppSession.cropPreviewW,
-                                                        AppSession.cropPreviewH)
-                                    }
-                                }
-                                Button {
-                                    text: qsTr("Cancel")
-                                    Accessible.name: qsTr("Cancel")
-                                    enabled: AppSession.transformActive
-                                             || AppSession.cropPreviewActive
-                                    onClicked: {
-                                        if (AppSession.transformActive)
-                                            AppSession.cancelTransform()
-                                        else
-                                            AppSession.cancelCrop()
-                                    }
-                                }
-                            }
-                            CheckBox {
-                                visible: AppSession.transformActive || root.isTransformTool()
-                                text: qsTr("Constrain proportions")
-                                checked: AppSession.transformConstrain
-                                onToggled: AppSession.updateTransformDraft(
-                                               AppSession.transformTx,
-                                               AppSession.transformTy,
-                                               AppSession.transformSx,
-                                               AppSession.transformSy,
-                                               AppSession.transformRot,
-                                               checked)
-                            }
-                            Label {
-                                visible: AppSession.transformActive
-                                text: qsTr("Drag to move · handles scale · Enter apply · Esc cancel")
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                            RowLayout {
-                                visible: AppSession.transformActive
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Rotate")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    from: -180
-                                    to: 180
-                                    value: AppSession.transformRot
-                                    onMoved: AppSession.updateTransformDraft(
-                                                 AppSession.transformTx,
-                                                 AppSession.transformTy,
-                                                 AppSession.transformSx,
-                                                 AppSession.transformSy,
-                                                 value,
-                                                 AppSession.transformConstrain)
-                                }
-                            }
-                        }
 
-                        // Adjustment layer params
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.adjustmentKind === "brightness"
-                                     || AppSession.adjustmentKind === "levels"
-                                     || AppSession.adjustmentKind === "exposure"
-                            Label {
-                                text: AppSession.adjustmentKind === "levels"
-                                      ? qsTr("Levels")
-                                      : (AppSession.adjustmentKind === "exposure"
-                                         ? qsTr("Exposure") : qsTr("Brightness/Contrast"))
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "brightness"
-                                Label {
-                                    text: qsTr("Brightness")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(AppSession.adjustmentP0 * 100)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "brightness"
-                                from: -1
-                                to: 1
-                                value: AppSession.adjustmentP0
-                                onMoved: AppSession.setAdjustmentParams(
-                                             value, AppSession.adjustmentP1, 0)
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "brightness"
-                                Label {
-                                    text: qsTr("Contrast")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(AppSession.adjustmentP1 * 100)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "brightness"
-                                from: -1
-                                to: 1
-                                value: AppSession.adjustmentP1
-                                onMoved: AppSession.setAdjustmentParams(
-                                             AppSession.adjustmentP0, value, 0)
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "levels"
-                                Label {
-                                    text: qsTr("Black")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(AppSession.adjustmentP0 * 255)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "levels"
-                                from: 0
-                                to: 1
-                                value: AppSession.adjustmentP0
-                                onMoved: AppSession.setAdjustmentParams(
-                                             value, AppSession.adjustmentP1, AppSession.adjustmentP2)
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "levels"
-                                Label {
-                                    text: qsTr("White")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(AppSession.adjustmentP1 * 255)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "levels"
-                                from: 0
-                                to: 1
-                                value: AppSession.adjustmentP1
-                                onMoved: AppSession.setAdjustmentParams(
-                                             AppSession.adjustmentP0, value, AppSession.adjustmentP2)
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "levels"
-                                Label {
-                                    text: qsTr("Gamma")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: AppSession.adjustmentP2.toFixed(2)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "levels"
-                                from: 0.1
-                                to: 3
-                                value: AppSession.adjustmentP2
-                                onMoved: AppSession.setAdjustmentParams(
-                                             AppSession.adjustmentP0, AppSession.adjustmentP1, value)
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "exposure"
-                                Label {
-                                    text: qsTr("Stops")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: AppSession.adjustmentP0.toFixed(2)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "exposure"
-                                from: -5
-                                to: 5
-                                value: AppSession.adjustmentP0
-                                onMoved: AppSession.setAdjustmentParams(
-                                             value, AppSession.adjustmentP1, 0)
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "exposure"
-                                Label {
-                                    text: qsTr("Gamma")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: AppSession.adjustmentP1.toFixed(2)
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                Layout.fillWidth: true
-                                visible: AppSession.adjustmentKind === "exposure"
-                                from: 0.1
-                                to: 3
-                                value: AppSession.adjustmentP1
-                                onMoved: AppSession.setAdjustmentParams(
-                                             AppSession.adjustmentP0, value, 0)
-                            }
-                        }
-
-                        // Gaussian blur effect
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.hasGaussianBlur
-                                     || AppSession.effectsJoined.length > 0
-                            Label {
-                                text: qsTr("Effects")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            Repeater {
-                                id: effectsRepeater
-                                model: AppSession.effectsJoined.length > 0
-                                       ? AppSession.effectsJoined.split("|") : []
-                                delegate: RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spaceXs
-                                    readonly property var parts: modelData.split(":")
-                                    readonly property string effectId: parts.length > 0 ? parts[0] : ""
-                                    readonly property string effectName: parts.length > 1 ? parts[1] : ""
-                                    readonly property bool effectOn: parts.length > 2 && parts[2] === "1"
-                                    CheckBox {
-                                        checked: effectOn
-                                        text: effectName
-                                        Layout.fillWidth: true
-                                        onToggled: AppSession.setActiveEffectEnabled(
-                                                       Number(effectId), checked)
-                                    }
-                                    ToolButton {
-                                        implicitWidth: 22
-                                        implicitHeight: 22
-                                        padding: 0
-                                        icon.source: root.iconUrl("caret-up")
-                                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                        icon.width: 12
-                                        icon.height: 12
-                                        contentItem: ThemedIcon {
-                                            anchors.centerIn: parent
-                                            source: parent.icon.source
-                                            size: parent.icon.height
-                                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                        }
-                                        enabled: index > 0
-                                        onClicked: AppSession.reorderActiveEffect(
-                                                       Number(effectId), index - 1)
-                                        Accessible.name: qsTr("Move effect up")
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: Accessible.name
-                                    }
-                                    ToolButton {
-                                        implicitWidth: 22
-                                        implicitHeight: 22
-                                        padding: 0
-                                        icon.source: root.iconUrl("caret-down")
-                                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                        icon.width: 12
-                                        icon.height: 12
-                                        contentItem: ThemedIcon {
-                                            anchors.centerIn: parent
-                                            source: parent.icon.source
-                                            size: parent.icon.height
-                                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                        }
-                                        enabled: index < effectsRepeater.count - 1
-                                        onClicked: AppSession.reorderActiveEffect(
-                                                       Number(effectId), index + 1)
-                                        Accessible.name: qsTr("Move effect down")
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: Accessible.name
-                                    }
-                                }
-                            }
-                            Label {
-                                visible: AppSession.hasGaussianBlur
-                                text: qsTr("Gaussian Blur radius")
-                                color: Theme.colorOnSurfaceVariant
-                                font.pixelSize: Theme.fontLabelSm
-                            }
-                            RowLayout {
-                                visible: AppSession.hasGaussianBlur
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Radius")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: AppSession.gaussianRadius.toFixed(1) + " px"
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                visible: AppSession.hasGaussianBlur
-                                Layout.fillWidth: true
-                                from: 0
-                                to: 64
-                                value: AppSession.gaussianRadius
-                                onMoved: AppSession.setGaussianRadius(value)
-                            }
-                        }
-
-                        // Brush size
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.activeTool === "tool.brush"
-                                     || AppSession.activeTool === "tool.eraser"
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Brush Size")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(brushSlider.value) + " px"
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                id: brushSlider
-                                Layout.fillWidth: true
-                                from: 1
-                                to: 200
-                                value: AppSession.brushSize
-                                enabled: AppSession.hasDocument
-                                onMoved: AppSession.setBrushSize(value)
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.activeTool === "tool.brush"
-                                     || AppSession.activeTool === "tool.eraser"
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Hardness")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(hardnessSlider.value * 100) + " %"
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                id: hardnessSlider
-                                Layout.fillWidth: true
-                                from: 0
-                                to: 1
-                                value: AppSession.brushHardness
-                                enabled: AppSession.hasDocument
-                                onMoved: AppSession.setBrushHardness(value)
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.activeTool === "tool.brush"
-                                     || AppSession.activeTool === "tool.eraser"
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Texture")
-                                    color: Theme.colorOnSurface
-                                    font.pixelSize: Theme.fontBodySm
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: Math.round(textureSlider.value * 100) + " %"
-                                    color: Theme.primary
-                                    font.pixelSize: Theme.fontMono
-                                    font.family: "Noto Sans Mono"
-                                }
-                            }
-                            Slider {
-                                id: textureSlider
-                                Layout.fillWidth: true
-                                from: 0
-                                to: 1
-                                value: AppSession.brushTextureStrength
-                                enabled: AppSession.hasDocument
-                                onMoved: AppSession.setBrushTextureStrength(value)
-                                Accessible.name: qsTr("Brush tip texture strength")
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.activeTool === "tool.brush"
-                                     || AppSession.activeTool === "tool.eraser"
-                            Label {
-                                text: qsTr("Brush presets")
-                                color: Theme.colorOnSurface
-                                font.pixelSize: Theme.fontBodySm
-                            }
-                            Flow {
-                                Layout.fillWidth: true
-                                spacing: Theme.spaceXs
-                                Repeater {
-                                    model: AppSession.brushPresetNames.length > 0
-                                           ? AppSession.brushPresetNames.split("|") : []
-                                    Button {
-                                        text: modelData
-                                        flat: true
-                                        onClicked: AppSession.applyBrushPreset(index)
-                                        Accessible.name: qsTr("Apply brush preset %1").arg(modelData)
-                                    }
-                                }
-                            }
-                            Button {
-                                text: qsTr("Save current as preset")
-                                flat: true
-                                enabled: AppSession.hasDocument
-                                onClicked: AppSession.saveCurrentBrushPreset("Custom")
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceXs
-                            visible: AppSession.hasDocument
-                            Button {
-                                text: AppSession.propertiesAdvancedOpen
-                                      ? qsTr("Hide advanced color")
-                                      : qsTr("Show advanced color")
-                                flat: true
-                                Layout.fillWidth: true
-                                onClicked: AppSession.setPropertiesAdvancedOpen(
-                                               !AppSession.propertiesAdvancedOpen)
-                                Accessible.name: qsTr("Toggle advanced color properties")
-                            }
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spaceXs
-                                visible: AppSession.propertiesAdvancedOpen
                                 Label {
-                                    text: AppSession.softProofActive
-                                          ? qsTr("Soft-proof: %1").arg(AppSession.softProofProfile)
-                                          : qsTr("Soft-proof: Off")
-                                    color: Theme.colorOnSurfaceVariant
+                                    text: root.isCropTool() || AppSession.cropPreviewActive
+                                          ? qsTr("Crop") : qsTr("Free Transform")
+                                    color: Theme.colorOnSurface
                                     font.pixelSize: Theme.fontBodySm
-                                }
-                                Label {
-                                    text: AppSession.hasEmbeddedIcc
-                                          ? qsTr("ICC: embedded")
-                                          : qsTr("ICC: tag-only")
-                                    color: Theme.colorOnSurfaceVariant
-                                    font.pixelSize: Theme.fontBodySm
-                                }
-                                Label {
-                                    text: qsTr("Display: %1").arg(AppSession.displayProfileName)
-                                    color: Theme.colorOnSurfaceVariant
-                                    font.pixelSize: Theme.fontBodySm
-                                    wrapMode: Text.Wrap
-                                    Layout.fillWidth: true
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: Theme.spaceXs
                                     Button {
-                                        text: qsTr("Use display profile")
-                                        flat: true
-                                        enabled: AppSession.hasDocument && !AppSession.ioBusy
-                                        onClicked: AppSession.useDisplaySoftProof()
-                                        Accessible.name: qsTr("Soft-proof with display ICC")
+                                        text: qsTr("Apply")
+                                        enabled: AppSession.hasDocument
+                                                 && (AppSession.transformActive
+                                                     || AppSession.cropPreviewActive)
+                                        onClicked: {
+                                            if (AppSession.transformActive)
+                                                AppSession.commitTransform()
+                                            else if (AppSession.cropPreviewActive)
+                                                AppSession.commitCrop(
+                                                            AppSession.cropPreviewX,
+                                                            AppSession.cropPreviewY,
+                                                            AppSession.cropPreviewW,
+                                                            AppSession.cropPreviewH)
+                                        }
                                     }
                                     Button {
-                                        text: qsTr("Embed ICC…")
-                                        flat: true
-                                        enabled: !AppSession.ioBusy
-                                        onClicked: embedIccFileDialog.open()
+                                        text: qsTr("Cancel")
+                                        Accessible.name: qsTr("Cancel")
+                                        enabled: AppSession.transformActive
+                                                 || AppSession.cropPreviewActive
+                                        onClicked: {
+                                            if (AppSession.transformActive)
+                                                AppSession.cancelTransform()
+                                            else
+                                                AppSession.cancelCrop()
+                                        }
+                                    }
+                                }
+                                CheckBox {
+                                    visible: AppSession.transformActive || root.isTransformTool()
+                                    text: qsTr("Constrain proportions")
+                                    checked: AppSession.transformConstrain
+                                    onToggled: AppSession.updateTransformDraft(
+                                                   AppSession.transformTx,
+                                                   AppSession.transformTy,
+                                                   AppSession.transformSx,
+                                                   AppSession.transformSy,
+                                                   AppSession.transformRot,
+                                                   checked)
+                                }
+                                Label {
+                                    visible: AppSession.transformActive
+                                    text: qsTr("Drag to move · handles scale · Enter apply · Esc cancel")
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                                RowLayout {
+                                    visible: AppSession.transformActive
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Rotate")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    Slider {
+                                        Layout.fillWidth: true
+                                        from: -180
+                                        to: 180
+                                        value: AppSession.transformRot
+                                        onMoved: AppSession.updateTransformDraft(
+                                                     AppSession.transformTx,
+                                                     AppSession.transformTy,
+                                                     AppSession.transformSx,
+                                                     AppSession.transformSy,
+                                                     value,
+                                                     AppSession.transformConstrain)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Adjustment layer params
+                        DisclosureGroup {
+                            groupId: "inspector.adjustment"
+                            title: qsTr("Adjustment")
+                            visible: AppSession.adjustmentKind === "brightness"
+                                     || AppSession.adjustmentKind === "levels"
+                                     || AppSession.adjustmentKind === "exposure"
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Label {
+                                    text: AppSession.adjustmentKind === "levels"
+                                          ? qsTr("Levels")
+                                          : (AppSession.adjustmentKind === "exposure"
+                                             ? qsTr("Exposure") : qsTr("Brightness/Contrast"))
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "brightness"
+                                    Label {
+                                        text: qsTr("Brightness")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: Math.round(AppSession.adjustmentP0 * 100)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "brightness"
+                                    from: -1
+                                    to: 1
+                                    value: AppSession.adjustmentP0
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 value, AppSession.adjustmentP1, 0)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "brightness"
+                                    Label {
+                                        text: qsTr("Contrast")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: Math.round(AppSession.adjustmentP1 * 100)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "brightness"
+                                    from: -1
+                                    to: 1
+                                    value: AppSession.adjustmentP1
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 AppSession.adjustmentP0, value, 0)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "levels"
+                                    Label {
+                                        text: qsTr("Black")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: Math.round(AppSession.adjustmentP0 * 255)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "levels"
+                                    from: 0
+                                    to: 1
+                                    value: AppSession.adjustmentP0
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 value, AppSession.adjustmentP1, AppSession.adjustmentP2)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "levels"
+                                    Label {
+                                        text: qsTr("White")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: Math.round(AppSession.adjustmentP1 * 255)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "levels"
+                                    from: 0
+                                    to: 1
+                                    value: AppSession.adjustmentP1
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 AppSession.adjustmentP0, value, AppSession.adjustmentP2)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "levels"
+                                    Label {
+                                        text: qsTr("Gamma")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: AppSession.adjustmentP2.toFixed(2)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "levels"
+                                    from: 0.1
+                                    to: 3
+                                    value: AppSession.adjustmentP2
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 AppSession.adjustmentP0, AppSession.adjustmentP1, value)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "exposure"
+                                    Label {
+                                        text: qsTr("Stops")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: AppSession.adjustmentP0.toFixed(2)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "exposure"
+                                    from: -5
+                                    to: 5
+                                    value: AppSession.adjustmentP0
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 value, AppSession.adjustmentP1, 0)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "exposure"
+                                    Label {
+                                        text: qsTr("Gamma")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: AppSession.adjustmentP1.toFixed(2)
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.adjustmentKind === "exposure"
+                                    from: 0.1
+                                    to: 3
+                                    value: AppSession.adjustmentP1
+                                    onMoved: AppSession.setAdjustmentParams(
+                                                 AppSession.adjustmentP0, value, 0)
+                                }
+                            }
+                        }
+
+                        // Gaussian blur effect
+                        DisclosureGroup {
+                            groupId: "inspector.effects"
+                            title: qsTr("Effects")
+                            visible: AppSession.hasGaussianBlur
+                                     || AppSession.effectsJoined.length > 0
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spaceXs
+                                Label {
+                                    text: qsTr("Effects")
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                Repeater {
+                                    id: effectsRepeater
+                                    model: AppSession.effectsJoined.length > 0
+                                           ? AppSession.effectsJoined.split("|") : []
+                                    delegate: RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.spaceXs
+                                        readonly property var parts: modelData.split(":")
+                                        readonly property string effectId: parts.length > 0 ? parts[0] : ""
+                                        readonly property string effectName: parts.length > 1 ? parts[1] : ""
+                                        readonly property bool effectOn: parts.length > 2 && parts[2] === "1"
+                                        CheckBox {
+                                            checked: effectOn
+                                            text: effectName
+                                            Layout.fillWidth: true
+                                            onToggled: AppSession.setActiveEffectEnabled(
+                                                           Number(effectId), checked)
+                                        }
+                                        ToolButton {
+                                            implicitWidth: 22
+                                            implicitHeight: 22
+                                            padding: 0
+                                            icon.source: root.iconUrl("caret-up")
+                                            icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                            icon.width: 12
+                                            icon.height: 12
+                                            contentItem: ThemedIcon {
+                                                anchors.centerIn: parent
+                                                source: parent.icon.source
+                                                size: parent.icon.height
+                                                color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                            }
+                                            enabled: index > 0
+                                            onClicked: AppSession.reorderActiveEffect(
+                                                           Number(effectId), index - 1)
+                                            Accessible.name: qsTr("Move effect up")
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: Accessible.name
+                                        }
+                                        ToolButton {
+                                            implicitWidth: 22
+                                            implicitHeight: 22
+                                            padding: 0
+                                            icon.source: root.iconUrl("caret-down")
+                                            icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                            icon.width: 12
+                                            icon.height: 12
+                                            contentItem: ThemedIcon {
+                                                anchors.centerIn: parent
+                                                source: parent.icon.source
+                                                size: parent.icon.height
+                                                color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                            }
+                                            enabled: index < effectsRepeater.count - 1
+                                            onClicked: AppSession.reorderActiveEffect(
+                                                           Number(effectId), index + 1)
+                                            Accessible.name: qsTr("Move effect down")
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: Accessible.name
+                                        }
+                                    }
+                                }
+                                Label {
+                                    visible: AppSession.hasGaussianBlur
+                                    text: qsTr("Gaussian Blur radius")
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontLabelSm
+                                }
+                                RowLayout {
+                                    visible: AppSession.hasGaussianBlur
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Radius")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: AppSession.gaussianRadius.toFixed(1) + " px"
+                                        color: Theme.primary
+                                        font.pixelSize: Theme.fontMono
+                                        font.family: "Noto Sans Mono"
+                                    }
+                                }
+                                Slider {
+                                    visible: AppSession.hasGaussianBlur
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 64
+                                    value: AppSession.gaussianRadius
+                                    onMoved: AppSession.setGaussianRadius(value)
+                                }
+                            }
+                        }
+
+                        DisclosureGroup {
+                            groupId: "inspector.brush"
+                            title: qsTr("Brush")
+                            visible: AppSession.activeTool === "tool.brush"
+                                     || AppSession.activeTool === "tool.eraser"
+                            summary: qsTr("%1 px").arg(Math.round(AppSession.brushSize))
+
+                            ColumnLayout {
+                                spacing: Theme.spaceMd
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: qsTr("Brush Size")
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontBodySm
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: Math.round(brushSlider.value) + " px"
+                                            color: Theme.primary
+                                            font.pixelSize: Theme.fontMono
+                                            font.family: "Noto Sans Mono"
+                                        }
+                                    }
+                                    Slider {
+                                        id: brushSlider
+                                        Layout.fillWidth: true
+                                        from: 1
+                                        to: 200
+                                        value: AppSession.brushSize
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushSize(value)
+                                        // Dragging a Slider breaks its value binding, so host-side
+                                        // changes (presets, new document) need an explicit re-push.
+                                        Connections {
+                                            target: AppSession
+                                            function onBrushSizeChanged() {
+                                                brushSlider.value = AppSession.brushSize
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: qsTr("Hardness")
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontBodySm
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: Math.round(hardnessSlider.value * 100) + " %"
+                                            color: Theme.primary
+                                            font.pixelSize: Theme.fontMono
+                                            font.family: "Noto Sans Mono"
+                                        }
+                                    }
+                                    Slider {
+                                        id: hardnessSlider
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: AppSession.brushHardness
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushHardness(value)
+                                        Connections {
+                                            target: AppSession
+                                            function onBrushHardnessChanged() {
+                                                hardnessSlider.value = AppSession.brushHardness
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: qsTr("Texture")
+                                            color: Theme.colorOnSurface
+                                            font.pixelSize: Theme.fontBodySm
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            text: Math.round(textureSlider.value * 100) + " %"
+                                            color: Theme.primary
+                                            font.pixelSize: Theme.fontMono
+                                            font.family: "Noto Sans Mono"
+                                        }
+                                    }
+                                    Slider {
+                                        id: textureSlider
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: AppSession.brushTextureStrength
+                                        enabled: AppSession.hasDocument
+                                        onMoved: AppSession.setBrushTextureStrength(value)
+                                        Accessible.name: qsTr("Brush tip texture strength")
+                                        Connections {
+                                            target: AppSession
+                                            function onBrushTextureStrengthChanged() {
+                                                textureSlider.value = AppSession.brushTextureStrength
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spaceXs
+                                    Label {
+                                        text: qsTr("Brush presets")
+                                        color: Theme.colorOnSurface
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.spaceXs
+                                        Repeater {
+                                            model: AppSession.brushPresetNames.length > 0
+                                                   ? AppSession.brushPresetNames.split("|") : []
+                                            Button {
+                                                text: modelData
+                                                flat: true
+                                                onClicked: AppSession.applyBrushPreset(index)
+                                                Accessible.name: qsTr("Apply brush preset %1").arg(modelData)
+                                            }
+                                        }
                                     }
                                     Button {
-                                        text: qsTr("Clear ICC")
+                                        text: qsTr("Save current as preset")
                                         flat: true
-                                        enabled: AppSession.hasEmbeddedIcc && !AppSession.ioBusy
-                                        onClicked: AppSession.clearEmbeddedIcc()
+                                        enabled: AppSession.hasDocument
+                                        onClicked: AppSession.saveCurrentBrushPreset("Custom")
                                     }
+                                }
+                            }
+                        }
+
+                        DisclosureGroup {
+                            groupId: "inspector.color"
+                            title: qsTr("Color Management")
+                            visible: AppSession.hasDocument
+                            summary: AppSession.softProofActive
+                                     ? AppSession.softProofProfile : qsTr("Soft-proof off")
+
+                            ColumnLayout {
+                                spacing: Theme.spaceXs
+                                    Label {
+                                        text: AppSession.softProofActive
+                                              ? qsTr("Soft-proof: %1").arg(AppSession.softProofProfile)
+                                              : qsTr("Soft-proof: Off")
+                                        color: Theme.colorOnSurfaceVariant
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    Label {
+                                        text: AppSession.hasEmbeddedIcc
+                                              ? qsTr("ICC: embedded")
+                                              : qsTr("ICC: tag-only")
+                                        color: Theme.colorOnSurfaceVariant
+                                        font.pixelSize: Theme.fontBodySm
+                                    }
+                                    Label {
+                                        text: qsTr("Display: %1").arg(AppSession.displayProfileName)
+                                        color: Theme.colorOnSurfaceVariant
+                                        font.pixelSize: Theme.fontBodySm
+                                        wrapMode: Text.Wrap
+                                        Layout.fillWidth: true
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.spaceXs
+                                        Button {
+                                            text: qsTr("Use display profile")
+                                            flat: true
+                                            enabled: AppSession.hasDocument && !AppSession.ioBusy
+                                            onClicked: AppSession.useDisplaySoftProof()
+                                            Accessible.name: qsTr("Soft-proof with display ICC")
+                                        }
+                                        Button {
+                                            text: qsTr("Embed ICC…")
+                                            flat: true
+                                            enabled: !AppSession.ioBusy
+                                            onClicked: embedIccFileDialog.open()
+                                        }
+                                        Button {
+                                            text: qsTr("Clear ICC")
+                                            flat: true
+                                            enabled: AppSession.hasEmbeddedIcc && !AppSession.ioBusy
+                                            onClicked: AppSession.clearEmbeddedIcc()
+                                        }
+                                    }
+                            }
+                        }
+
+                        // Level 4 (specialized): the status bar carries the live
+                        // readout; this group is the inspectable detail.
+                        DisclosureGroup {
+                            groupId: "inspector.diagnostics"
+                            title: qsTr("Diagnostics")
+                            visible: AppSession.hasDocument
+                            badgeText: AppSession.gpuLost ? qsTr("GPU lost") : ""
+                            badgeSeverity: "error"
+
+                            ColumnLayout {
+                                spacing: Theme.spaceXs
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Composite: %1 ms")
+                                          .arg(AppSession.compositeMs.toFixed(2))
+                                    color: AppSession.compositeMs > 0 && AppSession.compositeMs < 2.0
+                                           ? Theme.success : Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                    font.family: "Noto Sans Mono"
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Frame rate: %1 FPS").arg(Math.round(AppSession.fps))
+                                    color: AppSession.fps >= 60
+                                           ? Theme.success : Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                    font.family: "Noto Sans Mono"
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Stroke latency: %1 ms")
+                                          .arg(AppSession.strokeLatencyMs.toFixed(2))
+                                    color: AppSession.strokeLatencyMs > 0
+                                           && AppSession.strokeLatencyMs < 8.0
+                                           ? Theme.success : Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                    font.family: "Noto Sans Mono"
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Cold boot: %1 ms").arg(AppSession.startupMs.toFixed(0))
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                    font.family: "Noto Sans Mono"
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Document: %1 × %2 px, %3 layers")
+                                          .arg(AppSession.docWidth)
+                                          .arg(AppSession.docHeight)
+                                          .arg(AppSession.layerCount)
+                                    color: Theme.colorOnSurfaceVariant
+                                    font.pixelSize: Theme.fontBodySm
+                                    wrapMode: Text.Wrap
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: AppSession.gpuLost
+                                    text: qsTr("Graphics device lost — document authority preserved")
+                                    color: Theme.error
+                                    font.pixelSize: Theme.fontBodySm
+                                    wrapMode: Text.Wrap
                                 }
                             }
                         }
@@ -5146,953 +5269,992 @@ ApplicationWindow {
         onAccepted: AppSession.exportRasterFile(selectedFile.toString())
     }
 
-    Dialog {
-        id: unsavedDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Unsaved changes")
-        closePolicy: Popup.CloseOnEscape
-        onRejected: root.pendingDestructiveAction = ""
-        width: 440
+    LazyDialog {
+        id: unsavedDialogLoader
 
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
+        Dialog {
+            id: unsavedDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("Unsaved changes")
+            closePolicy: Popup.CloseOnEscape
+            onRejected: root.pendingDestructiveAction = ""
+            width: 440
 
-        contentItem: Label {
-            width: parent ? parent.width - 32 : 400
-            text: qsTr("Save the document as .ptx, discard changes, or cancel?")
-            wrapMode: Text.WordWrap
-            color: Theme.colorOnSurface
-            font.pixelSize: Theme.fontBody
-        }
-
-        footer: DialogButtonBox {
-            standardButtons: DialogButtonBox.Save | DialogButtonBox.Discard | DialogButtonBox.Cancel
-            onAccepted: {
-                unsavedDialog.close()
-                if (AppSession.documentPath && AppSession.documentPath.length > 0)
-                    AppSession.saveDocument("")
-                else
-                    saveFileDialog.open()
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
             }
-            onDiscarded: {
-                unsavedDialog.close()
-                root.discardAndContinue()
-            }
-            onRejected: {
-                root.pendingDestructiveAction = ""
-                unsavedDialog.close()
-            }
-        }
-    }
 
-    Dialog {
-        id: compatibilityDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Compatibility report")
-        standardButtons: Dialog.Ok
-        width: 480
-        visible: AppSession.compatibilityReport.length > 0
-
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-
-        contentItem: Label {
-            width: parent ? parent.width - 32 : 440
-            text: AppSession.compatibilityReport
-            wrapMode: Text.WordWrap
-            color: Theme.colorOnSurface
-            font.pixelSize: Theme.fontBodySm
-            Accessible.name: qsTr("Import compatibility report")
-        }
-    }
-
-    Dialog {
-        id: ioErrorDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("File operation failed")
-        standardButtons: Dialog.Ok
-        width: Math.min(560, parent ? parent.width - 48 : 560)
-
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-
-        contentItem: ScrollView {
-            clip: true
-            implicitHeight: Math.min(320, ioErrorLabel.implicitHeight + 16)
-            Label {
-                id: ioErrorLabel
-                width: ioErrorDialog.availableWidth
-                text: AppSession.ioError
+            contentItem: Label {
+                width: parent ? parent.width - 32 : 400
+                text: qsTr("Save the document as .ptx, discard changes, or cancel?")
                 wrapMode: Text.WordWrap
                 color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontMono
-                font.family: "Noto Sans Mono"
-                Accessible.name: qsTr("File error details")
+                font.pixelSize: Theme.fontBody
             }
-        }
-    }
 
-    Dialog {
-        id: filterGalleryDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Filter Gallery")
-        width: 420
-        height: 360
-        visible: AppSession.filterGalleryOpen
-        onRejected: AppSession.filterGalleryCancel()
-        onClosed: {
-            if (AppSession.filterGalleryOpen)
-                AppSession.filterGalleryCancel()
-        }
-
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-
-        contentItem: ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.spaceMd
-            spacing: Theme.spaceSm
-
-            Label {
-                text: qsTr("Browse a shipped effect, preview on the canvas, then Apply.")
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontLabelSm
-            }
-            ComboBox {
-                id: filterKindCombo
-                Layout.fillWidth: true
-                property var kinds: ["gaussian", "motion", "emboss", "sharpen", "noise"]
-                model: [qsTr("Gaussian Blur"), qsTr("Motion Blur"), qsTr("Emboss"), qsTr("Sharpen"), qsTr("Noise")]
-                function currentKind() {
-                    return kinds[currentIndex] || "gaussian"
+            footer: DialogButtonBox {
+                standardButtons: DialogButtonBox.Save | DialogButtonBox.Discard | DialogButtonBox.Cancel
+                onAccepted: {
+                    unsavedDialog.close()
+                    if (AppSession.documentPath && AppSession.documentPath.length > 0)
+                        AppSession.saveDocument("")
+                    else
+                        saveFileDialog.open()
                 }
-                onActivated: {
-                    AppSession.filterGalleryPreview(currentKind())
-                    filterP0Slider.value = AppSession.filterPreviewP0
-                    filterP1Slider.value = AppSession.filterPreviewP1
+                onDiscarded: {
+                    unsavedDialog.close()
+                    root.discardAndContinue()
                 }
-            }
-            Label {
-                text: filterKindCombo.currentIndex === 0
-                      ? qsTr("Radius")
-                      : (filterKindCombo.currentIndex === 1
-                         ? qsTr("Distance")
-                         : (filterKindCombo.currentIndex === 2
-                            ? qsTr("Strength")
-                            : (filterKindCombo.currentIndex === 4
-                               ? qsTr("Amount") : qsTr("Amount"))))
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontBodySm
-            }
-            Slider {
-                id: filterP0Slider
-                Layout.fillWidth: true
-                from: 0
-                to: filterKindCombo.currentIndex === 0
-                    ? 64
-                    : (filterKindCombo.currentIndex === 4 ? 1 : 32)
-                value: AppSession.filterPreviewP0
-                onMoved: AppSession.filterGallerySetParams(
-                             value, filterP1Slider.value, 0)
-            }
-            Label {
-                visible: filterKindCombo.currentIndex === 1
-                         || filterKindCombo.currentIndex === 2
-                text: qsTr("Angle")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontBodySm
-            }
-            Slider {
-                id: filterP1Slider
-                Layout.fillWidth: true
-                visible: filterKindCombo.currentIndex === 1
-                         || filterKindCombo.currentIndex === 2
-                from: 0
-                to: 360
-                value: AppSession.filterPreviewP1
-                onMoved: AppSession.filterGallerySetParams(
-                             filterP0Slider.value, value, 0)
-            }
-            Item { Layout.fillHeight: true }
-        }
-
-        footer: DialogButtonBox {
-            Button {
-                text: qsTr("Preview")
-                DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
-                onClicked: AppSession.filterGalleryPreview(filterKindCombo.currentKind())
-            }
-            Button {
-                text: qsTr("Apply")
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                enabled: AppSession.filterPreviewActive
-                onClicked: AppSession.filterGalleryApply()
-            }
-            Button {
-                text: qsTr("Cancel")
-                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-                onClicked: AppSession.filterGalleryCancel()
-            }
-        }
-
-        Connections {
-            target: AppSession
-            function onFilterGalleryOpenChanged() {
-                if (AppSession.filterGalleryOpen) {
-                    filterKindCombo.currentIndex = 0
-                    AppSession.filterGalleryPreview("gaussian")
-                    filterP0Slider.value = AppSession.filterPreviewP0
-                    filterP1Slider.value = AppSession.filterPreviewP1
+                onRejected: {
+                    root.pendingDestructiveAction = ""
+                    unsavedDialog.close()
                 }
             }
         }
     }
 
-    Dialog {
-        id: preferencesDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Preferences")
-        standardButtons: Dialog.Close
-        width: 480
-        height: 560
-        visible: AppSession.preferencesOpen
-        onRejected: AppSession.closePreferences()
-        onAccepted: AppSession.closePreferences()
-        onClosed: {
-            preferencesDialog.capturingActionId = ""
-            preferencesDialog.shortcutConflictHint = ""
-            AppSession.closePreferences()
-        }
+    LazyDialog {
+        id: compatibilityDialogLoader
+        requested: AppSession.compatibilityReport.length > 0
 
-        property string capturingActionId: ""
-        property string shortcutConflictHint: ""
+        Dialog {
+            id: compatibilityDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("Compatibility report")
+            standardButtons: Dialog.Ok
+            width: 480
+            visible: AppSession.compatibilityReport.length > 0
 
-        function chordFromKeyEvent(event) {
-            if (event.key === Qt.Key_Escape
-                    || event.key === Qt.Key_Tab
-                    || event.key === Qt.Key_Backtab
-                    || event.key === Qt.Key_Control
-                    || event.key === Qt.Key_Shift
-                    || event.key === Qt.Key_Alt
-                    || event.key === Qt.Key_Meta)
-                return ""
-            var parts = []
-            if (event.modifiers & Qt.ControlModifier)
-                parts.push("Ctrl")
-            if (event.modifiers & Qt.AltModifier)
-                parts.push("Alt")
-            if (event.modifiers & Qt.ShiftModifier)
-                parts.push("Shift")
-            if (event.modifiers & Qt.MetaModifier)
-                parts.push("Meta")
-            var name = ""
-            switch (event.key) {
-            case Qt.Key_Comma: name = ","; break
-            case Qt.Key_Period: name = "."; break
-            case Qt.Key_Slash: name = "/"; break
-            case Qt.Key_Space: name = "Space"; break
-            case Qt.Key_Return: case Qt.Key_Enter: name = "Return"; break
-            case Qt.Key_Left: name = "Left"; break
-            case Qt.Key_Right: name = "Right"; break
-            case Qt.Key_Up: name = "Up"; break
-            case Qt.Key_Down: name = "Down"; break
-            case Qt.Key_F1: name = "F1"; break
-            case Qt.Key_F2: name = "F2"; break
-            case Qt.Key_F3: name = "F3"; break
-            case Qt.Key_F4: name = "F4"; break
-            case Qt.Key_F5: name = "F5"; break
-            case Qt.Key_F6: name = "F6"; break
-            case Qt.Key_F7: name = "F7"; break
-            case Qt.Key_F8: name = "F8"; break
-            case Qt.Key_F9: name = "F9"; break
-            case Qt.Key_F10: name = "F10"; break
-            case Qt.Key_F11: name = "F11"; break
-            case Qt.Key_F12: name = "F12"; break
-            default:
-                if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z)
-                    name = String.fromCharCode(event.key)
-                else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9)
-                    name = String.fromCharCode(event.key)
-                else
-                    return ""
-            }
-            parts.push(name)
-            return parts.join("+")
-        }
-
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-
-        contentItem: Flickable {
-            id: prefsFlick
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            width: preferencesDialog.availableWidth
-            height: preferencesDialog.availableHeight
-            contentWidth: width
-            contentHeight: prefsCol.implicitHeight
-            focus: preferencesDialog.capturingActionId.length > 0
-            ScrollBar.vertical: ScrollBar {
-                policy: ScrollBar.AlwaysOn
-                Accessible.name: qsTr("Preferences scroll")
-            }
-            Keys.onPressed: function (event) {
-                if (preferencesDialog.capturingActionId.length === 0)
-                    return
-                if (event.key === Qt.Key_Escape) {
-                    preferencesDialog.capturingActionId = ""
-                    preferencesDialog.shortcutConflictHint = ""
-                    event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
-                    AppSession.setActionShortcut(preferencesDialog.capturingActionId, "")
-                    preferencesDialog.capturingActionId = ""
-                    preferencesDialog.shortcutConflictHint = ""
-                    event.accepted = true
-                    return
-                }
-                var chord = preferencesDialog.chordFromKeyEvent(event)
-                if (!chord)
-                    return
-                var conflict = AppSession.shortcutConflictFor(
-                            preferencesDialog.capturingActionId, chord)
-                if (conflict && conflict.length > 0)
-                    preferencesDialog.shortcutConflictHint =
-                            qsTr("Replaces binding on %1").arg(conflict)
-                else
-                    preferencesDialog.shortcutConflictHint = ""
-                AppSession.setActionShortcut(preferencesDialog.capturingActionId, chord)
-                preferencesDialog.capturingActionId = ""
-                event.accepted = true
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
             }
 
-            ColumnLayout {
-                id: prefsCol
-                spacing: Theme.spaceMd
-                width: prefsFlick.width
-                Accessible.name: qsTr("Preferences content")
+            contentItem: Label {
+                width: parent ? parent.width - 32 : 440
+                text: AppSession.compatibilityReport
+                wrapMode: Text.WordWrap
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontBodySm
+                Accessible.name: qsTr("Import compatibility report")
+            }
+        }
+    }
 
+    LazyDialog {
+        id: ioErrorDialogLoader
+
+        Dialog {
+            id: ioErrorDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("File operation failed")
+            standardButtons: Dialog.Ok
+            width: Math.min(560, parent ? parent.width - 48 : 560)
+
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
+            }
+
+            contentItem: ScrollView {
+                clip: true
+                implicitHeight: Math.min(320, ioErrorLabel.implicitHeight + 16)
                 Label {
-                    text: qsTr("General")
+                    id: ioErrorLabel
+                    width: ioErrorDialog.availableWidth
+                    text: AppSession.ioError
+                    wrapMode: Text.WordWrap
                     color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontLabel
-                    font.weight: Font.DemiBold
+                    font.pixelSize: Theme.fontMono
+                    font.family: "Noto Sans Mono"
+                    Accessible.name: qsTr("File error details")
                 }
-                CheckBox {
-                    text: qsTr("Show guides")
-                    checked: AppSession.prefShowGuides
-                    onToggled: AppSession.setPrefShowGuides(checked)
-                }
-                CheckBox {
-                    text: qsTr("Show grid")
-                    checked: AppSession.prefShowGrid
-                    onToggled: AppSession.setGridVisible(checked)
-                }
-                CheckBox {
-                    text: qsTr("Show rulers")
-                    checked: AppSession.prefShowRulers
-                    onToggled: AppSession.setRulersVisible(checked)
-                }
-                CheckBox {
-                    text: qsTr("Snap to grid / guides")
-                    checked: AppSession.prefSnap
-                    onToggled: AppSession.setSnapEnabled(checked)
-                }
-                CheckBox {
-                    text: qsTr("Restore last tool on launch")
-                    checked: AppSession.prefRestoreLastTool
-                    onToggled: AppSession.setPrefRestoreLastTool(checked)
-                }
+            }
+        }
+    }
+
+    LazyDialog {
+        id: filterGalleryDialogLoader
+        requested: AppSession.filterGalleryOpen
+
+        Dialog {
+            id: filterGalleryDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("Filter Gallery")
+            width: 420
+            height: 360
+            visible: AppSession.filterGalleryOpen
+            onRejected: AppSession.filterGalleryCancel()
+            onClosed: {
+                if (AppSession.filterGalleryOpen)
+                    AppSession.filterGalleryCancel()
+            }
+
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
+            }
+
+            contentItem: ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spaceMd
+                spacing: Theme.spaceSm
 
                 Label {
-                    Layout.topMargin: Theme.spaceSm
-                    text: qsTr("Appearance & accessibility")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontLabel
-                    font.weight: Font.DemiBold
-                }
-                RowLayout {
+                    text: qsTr("Browse a shipped effect, preview on the canvas, then Apply.")
+                    wrapMode: Text.Wrap
                     Layout.fillWidth: true
-                    Label {
-                        text: qsTr("UI density")
-                        color: Theme.colorOnSurface
-                        font.pixelSize: Theme.fontBodySm
-                        Layout.fillWidth: true
-                    }
-                    ComboBox {
-                        model: [qsTr("Dense"), qsTr("Comfortable")]
-                        currentIndex: AppSession.prefUiDensity === "comfortable" ? 1 : 0
-                        onActivated: AppSession.setPrefUiDensity(
-                                         index === 1 ? "comfortable" : "dense")
-                    }
-                }
-                CheckBox {
-                    text: qsTr("High contrast chrome")
-                    checked: AppSession.prefHighContrast
-                    onToggled: AppSession.setPrefHighContrast(checked)
-                }
-                CheckBox {
-                    text: qsTr("Reduced motion")
-                    checked: AppSession.prefReducedMotion
-                    onToggled: AppSession.setPrefReducedMotion(checked)
-                }
-                CheckBox {
-                    text: qsTr("Safe start next launch")
-                    checked: AppSession.prefSafeStartNext
-                    onToggled: AppSession.setPrefSafeStartNext(checked)
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Next launch uses essentials layout and ignores custom shortcuts (PHOTOTUX_SAFE_START=1 also works)")
-                    Accessible.name: qsTr("Safe start next launch")
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Label {
-                        text: qsTr("History retention")
-                        color: Theme.colorOnSurface
-                        font.pixelSize: Theme.fontBodySm
-                        Layout.fillWidth: true
-                    }
-                    SpinBox {
-                        id: historyRetentionSpin
-                        from: 8
-                        to: 512
-                        stepSize: 8
-                        editable: true
-                        value: AppSession.prefHistoryRetention
-                        onValueModified: AppSession.setPrefHistoryRetention(value)
-                        // Editable commits do not always emit valueModified until focus leaves.
-                        onValueChanged: {
-                            if (value !== AppSession.prefHistoryRetention)
-                                AppSession.setPrefHistoryRetention(value)
-                        }
-                        Accessible.name: qsTr("History retention steps")
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Max undo steps retained (oldest dropped when over budget)")
-                    }
-                }
-                Label {
-                    visible: AppSession.prefEffectiveJson.length > 0
-                    text: qsTr("Effective sources (debug): density/guides/soft-proof tracked")
                     color: Theme.colorOnSurfaceMuted
                     font.pixelSize: Theme.fontLabelSm
-                    wrapMode: Text.WordWrap
+                }
+                ComboBox {
+                    id: filterKindCombo
                     Layout.fillWidth: true
+                    property var kinds: ["gaussian", "motion", "emboss", "sharpen", "noise"]
+                    model: [qsTr("Gaussian Blur"), qsTr("Motion Blur"), qsTr("Emboss"), qsTr("Sharpen"), qsTr("Noise")]
+                    function currentKind() {
+                        return kinds[currentIndex] || "gaussian"
+                    }
+                    onActivated: {
+                        AppSession.filterGalleryPreview(currentKind())
+                        filterP0Slider.value = AppSession.filterPreviewP0
+                        filterP1Slider.value = AppSession.filterPreviewP1
+                    }
+                }
+                Label {
+                    text: filterKindCombo.currentIndex === 0
+                          ? qsTr("Radius")
+                          : (filterKindCombo.currentIndex === 1
+                             ? qsTr("Distance")
+                             : (filterKindCombo.currentIndex === 2
+                                ? qsTr("Strength")
+                                : (filterKindCombo.currentIndex === 4
+                                   ? qsTr("Amount") : qsTr("Amount"))))
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                }
+                Slider {
+                    id: filterP0Slider
+                    Layout.fillWidth: true
+                    from: 0
+                    to: filterKindCombo.currentIndex === 0
+                        ? 64
+                        : (filterKindCombo.currentIndex === 4 ? 1 : 32)
+                    value: AppSession.filterPreviewP0
+                    onMoved: AppSession.filterGallerySetParams(
+                                 value, filterP1Slider.value, 0)
+                }
+                Label {
+                    visible: filterKindCombo.currentIndex === 1
+                             || filterKindCombo.currentIndex === 2
+                    text: qsTr("Angle")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                }
+                Slider {
+                    id: filterP1Slider
+                    Layout.fillWidth: true
+                    visible: filterKindCombo.currentIndex === 1
+                             || filterKindCombo.currentIndex === 2
+                    from: 0
+                    to: 360
+                    value: AppSession.filterPreviewP1
+                    onMoved: AppSession.filterGallerySetParams(
+                                 filterP0Slider.value, value, 0)
+                }
+                Item { Layout.fillHeight: true }
+            }
+
+            footer: DialogButtonBox {
+                Button {
+                    text: qsTr("Preview")
+                    DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
+                    onClicked: AppSession.filterGalleryPreview(filterKindCombo.currentKind())
+                }
+                Button {
+                    text: qsTr("Apply")
+                    DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                    enabled: AppSession.filterPreviewActive
+                    onClicked: AppSession.filterGalleryApply()
+                }
+                Button {
+                    text: qsTr("Cancel")
+                    DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                    onClicked: AppSession.filterGalleryCancel()
+                }
+            }
+
+            Connections {
+                target: AppSession
+                function onFilterGalleryOpenChanged() {
+                    if (AppSession.filterGalleryOpen) {
+                        filterKindCombo.currentIndex = 0
+                        AppSession.filterGalleryPreview("gaussian")
+                        filterP0Slider.value = AppSession.filterPreviewP0
+                        filterP1Slider.value = AppSession.filterPreviewP1
+                    }
+                }
+            }
+        }
+    }
+
+    LazyDialog {
+        id: preferencesDialogLoader
+        requested: AppSession.preferencesOpen
+
+        Dialog {
+            id: preferencesDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("Preferences")
+            standardButtons: Dialog.Close
+            width: 480
+            height: 560
+            visible: AppSession.preferencesOpen
+            onRejected: AppSession.closePreferences()
+            onAccepted: AppSession.closePreferences()
+            onClosed: {
+                preferencesDialog.capturingActionId = ""
+                preferencesDialog.shortcutConflictHint = ""
+                AppSession.closePreferences()
+            }
+
+            property string capturingActionId: ""
+            property string shortcutConflictHint: ""
+
+            function chordFromKeyEvent(event) {
+                if (event.key === Qt.Key_Escape
+                        || event.key === Qt.Key_Tab
+                        || event.key === Qt.Key_Backtab
+                        || event.key === Qt.Key_Control
+                        || event.key === Qt.Key_Shift
+                        || event.key === Qt.Key_Alt
+                        || event.key === Qt.Key_Meta)
+                    return ""
+                var parts = []
+                if (event.modifiers & Qt.ControlModifier)
+                    parts.push("Ctrl")
+                if (event.modifiers & Qt.AltModifier)
+                    parts.push("Alt")
+                if (event.modifiers & Qt.ShiftModifier)
+                    parts.push("Shift")
+                if (event.modifiers & Qt.MetaModifier)
+                    parts.push("Meta")
+                var name = ""
+                switch (event.key) {
+                case Qt.Key_Comma: name = ","; break
+                case Qt.Key_Period: name = "."; break
+                case Qt.Key_Slash: name = "/"; break
+                case Qt.Key_Space: name = "Space"; break
+                case Qt.Key_Return: case Qt.Key_Enter: name = "Return"; break
+                case Qt.Key_Left: name = "Left"; break
+                case Qt.Key_Right: name = "Right"; break
+                case Qt.Key_Up: name = "Up"; break
+                case Qt.Key_Down: name = "Down"; break
+                case Qt.Key_F1: name = "F1"; break
+                case Qt.Key_F2: name = "F2"; break
+                case Qt.Key_F3: name = "F3"; break
+                case Qt.Key_F4: name = "F4"; break
+                case Qt.Key_F5: name = "F5"; break
+                case Qt.Key_F6: name = "F6"; break
+                case Qt.Key_F7: name = "F7"; break
+                case Qt.Key_F8: name = "F8"; break
+                case Qt.Key_F9: name = "F9"; break
+                case Qt.Key_F10: name = "F10"; break
+                case Qt.Key_F11: name = "F11"; break
+                case Qt.Key_F12: name = "F12"; break
+                default:
+                    if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z)
+                        name = String.fromCharCode(event.key)
+                    else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9)
+                        name = String.fromCharCode(event.key)
+                    else
+                        return ""
+                }
+                parts.push(name)
+                return parts.join("+")
+            }
+
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
+            }
+
+            contentItem: Flickable {
+                id: prefsFlick
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                width: preferencesDialog.availableWidth
+                height: preferencesDialog.availableHeight
+                contentWidth: width
+                contentHeight: prefsCol.implicitHeight
+                focus: preferencesDialog.capturingActionId.length > 0
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AlwaysOn
+                    Accessible.name: qsTr("Preferences scroll")
+                }
+                Keys.onPressed: function (event) {
+                    if (preferencesDialog.capturingActionId.length === 0)
+                        return
+                    if (event.key === Qt.Key_Escape) {
+                        preferencesDialog.capturingActionId = ""
+                        preferencesDialog.shortcutConflictHint = ""
+                        event.accepted = true
+                        return
+                    }
+                    if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                        AppSession.setActionShortcut(preferencesDialog.capturingActionId, "")
+                        preferencesDialog.capturingActionId = ""
+                        preferencesDialog.shortcutConflictHint = ""
+                        event.accepted = true
+                        return
+                    }
+                    var chord = preferencesDialog.chordFromKeyEvent(event)
+                    if (!chord)
+                        return
+                    var conflict = AppSession.shortcutConflictFor(
+                                preferencesDialog.capturingActionId, chord)
+                    if (conflict && conflict.length > 0)
+                        preferencesDialog.shortcutConflictHint =
+                                qsTr("Replaces binding on %1").arg(conflict)
+                    else
+                        preferencesDialog.shortcutConflictHint = ""
+                    AppSession.setActionShortcut(preferencesDialog.capturingActionId, chord)
+                    preferencesDialog.capturingActionId = ""
+                    event.accepted = true
                 }
 
-                Label {
-                    Layout.topMargin: Theme.spaceSm
-                    text: qsTr("Workspace panels")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontLabel
-                    font.weight: Font.DemiBold
-                }
-                Repeater {
-                    model: {
-                        var _ = AppSession.panelVisibilityJson
-                        var stack = root.dockRightStack
-                        var all = root.panelDescriptors
-                        var out = []
-                        var seen = ({})
-                        for (var s = 0; s < stack.length; ++s) {
-                            for (var i = 0; i < all.length; ++i) {
-                                if (all[i].id === stack[s]) {
-                                    out.push(all[i])
-                                    seen[all[i].id] = true
-                                    break
+                ColumnLayout {
+                    id: prefsCol
+                    spacing: Theme.spaceMd
+                    width: prefsFlick.width
+                    Accessible.name: qsTr("Preferences content")
+
+                    Label {
+                        text: qsTr("General")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.DemiBold
+                    }
+                    CheckBox {
+                        text: qsTr("Show guides")
+                        checked: AppSession.prefShowGuides
+                        onToggled: AppSession.setPrefShowGuides(checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Show grid")
+                        checked: AppSession.prefShowGrid
+                        onToggled: AppSession.setGridVisible(checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Show rulers")
+                        checked: AppSession.prefShowRulers
+                        onToggled: AppSession.setRulersVisible(checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Snap to grid / guides")
+                        checked: AppSession.prefSnap
+                        onToggled: AppSession.setSnapEnabled(checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Restore last tool on launch")
+                        checked: AppSession.prefRestoreLastTool
+                        onToggled: AppSession.setPrefRestoreLastTool(checked)
+                    }
+
+                    Label {
+                        Layout.topMargin: Theme.spaceSm
+                        text: qsTr("Appearance & accessibility")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.DemiBold
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: qsTr("UI density")
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontBodySm
+                            Layout.fillWidth: true
+                        }
+                        ComboBox {
+                            model: [qsTr("Dense"), qsTr("Comfortable")]
+                            currentIndex: AppSession.prefUiDensity === "comfortable" ? 1 : 0
+                            onActivated: AppSession.setPrefUiDensity(
+                                             index === 1 ? "comfortable" : "dense")
+                        }
+                    }
+                    CheckBox {
+                        text: qsTr("High contrast chrome")
+                        checked: AppSession.prefHighContrast
+                        onToggled: AppSession.setPrefHighContrast(checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Reduced motion")
+                        checked: AppSession.prefReducedMotion
+                        onToggled: AppSession.setPrefReducedMotion(checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Safe start next launch")
+                        checked: AppSession.prefSafeStartNext
+                        onToggled: AppSession.setPrefSafeStartNext(checked)
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Next launch uses essentials layout and ignores custom shortcuts (PHOTOTUX_SAFE_START=1 also works)")
+                        Accessible.name: qsTr("Safe start next launch")
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: qsTr("History retention")
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontBodySm
+                            Layout.fillWidth: true
+                        }
+                        SpinBox {
+                            id: historyRetentionSpin
+                            from: 8
+                            to: 512
+                            stepSize: 8
+                            editable: true
+                            value: AppSession.prefHistoryRetention
+                            onValueModified: AppSession.setPrefHistoryRetention(value)
+                            // Editable commits do not always emit valueModified until focus leaves.
+                            onValueChanged: {
+                                if (value !== AppSession.prefHistoryRetention)
+                                    AppSession.setPrefHistoryRetention(value)
+                            }
+                            Accessible.name: qsTr("History retention steps")
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Max undo steps retained (oldest dropped when over budget)")
+                        }
+                    }
+                    Label {
+                        visible: AppSession.prefEffectiveJson.length > 0
+                        text: qsTr("Effective sources (debug): density/guides/soft-proof tracked")
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabelSm
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        Layout.topMargin: Theme.spaceSm
+                        text: qsTr("Workspace panels")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.DemiBold
+                    }
+                    Repeater {
+                        model: {
+                            var _ = AppSession.panelVisibilityJson
+                            var stack = root.dockRightStack
+                            var all = root.panelDescriptors
+                            var out = []
+                            var seen = ({})
+                            for (var s = 0; s < stack.length; ++s) {
+                                for (var i = 0; i < all.length; ++i) {
+                                    if (all[i].id === stack[s]) {
+                                        out.push(all[i])
+                                        seen[all[i].id] = true
+                                        break
+                                    }
                                 }
                             }
+                            for (var j = 0; j < all.length; ++j) {
+                                if (!seen[all[j].id])
+                                    out.push(all[j])
+                            }
+                            return out
                         }
-                        for (var j = 0; j < all.length; ++j) {
-                            if (!seen[all[j].id])
-                                out.push(all[j])
+                        delegate: CheckBox {
+                            required property var modelData
+                            text: qsTr(modelData.title || modelData.id)
+                            checked: root.panelIsVisible(modelData.id)
+                            onToggled: AppSession.setPanelVisible(modelData.id, checked)
                         }
-                        return out
                     }
-                    delegate: CheckBox {
-                        required property var modelData
-                        text: qsTr(modelData.title || modelData.id)
-                        checked: root.panelIsVisible(modelData.id)
-                        onToggled: AppSession.setPanelVisible(modelData.id, checked)
-                    }
-                }
 
-                Label {
-                    Layout.topMargin: Theme.spaceXs
-                    text: qsTr("Workspace presets")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontLabel
-                    font.weight: Font.DemiBold
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Built-ins plus your saved layouts. Saving stores the current panel visibility and dock layout (not the document).")
-                    color: Theme.colorOnSurfaceMuted
-                    font.pixelSize: Theme.fontLabelSm
-                    wrapMode: Text.WordWrap
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spaceSm
-                    TextField {
-                        id: userWorkspacePresetName
+                    Label {
+                        Layout.topMargin: Theme.spaceXs
+                        text: qsTr("Workspace presets")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
                         Layout.fillWidth: true
-                        placeholderText: qsTr("Name for current layout")
-                        Accessible.name: qsTr("User workspace preset name")
-                        onAccepted: {
-                            AppSession.saveUserWorkspacePreset(text)
-                            text = ""
+                        text: qsTr("Built-ins plus your saved layouts. Saving stores the current panel visibility and dock layout (not the document).")
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabelSm
+                        wrapMode: Text.WordWrap
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spaceSm
+                        TextField {
+                            id: userWorkspacePresetName
+                            Layout.fillWidth: true
+                            placeholderText: qsTr("Name for current layout")
+                            Accessible.name: qsTr("User workspace preset name")
+                            onAccepted: {
+                                AppSession.saveUserWorkspacePreset(text)
+                                text = ""
+                            }
+                        }
+                        Button {
+                            text: qsTr("Save")
+                            enabled: userWorkspacePresetName.text.trim().length > 0
+                            Accessible.name: qsTr("Save user workspace preset")
+                            onClicked: {
+                                AppSession.saveUserWorkspacePreset(userWorkspacePresetName.text)
+                                userWorkspacePresetName.text = ""
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: {
+                            try {
+                                return JSON.parse(AppSession.workspacePresetsJson || "[]")
+                            } catch (e) {
+                                return []
+                            }
+                        }
+                        delegate: RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            Button {
+                                Layout.fillWidth: true
+                                text: qsTr(modelData.title || modelData.id)
+                                highlighted: AppSession.activeWorkspacePresetId === modelData.id
+                                Accessible.name: qsTr("Apply workspace %1").arg(modelData.title || modelData.id)
+                                onClicked: AppSession.applyWorkspacePreset(modelData.id)
+                            }
+                            ToolButton {
+                                id: deletePresetBtn
+                                visible: {
+                                    var id = modelData.id || ""
+                                    return id.indexOf("workspace.preset.user.") === 0
+                                }
+                                implicitWidth: Theme.panelHeaderBtn
+                                implicitHeight: Theme.panelHeaderBtn
+                                padding: 0
+                                display: AbstractButton.IconOnly
+                                icon.source: root.iconUrl("trash")
+                                icon.width: Theme.iconMd
+                                icon.height: Theme.iconMd
+                                Accessible.name: qsTr("Delete workspace preset %1").arg(modelData.title || modelData.id)
+                                ToolTip.visible: hovered
+                                ToolTip.text: qsTr("Delete user preset")
+                                contentItem: Item {
+                                    implicitWidth: Theme.iconMd
+                                    implicitHeight: Theme.iconMd
+                                    ThemedIcon {
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+                                        source: deletePresetBtn.icon.source
+                                        size: Theme.iconMd
+                                        color: deletePresetBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                                    }
+                                }
+                                background: Rectangle {
+                                    radius: Theme.radiusXs
+                                    color: deletePresetBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                                }
+                                onClicked: AppSession.deleteUserWorkspacePreset(modelData.id)
+                            }
                         }
                     }
                     Button {
-                        text: qsTr("Save")
-                        enabled: userWorkspacePresetName.text.trim().length > 0
-                        Accessible.name: qsTr("Save user workspace preset")
-                        onClicked: {
-                            AppSession.saveUserWorkspacePreset(userWorkspacePresetName.text)
-                            userWorkspacePresetName.text = ""
-                        }
+                        text: qsTr("Restore last saved layout")
+                        onClicked: AppSession.restoreLastSavedWorkspace()
                     }
-                }
-                Repeater {
-                    model: {
-                        try {
-                            return JSON.parse(AppSession.workspacePresetsJson || "[]")
-                        } catch (e) {
-                            return []
-                        }
+                    Button {
+                        text: qsTr("Reset Workspace to Essentials")
+                        onClicked: AppSession.resetWorkspace()
                     }
-                    delegate: RowLayout {
-                        required property var modelData
+
+                    Label {
+                        Layout.topMargin: Theme.spaceSm
+                        text: qsTr("Keyboard")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontLabel
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
                         Layout.fillWidth: true
-                        spacing: Theme.spaceXs
-                        Button {
-                            Layout.fillWidth: true
-                            text: qsTr(modelData.title || modelData.id)
-                            highlighted: AppSession.activeWorkspacePresetId === modelData.id
-                            Accessible.name: qsTr("Apply workspace %1").arg(modelData.title || modelData.id)
-                            onClicked: AppSession.applyWorkspacePreset(modelData.id)
-                        }
-                        ToolButton {
-                            id: deletePresetBtn
-                            visible: {
-                                var id = modelData.id || ""
-                                return id.indexOf("workspace.preset.user.") === 0
+                        text: qsTr("Click a binding, then press a shortcut. Esc cancels; Backspace clears.")
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabelSm
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        visible: preferencesDialog.shortcutConflictHint.length > 0
+                                 || preferencesDialog.capturingActionId.length > 0
+                        Layout.fillWidth: true
+                        text: preferencesDialog.capturingActionId.length > 0
+                              ? qsTr("Waiting for shortcut…")
+                              : preferencesDialog.shortcutConflictHint
+                        color: Theme.warning
+                        font.pixelSize: Theme.fontLabelSm
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Repeater {
+                        model: {
+                            var _ = AppSession.actionShortcutsJson
+                            var out = []
+                            var all = root.actionDescriptors
+                            for (var i = 0; i < all.length; ++i) {
+                                if (all[i].shortcut || root.shortcutForAction(all[i].id))
+                                    out.push(all[i])
                             }
-                            implicitWidth: Theme.panelHeaderBtn
-                            implicitHeight: Theme.panelHeaderBtn
-                            padding: 0
-                            display: AbstractButton.IconOnly
-                            icon.source: root.iconUrl("trash")
-                            icon.width: Theme.iconMd
-                            icon.height: Theme.iconMd
-                            Accessible.name: qsTr("Delete workspace preset %1").arg(modelData.title || modelData.id)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Delete user preset")
-                            contentItem: Item {
-                                implicitWidth: Theme.iconMd
-                                implicitHeight: Theme.iconMd
-                                ThemedIcon {
-                                    anchors.centerIn: parent
-                                    source: deletePresetBtn.icon.source
-                                    size: Theme.iconMd
-                                    color: deletePresetBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
+                            return out
+                        }
+                        delegate: RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceSm
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.label.replace(/&/g, "")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                                elide: Text.ElideRight
+                            }
+                            Button {
+                                implicitWidth: 140
+                                text: preferencesDialog.capturingActionId === modelData.id
+                                      ? qsTr("Press keys…")
+                                      : (root.shortcutForAction(modelData.id) || qsTr("None"))
+                                onClicked: {
+                                    preferencesDialog.capturingActionId = modelData.id
+                                    preferencesDialog.shortcutConflictHint = ""
+                                    prefsFlick.forceActiveFocus()
                                 }
                             }
-                            background: Rectangle {
-                                radius: Theme.radiusXs
-                                color: deletePresetBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
-                            }
-                            onClicked: AppSession.deleteUserWorkspacePreset(modelData.id)
                         }
                     }
+
+                    Button {
+                        text: qsTr("Reset shortcuts to defaults")
+                        onClicked: {
+                            preferencesDialog.capturingActionId = ""
+                            preferencesDialog.shortcutConflictHint = ""
+                            AppSession.resetKeymap()
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Stored in XDG config: phototux/preferences.json")
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontBodySm
+                        wrapMode: Text.WordWrap
+                    }
                 }
-                Button {
-                    text: qsTr("Restore last saved layout")
-                    onClicked: AppSession.restoreLastSavedWorkspace()
+            }
+        }
+    }
+
+    LazyDialog {
+        id: commandPaletteLoader
+
+        Popup {
+            id: commandPalette
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            width: Math.min(520, root.width - 48)
+            height: Math.min(420, root.height - 48)
+            modal: true
+            focus: true
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            padding: Theme.spaceMd
+
+            property int selectedIndex: 0
+            property string query: ""
+
+            /// Subsequence fuzzy score; higher is better. -1 = no match.
+            function fuzzyScore(hay, needle) {
+                if (!needle)
+                    return 0
+                if (!hay)
+                    return -1
+                var hi = 0
+                var score = 0
+                var streak = 0
+                for (var ni = 0; ni < needle.length; ++ni) {
+                    var ch = needle.charAt(ni)
+                    var found = -1
+                    for (var j = hi; j < hay.length; ++j) {
+                        if (hay.charAt(j) === ch) {
+                            found = j
+                            break
+                        }
+                    }
+                    if (found < 0)
+                        return -1
+                    if (found === hi)
+                        streak++
+                    else
+                        streak = 0
+                    score += 10 + streak * 5 - (found - hi)
+                    hi = found + 1
                 }
-                Button {
-                    text: qsTr("Reset Workspace to Essentials")
-                    onClicked: AppSession.resetWorkspace()
+                // Prefer shorter labels and early matches.
+                score += Math.max(0, 40 - hay.length)
+                return score
+            }
+
+            function filteredActions() {
+                var q = commandPalette.query.trim().toLowerCase()
+                var out = []
+                var scored = []
+                var all = root.actionDescriptors
+                for (var i = 0; i < all.length; ++i) {
+                    var a = all[i]
+                    if (a.id === "action.app.command-palette")
+                        continue
+                    if (!q) {
+                        out.push(a)
+                        continue
+                    }
+                    var label = (a.label || "").replace(/&/g, "").toLowerCase()
+                    var id = (a.id || "").toLowerCase()
+                    var menu = (a.menu || "").toLowerCase()
+                    var best = -1
+                    var sLabel = commandPalette.fuzzyScore(label, q)
+                    var sId = commandPalette.fuzzyScore(id, q)
+                    var sMenu = commandPalette.fuzzyScore(menu, q)
+                    if (sLabel > best)
+                        best = sLabel
+                    if (sId > best)
+                        best = sId
+                    if (sMenu > best)
+                        best = sMenu
+                    // Substring boost for exact contiguous hits.
+                    if (label.indexOf(q) >= 0)
+                        best = Math.max(best, 1000 - label.indexOf(q))
+                    if (id.indexOf(q) >= 0)
+                        best = Math.max(best, 900 - id.indexOf(q))
+                    if (best >= 0)
+                        scored.push({ action: a, score: best })
                 }
+                if (!q)
+                    return out
+                scored.sort(function (x, y) {
+                    return y.score - x.score
+                })
+                for (var k = 0; k < scored.length; ++k)
+                    out.push(scored[k].action)
+                return out
+            }
+
+            function showPalette() {
+                query = ""
+                selectedIndex = 0
+                open()
+                paletteField.forceActiveFocus()
+                AppSession.setShortcutInputYield(true)
+            }
+
+            function closePalette() {
+                close()
+                AppSession.setShortcutInputYield(false)
+                root.refreshShortcutYield()
+            }
+
+            function runSelected() {
+                var list = commandPalette.filteredActions()
+                if (list.length === 0)
+                    return
+                var idx = Math.max(0, Math.min(commandPalette.selectedIndex, list.length - 1))
+                var action = list[idx]
+                if (!root.actionIsEnabled(action.id))
+                    return
+                commandPalette.closePalette()
+                root.runAction(action.id)
+            }
+
+            onClosed: {
+                AppSession.setShortcutInputYield(false)
+                root.refreshShortcutYield()
+            }
+
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
+            }
+
+            contentItem: ColumnLayout {
+                spacing: Theme.spaceSm
+                anchors.fill: parent
 
                 Label {
-                    Layout.topMargin: Theme.spaceSm
-                    text: qsTr("Keyboard")
+                    text: qsTr("Command palette")
                     color: Theme.colorOnSurface
                     font.pixelSize: Theme.fontLabel
                     font.weight: Font.DemiBold
                 }
-                Label {
+
+                TextField {
+                    id: paletteField
                     Layout.fillWidth: true
-                    text: qsTr("Click a binding, then press a shortcut. Esc cancels; Backspace clears.")
-                    color: Theme.colorOnSurfaceMuted
-                    font.pixelSize: Theme.fontLabelSm
-                    wrapMode: Text.WordWrap
-                }
-                Label {
-                    visible: preferencesDialog.shortcutConflictHint.length > 0
-                             || preferencesDialog.capturingActionId.length > 0
-                    Layout.fillWidth: true
-                    text: preferencesDialog.capturingActionId.length > 0
-                          ? qsTr("Waiting for shortcut…")
-                          : preferencesDialog.shortcutConflictHint
-                    color: Theme.warning
-                    font.pixelSize: Theme.fontLabelSm
-                    wrapMode: Text.WordWrap
+                    placeholderText: qsTr("Filter commands…")
+                    text: commandPalette.query
+                    onTextChanged: {
+                        commandPalette.query = text
+                        commandPalette.selectedIndex = 0
+                    }
+                    Keys.onPressed: function (event) {
+                        var list = commandPalette.filteredActions()
+                        if (event.key === Qt.Key_Down) {
+                            if (list.length > 0)
+                                commandPalette.selectedIndex =
+                                        Math.min(commandPalette.selectedIndex + 1, list.length - 1)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Up) {
+                            commandPalette.selectedIndex = Math.max(0, commandPalette.selectedIndex - 1)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            commandPalette.runSelected()
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Escape) {
+                            commandPalette.closePalette()
+                            event.accepted = true
+                        }
+                    }
                 }
 
-                Repeater {
-                    model: {
-                        var _ = AppSession.actionShortcutsJson
-                        var out = []
-                        var all = root.actionDescriptors
-                        for (var i = 0; i < all.length; ++i) {
-                            if (all[i].shortcut || root.shortcutForAction(all[i].id))
-                                out.push(all[i])
-                        }
-                        return out
-                    }
-                    delegate: RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spaceSm
-                        Label {
-                            Layout.fillWidth: true
-                            text: modelData.label.replace(/&/g, "")
-                            color: Theme.colorOnSurface
-                            font.pixelSize: Theme.fontBodySm
-                            elide: Text.ElideRight
-                        }
-                        Button {
-                            implicitWidth: 140
-                            text: preferencesDialog.capturingActionId === modelData.id
-                                  ? qsTr("Press keys…")
-                                  : (root.shortcutForAction(modelData.id) || qsTr("None"))
-                            onClicked: {
-                                preferencesDialog.capturingActionId = modelData.id
-                                preferencesDialog.shortcutConflictHint = ""
-                                prefsFlick.forceActiveFocus()
+                ListView {
+                    id: paletteList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    model: commandPalette.filteredActions()
+                    currentIndex: commandPalette.selectedIndex
+                    delegate: ItemDelegate {
+                        width: paletteList.width
+                        height: Theme.toolHit
+                        highlighted: index === commandPalette.selectedIndex
+                        opacity: root.actionIsEnabled(modelData.id) ? 1.0 : 0.45
+                        contentItem: RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.spaceSm
+                            anchors.rightMargin: Theme.spaceSm
+                            spacing: Theme.spaceSm
+                            Label {
+                                Layout.fillWidth: true
+                                text: (modelData.label || "").replace(/&/g, "")
+                                color: Theme.colorOnSurface
+                                font.pixelSize: Theme.fontBodySm
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                text: modelData.menu || ""
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+                            Label {
+                                text: root.shortcutForAction(modelData.id)
+                                color: Theme.primary
+                                font.pixelSize: Theme.fontMono
+                                font.family: "Noto Sans Mono"
                             }
                         }
+                        onClicked: {
+                            commandPalette.selectedIndex = index
+                            commandPalette.runSelected()
+                        }
                     }
-                }
-
-                Button {
-                    text: qsTr("Reset shortcuts to defaults")
-                    onClicked: {
-                        preferencesDialog.capturingActionId = ""
-                        preferencesDialog.shortcutConflictHint = ""
-                        AppSession.resetKeymap()
-                    }
+                    ScrollBar.vertical: ScrollBar { }
                 }
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Stored in XDG config: phototux/preferences.json")
+                    visible: paletteList.count === 0
+                    text: qsTr("No matching commands")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontBodySm
+                }
+            }
+        }
+    }
+
+    LazyDialog {
+        id: aboutDialogLoader
+
+        Dialog {
+            id: aboutDialog
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            title: qsTr("About PhotoTux")
+            standardButtons: Dialog.Ok
+            width: 400
+
+            background: Rectangle {
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMd
+            }
+
+            contentItem: ColumnLayout {
+                spacing: Theme.spaceMd
+                width: 360
+
+                Image {
+                    Layout.alignment: Qt.AlignHCenter
+                    source: Theme.logoUrl
+                    sourceSize: Qt.size(256, 256)
+                    Layout.preferredWidth: 96
+                    Layout.preferredHeight: 96
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: qsTr("PhotoTux")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontHeadline
+                    font.weight: Font.DemiBold
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: qsTr("Professional Image Environment\nGPU-first editor for Linux and Wayland.")
                     color: Theme.colorOnSurfaceMuted
                     font.pixelSize: Theme.fontBodySm
                     wrapMode: Text.WordWrap
                 }
-            }
-        }
-    }
 
-    Popup {
-        id: commandPalette
-        anchors.centerIn: parent
-        width: Math.min(520, root.width - 48)
-        height: Math.min(420, root.height - 48)
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        padding: Theme.spaceMd
-
-        property int selectedIndex: 0
-        property string query: ""
-
-        /// Subsequence fuzzy score; higher is better. -1 = no match.
-        function fuzzyScore(hay, needle) {
-            if (!needle)
-                return 0
-            if (!hay)
-                return -1
-            var hi = 0
-            var score = 0
-            var streak = 0
-            for (var ni = 0; ni < needle.length; ++ni) {
-                var ch = needle.charAt(ni)
-                var found = -1
-                for (var j = hi; j < hay.length; ++j) {
-                    if (hay.charAt(j) === ch) {
-                        found = j
-                        break
-                    }
+                Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: qsTr("Version 0.1.0  ·  GPU ACCELERATED")
+                    color: Theme.colorOnSurfaceDisabled
+                    font.pixelSize: Theme.fontMono
+                    font.family: "Noto Sans Mono"
                 }
-                if (found < 0)
-                    return -1
-                if (found === hi)
-                    streak++
-                else
-                    streak = 0
-                score += 10 + streak * 5 - (found - hi)
-                hi = found + 1
-            }
-            // Prefer shorter labels and early matches.
-            score += Math.max(0, 40 - hay.length)
-            return score
-        }
-
-        function filteredActions() {
-            var q = commandPalette.query.trim().toLowerCase()
-            var out = []
-            var scored = []
-            var all = root.actionDescriptors
-            for (var i = 0; i < all.length; ++i) {
-                var a = all[i]
-                if (a.id === "action.app.command-palette")
-                    continue
-                if (!q) {
-                    out.push(a)
-                    continue
-                }
-                var label = (a.label || "").replace(/&/g, "").toLowerCase()
-                var id = (a.id || "").toLowerCase()
-                var menu = (a.menu || "").toLowerCase()
-                var best = -1
-                var sLabel = commandPalette.fuzzyScore(label, q)
-                var sId = commandPalette.fuzzyScore(id, q)
-                var sMenu = commandPalette.fuzzyScore(menu, q)
-                if (sLabel > best)
-                    best = sLabel
-                if (sId > best)
-                    best = sId
-                if (sMenu > best)
-                    best = sMenu
-                // Substring boost for exact contiguous hits.
-                if (label.indexOf(q) >= 0)
-                    best = Math.max(best, 1000 - label.indexOf(q))
-                if (id.indexOf(q) >= 0)
-                    best = Math.max(best, 900 - id.indexOf(q))
-                if (best >= 0)
-                    scored.push({ action: a, score: best })
-            }
-            if (!q)
-                return out
-            scored.sort(function (x, y) {
-                return y.score - x.score
-            })
-            for (var k = 0; k < scored.length; ++k)
-                out.push(scored[k].action)
-            return out
-        }
-
-        function showPalette() {
-            query = ""
-            selectedIndex = 0
-            open()
-            paletteField.forceActiveFocus()
-            AppSession.setShortcutInputYield(true)
-        }
-
-        function closePalette() {
-            close()
-            AppSession.setShortcutInputYield(false)
-            root.refreshShortcutYield()
-        }
-
-        function runSelected() {
-            var list = commandPalette.filteredActions()
-            if (list.length === 0)
-                return
-            var idx = Math.max(0, Math.min(commandPalette.selectedIndex, list.length - 1))
-            var action = list[idx]
-            if (!root.actionIsEnabled(action.id))
-                return
-            commandPalette.closePalette()
-            root.runAction(action.id)
-        }
-
-        onClosed: {
-            AppSession.setShortcutInputYield(false)
-            root.refreshShortcutYield()
-        }
-
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.spaceSm
-            anchors.fill: parent
-
-            Label {
-                text: qsTr("Command palette")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontLabel
-                font.weight: Font.DemiBold
-            }
-
-            TextField {
-                id: paletteField
-                Layout.fillWidth: true
-                placeholderText: qsTr("Filter commands…")
-                text: commandPalette.query
-                onTextChanged: {
-                    commandPalette.query = text
-                    commandPalette.selectedIndex = 0
-                }
-                Keys.onPressed: function (event) {
-                    var list = commandPalette.filteredActions()
-                    if (event.key === Qt.Key_Down) {
-                        if (list.length > 0)
-                            commandPalette.selectedIndex =
-                                    Math.min(commandPalette.selectedIndex + 1, list.length - 1)
-                        event.accepted = true
-                    } else if (event.key === Qt.Key_Up) {
-                        commandPalette.selectedIndex = Math.max(0, commandPalette.selectedIndex - 1)
-                        event.accepted = true
-                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                        commandPalette.runSelected()
-                        event.accepted = true
-                    } else if (event.key === Qt.Key_Escape) {
-                        commandPalette.closePalette()
-                        event.accepted = true
-                    }
-                }
-            }
-
-            ListView {
-                id: paletteList
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: commandPalette.filteredActions()
-                currentIndex: commandPalette.selectedIndex
-                delegate: ItemDelegate {
-                    width: paletteList.width
-                    height: Theme.toolHit
-                    highlighted: index === commandPalette.selectedIndex
-                    opacity: root.actionIsEnabled(modelData.id) ? 1.0 : 0.45
-                    contentItem: RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spaceSm
-                        anchors.rightMargin: Theme.spaceSm
-                        spacing: Theme.spaceSm
-                        Label {
-                            Layout.fillWidth: true
-                            text: (modelData.label || "").replace(/&/g, "")
-                            color: Theme.colorOnSurface
-                            font.pixelSize: Theme.fontBodySm
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            text: modelData.menu || ""
-                            color: Theme.colorOnSurfaceMuted
-                            font.pixelSize: Theme.fontLabelSm
-                        }
-                        Label {
-                            text: root.shortcutForAction(modelData.id)
-                            color: Theme.primary
-                            font.pixelSize: Theme.fontMono
-                            font.family: "Noto Sans Mono"
-                        }
-                    }
-                    onClicked: {
-                        commandPalette.selectedIndex = index
-                        commandPalette.runSelected()
-                    }
-                }
-                ScrollBar.vertical: ScrollBar { }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                visible: paletteList.count === 0
-                text: qsTr("No matching commands")
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontBodySm
-            }
-        }
-    }
-
-    Dialog {
-        id: aboutDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("About PhotoTux")
-        standardButtons: Dialog.Ok
-        width: 400
-
-        background: Rectangle {
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMd
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.spaceMd
-            width: 360
-
-            Image {
-                Layout.alignment: Qt.AlignHCenter
-                source: Theme.logoUrl
-                sourceSize: Qt.size(256, 256)
-                Layout.preferredWidth: 96
-                Layout.preferredHeight: 96
-                fillMode: Image.PreserveAspectFit
-                smooth: true
-                mipmap: true
-            }
-
-            Label {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: qsTr("PhotoTux")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontHeadline
-                font.weight: Font.DemiBold
-            }
-
-            Label {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: qsTr("Professional Image Environment\nGPU-first editor for Linux and Wayland.")
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontBodySm
-                wrapMode: Text.WordWrap
-            }
-
-            Label {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: qsTr("Version 0.1.0  ·  GPU ACCELERATED")
-                color: Theme.colorOnSurfaceDisabled
-                font.pixelSize: Theme.fontMono
-                font.family: "Noto Sans Mono"
             }
         }
     }
@@ -6119,8 +6281,6 @@ ApplicationWindow {
                 AppSession.applySizePreset(presetLabel)
             else
                 AppSession.applyDocumentSize(w, h)
-            if (typeof brushSlider !== "undefined" && brushSlider)
-                brushSlider.value = AppSession.brushSize
             if (typeof layerOpacitySlider !== "undefined" && layerOpacitySlider)
                 layerOpacitySlider.value = AppSession.activeOpacity
             root.syncBlendCombo()
@@ -6135,7 +6295,7 @@ ApplicationWindow {
             else if (!AppSession.ioBusy
                      && !openFileDialog.visible
                      && !newDocDialog.visible
-                     && !recoveryDialog.visible)
+                     && !recoveryDialogLoader.dialogVisible)
                 welcomeDialog.open()
         }
     }
@@ -6155,7 +6315,7 @@ ApplicationWindow {
         }
         function onIoErrorChanged() {
             if (AppSession.ioError.length > 0)
-                ioErrorDialog.open()
+                ioErrorDialogLoader.open()
         }
     }
 

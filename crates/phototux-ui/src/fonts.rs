@@ -6,6 +6,15 @@ use std::process::Command;
 /// Preferred fallbacks when discovery yields nothing usable.
 pub const FALLBACK_FONTS: &[&str] = &["Noto Sans", "DejaVu Sans", "Noto Sans Mono"];
 
+/// Fallback family list as JSON, without touching fontconfig.
+///
+/// `fc-list` costs ~80 ms on a typical desktop, which is a large share of cold
+/// boot for a list only the Character panel consumes. The shell starts with
+/// this and upgrades to the full set on first use.
+pub fn fallback_font_families_json() -> String {
+    serde_json::to_string(FALLBACK_FONTS).unwrap_or_else(|_| "[]".into())
+}
+
 /// Discover installed font family names via `fc-list`.
 ///
 /// Returns a JSON array of unique family strings. On failure, returns the
@@ -58,6 +67,13 @@ fn discover_font_families() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_json_is_usable_without_fontconfig() {
+        let parsed: Vec<String> =
+            serde_json::from_str(&fallback_font_families_json()).expect("json array");
+        assert_eq!(parsed, FALLBACK_FONTS);
+    }
 
     #[test]
     fn discover_returns_json_array() {

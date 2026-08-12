@@ -43,28 +43,32 @@ QtObject {
     readonly property color iconOnSurface: "#FFFFFF"
     readonly property color iconDisabled: "#9A9AA3"
 
+    // Corner radii are a fixed visual signature and do not scale with density.
     readonly property int radiusXs: 2
     readonly property int radiusSm: 4
     readonly property int radiusMd: 6
     readonly property int radiusLg: 8
 
-    readonly property int spaceXxs: 2
-    readonly property int spaceXs: 4
-    readonly property int spaceSm: 8
-    readonly property int spaceMd: 12
-    readonly property int spaceLg: 16
-    readonly property int spaceXl: 24
+    // Spacing, control heights, and hit targets scale with density. Without
+    // this, "comfortable" only enlarged text and left the shell just as tight,
+    // which defeats the preference and the 200%-scale accessibility target.
+    readonly property int spaceXxs: Math.round(2 * densityScale)
+    readonly property int spaceXs: Math.round(4 * densityScale)
+    readonly property int spaceSm: Math.round(8 * densityScale)
+    readonly property int spaceMd: Math.round(12 * densityScale)
+    readonly property int spaceLg: Math.round(16 * densityScale)
+    readonly property int spaceXl: Math.round(24 * densityScale)
 
-    readonly property int toolStripWidth: 48
-    readonly property int dockWidth: 280
-    readonly property int toolbarHeight: 40
-    readonly property int statusbarHeight: 28
-    readonly property int panelHeaderHeight: 28
-    readonly property int controlHeight: 28
-    readonly property int toolHit: 40
+    readonly property int toolStripWidth: Math.round(48 * densityScale)
+    readonly property int dockWidth: Math.round(280 * densityScale)
+    readonly property int toolbarHeight: Math.round(40 * densityScale)
+    readonly property int statusbarHeight: Math.round(28 * densityScale)
+    readonly property int panelHeaderHeight: Math.round(28 * densityScale)
+    readonly property int controlHeight: Math.round(28 * densityScale)
+    readonly property int toolHit: Math.round(40 * densityScale)
     /// Panel-header Phosphor glyphs (uniform optical box).
-    readonly property int iconMd: 16
-    readonly property int panelHeaderBtn: 24
+    readonly property int iconMd: Math.round(16 * densityScale)
+    readonly property int panelHeaderBtn: Math.round(24 * densityScale)
 
     // Density / a11y packs (prefs → AppSession); Theme remains single token source.
     property bool highContrast: false

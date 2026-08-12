@@ -205,8 +205,10 @@ pub struct AppSession {
     inspector_opacity_mixed: bool,
     /// Multi-select: blend modes disagree.
     inspector_blend_mixed: bool,
-    /// Progressive disclosure for advanced Properties section.
-    properties_advanced_open: bool,
+    /// Inspector disclosure group id → expanded, as a JSON object.
+    disclosure_open_json: String,
+    /// Static [`phototux_engine::DisclosureGroupDescriptor`] list for the inspector.
+    disclosure_groups_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
@@ -289,8 +291,10 @@ pub struct AppSession {
     text_layer_active: bool,
     text_body: String,
     text_font_family: String,
-    /// JSON array of discovered font family names (`fc-list`).
+    /// JSON array of font family names: fallbacks until `fc-list` has run.
     available_fonts_json: String,
+    /// True once fontconfig discovery has replaced the fallback list.
+    fonts_discovered: bool,
     /// Active text layer origin in document pixels (from layer transform).
     text_origin_x: f32,
     text_origin_y: f32,
@@ -429,7 +433,8 @@ impl AppSession {
             active_blend: "normal".to_owned(),
             inspector_opacity_mixed: false,
             inspector_blend_mixed: false,
-            properties_advanced_open: false,
+            disclosure_open_json: "{}".to_owned(),
+            disclosure_groups_json: phototux_engine::disclosure_groups_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
             pref_history_retention: 128,
@@ -509,7 +514,8 @@ impl AppSession {
             text_layer_active: false,
             text_body: String::new(),
             text_font_family: "Noto Sans".into(),
-            available_fonts_json: fonts::discover_font_families_json(),
+            available_fonts_json: fonts::fallback_font_families_json(),
+            fonts_discovered: false,
             text_origin_x: 0.0,
             text_origin_y: 0.0,
             text_font_size: 24.0,
@@ -1353,7 +1359,38 @@ impl AppSession {
         self.action_shortcuts_json_changed();
     }
 
+    /// Publish descriptor defaults merged with user overrides, so QML reads a
+    /// resolved boolean per group instead of re-deriving the default.
+    ///
+    /// Overrides stay sparse in the store: a group the user never touched keeps
+    /// following its descriptor default when that default changes.
+    fn refresh_disclosure_open_json(&mut self) {
+        let resolved: std::collections::BTreeMap<String, bool> =
+            phototux_engine::default_disclosure_groups()
+                .into_iter()
+                .map(|group| {
+                    let open = self
+                        .prefs
+                        .disclosure_is_open(&group.id, group.open_by_default);
+                    (group.id, open)
+                })
+                .collect();
+        self.disclosure_open_json =
+            serde_json::to_string(&resolved).unwrap_or_else(|_| "{}".to_owned());
+    }
+
+    /// Set every registered inspector disclosure group to `open` and persist once.
+    fn set_all_disclosure_groups(&mut self, open: bool) {
+        for group in phototux_engine::default_disclosure_groups() {
+            self.prefs.set_disclosure_open(&group.id, open);
+        }
+        self.refresh_disclosure_open_json();
+        self.persist_prefs();
+        self.disclosure_open_json_changed();
+    }
+
     fn sync_pref_fields_from_store(&mut self) {
+        self.refresh_disclosure_open_json();
         self.pref_show_guides = self.prefs.show_guides;
         self.pref_show_grid = self.prefs.show_grid;
         self.pref_show_rulers = self.prefs.show_rulers;
@@ -1779,17 +1816,19 @@ impl AppSession {
             self.sync_camera_from_engine();
             self.emit_camera_fields();
         }
-        if effects.sync_layers {
+        // One projection rebuild per command, regardless of how many sync flags
+        // the effect carries. Emission order below is unchanged.
+        if effects.sync_layers || effects.sync_doc || effects.sync_selection {
             self.sync_from_engine();
+        }
+        if effects.sync_layers {
             self.emit_layer_fields();
             self.active_blend_changed();
         }
         if effects.sync_doc {
-            self.sync_from_engine();
             self.emit_doc_fields();
         }
         if effects.sync_selection {
-            self.sync_from_engine();
             self.emit_selection_fields();
             self.can_undo_changed();
             self.history_labels_changed();
@@ -1924,15 +1963,25 @@ impl AppSession {
         let Some(graph) = self.engine.graph.as_ref() else {
             return;
         };
-        let mut layers = graph.layers().to_vec();
-        if let Some(preview) = &self.engine.filter_preview {
-            if let Some(effect) = preview.to_effect() {
-                if let Some(layer) = layers.iter_mut().find(|l| l.id == preview.layer_id) {
+        // Only the live filter-gallery preview needs a patched layer list; the
+        // steady-state path composites the graph's own slice without cloning
+        // every layer (names, effect vectors, masks) on each edit.
+        let preview = self
+            .engine
+            .filter_preview
+            .as_ref()
+            .and_then(|preview| Some((preview.layer_id, preview.to_effect()?)));
+        let result = match preview {
+            Some((layer_id, effect)) => {
+                let mut layers = graph.layers().to_vec();
+                if let Some(layer) = layers.iter_mut().find(|l| l.id == layer_id) {
                     layer.effects.push(effect);
                 }
+                phototux_canvas::sync_and_composite(&layers)
             }
-        }
-        match phototux_canvas::sync_and_composite(&layers) {
+            None => phototux_canvas::sync_and_composite(graph.layers()),
+        };
+        match result {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
                 self.engine.clear_dirty_rect();
@@ -2488,9 +2537,14 @@ impl AppSession {
         Notify = inspector_blend_mixed_changed
     );
     qproperty!(
-        "propertiesAdvancedOpen",
-        Member = properties_advanced_open,
-        Notify = properties_advanced_open_changed
+        "disclosureOpenJson",
+        Member = disclosure_open_json,
+        Notify = disclosure_open_json_changed
+    );
+    qproperty!(
+        "disclosureGroupsJson",
+        Member = disclosure_groups_json,
+        Notify = disclosure_groups_json_changed
     );
     qproperty!(
         "prefEffectiveJson",
@@ -3003,7 +3057,9 @@ impl AppSession {
     #[qsignal]
     fn inspector_blend_mixed_changed(&mut self);
     #[qsignal]
-    fn properties_advanced_open_changed(&mut self);
+    fn disclosure_open_json_changed(&mut self);
+    #[qsignal]
+    fn disclosure_groups_json_changed(&mut self);
     #[qsignal]
     fn pref_effective_json_changed(&mut self);
     #[qsignal]
@@ -3585,10 +3641,43 @@ impl AppSession {
         self.history_kinds_changed();
     }
 
+    /// Replace the fallback font list with fontconfig's, once.
+    ///
+    /// Called by the Character chrome when it first becomes reachable, keeping
+    /// the ~80 ms `fc-list` subprocess off the cold-boot path.
     #[qslot]
-    fn set_properties_advanced_open(&mut self, open: bool) {
-        self.properties_advanced_open = open;
-        self.properties_advanced_open_changed();
+    fn ensure_fonts_discovered(&mut self) {
+        if self.fonts_discovered {
+            return;
+        }
+        self.fonts_discovered = true;
+        self.available_fonts_json = fonts::discover_font_families_json();
+        self.available_fonts_json_changed();
+    }
+
+    /// Persist an inspector disclosure group's expanded state (handbook 28:
+    /// presentation state, never document state).
+    #[qslot]
+    fn set_disclosure_open(&mut self, group_id: String, open: bool) {
+        if group_id.is_empty() {
+            return;
+        }
+        self.prefs.set_disclosure_open(&group_id, open);
+        self.refresh_disclosure_open_json();
+        self.persist_prefs();
+        self.disclosure_open_json_changed();
+    }
+
+    /// Expand every inspector disclosure group in one step.
+    #[qslot]
+    fn expand_all_disclosure_groups(&mut self) {
+        self.set_all_disclosure_groups(true);
+    }
+
+    /// Collapse every inspector disclosure group in one step.
+    #[qslot]
+    fn collapse_all_disclosure_groups(&mut self) {
+        self.set_all_disclosure_groups(false);
     }
 
     #[qslot]
