@@ -3,7 +3,7 @@
 Session record and recommended next steps.
 
 **Date:** 2026-08-12
-**Branch merged:** `perf/inspector-disclosure-and-cold-boot` (7 commits)
+**Previous session:** `perf/inspector-disclosure-and-cold-boot` (merged, `bdf3a4b`)
 **Reference hardware:** Intel Arc B580 / Mesa 26.1.6 / CachyOS
 
 Authoritative contracts remain in [`internal_docs/`](internal_docs/README.md). This file is a working note, not a spec: when it disagrees with the handbook, the handbook wins.
@@ -12,122 +12,100 @@ Authoritative contracts remain in [`internal_docs/`](internal_docs/README.md). T
 
 ## 1. What was done
 
-### 1.1 Progressive disclosure (handbook 01/28)
+This session closed §3.1 of the previous note — the loose ends of the disclosure work — and gave the density change its first look on a real display.
 
-The Properties panel was a flat stack of ~25 sections in `Main.qml`, gated only by `visible:`. The handbook specifies a four-level disclosure model; the shell had exactly one disclosure toggle (`propertiesAdvancedOpen`, for advanced color).
+### 1.1 Header badges derived from host state
 
-Shipped:
+Only Diagnostics had a badge, so a collapsed group could hide an invalid value in silence — which handbook 01/28 forbid.
 
-- **[`qml/DisclosureGroup.qml`](qml/DisclosureGroup.qml)** — collapsible section with collapsed summary, header badge for hidden warnings, arrow-key grammar, and non-color accessible state.
-- **Group registry in the engine** (`default_disclosure_groups()` in [`shell.rs`](crates/phototux-engine/src/shell.rs)), alongside the existing panel and tool descriptors. Ten groups with stable ids, concept titles, levels, and defaults. Levels 3–4 start collapsed, enforced by test.
-- **Presence and disclosure as separate axes.** Context decides whether a group exists; the user decides how much shows. A group hidden because the eraser is active is not a collapsed group, and an absent group does not build its body.
-- **Expansion persisted as presentation state** — preferences schema 7, sparse override map so untouched groups keep following their descriptor default. Cleared by safe start.
-- **Diagnostics group** (level 4) added so the tenth registered id is not dangling.
+`inspector_badges()` in [`shell.rs`](crates/phototux-engine/src/shell.rs) now maps group id → `{text, severity}` from a plain `InspectorState` snapshot, published as `inspectorBadgesJson`; [`DisclosureGroup.qml`](qml/DisclosureGroup.qml) resolves its own badge by id, so no call site has to remember to wire one. The rules are a pure function over plain data rather than a method on the session, which is what makes each one testable without a running shell — and the badge is computed identically whether or not the body exists, which the lazy-body contract requires.
 
-### 1.2 Cold boot
+Four rules ship: an adjustment parameter outside the editor's range, an active selection whose outline misses the canvas, a text layer whose font family is not installed, and GPU loss.
 
-Startup phases are self-reported on stderr, so these are reproducible with `QT_QPA_PLATFORM=offscreen ./target/release/phototux`.
+**Editor ranges became a registered contract.** `adjustment_editor_ranges()` is read by both the sliders and the out-of-range rule, so the two cannot drift apart about what is showable. Editor bounds are deliberately narrower than what `AdjustmentParams::clamped` accepts: a document may legally carry a gamma of 6.0 that the slider cannot reach, and that now raises a badge instead of pinning the control at 3.0 and misreporting the value.
 
-| Phase | Before | After |
-| --- | --- | --- |
-| Host construction (`AppSession`) | ~91 ms | **~3 ms** |
-| QML root object graph | ~541 ms | ~450 ms |
-| First interactive frame | ~643 ms | **~558 ms** |
+Writing the test for that surfaced a coupling worth knowing about: Levels black at 1.0 makes the engine push white to 1.0001, just outside white's own editor range. The badge tolerance is a thousandth of each parameter's span for exactly that reason, and `slider_extremes_never_raise_a_badge` pins the property — *the editor's own output must never flag itself*.
 
-The win came from `AppSession::new()` spawning `fc-list` synchronously — ~82 ms for a font list only the Character panel reads. Now deferred behind `ensureFontsDiscovered()` with usable fallbacks available immediately.
+### 1.2 Collapsed summaries, expand/collapse all
 
-**A hypothesis that failed, recorded so it is not retried:** lazy-loading all eight dialogs (including the ~450-line preferences dialog) produced **zero** measurable improvement, as did eliminating the `ColorOverlay` shader in `ThemedIcon`. The object-graph cost is concentrated in always-visible chrome, not in dialogs. Lazy dialogs were kept anyway — they are correct on their own terms and measurably help when all content is forced active (563 ms vs 450 ms) — but they are not where startup time goes.
+All ten groups now carry a summary, up from three. Where a badge and a summary compete for header width the summary elides first, and the badge elides against a bounded share rather than widening the row — verified with a deliberately overlong badge.
 
-### 1.3 Command path
+`expandAllDisclosureGroups` / `collapseAllDisclosureGroups` had no caller. They are now registered actions (`action.view.expand-all-groups`, `action.view.collapse-all-groups`) so they keep menu and action-search discovery, *and* a state-reflecting control on the Properties header: collapse while anything is expanded, expand otherwise.
 
-- `document_edit` set both `sync_layers` and `sync_doc`, so **all 47 document-mutating commands** ran the ~130-line projection rebuild twice. Now once.
-- Steady-state `recomposite()` borrows the graph's layer slice instead of cloning every layer; only the filter-gallery preview needs a patched copy.
-- `[profile.release]`: thin LTO + `codegen-units = 1`. Dev builds optimize dependencies.
+### 1.3 Bugs the visual pass found
 
-### 1.4 GPU present synchronization (DR-030 / DR-031)
-
-`composite()` blocked on `device.poll(wait_indefinitely())` after submit, and `recomposite()` runs on the UI thread — where handbook 28 forbids waiting for GPU completion.
-
-The wait turned out to be unnecessary. Qt Quick adopts wgpu's `VkInstance`, `VkPhysicalDevice`, `VkDevice` **and** the same queue family/index, so `vkGetDeviceQueue` returns the identical `VkQueue`. A pipeline barrier recorded before submit therefore applies to every later command on that queue, Qt's frame included. The shader-read transition already at the end of the pass is that barrier.
-
-| | Before | After |
-| --- | --- | --- |
-| Host time in `composite()` | ≥ GPU time (stalled) | **0.05 ms** |
-| GPU time, same pass | — | 0.20–0.30 ms |
-
-Kept deliberately: `SharedQueueGuard` (`vkQueueSubmit` needs external synchronization regardless of who waits) and blocking polls on readback/sampling/export (they map GPU memory to host memory).
-
-Measurement had to change with it — `compositeMs` was host wall time around the removed stall, so leaving it would have reported near zero and passed the ADR-008 gate vacuously. Composite is now timed with `TIMESTAMP_QUERY`, collected asynchronously one composite late. **10×4K measures 1.79 ms of GPU time** against the 2 ms gate.
-
-### 1.5 Bugs fixed in passing
-
-- **Brush sliders desynced.** Dragging a `Slider` breaks its `value` binding, so applying a brush preset did not move the size/hardness/texture sliders. A `typeof` guard was papering over one of them.
-- **Editing `DisclosureGroup.qml` did not rebuild the app.** `build.rs` listed QML files by name; the AOT `CMakeLists.txt` had the same hardcoded-list pattern that caused commit `4d282d4`. Both now glob/watch the directory.
-- **`preset_json_roundtrip` was failing on `main`** — asserted 3 default brush presets against a library shipping 4. Pre-existing.
-- **`densityScale` only scaled type**, so "comfortable" gave larger text in identically tight chrome. It now drives spacing, control heights, hit targets, and chrome extents; tool strip and dock read tokens instead of literals.
+- **Panel-header drag areas swallowed button clicks at `comfortable` density.** All five headers reserved a literal 110 px for chrome; four buttons already span 112 px at that density. Each header now measures its own `PanelHeaderControls`. The Properties reserve for the panels below it moved to `Theme.dockStackReserve` for the same reason. Handbook 25 already required chrome extents to read density tokens — this was geometry *derived* from chrome, which the rule now covers explicitly.
+- **Collapsed groups pointed the caret up**, contradicting the Right-expands / Left-collapses grammar on the same header. Collapsed points right now.
+- **`inspector.brush` was laid out ninth though the registry declares it second.** Handbook 28 forbids reordering registered groups. The block moved, and `inspector_lays_groups_out_in_registry_order` reads `Main.qml` and asserts the two orders match — a declarative layout offers nothing else to assert against.
 
 ---
 
 ## 2. Verification status
 
-Green: `./scripts/check-rust.sh`, 223 workspace tests, release build, offscreen launch with zero QML errors.
+Green: `./scripts/check-rust.sh`, 233 workspace tests, release build, offscreen launch with zero QML errors.
 
-Two verification gaps, both real:
+**The visual gap from last session is closed.** This session had a Wayland display, so the shell was reviewed at dense, `comfortable`, and `QT_SCALE_FACTOR=2`, plus a forced-visibility QML override (via `PHOTOTUX_QML`) that puts all ten group headers on screen at once. Density confirmed to drive layout, not only type.
 
-- **No visual confirmation of anything in this session.** The session ran on a tty (`XDG_SESSION_TYPE=tty`), so the regrouped inspector, the density change, and the present path were verified structurally and numerically, not by looking at the canvas. **Do a manual pass before relying on this work.**
-- **The one-frame staleness introduced by DR-030** is argued from Vulkan submission-order semantics and the continuous `FrameAnimation` repaint, not observed. Worth watching for during that manual pass, particularly on the first frame after an edit.
+Two things remain unverified, both narrow:
 
-Lazily-loaded content hides binding errors, so it was smoke-tested by temporarily forcing every group body and dialog active — clean. That harness is worth rebuilding if the disclosure structure changes significantly.
+- **The header toggle was never actually pressed.** KWin ignores `ydotool`'s uinput events on this session, so no synthetic pointer click reached the app. Its two states were verified by seeding `disclosure_open` both ways and screenshotting; the click path itself is a four-line handler onto slots that were already exercised. If a later session has working input injection, press it once.
+- **DR-030's one-frame staleness** is still argued from Vulkan submission-order semantics, not observed. Nothing in this session's captures showed a stale frame, but nothing was looking for one at frame granularity either.
+
+`PHOTOTUX_QML=/path/to/Main.qml` loads QML from disk with no rebuild. That made the ten-group review cheap and is worth reaching for again — copy `qml/`, patch `visible:` to `true`, run.
 
 ---
 
 ## 3. Recommended next steps
 
-Ordered by value per unit of risk.
+Ordered by value per unit of risk. §3.1–3.4 carry over from the previous note unchanged in priority; §3.5–3.6 are new findings from this session.
 
-### 3.1 Close the loose ends from this session — small, do first
+### 3.1 Find the remaining ~260 ms of QML startup
 
-1. **Wire expand/collapse all.** `expandAllDisclosureGroups` and `collapseAllDisclosureGroups` exist in `AppSession` but no QML calls them. Either surface them in the Properties panel header / View menu, or remove them. Dead exported API is worse than neither.
-2. **Wire disclosure badges.** `DisclosureGroup` supports `badgeText`/`badgeSeverity`, but only Diagnostics uses it (GPU lost). Handbook 01 requires hidden invalid values to surface at the collapsed header — today a group can hide an invalid value silently. Candidates: out-of-range adjustment parameters, a text layer with a missing font family, a selection that resolves to zero coverage.
-3. **Add collapsed summaries to the remaining groups.** Three of ten have one. The summary is what makes a collapsed group worth leaving collapsed.
-4. **Manually verify at `comfortable` density and 200% scale.** The density tokens now drive layout; nothing has confirmed the result is not cramped or clipped.
+A trivial root window in the same process costs ~283 ms, of which ~190 ms is Qt/QML engine plus Controls module load. `Main.qml` adds ~260 ms on top. Dialogs are ruled out — lazy-loading all eight produced zero measurable improvement — so the cost is in always-visible chrome.
 
-### 3.2 Find the remaining ~260 ms of QML startup
+Method: wrap a large region in `Loader { active: false }`, rebuild, measure `QML root loaded` over five runs. Candidates in rough order of size: the right dock's non-Properties panels, the canvas overlays (five `Canvas` items, thirteen `Shape`/`ShapePath`), the menu tree (28 `Menu`/`MenuItem`), the tool strip `Repeater`.
 
-A trivial root window in the same process costs ~283 ms, of which ~190 ms is Qt/QML engine plus Controls module load. `Main.qml` adds ~260 ms on top. Dialogs are ruled out (§1.2), so the cost is in always-visible chrome.
+Bisect before optimizing. Both of the previous session's confident startup hypotheses were wrong, and each cost a build-and-measure cycle to disprove.
 
-Method that worked for the dialogs and will work here: temporarily wrap a large region in `Loader { active: false }`, rebuild, and measure `QML root loaded` over five runs. Candidates in rough order of size: the right dock's non-Properties panels (Navigator, Swatches, Layers, History), the canvas overlays (five `Canvas` items, thirteen `Shape`/`ShapePath`), the menu tree (28 `Menu`/`MenuItem`), and the tool strip `Repeater`.
-
-Bisect before optimizing. Both of this session's confident startup hypotheses were wrong, and each cost a build-and-measure cycle to disprove.
-
-### 3.3 Replace the string-joined FFI projections
+### 3.2 Replace the string-joined FFI projections
 
 Nineteen `*_joined` projections cross the FFI as `|`-delimited strings — layer names, visibility, kinds, mask flags, clips, selection, history labels/kinds/ids, brush presets, recent colors, effects. Every layer change re-serializes all of them, and QML re-splits them into JS arrays on every dependent binding evaluation.
 
-This is the largest remaining structural inefficiency in the UI path and it scales with layer count, so it gets worse exactly when documents get interesting. A `QAbstractListModel` per collection would remove both the serialize and the parse, and would let `ListView` reuse delegates properly. It is a contained change with a clear boundary — worth doing before the layer panel grows more features.
+This is the largest remaining structural inefficiency in the UI path and it scales with layer count, so it gets worse exactly when documents get interesting. A `QAbstractListModel` per collection would remove both the serialize and the parse, and would let `ListView` reuse delegates properly.
 
-### 3.4 Split `Main.qml`
+### 3.3 Split `Main.qml`
 
-Still 6,326 lines, 84% of all QML. Beyond maintainability, extraction is what makes further lazy loading possible: a component in its own file can be `Loader`-gated, an inline block cannot without restructuring. The AOT module now globs `qml/*.qml`, so adding files costs nothing in build configuration.
+Now ~6,400 lines. Beyond maintainability, extraction is what makes further lazy loading possible: a component in its own file can be `Loader`-gated, an inline block cannot without restructuring. The AOT module globs `qml/*.qml`, so adding files costs nothing in build configuration. Natural seams: the canvas and its overlays, the right dock's panels, the menu bar, the status bar.
 
-Natural seams: the canvas and its overlays, the right dock's panels, the menu bar, the status bar.
-
-### 3.5 Present-side latency instrumentation
+### 3.4 Present-side latency instrumentation
 
 The ADR-008 tablet input→render < 8 ms gate is **Provisional** and currently unmeasurable: stroke instrumentation reports input→submit, because measuring GPU execution inline would reintroduce the wait DR-030 removed. Closing it needs a timestamp at present time in the canvas item, correlated back to the input event that produced the frame. Until then, do not claim the gate.
 
-### 3.6 Decide `panic = "abort"`
+### 3.5 Right-dock height distribution — new
+
+With five panels stacked in a ~900 px window, **Layers and History get header-only height**, and at 200 % scale the Properties body clips mid-control. The model is a fixed fraction (42 %) plus a fixed minimum reserve, neither of which adapts to how many panels are actually stacked. Making the reserve a density token removed the density blindness but not this.
+
+Distributing by content demand — each panel declaring a minimum and a preferred height, the dock allocating from those — would fix both symptoms. Logged as T-024.
+
+### 3.6 Move font discovery off the UI thread — new
+
+`fc-list` costs ~80 ms and is deferred to the first time the Character body builds. That keeps cold boot fast, but it means the missing-font badge cannot fire until then: a document whose text layer names an uninstalled family shows no warning while the group is collapsed. The rule is deliberately silent rather than guessing from the fallback list.
+
+Discovering on a background thread after the first frame would close the hole without putting the subprocess back on any interactive path.
+
+### 3.7 Decide `panic = "abort"`
 
 Deliberately not set in `[profile.release]`. It would shrink the binary and is arguably safer given the C++ interop (unwinding across FFI is UB), but it changes crash-recovery behavior — a panic would abort before autosave or recovery could run. That is a product decision for the Decision Register, not a profile tweak.
 
-### 3.7 Split `sync_from_engine()` by dirty domain
+### 3.8 Split `sync_from_engine()` by dirty domain
 
-Now runs once per command instead of twice, but is still monolithic: every document edit rebuilds the accessibility tree JSON, the effective-preferences JSON, and ~10 joined strings, whether or not the edit touched them. Splitting by domain — layers, selection, color, text, preferences — would let a command rebuild only what it invalidated. Lower priority than §3.3, and largely obsoleted by it for the string projections specifically.
+Runs once per command rather than twice, but is still monolithic: every document edit rebuilds the accessibility tree JSON, the effective-preferences JSON, and ~10 joined strings whether or not the edit touched them. Splitting by domain would let a command rebuild only what it invalidated. Lower priority than §3.2, and largely obsoleted by it for the string projections specifically.
 
 ---
 
 ## 4. Watch items
 
-- **DR-030 depends on Qt and wgpu sharing one device *and* one queue.** If either stops holding — a Qt version that creates its own queue, a wgpu change in queue selection — the barrier argument collapses and the present path needs an exported timeline semaphore before the host wait can stay removed. The invariant is recorded in the Decision Register; it is not self-enforcing.
-- **Timestamp queries are an optional device capability.** Where absent, the composite gate falls back to host timing that overstates GPU cost, and the interactive readout reports unavailable. Check this before trusting `compositeMs` on new hardware.
+- **DR-030 depends on Qt and wgpu sharing one device *and* one queue.** If either stops holding, the barrier argument collapses and the present path needs an exported timeline semaphore before the host wait can stay removed. The invariant is in the Decision Register; it is not self-enforcing.
+- **Timestamp queries are an optional device capability.** Where absent, the composite gate falls back to host timing that overstates GPU cost, and the readout reports unavailable. Check before trusting `compositeMs` on new hardware.
+- **The five legacy `panel_*` bools in `Preferences` carry a field-level `#[serde(default)]`**, which overrides the container default and resolves missing keys to `false` rather than to the product default. A preferences file carrying neither those keys nor `panel_visibility` migrates to *every panel hidden*. Not reachable from any file the app itself writes — found by hand-authoring one during this session's capture harness — but the field-level attributes are redundant and the failure mode is severe.
 - **`.cursor/` is untracked** and was left alone. Decide whether to track it or add it to `.gitignore` alongside `.idea/` and `.vscode/`.
