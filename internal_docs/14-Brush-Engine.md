@@ -297,6 +297,12 @@ Queues are bounded by sample count, dab count, tile jobs, provisional bytes, and
 
 User-confirmed mutation is never silently dropped. Samples already acknowledged as part of an active stroke either commit, remain represented in pending state, or produce a disclosed partial-stroke outcome at a valid segment boundary.
 
+### Pressure across a segment
+
+Input samples arrive far more slowly than dabs are placed — tens per second against hundreds — so a segment between two samples carries many dabs. Dynamics inputs **MUST** be interpolated across that segment rather than held at the sample value: stamping the arriving pressure on every dab of its segment turns a smooth press into one visible step per input event, and the step count tracks the input rate rather than anything the user did.
+
+Spacing **MUST** be derived from the diameter actually being stamped, not from the nominal brush size, and **MUST** be re-evaluated as the segment is walked rather than fixed at its start. Holding spacing at the nominal width while pressure shrinks the dab places small dabs at large-dab intervals, and the stroke breaks into separate dots — the visible form of the pressure-induced bunching named above, in the thin direction. A brush whose size does not follow pressure **MUST** be unaffected by this rule, so that pointer devices without pressure behave exactly as before.
+
 ### Presenting an in-progress stroke
 
 Stamping and presenting are separate rates. Dabs are placed by arc length, so their rate is pointer speed over spacing and has no relationship to the display; presentation is bounded by the refresh rate no matter how often it is asked for.

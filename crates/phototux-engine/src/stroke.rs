@@ -91,9 +91,26 @@ impl BrushParams {
         }
     }
 
-    /// Spacing between dabs in document pixels.
+    /// Spacing between dabs in document pixels, at full pressure.
     pub fn spacing(&self) -> f32 {
-        (self.size * self.spacing_ratio).max(0.5)
+        self.spacing_at(1.0)
+    }
+
+    /// Spacing between dabs for a dab drawn at `pressure`.
+    ///
+    /// Spacing is a fraction of the diameter actually being stamped, not of the
+    /// nominal brush size. With `size_pressure` on, a light touch draws a dab a
+    /// fraction of the nominal width; holding spacing at the nominal width then
+    /// places those dabs many diameters apart and the stroke comes out dotted
+    /// instead of thin. Handbook 14 calls this pressure-induced bunching and
+    /// requires spacing to follow the local diameter.
+    pub fn spacing_at(&self, pressure: f32) -> f32 {
+        let scale = if self.size_pressure {
+            pressure.clamp(0.05, 1.0)
+        } else {
+            1.0
+        };
+        (self.size * scale * self.spacing_ratio).max(0.5)
     }
 
     /// Effective stamp alpha for a dab (opacity × flow × optional pressure).
@@ -118,6 +135,8 @@ pub struct Dab {
 pub struct StrokeBuilder {
     params: BrushParams,
     last: Option<(f32, f32)>,
+    /// Pressure at the previous sample, so a segment ramps instead of stepping.
+    last_pressure: f32,
     remainder: f32,
     dab_index: u32,
 }
@@ -127,6 +146,7 @@ impl StrokeBuilder {
         Self {
             params: params.clamped(),
             last: None,
+            last_pressure: 1.0,
             remainder: 0.0,
             dab_index: 0,
         }
@@ -142,11 +162,20 @@ impl StrokeBuilder {
 
     pub fn begin(&mut self, x: f32, y: f32, pressure: f32) -> Vec<Dab> {
         self.last = Some((x, y));
+        self.last_pressure = pressure.clamp(0.05, 1.0);
         self.remainder = 0.0;
         self.dab_index = 0;
         vec![self.make_dab(x, y, pressure)]
     }
 
+    /// Place dabs along the segment from the previous sample to `(x, y)`.
+    ///
+    /// Pressure ramps across the segment rather than jumping: input arrives far
+    /// more slowly than dabs are placed, so applying the sample's pressure to
+    /// every dab in its segment makes a smooth press come out as visible steps,
+    /// one per input event. Spacing is recomputed from the local pressure as the
+    /// walk proceeds — the handbook's integrated local spacing — so a diameter
+    /// that shrinks mid-segment tightens the dabs with it.
     pub fn move_to(&mut self, x: f32, y: f32, pressure: f32) -> Vec<Dab> {
         let Some((lx, ly)) = self.last else {
             return self.begin(x, y, pressure);
@@ -157,30 +186,37 @@ impl StrokeBuilder {
         if dist < f32::EPSILON {
             return Vec::new();
         }
-        let spacing = self.params.spacing();
         let ux = dx / dist;
         let uy = dy / dist;
+        let from_pressure = self.last_pressure;
+        let to_pressure = pressure.clamp(0.05, 1.0);
 
-        // `remainder` is distance traveled since the last dab. Short mouse
-        // segments must accumulate across moves until they reach `spacing`.
         let mut dabs = Vec::new();
-        let mut along = spacing - self.remainder;
-        while along <= dist + f32::EPSILON {
-            dabs.push(self.make_dab(lx + ux * along, ly + uy * along, pressure));
-            along += spacing;
+        // Distance consumed along this segment, and distance since the previous
+        // dab — which may predate this segment, hence the carried remainder.
+        let mut travelled = 0.0_f32;
+        let mut since_last = self.remainder;
+        loop {
+            let here = lerp(from_pressure, to_pressure, travelled / dist);
+            let step = self.params.spacing_at(here);
+            let need = (step - since_last).max(0.0);
+            if travelled + need > dist {
+                break;
+            }
+            travelled += need;
+            let at = lerp(from_pressure, to_pressure, travelled / dist);
+            dabs.push(self.make_dab(lx + ux * travelled, ly + uy * travelled, at));
+            since_last = 0.0;
         }
-        self.remainder = if dabs.is_empty() {
-            self.remainder + dist
-        } else {
-            // Distance from the last placed dab to the end of this segment.
-            dist - (along - spacing)
-        };
+        self.remainder = since_last + (dist - travelled);
         self.last = Some((x, y));
+        self.last_pressure = to_pressure;
         dabs
     }
 
     pub fn end(&mut self) {
         self.last = None;
+        self.last_pressure = 1.0;
         self.remainder = 0.0;
         self.dab_index = 0;
     }
@@ -197,6 +233,11 @@ impl StrokeBuilder {
             pressure: p,
         }
     }
+}
+
+/// Linear blend, with `t` clamped so a degenerate segment cannot extrapolate.
+fn lerp(from: f32, to: f32, t: f32) -> f32 {
+    from + (to - from) * t.clamp(0.0, 1.0)
 }
 
 fn scatter_offset(seed: u32, scatter: f32, size: f32) -> (f32, f32) {
@@ -382,6 +423,124 @@ pub fn paint_dabs_rgba(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Gaps between dab edges, in units of the local dab diameter. A stroke
+    /// reads as continuous while these stay below ~1; much above and it is a
+    /// row of separate dots.
+    fn worst_gap_in_diameters(dabs: &[Dab]) -> f32 {
+        let mut worst: f32 = 0.0;
+        for pair in dabs.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let centres = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+            let diameter = (a.radius + b.radius).max(f32::EPSILON);
+            worst = worst.max(centres / diameter);
+        }
+        worst
+    }
+
+    /// The bug this guards: spacing came from the nominal size while the radius
+    /// came from pressure, so a light touch drew tiny dabs at full-size spacing
+    /// and the stroke came out dotted.
+    #[test]
+    fn light_pressure_stays_continuous() {
+        let params = BrushParams {
+            size: 40.0,
+            spacing_ratio: 0.25,
+            size_pressure: true,
+            ..Default::default()
+        };
+        for pressure in [1.0_f32, 0.5, 0.2, 0.05] {
+            let mut s = StrokeBuilder::new(params);
+            let _ = s.begin(0.0, 0.0, pressure);
+            let dabs = s.move_to(200.0, 0.0, pressure);
+            assert!(
+                dabs.len() >= 2,
+                "pressure {pressure} produced no run of dabs"
+            );
+            let gap = worst_gap_in_diameters(&dabs);
+            assert!(
+                gap < 1.0,
+                "pressure {pressure} left a {gap:.2}-diameter gap between dabs"
+            );
+        }
+    }
+
+    /// Spacing must follow the pressure-scaled diameter, not the nominal size.
+    #[test]
+    fn spacing_tracks_the_diameter_being_stamped() {
+        let params = BrushParams {
+            size: 40.0,
+            spacing_ratio: 0.25,
+            size_pressure: true,
+            ..Default::default()
+        };
+        assert!((params.spacing_at(1.0) - 10.0).abs() < 1e-3);
+        assert!((params.spacing_at(0.5) - 5.0).abs() < 1e-3);
+        // With size_pressure off, pressure must not move spacing at all.
+        let fixed = BrushParams {
+            size_pressure: false,
+            ..params
+        };
+        assert!((fixed.spacing_at(0.2) - fixed.spacing_at(1.0)).abs() < 1e-3);
+        assert!((fixed.spacing_at(1.0) - fixed.spacing()).abs() < 1e-3);
+    }
+
+    /// Input arrives far more slowly than dabs are placed, so a segment must
+    /// ramp between sample pressures instead of stamping the end value on all
+    /// of them — otherwise a smooth press shows one step per input event.
+    #[test]
+    fn pressure_ramps_across_a_segment() {
+        let mut s = StrokeBuilder::new(BrushParams {
+            size: 20.0,
+            spacing_ratio: 0.25,
+            size_pressure: true,
+            ..Default::default()
+        });
+        let _ = s.begin(0.0, 0.0, 1.0);
+        let dabs = s.move_to(200.0, 0.0, 0.2);
+        assert!(dabs.len() >= 4, "dabs={}", dabs.len());
+
+        let first = dabs.first().expect("dabs").pressure;
+        let last = dabs.last().expect("dabs").pressure;
+        assert!(
+            first > last,
+            "pressure did not fall across the segment: {first} -> {last}"
+        );
+        assert!(last <= 0.25, "final dab did not reach the sample pressure");
+        // Monotonic, so the ramp cannot be a single late jump.
+        for pair in dabs.windows(2) {
+            assert!(
+                pair[1].pressure <= pair[0].pressure + 1e-4,
+                "pressure rose mid-ramp: {:?} -> {:?}",
+                pair[0].pressure,
+                pair[1].pressure
+            );
+        }
+    }
+
+    /// A constant-pressure stroke must behave exactly as before this change,
+    /// which is every mouse stroke until stylus input is wired up.
+    #[test]
+    fn constant_pressure_spacing_is_unchanged() {
+        let params = BrushParams {
+            size: 12.0,
+            spacing_ratio: 0.25,
+            ..Default::default()
+        };
+        let mut s = StrokeBuilder::new(params);
+        let _ = s.begin(0.0, 0.0, 1.0);
+        let dabs = s.move_to(30.0, 0.0, 1.0);
+        // Spacing 3 over 30 px: dabs at 3,6,…,30.
+        assert_eq!(dabs.len(), 10);
+        for (index, dab) in dabs.iter().enumerate() {
+            let expected = 3.0 * (index + 1) as f32;
+            assert!(
+                (dab.x - expected).abs() < 1e-3,
+                "dab {index} at {} expected {expected}",
+                dab.x
+            );
+        }
+    }
 
     #[test]
     fn spacing_produces_multiple_dabs() {

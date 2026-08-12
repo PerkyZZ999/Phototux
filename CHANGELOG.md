@@ -2,6 +2,17 @@
 
 All notable decision milestones and project state changes.
 
+## [paint-fluidity-2] — 2026-08-12
+
+Canvas fluidity pass, part two: make the brush respond to pressure. This half is
+the engine; it lands first so that wiring a stylus cannot regress anything.
+
+### Brush engine
+
+- **Spacing follows the diameter being stamped.** `spacing()` used the nominal brush size while the radius came from pressure, so with `size_pressure` on (the default) a light touch drew dabs a fraction of the nominal width and spaced them at the full width — at pressure 0.2 that is a 1.25-diameter gap between dabs, a dotted line rather than a thin one. Spacing is now `spacing_at(pressure)`, re-evaluated as the segment is walked, which is the handbook's integrated local spacing. A brush with `size_pressure` off is unaffected.
+- **Pressure ramps across a segment.** `move_to` applied the arriving sample's pressure to every dab between it and the previous sample, so a smooth press produced one visible step per input event and the step count tracked the input rate. Pressure now interpolates between the two samples, and spacing tightens with it.
+- Constant-pressure strokes — every mouse stroke until stylus input is wired — place dabs at exactly the same positions as before, pinned by `constant_pressure_spacing_is_unchanged`.
+
 ## [paint-fluidity-1] — 2026-08-12
 
 Canvas fluidity pass, part one: remove work from the stroke path that the display
