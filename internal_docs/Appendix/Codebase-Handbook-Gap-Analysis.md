@@ -132,6 +132,8 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
 | P1 | Promote Provisional budgets with fixtures (DR-017, 30) | Soft CI + Tier M CPU proxies Accepted; interactive present still Provisional | **Partial** |
+| P6 | UI thread MUST NOT wait for GPU completion (28, Thread Ownership Map) | Composite submits and returns; shared-queue barrier orders present ([DR-030](Decision-Register.md#dr-030--shared-queue-barrier-not-host-wait-orders-composite-and-present)); paint path no longer stalls every fourth dab | **Closed (v1)** |
+| P7 | GPU budgets measured as GPU time (30, DR-017) | `TIMESTAMP_QUERY` around the blend pass ([DR-031](Decision-Register.md#dr-031--gpu-gates-measured-by-timestamp-query)); 10×4K = 1.79 ms GPU | Composite **Closed (v1)**; input→present latency → **Provisional** (stroke metric is input→submit) |
 | P5 | Cold boot < 1,000 ms gate (ADR-008, 30) | Self-reported phase timings; ~558 ms to first interactive frame after deferring fontconfig and unopened presentation surfaces; composition recorded in [Performance-Budget-Ledger](Performance-Budget-Ledger.md#b3--startup-and-restore) | Gate **Closed (v1)**; 250 ms stretch → **Open** (bounded by ~190 ms Qt/QML module floor) |
 | P2 | Headless command conformance (DR-022) | `command_conformance` suite | **Closed (v1)** |
 | P3 | Decision Register vs archived ADRs | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) + live DRs | **Closed (v1)** |

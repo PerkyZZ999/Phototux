@@ -2,6 +2,29 @@
 
 All notable decision milestones and project state changes.
 
+## [composite-no-host-wait] — 2026-08-12
+
+### Decisions
+
+- **DR-030** — zero-copy present is ordered by a shared-queue image memory barrier, not a host wait. Qt adopts wgpu's device *and* queue, so a barrier before submit applies to Qt's later frame in submission order.
+- **DR-031** — GPU budgets are measured with timestamp queries, collected asynchronously; benchmarks use a separate entry point that waits.
+
+### Rendering
+
+- `composite()` no longer blocks on `device.poll(wait_indefinitely())`. Measured: host 0.05 ms vs 0.20–0.30 ms GPU for the same pass; `recomposite()` runs on the UI thread, where handbook 28 forbids waiting for GPU completion.
+- Stroke path no longer stalls on every fourth dab; wgpu's own tracking supplies the stamp→composite barrier.
+- Readback, sampling, and export paths still wait, as they must — they map GPU memory to host memory.
+- `SharedQueueGuard` retained: `vkQueueSubmit` needs external synchronization regardless of GPU ordering.
+
+### Measurement
+
+- `compositeMs` is now GPU time from `TIMESTAMP_QUERY` (one composite behind), replacing host wall time around the removed stall. 10×4K gate: **1.79 ms GPU**.
+- Devices without timestamp queries report "no GPU timing" rather than 0 ms.
+- Stroke latency relabeled input→submit; end-to-end input→present stays Provisional pending present-side instrumentation.
+- New `interactive_composite_does_not_wait_for_the_gpu` fails if a blocking wait returns to the interactive path.
+
+---
+
 ## [inspector-disclosure] — 2026-08-12
 
 ### UX

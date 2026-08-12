@@ -280,6 +280,17 @@ Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test`
 
 **Tier M evidence (2026-07-17, host CachyOS, commit family `52670f7`+):** soft suite green — `present-nav-intervals-4k` ~0.03 ms total (p95 interval ≪1 ms), `present-dirty-mark-4k` ~0.005 ms, `session-warm-construct` ~0.016 ms. Photon/GPU present endpoints remain **Provisional** when CI has no display (skip matrix). B5 large-doc / GPU composite stay Provisional; large-doc suite feeds P11.
 
+### GPU composite gate (device required)
+
+| Gate | Target | Measurement | Status |
+| --- | --- | --- | --- |
+| 10×4K composite | < 2 ms **GPU** | `TIMESTAMP_QUERY` around the blend pass, best of 10 after 5 warm passes ([DR-031](Decision-Register.md#dr-031--gpu-gates-measured-by-timestamp-query)) | **Accepted** — 1.79 ms, Arc B580 / Mesa 26.1 |
+| Interactive composite host cost | must stay below GPU pass time | `interactive_composite_does_not_wait_for_the_gpu` | **Accepted** — host 0.05 ms vs GPU 0.20–0.30 ms |
+
+The second row exists to keep the first honest. Before [DR-030](Decision-Register.md#dr-030--shared-queue-barrier-not-host-wait-orders-composite-and-present) the composite figure was host wall time around a blocking poll, so it measured the stall rather than the pass; a regression that reintroduces the wait shows up as host time converging on GPU time. Timestamp queries are an optional device capability — where absent, the gate falls back to host timing that overstates GPU cost, and the interactive readout reports unavailable rather than zero.
+
+Stroke instrumentation reports **input→submit**, not input→present: measuring GPU execution inline would require the wait this path exists to avoid. The ADR-008 8 ms tablet input→render gate therefore stays **Provisional** pending present-side instrumentation.
+
 ### GPU skip matrix (device-loss / parity)
 
 | Suite | Gate | Skip when |
