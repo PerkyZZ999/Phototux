@@ -472,6 +472,29 @@ Rules:
 - modal dialogs SHOULD be reserved for bounded tasks requiring validation before commit;
 - live preview SHOULD be cancelable and based on isolated command state.
 
+### Disclosure Group Registry
+
+Collapsible inspector sections are named descriptors, not ad-hoc widgets. Each group declares a stable `id`, a concept `title`, its disclosure `level`, and `open_by_default`. Level 1 content is never collapsible and therefore never registers a group.
+
+| Group id | Level | Open by default |
+| --- | --- | --- |
+| `inspector.selection` | 2 — nearby | yes |
+| `inspector.brush` | 2 — nearby | yes |
+| `inspector.fill` | 2 — nearby | yes |
+| `inspector.text` | 2 — nearby | yes |
+| `inspector.path` | 2 — nearby | yes |
+| `inspector.transform` | 2 — nearby | yes |
+| `inspector.adjustment` | 2 — nearby | yes |
+| `inspector.effects` | 3 — on demand | no |
+| `inspector.color` | 3 — on demand | no |
+| `inspector.diagnostics` | 4 — specialized | no |
+
+Groups at level 3 and above **MUST** default to collapsed; levels 1–2 carry the parameters an active tool or layer kind needs to be usable without further interaction.
+
+**Presence and disclosure are independent axes.** Presence answers "does this group apply to the current tool, layer kind, and selection?" Disclosure answers "how much of an applicable group is shown?" A group hidden because the eraser is active is not a collapsed group, and re-selecting the brush **MUST NOT** be treated as the user expanding anything. Implementations **MUST NOT** collapse a group as a substitute for hiding an inapplicable one, and **MUST NOT** build a group's body while the group is absent.
+
+Expansion state is **presentation state**: it persists per user alongside workspace state and **MUST NOT** enter the document, document history, or the saved file. Overrides persist sparsely — a group the user has never toggled continues to follow its descriptor default, so changing a default reaches existing users. Safe start clears all overrides.
+
 ## Properties and Inspector Architecture
 
 Properties are organized by target, not by implementation module:

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Date | **2026-07-18** (refresh; prior snapshot 2026-07-16) |
+| Date | **2026-08-12** (refresh; prior snapshot 2026-07-18) |
 | Handbook | [`internal_docs/`](../README.md) (authoritative Engineering Handbook) |
 | Codebase | workspace crates under `crates/` as of this date |
 | Living product tracker | [Handbook-Parity-Checklist.md](Handbook-Parity-Checklist.md) |
@@ -114,7 +114,8 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | U3 | Registry-driven tools (06) | `tools_json` strip + overflow; options/edit-target polish | **Closed (v1)**; options bar → **Partial** |
 | U4 | Context menus from actions (07) | Layer/canvas/selection/mask from registry | **Closed (v1)**; path context / selection-preserve → **Partial** |
 | U5 | Customizable shortcuts (09) | Action map + conflict UI + persist + yield | **Closed (v1)** |
-| U6 | Themes / density / contrast (25) | `Theme.qml` packs | **Closed (v1)**; full token audit → **Partial** |
+| U6 | Themes / density / contrast (25) | `Theme.qml` packs; `densityScale` drives spacing, control heights, hit targets, and chrome extents (not type alone) | **Closed (v1)**; full token audit → **Partial** |
+| U9 | Progressive disclosure, four levels (01, 28) | `default_disclosure_groups()` registry → `DisclosureGroup.qml`; Properties regrouped from a flat `visible:` stack; expansion persisted as prefs schema 7 `disclosure_open` | **Closed (v1)**; per-group badge wiring → **Partial** |
 | U7 | Dialogs / palette / workspace presets (03, 26) | Palette + builtins + last-saved + **user-named save/delete** | **Closed (v1)** |
 | U8 | A11y tree + AT-SPI (29) | Semantic JSON + projection + Qt Accessible | **Closed (v1)**; custom D-Bus tree → **Deferred (DR-028)** |
 
@@ -131,6 +132,7 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | # | Handbook says | Code has | Status |
 | --- | --- | --- | --- |
 | P1 | Promote Provisional budgets with fixtures (DR-017, 30) | Soft CI + Tier M CPU proxies Accepted; interactive present still Provisional | **Partial** |
+| P5 | Cold boot < 1,000 ms gate (ADR-008, 30) | Self-reported phase timings; ~558 ms to first interactive frame after deferring fontconfig and unopened presentation surfaces; composition recorded in [Performance-Budget-Ledger](Performance-Budget-Ledger.md#b3--startup-and-restore) | Gate **Closed (v1)**; 250 ms stretch → **Open** (bounded by ~190 ms Qt/QML module floor) |
 | P2 | Headless command conformance (DR-022) | `command_conformance` suite | **Closed (v1)** |
 | P3 | Decision Register vs archived ADRs | [Archived-ADR-to-DR-Map.md](Archived-ADR-to-DR-Map.md) + live DRs | **Closed (v1)** |
 | P4 | Handbook under `internal_docs/` | Normative tree; root bridges; former `/docs/` removed | **Closed (v1)** |

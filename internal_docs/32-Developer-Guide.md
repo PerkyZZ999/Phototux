@@ -103,6 +103,23 @@ crates/
 
 Presentation stack is **Qt 6 QML + qtbridge**. GPU stack is **wgpu 30 Vulkan-first** with zero-copy interactive present. Do not invent parallel GUI or GPU stacks.
 
+### QML module and shared components
+
+QML lives in `qml/` and ships through the AOT module built by `crates/phototux/build.rs` and `crates/phototux/qml-aot/CMakeLists.txt`.
+
+| File | Role |
+| --- | --- |
+| `Main.qml` | Application window and shell |
+| `Theme.qml` | Singleton design tokens (colors, spacing, density, type) |
+| `DisclosureGroup.qml` | Collapsible inspector section ([01](01-Information-Architecture.md#disclosure-group-registry)) |
+| `LazyDialog.qml` | Defers a dialog's object tree to first use |
+| `PanelHeaderControls.qml`, `ThemedIcon.qml`, `ChromeIconToolButton.qml` | Panel and icon chrome |
+| `NewDocumentDialog.qml`, `WelcomeDialog.qml` | Entry dialogs |
+
+The CMake module globs `qml/*.qml` and the build script watches the `qml/` directory, so a new component is embedded and rebuilt without registration edits. Singletons are the one exception: a `pragma Singleton` type must also be listed in `QML_SINGLETONS` in the CMake module or it will not resolve.
+
+Any file using `AppSession` must `import phototux_ui`. That module is registered at runtime by qtbridge rather than on disk, so `qmllint` reports it as unresolved and flags `AppSession` as unqualified access in every file — that output is the expected baseline, not a regression.
+
 ### Logical ownership map (modules — not a rename mandate)
 
 The following names communicate **responsibilities**. Implement them as modules (or later optional crate splits) **inside** the shipping packages above — not as an immediate 18-crate rewrite ([Alignment Roadmap](Appendix/Alignment-Roadmap.md)):

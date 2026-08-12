@@ -62,8 +62,20 @@ Default interactive budgets apply on **Tier M** unless noted. Tier L may reduce 
 | Recovery discovery | ≤1 s for 100 headers; MUST NOT wait GPU |
 | First interactive shell | before optional catalog indexing completes |
 | Standard doc first low-res frame | ≤2.5 s warm; ≤5 s cold |
+| Cold boot to interactive (ADR-008) | <1,000 ms gate; <250 ms stretch |
 | Owners | lifecycle ([02](../02-Application-Lifecycle.md)), host, render |
 | Docs | 02, 30 |
+
+Measured cold-boot composition, reference workstation (Arc B580 / Mesa, release build, `QT_QPA_PLATFORM=offscreen`, median of seven fresh processes). The shell self-reports these phases on stderr, so the figures are reproducible without extra tooling.
+
+| Phase | Before | After | Note |
+| --- | --- | --- | --- |
+| GPU ready | ~40 ms | ~40 ms | wgpu adapter + device |
+| Host construction (`AppSession`) | ~91 ms | ~3 ms | fontconfig enumeration deferred to first Character use |
+| QML root object graph | ~541 ms | ~450 ms | dialogs, palette, and collapsed inspector groups deferred |
+| First interactive frame | ~643 ms | ~558 ms | ADR-008 gate satisfied |
+
+Floor: a trivial root window in the same process costs ~283 ms, of which ~190 ms is Qt/QML engine plus Controls module load. Startup work below that floor requires reducing module surface, not deferring more application content. Deferring dialog construction alone produced no measurable gain — the object graph cost concentrates in always-visible chrome — which is why the ledger records phase composition rather than a single total.
 
 ### B4 — Memory and cache
 

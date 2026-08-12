@@ -2,6 +2,30 @@
 
 All notable decision milestones and project state changes.
 
+## [inspector-disclosure] — 2026-08-12
+
+### UX
+
+- Properties panel regrouped from a flat stack of conditionally visible sections into registered disclosure groups (`DisclosureGroup.qml`), implementing the four-level model in handbook [01](internal_docs/01-Information-Architecture.md#disclosure-group-registry) / [28](internal_docs/28-UX-Guidelines.md).
+- Group registry (`default_disclosure_groups()`) owns stable ids, concept titles, levels, and defaults; presence (context) and disclosure (user) are separate axes.
+- Expansion persists as presentation state — preferences schema **7**, sparse `disclosure_open` map; cleared by safe start. The one-off `propertiesAdvancedOpen` toggle it replaces is removed.
+- `Theme.densityScale` now drives spacing, control heights, hit targets, and chrome extents; previously "comfortable" scaled type only. Tool strip and dock widths read tokens instead of literals.
+
+### Performance
+
+- Fontconfig enumeration deferred out of host construction: `AppSession` build ~91 ms → ~3 ms.
+- Dialogs, command palette, and collapsed inspector groups build on first use (`LazyDialog.qml`, lazy group bodies): first interactive frame ~643 ms → ~558 ms.
+- `[profile.release]`: thin LTO + `codegen-units = 1`; dev builds optimize dependencies.
+- One projection rebuild per command instead of up to three (`document_edit` set both `sync_layers` and `sync_doc`); steady-state recomposite no longer clones the layer vector.
+
+### Fixes
+
+- Brush size/hardness/texture sliders resync after host-side changes; dragging previously broke the value binding so brush presets did not move the slider.
+- QML AOT module globs `qml/*.qml` and the build script watches `qml/`, so new components are embedded and rebuilt without hand-registration.
+- `preset_json_roundtrip` asserted 3 default brush presets against a library shipping 4.
+
+---
+
 ## [docs-archive-removed] — 2026-07-18
 
 ### Docs
