@@ -15,6 +15,7 @@ use crate::blur::SeparableBlur;
 use crate::effect_pass::{EffectPass, LayerPackPlan};
 use crate::filters::adjustment_pass;
 use crate::layer_mask::LayerMaskChannel;
+use crate::pass_timer::PassTimer;
 use crate::transform_bake::inverse_affine_coeffs;
 use crate::{GpuContext, TextureTransferError};
 
@@ -270,6 +271,8 @@ pub struct LayerCompositeEngine {
     uniform_buf: wgpu::Buffer,
     bind_group: Option<wgpu::BindGroup>,
     last_composite_ms: f32,
+    /// GPU-timeline timing for the blend pass; `None` without timestamp support.
+    timer: Option<PassTimer>,
     stack_order: Vec<LayerId>,
     /// Pre-pack effect/style plan per layer.
     pack_plans: HashMap<LayerId, LayerPackPlan>,
@@ -444,6 +447,7 @@ impl LayerCompositeEngine {
             uniform_buf,
             bind_group: None,
             last_composite_ms: 0.0,
+            timer: PassTimer::new(ctx, "composite-timer"),
             stack_order: Vec::new(),
             pack_plans: HashMap::new(),
             fill_colors: HashMap::new(),
@@ -853,7 +857,8 @@ impl LayerCompositeEngine {
                 label: Some("composite-enc"),
             });
 
-        let t0 = Instant::now();
+        let timestamp_writes = self.timer.as_ref().and_then(PassTimer::timestamp_writes);
+        let timed = timestamp_writes.is_some();
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("composite-pass"),
@@ -867,13 +872,23 @@ impl LayerCompositeEngine {
                     depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, bind, &[]);
             pass.draw(0..3, 0..1);
+        }
+        // This barrier — not a host wait — is what orders Qt's sampling after
+        // the blend writes. Qt Quick adopts this exact VkDevice and VkQueue
+        // (`vulkan_device_handles` → `QQuickGraphicsDevice::fromDeviceObjects`),
+        // so a barrier here applies to everything later in submission order,
+        // including Qt's frame. Blocking the host adds nothing to that.
+        if timed {
+            if let Some(timer) = self.timer.as_ref() {
+                timer.resolve(&mut encoder);
+            }
         }
         encoder.transition_resources(
             std::iter::empty(),
@@ -885,10 +900,48 @@ impl LayerCompositeEngine {
         );
 
         ctx.queue.submit(Some(encoder.finish()));
+        if timed {
+            if let Some(timer) = self.timer.as_mut() {
+                timer.map_after_submit();
+            }
+        }
+        // Non-blocking: lets wgpu retire completed submissions and run the
+        // timestamp map callback without stalling the caller.
+        let _ = ctx.device.poll(wgpu::PollType::Poll);
+        if let Some(timer) = self.timer.as_mut() {
+            self.last_composite_ms = timer.poll_result();
+        }
+        Ok(self.last_composite_ms)
+    }
+
+    /// Composite and wait for the GPU, returning the measured pass time.
+    ///
+    /// For benchmarks and conformance gates only: it deliberately stalls so the
+    /// caller measures completed work. The interactive path must use
+    /// [`Self::composite`], which never waits.
+    ///
+    /// # Errors
+    /// Propagates composite failures and device poll failures.
+    pub fn composite_measured(
+        &mut self,
+        ctx: &GpuContext,
+        layers_bottom_to_top: &[Layer],
+    ) -> Result<f32, String> {
+        let host_start = Instant::now();
+        self.composite(ctx, layers_bottom_to_top)?;
         ctx.device
             .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|error| format!("GPU poll failed during composite: {error:?}"))?;
-        let ms = t0.elapsed().as_secs_f32() * 1000.0;
+            .map_err(|error| format!("GPU poll failed during measured composite: {error:?}"))?;
+        if let Some(timer) = self.timer.as_mut() {
+            let ms = timer.poll_result();
+            if ms > 0.0 {
+                self.last_composite_ms = ms;
+                return Ok(ms);
+            }
+        }
+        // No timestamp support: host wall time around a completed submit is the
+        // only measurement available, and it overstates GPU cost.
+        let ms = host_start.elapsed().as_secs_f32() * 1000.0;
         self.last_composite_ms = ms;
         Ok(ms)
     }
@@ -1444,11 +1497,11 @@ pub fn benchmark_10x4k_ms(ctx: &GpuContext) -> f32 {
         return f32::MAX;
     }
     for _ in 0..5 {
-        let _ = engine.composite(ctx, graph.layers());
+        let _ = engine.composite_measured(ctx, graph.layers());
     }
     let mut best = f32::MAX;
     for _ in 0..10 {
-        match engine.composite(ctx, graph.layers()) {
+        match engine.composite_measured(ctx, graph.layers()) {
             Ok(ms) => best = best.min(ms),
             Err(error) => {
                 eprintln!("[phototux_gpu] 10×4K composite failed: {error}");
@@ -1481,6 +1534,44 @@ mod tests {
         let ms = eng.composite(&ctx, graph.layers()).expect("composite");
         assert!(ms >= 0.0);
         assert_eq!(eng.result_texture().width(), 256);
+    }
+
+    /// The interactive composite must not wait on the GPU: handbook 28 forbids
+    /// the UI thread waiting for GPU completion, and `recomposite` runs there.
+    ///
+    /// A submit-only call returns in host time far below the GPU cost of the
+    /// pass itself, so a regression that reintroduces a blocking poll shows up
+    /// as host time converging on GPU time.
+    #[test]
+    fn interactive_composite_does_not_wait_for_the_gpu() {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(2048, 2048);
+        let graph = DocumentGraph::new(size);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        // Warm pipelines and let the first timestamp readback land.
+        for _ in 0..4 {
+            eng.composite_measured(&ctx, graph.layers())
+                .expect("warm composite");
+        }
+        let gpu_ms = eng
+            .composite_measured(&ctx, graph.layers())
+            .expect("gpu ms");
+
+        let mut best_host_ms = f32::MAX;
+        for _ in 0..10 {
+            let start = Instant::now();
+            eng.composite(&ctx, graph.layers()).expect("composite");
+            best_host_ms = best_host_ms.min(start.elapsed().as_secs_f32() * 1000.0);
+        }
+        eprintln!(
+            "[phototux_gpu] composite host {best_host_ms:.3} ms vs gpu {gpu_ms:.3} ms (no-wait)"
+        );
+        assert!(
+            best_host_ms < gpu_ms.max(0.2),
+            "composite blocked the caller: host {best_host_ms:.3} ms >= gpu {gpu_ms:.3} ms"
+        );
     }
 
     #[test]

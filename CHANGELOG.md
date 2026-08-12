@@ -2,6 +2,53 @@
 
 All notable decision milestones and project state changes.
 
+## [composite-no-host-wait] — 2026-08-12
+
+### Decisions
+
+- **DR-030** — zero-copy present is ordered by a shared-queue image memory barrier, not a host wait. Qt adopts wgpu's device *and* queue, so a barrier before submit applies to Qt's later frame in submission order.
+- **DR-031** — GPU budgets are measured with timestamp queries, collected asynchronously; benchmarks use a separate entry point that waits.
+
+### Rendering
+
+- `composite()` no longer blocks on `device.poll(wait_indefinitely())`. Measured: host 0.05 ms vs 0.20–0.30 ms GPU for the same pass; `recomposite()` runs on the UI thread, where handbook 28 forbids waiting for GPU completion.
+- Stroke path no longer stalls on every fourth dab; wgpu's own tracking supplies the stamp→composite barrier.
+- Readback, sampling, and export paths still wait, as they must — they map GPU memory to host memory.
+- `SharedQueueGuard` retained: `vkQueueSubmit` needs external synchronization regardless of GPU ordering.
+
+### Measurement
+
+- `compositeMs` is now GPU time from `TIMESTAMP_QUERY` (one composite behind), replacing host wall time around the removed stall. 10×4K gate: **1.79 ms GPU**.
+- Devices without timestamp queries report "no GPU timing" rather than 0 ms.
+- Stroke latency relabeled input→submit; end-to-end input→present stays Provisional pending present-side instrumentation.
+- New `interactive_composite_does_not_wait_for_the_gpu` fails if a blocking wait returns to the interactive path.
+
+---
+
+## [inspector-disclosure] — 2026-08-12
+
+### UX
+
+- Properties panel regrouped from a flat stack of conditionally visible sections into registered disclosure groups (`DisclosureGroup.qml`), implementing the four-level model in handbook [01](internal_docs/01-Information-Architecture.md#disclosure-group-registry) / [28](internal_docs/28-UX-Guidelines.md).
+- Group registry (`default_disclosure_groups()`) owns stable ids, concept titles, levels, and defaults; presence (context) and disclosure (user) are separate axes.
+- Expansion persists as presentation state — preferences schema **7**, sparse `disclosure_open` map; cleared by safe start. The one-off `propertiesAdvancedOpen` toggle it replaces is removed.
+- `Theme.densityScale` now drives spacing, control heights, hit targets, and chrome extents; previously "comfortable" scaled type only. Tool strip and dock widths read tokens instead of literals.
+
+### Performance
+
+- Fontconfig enumeration deferred out of host construction: `AppSession` build ~91 ms → ~3 ms.
+- Dialogs, command palette, and collapsed inspector groups build on first use (`LazyDialog.qml`, lazy group bodies): first interactive frame ~643 ms → ~558 ms.
+- `[profile.release]`: thin LTO + `codegen-units = 1`; dev builds optimize dependencies.
+- One projection rebuild per command instead of up to three (`document_edit` set both `sync_layers` and `sync_doc`); steady-state recomposite no longer clones the layer vector.
+
+### Fixes
+
+- Brush size/hardness/texture sliders resync after host-side changes; dragging previously broke the value binding so brush presets did not move the slider.
+- QML AOT module globs `qml/*.qml` and the build script watches `qml/`, so new components are embedded and rebuilt without hand-registration.
+- `preset_json_roundtrip` asserted 3 default brush presets against a library shipping 4.
+
+---
+
 ## [docs-archive-removed] — 2026-07-18
 
 ### Docs

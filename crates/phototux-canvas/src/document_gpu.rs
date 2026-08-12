@@ -851,21 +851,19 @@ pub fn stamp_dabs(
         }
     }
 
-    if recomposite {
-        doc.ctx
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|error| format!("GPU poll failed after stamp: {error:?}"))?;
-    } else {
-        // Non-blocking: keep the stroke hot path from stalling on device idle.
-        let _ = doc.ctx.device.poll(wgpu::PollType::Poll);
-    }
+    // Never blocking, on any dab. wgpu tracks the stamp→composite texture
+    // dependency and emits the barrier, so waiting for device idle here only
+    // serialized the host against the GPU every fourth dab.
+    let _ = doc.ctx.device.poll(wgpu::PollType::Poll);
 
     if let Some(t0) = t0_ms {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs_f64() * 1000.0)
             .unwrap_or(0.0);
+        // Input timestamp → dab work submitted. This no longer includes GPU
+        // execution: measuring that required the stall this path exists to
+        // avoid. End-to-end input→present needs present-side instrumentation.
         doc.last_latency_ms = (now - t0).max(0.0) as f32;
     }
 

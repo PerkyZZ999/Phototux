@@ -9,15 +9,26 @@ find_package(Qt6 6.10 REQUIRED COMPONENTS Qml Quick)
 qt_standard_project_setup(REQUIRES 6.10)
 
 set(QML_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../qml")
-set(QML_FILES
-    "${QML_ROOT}/Main.qml"
-    "${QML_ROOT}/NewDocumentDialog.qml"
-    "${QML_ROOT}/WelcomeDialog.qml"
-    "${QML_ROOT}/Theme.qml"
-    "${QML_ROOT}/PanelHeaderControls.qml"
-    "${QML_ROOT}/ThemedIcon.qml"
-    "${QML_ROOT}/ChromeIconToolButton.qml"
-)
+
+# Every .qml under qml/ is embedded. Globbing here rather than listing names
+# keeps a new component from silently missing the AOT module; CONFIGURE_DEPENDS
+# re-runs CMake when the set of files changes.
+file(GLOB QML_FILES CONFIGURE_DEPENDS "${QML_ROOT}/*.qml")
+list(LENGTH QML_FILES QML_FILE_COUNT)
+if(QML_FILE_COUNT EQUAL 0)
+    message(FATAL_ERROR "No QML files found under ${QML_ROOT}")
+endif()
+
+# Singletons must be declared as such or `pragma Singleton` types fail to resolve.
+set(QML_SINGLETONS Theme.qml)
+
+foreach(QML_FILE IN LISTS QML_FILES)
+    get_filename_component(QML_NAME "${QML_FILE}" NAME)
+    set_source_files_properties("${QML_FILE}" PROPERTIES QT_RESOURCE_ALIAS "${QML_NAME}")
+    if(QML_NAME IN_LIST QML_SINGLETONS)
+        set_source_files_properties("${QML_FILE}" PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+    endif()
+endforeach()
 set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular")
 set(ICON_NAMES
     arrow-clockwise
@@ -83,37 +94,6 @@ list(APPEND ICON_FILES "${LOGO_UI}")
 set_source_files_properties(
     "${LOGO_UI}"
     PROPERTIES QT_RESOURCE_ALIAS "logo-ui.png"
-)
-
-set_source_files_properties(
-    "${QML_ROOT}/Main.qml"
-    PROPERTIES QT_RESOURCE_ALIAS "Main.qml"
-)
-set_source_files_properties(
-    "${QML_ROOT}/NewDocumentDialog.qml"
-    PROPERTIES QT_RESOURCE_ALIAS "NewDocumentDialog.qml"
-)
-set_source_files_properties(
-    "${QML_ROOT}/WelcomeDialog.qml"
-    PROPERTIES QT_RESOURCE_ALIAS "WelcomeDialog.qml"
-)
-set_source_files_properties(
-    "${QML_ROOT}/Theme.qml"
-    PROPERTIES
-        QT_RESOURCE_ALIAS "Theme.qml"
-        QT_QML_SINGLETON_TYPE TRUE
-)
-set_source_files_properties(
-    "${QML_ROOT}/PanelHeaderControls.qml"
-    PROPERTIES QT_RESOURCE_ALIAS "PanelHeaderControls.qml"
-)
-set_source_files_properties(
-    "${QML_ROOT}/ThemedIcon.qml"
-    PROPERTIES QT_RESOURCE_ALIAS "ThemedIcon.qml"
-)
-set_source_files_properties(
-    "${QML_ROOT}/ChromeIconToolButton.qml"
-    PROPERTIES QT_RESOURCE_ALIAS "ChromeIconToolButton.qml"
 )
 
 qt_add_qml_module(phototux_qml

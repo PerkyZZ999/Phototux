@@ -12,6 +12,8 @@ Preference mutation uses the [Command System](08-Command-System.md) and an atomi
 
 XDG `preferences.json` + Preferences dialog: panel visibility, last tool, guides/grid/rulers/snap toggles, restore-last-tool. Host-owned preference mutations (not document history). Full snapshot/precedence engine, workspace topology persistence, and preference command bus remain **target**.
 
+Store schema **7** adds `disclosure_open`: a sparse map of inspector disclosure group id → expanded, holding only groups the user has explicitly toggled. Absent keys resolve to the group descriptor's `open_by_default`, so a changed default still reaches existing users. It is presentation state under [01 — Information Architecture](01-Information-Architecture.md#disclosure-group-registry) and never document state; safe start clears it with the rest of the chrome overrides.
+
 ## Responsibilities
 
 The preference subsystem **MUST**:

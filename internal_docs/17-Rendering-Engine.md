@@ -242,6 +242,20 @@ Frame budget includes CPU planning, uploads, GPU execution, assembly, and presen
 
 Snapshot graph resolution and CPU tile jobs run on workers. Render coordinator owns wgpu device/queue interaction according to implementation affinity. Surface presentation happens on required host thread. Document locks are never held across graph compile, GPU work, font/profile parsing, or present.
 
+### Composite-to-present synchronization
+
+Zero-copy present shares one Vulkan device **and one queue** between the renderer and the host toolkit ([DR-030](Appendix/Decision-Register.md#dr-030--shared-queue-barrier-not-host-wait-orders-composite-and-present)). Ordering between composite writes and host sampling is therefore established by an **image memory barrier in submission order**, transitioning the composite target to shader-read before the submission ends.
+
+Consequences that are normative, not incidental:
+
+- The interactive composite path **MUST NOT** wait for GPU completion. Host waits on this path are a latency bug, not a safety measure, and 28 forbids them on the UI thread.
+- Non-blocking polling is still required so completed submissions retire and asynchronous readbacks progress.
+- CPU-side queue access still needs external synchronization, because a Vulkan queue may not be submitted to concurrently from two threads. That obligation is independent of GPU ordering and **MUST NOT** be removed along with a host wait.
+- If the host frame begins before a composite submission, it presents the previous complete composite. That is the sanctioned stale-complete presentation, not a correctness failure, and is only acceptable while the view repaints continuously or is explicitly invalidated on publish.
+- Splitting the renderer and host onto different queues or devices invalidates this argument. Either arrangement requires an exported timeline semaphore before the host wait may be dropped.
+
+Paths that map GPU memory to host memory — readback, sampling, export, parity fixtures — are unaffected and continue to wait.
+
 Queues are bounded by requests, graph nodes, tile jobs, uploads, GPU submissions, readbacks, and bytes. Coalescing keeps newest view transform and newest snapshot generation per view. User mutations are not renderer queue items and cannot be lost because renderer is overloaded.
 
 Pressure policy:

@@ -335,6 +335,32 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | Consequences | Checklist P11 multi-doc may ship; other P11/P12 rows stay `[!]` / seam until evidence + product need. |
 | Revisit | When benchmark/UX/product gates in roadmap §4 are met. |
 
+## DR-030 — Shared-queue barrier, not host wait, orders composite and present
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Date | 2026-08-12 |
+| Docs | 17, 28, 30, DR-005, DR-006, DR-023 |
+| Context | `composite()` blocked on `device.poll(wait_indefinitely())` after submit, and `recomposite()` runs on the UI thread. Handbook 28 forbids the UI thread waiting for GPU completion. The wait was load-bearing only because no other ordering was stated. |
+| Decision | Zero-copy present is ordered by an **image memory barrier in submission order on the shared queue**, not by a host wait. Qt Quick adopts wgpu's `VkInstance`/`VkPhysicalDevice`/`VkDevice` and the same queue family/index, so `vkGetDeviceQueue` returns the identical `VkQueue`; a barrier recorded before submit applies to every later command on that queue, including Qt's frame. The interactive path polls non-blocking only, to retire submissions. |
+| Consequences | The composite path never stalls the caller (measured: host 0.05 ms vs GPU 0.20–0.30 ms for the same pass). Worst case is one frame of staleness if Qt's frame begins before the composite submission — permitted by 28 ("present complete older frame"), and self-correcting because `FrameAnimation` repaints continuously. `SharedQueueGuard` is still required: it provides CPU-side external synchronization for `vkQueueSubmit`, which is a separate obligation from GPU ordering. |
+| Invariants | Both stacks **MUST** keep sharing one device *and* one queue. Introducing a second queue, or a second device, invalidates the barrier argument and requires an exported timeline semaphore instead. Readback paths that map buffers to host memory still wait, and **MUST** keep doing so. |
+| Verification | `interactive_composite_does_not_wait_for_the_gpu` asserts host time stays below measured GPU pass time; composite readback round-trip tests cover pixel correctness. |
+| Revisit | If Qt or wgpu stops sharing the queue, if a present-time race is observed, or if staleness becomes visible under a non-continuous repaint policy. |
+
+## DR-031 — GPU gates measured by timestamp query
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Date | 2026-08-12 |
+| Docs | 30, Performance Budget Ledger, DR-017, DR-030 |
+| Context | The ADR-008 composite gate is stated in GPU milliseconds but was measured with a host `Instant` wrapped around submit plus a blocking poll — that measures the CPU stall. Removing the stall under [DR-030](#dr-030--shared-queue-barrier-not-host-wait-orders-composite-and-present) would have made the same metric read near zero and pass vacuously. |
+| Decision | Pass-level GPU budgets are measured with `TIMESTAMP_QUERY` around the pass. Results are collected asynchronously and are **one submission late**; no measurement may reintroduce a wait on the interactive path. Benchmarks and conformance gates use an explicit measured entry point that does wait. |
+| Consequences | `compositeMs` is real GPU time. Timestamp support is optional, so a device without it reports 0 (surfaced as "no GPU timing") and benchmarks fall back to host wall time, which overstates GPU cost. Stroke latency now reports input→submit; end-to-end input→present needs present-side instrumentation and remains unmeasured. |
+| Revisit | When present-side instrumentation exists, or if a target adapter lacks timestamp queries. |
+
 ## Open Deferred Cluster
 
 | Topic | Related DR | Blocking evidence |

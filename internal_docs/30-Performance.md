@@ -178,6 +178,21 @@ Frames are evaluated by interval distribution, missed-deadline runs, longest con
 
 Startup traces separate process/bootstrap, configuration, registry construction, recovery scan, host probe, window creation, workspace reconciliation, document open, device creation, pipeline readiness, and first presentation. Preloading everything to improve later benchmarks while worsening coherent-shell time is rejected.
 
+Two rules follow from the shipped shell's startup composition, where building the QML object graph dominates and the fixed engine/module cost sets the floor:
+
+- Host construction **MUST NOT** perform blocking host discovery for data that only a specific panel consumes. Font family enumeration is the worked example: it is deferred behind an explicit request from the Character chrome, with a usable fallback list available immediately, because fontconfig enumeration alone cost roughly a third of host construction.
+- Presentation surfaces that a typical session never opens — dialogs, the command palette, collapsed inspector groups — **SHOULD** defer construction to first use. Deferral must not be observable: values come from host state, not widget lifetime.
+
+Measured on the reference workstation (release build, offscreen platform, median of seven runs), the deferral work above moved host construction from ~91 ms to ~3 ms and first interactive frame from ~643 ms to ~558 ms. Both sit inside the ADR-008 1,000 ms gate; the 250 ms stretch remains out of reach because the Qt/QML engine and Controls module floor alone is ~190 ms and the root object graph is the next largest term.
+
+### Measuring GPU budgets
+
+A budget stated in GPU milliseconds **MUST** be measured with timestamp queries around the pass ([DR-031](Appendix/Decision-Register.md#dr-031--gpu-gates-measured-by-timestamp-query)). Wrapping a submission in a host clock and blocking until the device is idle measures the host stall: it reports a number larger than the GPU cost, and obtaining it requires exactly the wait that [17 — Rendering Engine](17-Rendering-Engine.md#composite-to-present-synchronization) forbids on the interactive path.
+
+Timestamp results are collected asynchronously and are one submission old. That is acceptable for a steady-state gate and for a status readout, and it is what keeps the measurement free of a wait. Benchmarks and conformance gates **MAY** wait, through an entry point that is explicitly separate from the interactive one, so the waiting version cannot be reached by accident.
+
+Two honesty requirements follow. A metric that cannot be measured **MUST** report unavailable rather than zero — timestamp queries are an optional device capability. And a metric whose meaning changes **MUST** be relabeled: stroke instrumentation that no longer waits for GPU execution measures input to submission, and calling it input-to-render would overstate what is known.
+
 ### Memory and cache
 
 - Idle coherent shell **SHOULD** remain below 300 MiB resident memory on mid tier after initialization settles.

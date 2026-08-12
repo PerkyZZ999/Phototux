@@ -61,6 +61,12 @@ pub struct Preferences {
     pub history_retention_limit: u32,
     /// Action id → shortcut chord overrides (empty map = defaults only).
     pub keymap: BTreeMap<String, String>,
+    /// Inspector disclosure group id → expanded (schema 7+).
+    ///
+    /// Presentation state only: handbook 28 requires expansion state to persist
+    /// as workspace state and never as document state.
+    #[serde(default)]
+    pub disclosure_open: BTreeMap<String, bool>,
     pub schema_version: u32,
 }
 
@@ -109,7 +115,8 @@ impl Default for Preferences {
             safe_start_next: false,
             history_retention_limit: default_history_retention(),
             keymap: BTreeMap::new(),
-            schema_version: 6,
+            disclosure_open: BTreeMap::new(),
+            schema_version: 7,
         }
     }
 }
@@ -147,6 +154,7 @@ impl Preferences {
     pub fn apply_safe_start_chrome(&mut self) {
         self.reset_workspace_essentials();
         self.keymap.clear();
+        self.disclosure_open.clear();
         self.restore_last_tool = false;
         self.last_tool = phototux_engine::tool_id::BRUSH.to_owned();
         self.dock_topology_json.clear();
@@ -185,7 +193,21 @@ impl Preferences {
             self.user_workspace_presets_json =
                 phototux_engine::user_workspace_presets_json(&cleaned);
         }
-        self.schema_version = self.schema_version.max(6);
+        self.schema_version = self.schema_version.max(7);
+    }
+
+    /// Expanded state for an inspector disclosure group, falling back to the
+    /// group's own default when the user has never touched it.
+    pub fn disclosure_is_open(&self, group_id: &str, default_open: bool) -> bool {
+        self.disclosure_open
+            .get(group_id)
+            .copied()
+            .unwrap_or(default_open)
+    }
+
+    /// Record an inspector disclosure group's expanded state.
+    pub fn set_disclosure_open(&mut self, group_id: &str, open: bool) {
+        self.disclosure_open.insert(group_id.to_owned(), open);
     }
 
     fn sync_legacy_bools_from_map(&mut self) {
@@ -348,7 +370,7 @@ mod tests {
         p.panel_navigator = false;
         p.migrate_panel_visibility();
         assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
-        assert_eq!(p.schema_version, 6);
+        assert_eq!(p.schema_version, 7);
     }
 
     #[test]
@@ -375,6 +397,27 @@ mod tests {
             phototux_engine::USER_WORKSPACE_PRESET_PREFIX
         )));
         assert!(p.user_workspace_presets().is_empty());
+    }
+
+    #[test]
+    fn disclosure_state_defaults_then_persists() {
+        let mut p = Preferences::default();
+        assert!(p.disclosure_is_open("inspector.color", true));
+        assert!(!p.disclosure_is_open("inspector.color", false));
+        p.set_disclosure_open("inspector.color", false);
+        assert!(!p.disclosure_is_open("inspector.color", true));
+        let back: Preferences =
+            serde_json::from_str(&serde_json::to_string(&p).expect("ser")).expect("de");
+        assert!(!back.disclosure_is_open("inspector.color", true));
+    }
+
+    #[test]
+    fn safe_start_clears_disclosure_state() {
+        let mut p = Preferences::default();
+        p.set_disclosure_open("inspector.color", false);
+        p.apply_safe_start_chrome();
+        assert!(p.disclosure_open.is_empty());
+        assert!(p.disclosure_is_open("inspector.color", true));
     }
 
     #[test]

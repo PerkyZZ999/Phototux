@@ -62,8 +62,20 @@ Default interactive budgets apply on **Tier M** unless noted. Tier L may reduce 
 | Recovery discovery | ≤1 s for 100 headers; MUST NOT wait GPU |
 | First interactive shell | before optional catalog indexing completes |
 | Standard doc first low-res frame | ≤2.5 s warm; ≤5 s cold |
+| Cold boot to interactive (ADR-008) | <1,000 ms gate; <250 ms stretch |
 | Owners | lifecycle ([02](../02-Application-Lifecycle.md)), host, render |
 | Docs | 02, 30 |
+
+Measured cold-boot composition, reference workstation (Arc B580 / Mesa, release build, `QT_QPA_PLATFORM=offscreen`, median of seven fresh processes). The shell self-reports these phases on stderr, so the figures are reproducible without extra tooling.
+
+| Phase | Before | After | Note |
+| --- | --- | --- | --- |
+| GPU ready | ~40 ms | ~40 ms | wgpu adapter + device |
+| Host construction (`AppSession`) | ~91 ms | ~3 ms | fontconfig enumeration deferred to first Character use |
+| QML root object graph | ~541 ms | ~450 ms | dialogs, palette, and collapsed inspector groups deferred |
+| First interactive frame | ~643 ms | ~558 ms | ADR-008 gate satisfied |
+
+Floor: a trivial root window in the same process costs ~283 ms, of which ~190 ms is Qt/QML engine plus Controls module load. Startup work below that floor requires reducing module surface, not deferring more application content. Deferring dialog construction alone produced no measurable gain — the object graph cost concentrates in always-visible chrome — which is why the ledger records phase composition rather than a single total.
 
 ### B4 — Memory and cache
 
@@ -267,6 +279,17 @@ Headless fixtures in `phototux_engine::budget_harness` run on every `cargo test`
 | B3-present | `session-warm-construct` (Tier M) | 25 ms | **Accepted (CI soft)** — warm shell construct proxy |
 
 **Tier M evidence (2026-07-17, host CachyOS, commit family `52670f7`+):** soft suite green — `present-nav-intervals-4k` ~0.03 ms total (p95 interval ≪1 ms), `present-dirty-mark-4k` ~0.005 ms, `session-warm-construct` ~0.016 ms. Photon/GPU present endpoints remain **Provisional** when CI has no display (skip matrix). B5 large-doc / GPU composite stay Provisional; large-doc suite feeds P11.
+
+### GPU composite gate (device required)
+
+| Gate | Target | Measurement | Status |
+| --- | --- | --- | --- |
+| 10×4K composite | < 2 ms **GPU** | `TIMESTAMP_QUERY` around the blend pass, best of 10 after 5 warm passes ([DR-031](Decision-Register.md#dr-031--gpu-gates-measured-by-timestamp-query)) | **Accepted** — 1.79 ms, Arc B580 / Mesa 26.1 |
+| Interactive composite host cost | must stay below GPU pass time | `interactive_composite_does_not_wait_for_the_gpu` | **Accepted** — host 0.05 ms vs GPU 0.20–0.30 ms |
+
+The second row exists to keep the first honest. Before [DR-030](Decision-Register.md#dr-030--shared-queue-barrier-not-host-wait-orders-composite-and-present) the composite figure was host wall time around a blocking poll, so it measured the stall rather than the pass; a regression that reintroduces the wait shows up as host time converging on GPU time. Timestamp queries are an optional device capability — where absent, the gate falls back to host timing that overstates GPU cost, and the interactive readout reports unavailable rather than zero.
+
+Stroke instrumentation reports **input→submit**, not input→present: measuring GPU execution inline would require the wait this path exists to avoid. The ADR-008 8 ms tablet input→render gate therefore stays **Provisional** pending present-side instrumentation.
 
 ### GPU skip matrix (device-loss / parity)
 

@@ -232,6 +232,20 @@ Disclosure rules:
 - user expansion state may persist as workspace/presentation state, not document;
 - one basic/advanced mode must not split product into inconsistent state models.
 
+### Disclosure Group Header
+
+A collapsible group's header is the group's entire interactive surface and its only focus stop. It **MUST** carry:
+
+- the concept name, legible whether expanded or collapsed;
+- expansion state exposed non-visually, not by caret glyph alone;
+- any warning or invalid value hidden inside the collapsed body, surfaced as a header badge whose text also reaches assistive technology.
+
+It **SHOULD** show a short value summary while collapsed — the parameter a user most likely wants to confirm before deciding to expand — so the collapsed state still carries information scent.
+
+Keyboard grammar follows the platform disclosure convention: Space and Enter toggle; Right expands a collapsed group; Left collapses an expanded one. Group registration order is stable and **MUST NOT** be reordered by usage frequency.
+
+Group bodies **MAY** be constructed lazily on first expansion, provided the deferral is not observable: control values come from host state rather than widget lifetime, and a body retained after collapse keeps in-progress edits. Deferral **MUST NOT** delay a warning or invalid-value badge, which is computed from host state and therefore remains available while the body does not exist. See [01 — Information Architecture](01-Information-Architecture.md) for the group registry and level assignments.
+
 ## Forms and Parameter Editing
 
 Forms use stable labels, units, constraints, and commit policy. Numeric controls support typing and adjustment; slider-only precision is forbidden. Mixed multi-selection values show mixed state, not fake average. Editing mixed value applies explicit new value to applicable targets and discloses partial applicability.

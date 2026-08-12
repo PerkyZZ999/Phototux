@@ -71,6 +71,10 @@ flowchart LR
 - decode entire huge files inline;
 - treat panel local state as document truth.
 
+The recomposite triggered by a command effect runs here, so it is bound by the rule above: it submits and returns. Ordering against host sampling comes from a shared-queue barrier, not a wait ([DR-030](Decision-Register.md#dr-030--shared-queue-barrier-not-host-wait-orders-composite-and-present), [17](../17-Rendering-Engine.md#composite-to-present-synchronization)).
+
+Dropping a GPU wait does **not** drop the CPU-side serialization of queue submission. A Vulkan queue cannot be submitted to concurrently, so the host frame and the renderer still take a shared queue lock around their submissions; that lock is external synchronization for the API object, not a frame-completion wait.
+
 ### Document executor
 
 **Must:**

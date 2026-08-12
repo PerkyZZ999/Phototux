@@ -217,6 +217,10 @@ Rules:
 
 Theme may provide compact/comfortable spacing sets. Density changes preserve hierarchy, focus order, semantic component IDs, and command geography. They do not create a separate product mode.
 
+A density mode **MUST** drive the layout scale, not only the type scale. The density factor applies to spacing steps, control heights, hit targets, icon boxes, and the fixed chrome extents (tool strip width, dock width, toolbar/status/panel-header heights). Scaling type alone yields larger text inside unchanged chrome, which fails the 200% target above and makes the preference misleading. Corner radii are a fixed visual signature and are exempt.
+
+Chrome extents **MUST** read their density-scaled token rather than repeat a literal, otherwise the mode silently skips whichever surfaces were hardcoded.
+
 ## Iconography
 
 Icons are semantic resources:

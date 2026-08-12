@@ -19,6 +19,8 @@ The panel system **MUST**:
 
 It **SHOULD** support multiple instances where useful, pinning, virtualization, progressive disclosure, and headless projection tests. It **MAY** permit future sandboxed semantic panel contributions; arbitrary toolkit widget access is not a contract.
 
+The Properties panel organizes its body as registered disclosure groups rather than a flat stack of conditionally visible sections. Group ids, levels, defaults, and the presence-versus-disclosure distinction are specified in [01 — Information Architecture](01-Information-Architecture.md#disclosure-group-registry); header requirements are in [28 — UX Guidelines](28-UX-Guidelines.md). A panel **MUST NOT** store expansion state as document state, and **MUST NOT** rely on a group's widget lifetime to hold a value that belongs to host state.
+
 ## Architecture
 
 ```mermaid

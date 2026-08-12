@@ -12,6 +12,23 @@ pub struct PanelDescriptor {
     pub visible_by_default: bool,
 }
 
+/// Inspector disclosure group descriptor (handbook 01 / 28 progressive disclosure).
+///
+/// Context decides whether a group is *present*; disclosure decides how much of
+/// it is *shown*. The two are independent: a brush group hidden because the
+/// eraser is active is not the same as a brush group the user collapsed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisclosureGroupDescriptor {
+    pub id: String,
+    pub title: String,
+    /// Handbook disclosure level: 2 nearby, 3 on demand, 4 specialized.
+    ///
+    /// Level 1 (immediate) content is never collapsible and therefore never
+    /// appears here.
+    pub level: u8,
+    pub open_by_default: bool,
+}
+
 /// Tool strip entry descriptor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDescriptor {
@@ -178,6 +195,36 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
     ]
 }
 
+/// Built-in inspector disclosure groups, ordered as they appear in Properties.
+///
+/// Titles name a coherent concept rather than "More" or "Advanced" so the
+/// collapsed header still carries information scent (handbook 01/28).
+pub fn default_disclosure_groups() -> Vec<DisclosureGroupDescriptor> {
+    let group =
+        |id: &str, title: &str, level: u8, open_by_default: bool| DisclosureGroupDescriptor {
+            id: id.into(),
+            title: title.into(),
+            level,
+            open_by_default,
+        };
+    vec![
+        group("inspector.selection", "Selection", 2, true),
+        group("inspector.brush", "Brush", 2, true),
+        group("inspector.fill", "Fill", 2, true),
+        group("inspector.text", "Character", 2, true),
+        group("inspector.path", "Path", 2, true),
+        group("inspector.transform", "Transform and Crop", 2, true),
+        group("inspector.adjustment", "Adjustment", 2, true),
+        group("inspector.effects", "Effects", 3, false),
+        group("inspector.color", "Color Management", 3, false),
+        group("inspector.diagnostics", "Diagnostics", 4, false),
+    ]
+}
+
+pub fn disclosure_groups_json() -> String {
+    serde_json::to_string(&default_disclosure_groups()).unwrap_or_else(|_| "[]".into())
+}
+
 /// Essentials workspace panel visibility map (panel id → visible).
 pub fn essentials_panel_visibility() -> Vec<(String, bool)> {
     default_panels()
@@ -205,5 +252,32 @@ mod tests {
         assert!(panels.contains("panel.layers"));
         let tools = tools_json();
         assert!(tools.contains("tool.brush"));
+        let groups = disclosure_groups_json();
+        assert!(groups.contains("inspector.brush"));
+    }
+
+    #[test]
+    fn disclosure_group_ids_are_unique_and_levelled() {
+        let groups = default_disclosure_groups();
+        let mut ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+        ids.sort_unstable();
+        let count = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), count, "disclosure group ids must be unique");
+        // Level 1 is immediate content and is never collapsible.
+        assert!(groups.iter().all(|g| (2..=4).contains(&g.level)));
+    }
+
+    #[test]
+    fn specialized_groups_start_collapsed() {
+        for group in default_disclosure_groups() {
+            if group.level >= 3 {
+                assert!(
+                    !group.open_by_default,
+                    "{} is level {} and must start collapsed",
+                    group.id, group.level
+                );
+            }
+        }
     }
 }

@@ -94,7 +94,8 @@ pub use selection::{
 };
 pub use shape_boolean::{BooleanOp, boolean_rgba8};
 pub use shell::{
-    PanelDescriptor, ToolDescriptor, default_panels, default_tools, essentials_panel_visibility,
+    DisclosureGroupDescriptor, PanelDescriptor, ToolDescriptor, default_disclosure_groups,
+    default_panels, default_tools, disclosure_groups_json, essentials_panel_visibility,
     panels_json, tools_json,
 };
 pub use snapshot_publish::{
