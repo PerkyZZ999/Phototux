@@ -9,6 +9,7 @@ mod filters;
 mod layer_mask;
 mod mask_stamp;
 mod parity;
+mod pass_timer;
 mod selection;
 mod transform_bake;
 
@@ -96,6 +97,20 @@ pub struct GpuContext {
     renderer_generation: Arc<AtomicU64>,
     device_lost: Arc<AtomicBool>,
     surface_lost: Arc<AtomicBool>,
+    /// Whether the device was created with timestamp query support.
+    timestamps_supported: bool,
+}
+
+impl GpuContext {
+    /// Whether GPU timestamp queries are available for pass timing.
+    pub fn timestamps_supported(&self) -> bool {
+        self.timestamps_supported
+    }
+
+    /// Nanoseconds per timestamp tick for this queue.
+    pub fn timestamp_period_ns(&self) -> f32 {
+        self.queue.get_timestamp_period()
+    }
 }
 
 impl GpuContext {
@@ -123,10 +138,22 @@ impl GpuContext {
             device_type: format!("{:?}", info_raw.device_type),
         };
 
+        // Timestamp queries are how the ADR-008 composite gate is supposed to be
+        // measured. They are optional on Vulkan, so take them when offered and
+        // fall back to no GPU timing rather than failing device creation.
+        let timestamp_features =
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        let timestamps_supported = adapter.features().contains(timestamp_features);
+        let required_features = if timestamps_supported {
+            timestamp_features
+        } else {
+            wgpu::Features::empty()
+        };
+
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: Some("phototux-spike-device"),
-                required_features: wgpu::Features::empty(),
+                required_features,
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
                 experimental_features: Default::default(),
@@ -163,6 +190,7 @@ impl GpuContext {
             renderer_generation,
             device_lost,
             surface_lost,
+            timestamps_supported,
         })
     }
 

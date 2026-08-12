@@ -3976,10 +3976,14 @@ ApplicationWindow {
                             ColumnLayout {
                                 spacing: Theme.spaceXs
 
+                                // GPU-timestamped, one composite behind. Zero means
+                                // no sample yet, or an adapter without timestamp queries.
                                 Label {
                                     Layout.fillWidth: true
-                                    text: qsTr("Composite: %1 ms")
-                                          .arg(AppSession.compositeMs.toFixed(2))
+                                    text: AppSession.compositeMs > 0
+                                          ? qsTr("Composite: %1 ms (GPU)")
+                                            .arg(AppSession.compositeMs.toFixed(2))
+                                          : qsTr("Composite: no GPU timing")
                                     color: AppSession.compositeMs > 0 && AppSession.compositeMs < 2.0
                                            ? Theme.success : Theme.colorOnSurfaceVariant
                                     font.pixelSize: Theme.fontBodySm
@@ -3995,7 +3999,7 @@ ApplicationWindow {
                                 }
                                 Label {
                                     Layout.fillWidth: true
-                                    text: qsTr("Stroke latency: %1 ms")
+                                    text: qsTr("Stroke input→submit: %1 ms")
                                           .arg(AppSession.strokeLatencyMs.toFixed(2))
                                     color: AppSession.strokeLatencyMs > 0
                                            && AppSession.strokeLatencyMs < 8.0
