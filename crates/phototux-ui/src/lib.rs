@@ -4238,8 +4238,15 @@ impl AppSession {
         match ev {
             EngineEvent::CompositeDone { ms } => {
                 self.engine.set_composite_ms(ms);
+                // Both readouts show two decimals, and this fires on every
+                // paced composite throughout a stroke. Signalling a difference
+                // finer than the display shows relaid out the status bar and
+                // the collapsed Diagnostics summary for nothing.
+                let visibly_changed = (ms * 100.0).round() != (self.composite_ms * 100.0).round();
                 self.composite_ms = ms;
-                self.composite_ms_changed();
+                if visibly_changed {
+                    self.composite_ms_changed();
+                }
                 false
             }
             EngineEvent::StrokeLatency { ms } => {
@@ -4314,10 +4321,32 @@ impl AppSession {
     fn emit_poll_dirty_changes(&mut self) {
         let prev_status = self.status_text.clone();
         let prev_a11y = self.accessibility_tree_json.clone();
+        let prev_can_undo = self.can_undo;
+        let prev_can_redo = self.can_redo;
+        let prev_dirty = self.dirty;
+        let prev_history = self.history_entry_ids.clone();
         self.sync_from_engine();
-        self.can_undo_changed();
-        self.can_redo_changed();
-        self.dirty_changed();
+        // Guarded: ~100 menu items bind to enablement and re-evaluate together
+        // on can_undo/can_redo, so emitting unconditionally rebuilt the whole
+        // menu state at every pen-up even when nothing had changed.
+        if self.can_undo != prev_can_undo {
+            self.can_undo_changed();
+        }
+        if self.can_redo != prev_can_redo {
+            self.can_redo_changed();
+        }
+        if self.dirty != prev_dirty {
+            self.dirty_changed();
+        }
+        // A stroke pushes a history entry, but `raster.paint-stroke` reports no
+        // layer sync, so `emit_layer_fields` — the only other emitter of these —
+        // never runs for it. Without this the History panel silently omitted
+        // every brush stroke until some unrelated edit refreshed it.
+        if self.history_entry_ids != prev_history {
+            self.history_labels_changed();
+            self.history_entry_ids_changed();
+            self.history_kinds_changed();
+        }
         if self.status_text != prev_status {
             self.status_text_changed();
         }
@@ -4848,7 +4877,15 @@ impl AppSession {
     #[qslot]
     fn report_fps(&mut self, fps: f32) {
         self.engine.set_fps(fps);
-        self.fps = self.engine.fps;
+        let next = self.engine.fps;
+        // Emitted once per frame from the frame clock. The readout is rounded to
+        // whole frames per second, so signalling on every change of a smoothed
+        // float relaid out the status bar for a value that did not visibly move.
+        if next.round() == self.fps.round() {
+            self.fps = next;
+            return;
+        }
+        self.fps = next;
         self.fps_changed();
     }
 

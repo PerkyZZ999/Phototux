@@ -17,6 +17,11 @@ never shows and the user always waits for.
 ### Shell
 
 - **The action table is built once instead of per lookup.** `action_by_id` called `default_actions()`, which allocates ~800 strings across 101 descriptors, then linearly scanned the result — so a single "can I undo?" question constructed the whole table. Around 100 menu items bind to enablement and all of them re-evaluate together whenever an enablement input changes, which includes every pen-up. The table is now a `LazyLock` with an id index, and `action_by_id` borrows from it. `default_shortcut_map` / `default_action_shortcuts`, on the shortcut path, borrow it too.
+- **Per-frame and per-composite property signals are guarded.** `fps` signalled on every frame from a smoothed float whose rounded readout rarely moved; `compositeMs` signalled on every paced composite throughout a stroke at a precision finer than its two-decimal readout. Both relaid out the status bar — and `compositeMs` the collapsed Diagnostics summary — for values that had not visibly changed. Both now emit only when the displayed value would differ. `can_undo` / `can_redo` / `dirty` at pen-up are guarded the same way, since ~100 enablement bindings re-evaluate together on them.
+
+### Fixes
+
+- **The History panel omitted brush strokes.** A stroke pushes a history entry, but `raster.paint-stroke` reports no layer sync, so `emit_layer_fields` — the only emitter of `historyLabels` / `historyEntryIds` / `historyKinds` — never ran for it, and `emit_poll_dirty_changes` did not emit them either. The panel silently stayed stale until some unrelated edit refreshed it. Now emitted whenever the entry list changes.
 
 ---
 
