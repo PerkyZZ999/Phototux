@@ -2,6 +2,16 @@
 
 All notable decision milestones and project state changes.
 
+## [paint-fluidity-1] — 2026-08-12
+
+Canvas fluidity pass, part one: remove work from the stroke path that the display
+never shows and the user always waits for.
+
+### Rendering
+
+- **The interactive composite no longer blocks on GPU completion.** `repack_array_if_needed` ended its submission with `PollType::wait_indefinitely`, and every mid-stroke composite reaches it: `stamp_dabs` marks the painted layer, which puts a dirty slice in the repack, and the early-out requires that list to be empty. Measured on Arc B580 / Mesa 26.1 at 10 layers × 4K: **1.94 ms → 0.57 ms** of host time per composite, held under the shared queue lock the Qt render thread needs.
+- DR-030 already forbade this; the wait survived because the guard test could not see it. `interactive_composite_does_not_wait_for_the_gpu` never marked a layer painted, so it only ever measured the clean path, which skips repacking altogether. The test now paints, runs at the DR-017 gate size, and compares the fastest call rather than the mean — sustained submission hits backpressure, where wall time converges to GPU throughput whether or not the host waits, and the mean stops discriminating. Verified to fail at 1.94 ms against the old behaviour and pass at 0.57 ms with the fix.
+
 ## [prefs-missing-key-defaults] — 2026-08-12
 
 ### Fixes

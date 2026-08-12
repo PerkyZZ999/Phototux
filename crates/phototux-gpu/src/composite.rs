@@ -768,8 +768,12 @@ impl LayerCompositeEngine {
         }
 
         ctx.queue.submit(Some(encoder.finish()));
+        // No wait: the composite pass is submitted to the same queue after these
+        // copies, so it reads them in submission order (DR-030). Rebuilding the
+        // bind group below writes descriptors on the host and does not read
+        // pixels either. Poll only drains wgpu's own callbacks.
         ctx.device
-            .poll(wgpu::PollType::wait_indefinitely())
+            .poll(wgpu::PollType::Poll)
             .map_err(|error| format!("GPU poll failed during array repack: {error:?}"))?;
 
         if self.array_dirty || self.mask_dirty || self.bind_group.is_none() {
@@ -1567,35 +1571,57 @@ mod tests {
     /// A submit-only call returns in host time far below the GPU cost of the
     /// pass itself, so a regression that reintroduces a blocking poll shows up
     /// as host time converging on GPU time.
+    /// The interactive path must not block the caller on GPU completion.
+    ///
+    /// This mirrors a stroke rather than an idle canvas: `stamp_dabs` marks the
+    /// painted layer, which puts a dirty slice in the array repack and takes the
+    /// path a clean composite skips entirely. An earlier version of this test
+    /// omitted the mark, so it only ever measured the clean path and a blocking
+    /// poll inside the repack survived it. It also runs at the ADR-008 gate size,
+    /// because a light document composites fast enough to mask a host wait.
     #[test]
     fn interactive_composite_does_not_wait_for_the_gpu() {
         let ctx = GpuContext::new().expect("gpu");
-        let size = DocumentSize::new(2048, 2048);
-        let graph = DocumentGraph::new(size);
+        let size = DocumentSize::new(3840, 2160);
+        let mut graph = DocumentGraph::new(size);
+        while graph.layer_count() < 10 {
+            if graph.add_layer_top(None).is_err() {
+                break;
+            }
+        }
         let mut eng = LayerCompositeEngine::new(&ctx, size);
         eng.sync_layers_from_graph(&ctx, graph.layers())
             .expect("sync");
-        // Warm pipelines and let the first timestamp readback land.
+        let painted = graph.layers()[0].id;
         for _ in 0..4 {
-            eng.composite_measured(&ctx, graph.layers())
-                .expect("warm composite");
+            eng.mark_layer_painted(painted);
+            eng.composite(&ctx, graph.layers()).expect("warm composite");
         }
-        let gpu_ms = eng
-            .composite_measured(&ctx, graph.layers())
-            .expect("gpu ms");
 
+        // Timed back to back with nothing draining the queue in between, because
+        // that is what a stroke does. Take the minimum, not the mean: submitting
+        // faster than the GPU retires eventually hits backpressure, at which
+        // point wall time per call converges to GPU throughput whether or not
+        // the host waits, and the mean stops discriminating. The minimum is the
+        // call that did not have to wait — under a blocking poll there is no
+        // such call, because every one waits for its own repack copy.
         let mut best_host_ms = f32::MAX;
-        for _ in 0..10 {
+        for _ in 0..20 {
+            eng.mark_layer_painted(painted);
             let start = Instant::now();
             eng.composite(&ctx, graph.layers()).expect("composite");
             best_host_ms = best_host_ms.min(start.elapsed().as_secs_f32() * 1000.0);
         }
-        eprintln!(
-            "[phototux_gpu] composite host {best_host_ms:.3} ms vs gpu {gpu_ms:.3} ms (no-wait)"
-        );
+
+        eprintln!("[phototux_gpu] painted composite host {best_host_ms:.3} ms (no-wait)");
+        // Measured on Arc B580 / Mesa 26.1: 0.57 ms non-blocking against 1.94 ms
+        // with a waiting repack poll, both stable to ±0.01 ms across runs. The
+        // threshold sits between them. A slower GPU widens the gap rather than
+        // narrowing it — the passing case is host-bound, the failing one is not.
         assert!(
-            best_host_ms < gpu_ms.max(0.2),
-            "composite blocked the caller: host {best_host_ms:.3} ms >= gpu {gpu_ms:.3} ms"
+            best_host_ms < 1.2,
+            "composite blocked the caller: host {best_host_ms:.3} ms (expected ~0.6 ms; \
+             ~1.9 ms means a repack poll is waiting on GPU completion)"
         );
     }
 

@@ -248,8 +248,9 @@ Zero-copy present shares one Vulkan device **and one queue** between the rendere
 
 Consequences that are normative, not incidental:
 
-- The interactive composite path **MUST NOT** wait for GPU completion. Host waits on this path are a latency bug, not a safety measure, and 28 forbids them on the UI thread.
+- The interactive composite path **MUST NOT** wait for GPU completion. Host waits on this path are a latency bug, not a safety measure, and 28 forbids them on the UI thread. This covers **every** submission the path makes, not only the composite pass: preparatory work such as array repacking is on the same queue and inherits the same ordering guarantee, so it needs no wait either. Rebuilding a bind group after such a submission writes host-side descriptors and does not read pixels, so it does not justify one.
 - Non-blocking polling is still required so completed submissions retire and asynchronous readbacks progress.
+- The regression test for this rule **MUST** exercise the path a stroke takes, not an idle canvas. A composite with no layer marked painted skips array repacking entirely, so a guard built on it cannot observe a wait hiding there. It **MUST** also run at a document size where the wait is separable from the work, and compare the fastest call rather than the mean — sustained submission hits backpressure, at which point wall time converges to GPU throughput regardless of whether the host waits.
 - CPU-side queue access still needs external synchronization, because a Vulkan queue may not be submitted to concurrently from two threads. That obligation is independent of GPU ordering and **MUST NOT** be removed along with a host wait.
 - If the host frame begins before a composite submission, it presents the previous complete composite. That is the sanctioned stale-complete presentation, not a correctness failure, and is only acceptable while the view repaints continuously or is explicitly invalidated on publish.
 - Splitting the renderer and host onto different queues or devices invalidates this argument. Either arrangement requires an exported timeline semaphore before the host wait may be dropped.
