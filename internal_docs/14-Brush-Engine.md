@@ -297,6 +297,16 @@ Queues are bounded by sample count, dab count, tile jobs, provisional bytes, and
 
 User-confirmed mutation is never silently dropped. Samples already acknowledged as part of an active stroke either commit, remain represented in pending state, or produce a disclosed partial-stroke outcome at a valid segment boundary.
 
+### Presenting an in-progress stroke
+
+Stamping and presenting are separate rates. Dabs are placed by arc length, so their rate is pointer speed over spacing and has no relationship to the display; presentation is bounded by the refresh rate no matter how often it is asked for.
+
+The mid-stroke composite trigger **MUST** therefore be paced against elapsed time, not against a dab count. A count-based trigger fails in both directions from one constant: a small brush moved quickly composites several times per displayed frame, spending GPU bandwidth and shared-queue time on frames nobody sees, while a large brush moved slowly can go seconds between composites with the stroke already stamped but invisible.
+
+The pacing interval **MUST** admit the fastest display the product targets without firing twice within one frame at the slowest. Stamped dabs that arrive too close together to be paced out **MUST** still reach the canvas once the stroke goes quiet: a stroke that pauses with the pointer down produces no further samples, so a trigger that only runs on arrival would leave its last dabs stamped and unpresented until the user moves again.
+
+Stroke end **MUST NOT** composite more than once. Flushing the tail of a stroke and finalizing it are separate steps, and asking both to composite pays twice at the moment the user lifts the pen.
+
 Cancellation before first commit drops preview and provisional resources. Cancellation after committed segments stops future segments; committed segments remain one undoable partial gesture. A bounded commit cannot be interrupted after authoritative installation begins. Device removal or focus loss follows tool policy: cancel uncommitted tail, optionally retain earlier segments, and report exact result.
 
 ```mermaid

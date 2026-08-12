@@ -11,6 +11,10 @@ never shows and the user always waits for.
 
 - **The interactive composite no longer blocks on GPU completion.** `repack_array_if_needed` ended its submission with `PollType::wait_indefinitely`, and every mid-stroke composite reaches it: `stamp_dabs` marks the painted layer, which puts a dirty slice in the repack, and the early-out requires that list to be empty. Measured on Arc B580 / Mesa 26.1 at 10 layers × 4K: **1.94 ms → 0.57 ms** of host time per composite, held under the shared queue lock the Qt render thread needs.
 - DR-030 already forbade this; the wait survived because the guard test could not see it. `interactive_composite_does_not_wait_for_the_gpu` never marked a layer painted, so it only ever measured the clean path, which skips repacking altogether. The test now paints, runs at the DR-017 gate size, and compares the fastest call rather than the mean — sustained submission hits backpressure, where wall time converges to GPU throughput whether or not the host waits, and the mean stops discriminating. Verified to fail at 1.94 ms against the old behaviour and pass at 0.57 ms with the fix.
+- **Mid-stroke composites are paced against time, not dab count.** The trigger was `dabs_since_composite >= 4`; dab rate is pointer speed over spacing, so it tracked how fast you moved rather than the refresh rate. One constant failed in both directions — a size-4 brush at 1000 doc px/s asked for ~250 composites/s against 60 displayed frames, while a size-200 brush at 100 px/s went 2 s between composites with the stroke stamped but invisible. Now paced at 8 ms, which admits 120 Hz without firing twice per frame at 60 Hz. The worker waits on that gap when dabs are pending, so a stroke that pauses mid-air still lands its tail.
+- **Stroke end composited twice.** The tail flush asked for a composite and `end_stroke` composited again immediately after; the flush no longer does.
+
+---
 
 ## [prefs-missing-key-defaults] — 2026-08-12
 

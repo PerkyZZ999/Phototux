@@ -1,7 +1,8 @@
 //! Background paint worker (ADR-007).
 
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use phototux_engine::{
     BrushParams, EngineCommand, EngineEvent, LayerId, PaintTarget, StrokeBuilder, StrokeJournal,
@@ -13,9 +14,21 @@ struct WorkerState {
     layer: Option<LayerId>,
     target: Option<PaintTarget>,
     first_input_ms: Option<f64>,
-    dabs_since_composite: u32,
+    /// Dabs are stamped but not yet composited, so the canvas is behind.
+    pending_dabs: bool,
+    /// When the last composite went out, for pacing the next one.
+    last_composite: Option<Instant>,
     journal: StrokeJournal,
 }
+
+/// Shortest gap between mid-stroke composites.
+///
+/// Dab rate is pointer speed over spacing, which has nothing to do with the
+/// refresh rate: a small brush moved quickly used to composite several times
+/// per displayed frame, and a large brush moved slowly went seconds without
+/// compositing at all. Pacing on elapsed time bounds both. 8 ms covers a 120 Hz
+/// display without compositing twice for one frame at 60 Hz.
+const MIN_COMPOSITE_GAP: Duration = Duration::from_millis(8);
 
 /// Handle to enqueue paint commands from the UI thread.
 pub struct PaintWorker {
@@ -102,11 +115,30 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
         layer: None,
         target: None,
         first_input_ms: None,
-        dabs_since_composite: 0,
+        pending_dabs: false,
+        last_composite: None,
         journal: StrokeJournal::default(),
     };
 
-    while let Ok(cmd) = rx.recv() {
+    loop {
+        // Block indefinitely when nothing is owed to the canvas; wait only as
+        // long as the pacing gap when dabs are stamped but not yet shown, so a
+        // stroke that pauses still lands its last dabs.
+        let cmd = if st.pending_dabs {
+            match rx.recv_timeout(MIN_COMPOSITE_GAP) {
+                Ok(cmd) => cmd,
+                Err(RecvTimeoutError::Timeout) => {
+                    flush_pending(&mut st, &tx_ev);
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match rx.recv() {
+                Ok(cmd) => cmd,
+                Err(_) => break,
+            }
+        };
         match cmd {
             EngineCommand::Shutdown => break,
             EngineCommand::SetBrush(p) => apply_set_brush(&mut st, p),
@@ -153,7 +185,8 @@ fn handle_begin_stroke(
     st.layer = Some(layer);
     st.target = Some(target);
     st.first_input_ms = Some(t_ms);
-    st.dabs_since_composite = 0;
+    st.pending_dabs = false;
+    st.last_composite = None;
     st.journal
         .begin(layer, target, st.brush, x, y, pressure, t_ms);
     let mut builder = phototux_engine::StrokeBuilder::new(st.brush);
@@ -191,7 +224,10 @@ fn handle_end_stroke(st: &mut WorkerState, tx_ev: &Sender<EngineEvent>) {
     }
     st.stroke = None;
     if let (Some(layer), Some(target)) = (st.layer, st.target) {
-        if let Err(e) = super::document_gpu::stamp_dabs(layer, target, &[], st.brush, None, true) {
+        // Flush the tail of the stroke without compositing: `end_stroke` below
+        // composites unconditionally, so asking for one here paid for two full
+        // canvas composites at every pen-up.
+        if let Err(e) = super::document_gpu::stamp_dabs(layer, target, &[], st.brush, None, false) {
             let _ = tx_ev.send(EngineEvent::Error(e));
         }
     }
@@ -212,7 +248,8 @@ fn handle_end_stroke(st: &mut WorkerState, tx_ev: &Sender<EngineEvent>) {
     st.layer = None;
     st.target = None;
     st.first_input_ms = None;
-    st.dabs_since_composite = 0;
+    st.pending_dabs = false;
+    st.last_composite = None;
 }
 
 fn apply_dabs(
@@ -227,9 +264,10 @@ fn apply_dabs(
     let Some(target) = st.target else {
         return;
     };
-    st.dabs_since_composite += dabs.len() as u32;
-    // Coalesce: composite every few dabs for latency/FPS balance
-    let recomposite = force_composite || st.dabs_since_composite >= 4;
+    if !dabs.is_empty() {
+        st.pending_dabs = true;
+    }
+    let recomposite = force_composite || composite_is_due(st);
     let t0 = if force_composite {
         st.first_input_ms
     } else {
@@ -238,7 +276,8 @@ fn apply_dabs(
     match super::document_gpu::stamp_dabs(layer, target, dabs, st.brush, t0, recomposite) {
         Ok(ms) => {
             if recomposite {
-                st.dabs_since_composite = 0;
+                st.pending_dabs = false;
+                st.last_composite = Some(Instant::now());
                 let _ = tx_ev.send(EngineEvent::CompositeDone { ms });
                 if force_composite {
                     let lat = super::document_gpu::last_stroke_latency_ms();
@@ -247,6 +286,37 @@ fn apply_dabs(
                     }
                 }
             }
+        }
+        Err(e) => {
+            let _ = tx_ev.send(EngineEvent::Error(e));
+        }
+    }
+}
+
+/// True when stamped dabs are waiting and enough time has passed to show them.
+fn composite_is_due(st: &WorkerState) -> bool {
+    st.pending_dabs
+        && st
+            .last_composite
+            .is_none_or(|last| last.elapsed() >= MIN_COMPOSITE_GAP)
+}
+
+/// Composite dabs that arrived too recently to be paced out, once the stroke
+/// goes quiet. Without this a stroke that pauses mid-air — pointer still down,
+/// hand still — leaves its last few dabs stamped but never composited.
+fn flush_pending(st: &mut WorkerState, tx_ev: &Sender<EngineEvent>) {
+    if !st.pending_dabs {
+        return;
+    }
+    let (Some(layer), Some(target)) = (st.layer, st.target) else {
+        st.pending_dabs = false;
+        return;
+    };
+    match super::document_gpu::stamp_dabs(layer, target, &[], st.brush, None, true) {
+        Ok(ms) => {
+            st.pending_dabs = false;
+            st.last_composite = Some(Instant::now());
+            let _ = tx_ev.send(EngineEvent::CompositeDone { ms });
         }
         Err(e) => {
             let _ = tx_ev.send(EngineEvent::Error(e));
@@ -267,5 +337,56 @@ mod tests {
             .send(EngineCommand::SetBrush(BrushParams::default()))
             .expect("send");
         worker.send(EngineCommand::Shutdown).expect("shutdown");
+    }
+
+    fn paced_state(pending: bool, last_composite: Option<Instant>) -> WorkerState {
+        WorkerState {
+            brush: BrushParams::default(),
+            stroke: None,
+            layer: None,
+            target: None,
+            first_input_ms: None,
+            pending_dabs: pending,
+            last_composite,
+            journal: StrokeJournal::default(),
+        }
+    }
+
+    /// Pacing is what keeps composite rate tied to the display rather than to
+    /// how fast the pointer moves.
+    #[test]
+    fn composite_pacing_bounds_both_directions() {
+        // Nothing stamped: never composite, however long it has been.
+        let idle = paced_state(false, Some(Instant::now() - MIN_COMPOSITE_GAP * 10));
+        assert!(!composite_is_due(&idle));
+
+        // First dabs of a stroke have no previous composite to pace against.
+        let first = paced_state(true, None);
+        assert!(composite_is_due(&first));
+
+        // Dabs arriving faster than the gap wait — this is the small-brush,
+        // fast-stroke case that used to composite several times per frame.
+        let too_soon = paced_state(true, Some(Instant::now()));
+        assert!(!composite_is_due(&too_soon));
+
+        // Once the gap has passed, pending dabs go out — this is the
+        // large-brush, slow-stroke case that used to stall for seconds.
+        let due = paced_state(true, Some(Instant::now() - MIN_COMPOSITE_GAP * 2));
+        assert!(composite_is_due(&due));
+    }
+
+    /// The gap has to admit a 120 Hz frame without firing twice for one frame
+    /// at 60 Hz, or the pacing trades one failure mode for the other.
+    #[test]
+    fn composite_gap_sits_between_common_refresh_rates() {
+        let gap = MIN_COMPOSITE_GAP.as_secs_f32() * 1000.0;
+        assert!(
+            gap <= 1000.0 / 120.0,
+            "gap {gap} ms starves a 120 Hz display"
+        );
+        assert!(
+            gap > 1000.0 / 240.0,
+            "gap {gap} ms paces faster than any display"
+        );
     }
 }
