@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 use phototux_engine::{DockTopology, WorkspaceState};
 
 /// User preferences persisted under `$XDG_CONFIG_HOME/phototux/preferences.json`.
+///
+/// The container `#[serde(default)]` resolves every missing key against
+/// [`Preferences::default`], which is the *product* default. A **field-level**
+/// `#[serde(default)]` overrides that with the field type's default, so it
+/// belongs only on fields where empty is a load-bearing sentinel — the maps and
+/// JSON strings whose emptiness drives migration or backfill in
+/// [`Preferences::migrate_panel_visibility`] and [`Preferences::load_dock_topology`].
+///
+/// Putting one on an ordinary preference silently reads a missing key as
+/// `false`, which is indistinguishable from the user having turned the thing
+/// off. Each remaining field-level attribute below says which sentinel it
+/// protects.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
@@ -19,42 +31,49 @@ pub struct Preferences {
     pub restore_last_tool: bool,
     pub last_tool: String,
     /// Legacy bools (schema ≤2); migrated into [`Self::panel_visibility`] on load.
-    #[serde(default)]
+    ///
+    /// These carry no sentinel: a missing key means the file predates or omits
+    /// them, not that the user hid the panel, so they follow the product
+    /// default like any other preference.
     pub panel_navigator: bool,
-    #[serde(default)]
     pub panel_swatches: bool,
-    #[serde(default)]
     pub panel_layers: bool,
-    #[serde(default)]
     pub panel_history: bool,
-    #[serde(default)]
     pub panel_properties: bool,
     /// Panel descriptor id → visible (schema 3+).
+    ///
+    /// Sentinel: empty means "no schema 3+ map present", which is what triggers
+    /// migration from the legacy bools above.
     #[serde(default)]
     pub panel_visibility: BTreeMap<String, bool>,
     /// Serialized [`DockTopology`] JSON (schema 3+).
+    ///
+    /// Sentinel: empty means "use the essentials topology".
     #[serde(default)]
     pub dock_topology_json: String,
     /// Last explicitly saved layout snapshot (visibility + dock JSON object).
+    ///
+    /// Sentinel: empty means the user has never saved a layout.
     #[serde(default)]
     pub last_saved_workspace_json: String,
     /// User-named workspace presets JSON array ([`phototux_engine::WorkspacePreset`]).
+    ///
+    /// Sentinel: empty is normalized to `[]` on load.
     #[serde(default)]
     pub user_workspace_presets_json: String,
     /// Persisted brush preset library JSON (schema 4+).
+    ///
+    /// Sentinel: empty is backfilled with the shipped library on load.
     #[serde(default)]
     pub brush_presets_json: String,
     /// UI density: `dense` | `comfortable`.
     #[serde(default = "default_ui_density")]
     pub ui_density: String,
     /// High-contrast chrome preference.
-    #[serde(default)]
     pub high_contrast: bool,
     /// Reduced-motion preference.
-    #[serde(default)]
     pub reduced_motion: bool,
     /// When true, next load applies safe-start chrome (essentials layout, no custom keymap restore).
-    #[serde(default)]
     pub safe_start_next: bool,
     /// Max undo timeline entries retained (handbook B9 / P7).
     #[serde(default = "default_history_retention")]
@@ -65,6 +84,9 @@ pub struct Preferences {
     ///
     /// Presentation state only: handbook 28 requires expansion state to persist
     /// as workspace state and never as document state.
+    ///
+    /// Sentinel: the map is sparse by contract — an absent key means the group
+    /// still follows its descriptor default, so empty must stay empty.
     #[serde(default)]
     pub disclosure_open: BTreeMap<String, bool>,
     pub schema_version: u32,
@@ -371,6 +393,63 @@ mod tests {
         p.migrate_panel_visibility();
         assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
         assert_eq!(p.schema_version, 7);
+    }
+
+    /// A file carrying neither the legacy bools nor a `panel_visibility` map
+    /// must still start with the essentials panels visible. Before the
+    /// field-level `#[serde(default)]` came off those bools they resolved to
+    /// `false`, migration filled the map from them, and the whole right dock
+    /// came up blank.
+    #[test]
+    fn sparse_file_keeps_product_panel_defaults() {
+        let mut p: Preferences = serde_json::from_str(r#"{"schema_version": 7}"#).expect("de");
+        assert!(p.panel_navigator, "legacy bool fell back to false");
+        assert!(p.panel_properties, "legacy bool fell back to false");
+        p.migrate_panel_visibility();
+        for id in [
+            "panel.navigator",
+            "panel.swatches",
+            "panel.layers",
+            "panel.history",
+            "panel.properties",
+        ] {
+            assert_eq!(
+                p.panel_visibility.get(id),
+                Some(&true),
+                "{id} hidden by a missing key"
+            );
+        }
+    }
+
+    /// The map's emptiness is the migration trigger, so it must keep resolving
+    /// to empty rather than to the product default.
+    #[test]
+    fn legacy_file_still_migrates_its_own_choices() {
+        let mut p: Preferences = serde_json::from_str(
+            r#"{"schema_version": 2, "panel_navigator": false, "panel_history": false}"#,
+        )
+        .expect("de");
+        assert!(
+            p.panel_visibility.is_empty(),
+            "an absent map must stay empty or migration is skipped"
+        );
+        p.migrate_panel_visibility();
+        assert_eq!(p.panel_visibility.get("panel.navigator"), Some(&false));
+        assert_eq!(p.panel_visibility.get("panel.history"), Some(&false));
+        assert_eq!(p.panel_visibility.get("panel.layers"), Some(&true));
+    }
+
+    /// The other sentinels resolve to empty so their backfills still run.
+    #[test]
+    fn sparse_file_preserves_backfill_sentinels() {
+        let mut p: Preferences = serde_json::from_str(r#"{"schema_version": 7}"#).expect("de");
+        assert!(p.brush_presets_json.is_empty());
+        assert!(p.user_workspace_presets_json.is_empty());
+        assert!(p.dock_topology_json.is_empty());
+        assert!(p.disclosure_open.is_empty());
+        p.migrate_panel_visibility();
+        assert!(!p.brush_presets_json.is_empty(), "shipped library backfill");
+        assert_eq!(p.user_workspace_presets_json, "[]");
     }
 
     #[test]

@@ -2,6 +2,23 @@
 
 All notable decision milestones and project state changes.
 
+## [prefs-missing-key-defaults] — 2026-08-12
+
+### Fixes
+
+- **A preferences file missing the legacy panel keys started with every right-dock panel hidden.** `Preferences` carries a container-level `#[serde(default)]`, which resolves missing keys against the product default — but the five legacy `panel_*` bools each also carried a *field-level* `#[serde(default)]`, and the field-level attribute wins. Those resolved to `false`, `migrate_panel_visibility()` then filled `panel_visibility` from them, and the shell came up with a blank dock. The redundant attributes are removed, so an absent key now means "not recorded" rather than "the user hid it".
+- Same removal on `high_contrast`, `reduced_motion`, and `safe_start_next`, where the two defaults already agreed. This is a no-op by itself, and it is what makes the remaining attributes legible: every field-level `#[serde(default)]` left on the struct now marks a field whose emptiness is a **load-bearing sentinel** — `panel_visibility` (triggers migration), `dock_topology_json`, `brush_presets_json`, `user_workspace_presets_json`, `last_saved_workspace_json` (trigger backfill or normalization), and `disclosure_open` (sparse by contract). Each says so in its doc comment.
+
+Not reachable from any file the app itself writes, since those always serialize `panel_visibility`. Found by hand-authoring a minimal file for a screenshot harness.
+
+### Tests
+
+- `sparse_file_keeps_product_panel_defaults` deserializes `{"schema_version": 7}` and asserts the essentials panels survive migration; verified to fail against the old attributes.
+- `legacy_file_still_migrates_its_own_choices` pins the other half — an absent `panel_visibility` must keep resolving to empty, or a genuine schema-2 file would skip migration and lose the user's recorded choices.
+- `sparse_file_preserves_backfill_sentinels` covers the remaining sentinel fields.
+
+---
+
 ## [inspector-badges-and-visual-pass] — 2026-08-12
 
 Closes the loose ends left by `[inspector-disclosure]`, and gives the density work its first

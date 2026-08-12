@@ -247,6 +247,10 @@ Categories do not mirror crates. Search indexes name, description, category path
 
 Built-in defaults are explicit data versioned by `DefaultsVersion`. A release may change untouched defaults. User overrides retain intent across upgrades. Stores record overrides/tombstones, not a copied complete default set.
 
+**A missing key resolves to the product default, not to the value type's zero.** These differ, and the difference is not cosmetic: for a visibility flag the type's zero means *hidden*, which is indistinguishable from the user having turned the thing off. A store **MUST NOT** let an absent key present itself as a deliberate negative choice.
+
+Where a field's empty or zero value is instead a **sentinel** — a state the loader detects to trigger migration, backfill, or normalization — the store **MUST** resolve that field to the sentinel rather than to the product default, or the step it guards silently stops running. Each such field **MUST** document which sentinel it protects, because the two rules above want opposite behavior from the same mechanism and nothing in the type signature distinguishes them.
+
 Reset scopes:
 
 - reset one setting at selected scope;
@@ -342,6 +346,8 @@ Migration rules:
 - removed setting may remain opaque for downgrade only when harmless;
 - invalid independent values can fall back individually;
 - invalid structural envelope quarantines whole source;
+- a legacy key superseded by a newer structure keeps the product default when absent, so a file predating the key does not migrate as though every flag were off;
+- the newer structure's emptiness stays the migration trigger, so a file that genuinely predates it still migrates its own recorded choices;
 - extension migration runs in bounded declarative host transformation or isolated extension process, never under store lock;
 - migration failure leaves old file intact and loads safe defaults/compatible values.
 
