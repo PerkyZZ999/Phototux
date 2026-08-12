@@ -76,13 +76,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=QMAKE");
     println!("cargo:rerun-if-changed=qml-aot/CMakeLists.txt");
     println!("cargo:rerun-if-changed=qml-aot/phototux_qml_anchor.cpp");
-    println!("cargo:rerun-if-changed=../../qml/Main.qml");
-    println!("cargo:rerun-if-changed=../../qml/NewDocumentDialog.qml");
-    println!("cargo:rerun-if-changed=../../qml/WelcomeDialog.qml");
-    println!("cargo:rerun-if-changed=../../qml/Theme.qml");
-    println!("cargo:rerun-if-changed=../../qml/PanelHeaderControls.qml");
-    println!("cargo:rerun-if-changed=../../qml/ThemedIcon.qml");
-    println!("cargo:rerun-if-changed=../../qml/ChromeIconToolButton.qml");
+    // Watch the directory, not a name list: a per-file list silently stops
+    // rebuilding whenever a component is added, so edits to it ship stale.
+    println!("cargo:rerun-if-changed=../../qml");
     println!("cargo:rerun-if-changed=../../assets/icons/phosphor/regular");
     println!("cargo:rerun-if-changed=../../assets/logo-ui.png");
 
