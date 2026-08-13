@@ -2,6 +2,14 @@
 
 All notable decision milestones and project state changes.
 
+## [repaint-regression-fix] — 2026-08-12
+
+### Fixes
+
+- **Undo and redo of a brush stroke left the canvas unchanged.** Making repaint demand-driven tied it to a composite-generation counter, but only two of seventeen composite paths raised it — the rest, including stroke undo and redo, composited and published a time without ever asking the canvas to repaint. History moved, the document changed, and the screen did not. Every path now records through one call that does both, so the two halves cannot be separated again.
+
+Found by driving the running app: the Edit menu showed Undo greyed and Redo enabled, proving the command had executed while the pixels were untouched.
+
 ## [familiar-shell-1] — 2026-08-12
 
 Shell alignment with the conventions raster-editor users already have, so the

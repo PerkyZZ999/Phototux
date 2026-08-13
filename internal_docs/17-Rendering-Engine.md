@@ -265,6 +265,8 @@ Care is required where the repaint callback is also the point at which new conte
 
 An animated presentation value — a marching-ants phase, a progress shimmer — **MUST** only animate while something samples it. Writing such a value unconditionally repaints for a result no shader reads. Bindings on children of an invisible item still evaluate, so gating the parent's visibility alone does not stop the work.
 
+Where repaint is driven by a content signal, **every** path that composites **MUST** raise it, not only the paths that were in mind when the signal was introduced. Publishing a composite time and invalidating the view are two halves of one act, and they **MUST** be recorded through a single call — a codebase with many composite call sites will otherwise grow one that reports timing without repainting, and the symptom is a canvas that silently ignores an operation the rest of the app believes succeeded.
+
 ### Bounding a composite to what changed
 
 Re-blending the whole canvas for a brush dab is the dominant steady-state cost of painting, and it scales with document size and layer count while the change does not. A composite **SHOULD** re-blend only the region invalidated since the last one.

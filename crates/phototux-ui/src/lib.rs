@@ -603,7 +603,7 @@ impl AppSession {
         }
         self.engine.replace_graph(graph);
         self.engine.document_path = Some(path.display().to_string());
-        self.engine.set_composite_ms(ms);
+        self.record_composite(ms);
         self.document_name = title;
         self.dirty = true;
         self.io_busy = false;
@@ -1294,7 +1294,7 @@ impl AppSession {
             Ok(ms) => {
                 self.engine.size = snap.size;
                 self.engine.graph = Some(snap.graph);
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 self.engine.transform_session = None;
                 self.crop_preview_active = false;
             }
@@ -1403,17 +1403,28 @@ impl AppSession {
             serde_json::to_string(&resolved).unwrap_or_else(|_| "{}".to_owned());
     }
 
-    /// Recompute the header badges a collapsed inspector group would hide.
+    /// Record a completed composite: publish its time and repaint the canvas.
     ///
-    /// Handbook 28 requires the badge to be available while the group's body
-    /// does not exist, so it is derived here from host state rather than from
-    /// the widgets that would otherwise own the invalid value.
+    /// Both halves belong together. Repaint is driven by the generation
+    /// counter, so a path that composites and reports the time without bumping
+    /// it produces work the user never sees — which is exactly what happened to
+    /// stroke undo once the canvas stopped repainting every frame.
+    fn record_composite(&mut self, ms: f32) {
+        self.engine.set_composite_ms(ms);
+        self.bump_composite_generation();
+    }
+
     /// A new composite has been published; ask the canvas to repaint.
     fn bump_composite_generation(&mut self) {
         self.composite_generation = self.composite_generation.wrapping_add(1);
         self.composite_generation_changed();
     }
 
+    /// Recompute the header badges a collapsed inspector group would hide.
+    ///
+    /// Handbook 28 requires the badge to be available while the group's body
+    /// does not exist, so it is derived here from host state rather than from
+    /// the widgets that would otherwise own the invalid value.
     fn refresh_inspector_badges(&mut self) {
         let state = phototux_engine::InspectorState {
             adjustment_kind: &self.adjustment_kind,
@@ -1941,11 +1952,11 @@ impl AppSession {
     fn apply_host_history(&mut self, action: HostHistoryAction) {
         match action {
             HostHistoryAction::Undo(HistoryKind::Stroke) => match phototux_canvas::undo_stroke() {
-                Ok(ms) => self.engine.set_composite_ms(ms),
+                Ok(ms) => self.record_composite(ms),
                 Err(error) => self.report_gpu("stroke undo", &error),
             },
             HostHistoryAction::Redo(HistoryKind::Stroke) => match phototux_canvas::redo_stroke() {
-                Ok(ms) => self.engine.set_composite_ms(ms),
+                Ok(ms) => self.record_composite(ms),
                 Err(error) => self.report_gpu("stroke redo", &error),
             },
             HostHistoryAction::Undo(HistoryKind::Selection) => {
@@ -2083,7 +2094,7 @@ impl AppSession {
         self.crop_preview_active = false;
         match phototux_canvas::open_document(size, &layers) {
             Ok(ms) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 self.publish_pixel_snapshot_from_gpu();
             }
             Err(e) => self.report_gpu("open_document GPU", &e),
@@ -2176,7 +2187,7 @@ impl AppSession {
             let layers = graph.layers().to_vec();
             match phototux_canvas::recover_gpu_document(size, &layers, &parked.layer_pixels) {
                 Ok(ms) => {
-                    self.engine.set_composite_ms(ms);
+                    self.record_composite(ms);
                     self.publish_pixel_snapshot_from_gpu();
                 }
                 Err(error) => self.report_gpu("activate document GPU", &error),
@@ -3380,7 +3391,7 @@ impl AppSession {
                 self.gpu_lost = false;
                 self.gpu_lost_changed();
                 self.refresh_inspector_badges();
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 let gen_after = self
                     .engine
                     .graph
@@ -4417,7 +4428,7 @@ impl AppSession {
         ) {
             Ok(ms) => {
                 self.engine.replace_graph(graph);
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 self.document_name = layer_name;
                 self.dirty = false;
                 self.io_busy = false;
@@ -4452,7 +4463,7 @@ impl AppSession {
             return;
         };
         self.engine.replace_graph(graph);
-        self.engine.set_composite_ms(ms);
+        self.record_composite(ms);
         self.document_name = title;
         self.dirty = true;
         self.io_busy = false;
@@ -6920,7 +6931,7 @@ impl AppSession {
             .unwrap_or_default();
         match phototux_canvas::bake_layer_transform(session.layer_id, session.draft, &layers) {
             Ok(ms) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 let _ = self.invoke_command(command_id::RASTER_TRANSFORM_COMMIT, CommandArgs::None);
             }
             Err(error) => {
@@ -6984,7 +6995,7 @@ impl AppSession {
             .unwrap_or_default();
         match phototux_canvas::crop_document(rect, &layers) {
             Ok((new_size, ms)) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 self.crop_preview_active = false;
                 self.clear_selection_stacks();
                 let _ = self.invoke_command(
@@ -7019,7 +7030,7 @@ impl AppSession {
             .unwrap_or_default();
         match phototux_canvas::flip_layer(id, horizontal, &layers) {
             Ok(ms) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 let _ = self.invoke_command(
                     command_id::RASTER_FLIP,
                     CommandArgs::RasterFlip { horizontal },
@@ -7043,7 +7054,7 @@ impl AppSession {
             .unwrap_or_default();
         match phototux_canvas::rotate_canvas_90_cw(&layers) {
             Ok((_new_size, ms)) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 self.clear_selection_stacks();
                 let _ = self.invoke_command(command_id::DOCUMENT_ROTATE_90, CommandArgs::None);
             }
@@ -7078,7 +7089,7 @@ impl AppSession {
         let use_selection = self.engine.selection.active;
         match phototux_canvas::fill_layer(id, fg, &layers, use_selection) {
             Ok(ms) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 let _ = self.invoke_command(command_id::RASTER_FILL, CommandArgs::None);
             }
             Err(error) => self.report_gpu("fill", &error),
@@ -7112,7 +7123,7 @@ impl AppSession {
             use_selection,
         ) {
             Ok(ms) => {
-                self.engine.set_composite_ms(ms);
+                self.record_composite(ms);
                 let _ = self.invoke_command(command_id::RASTER_GRADIENT, CommandArgs::None);
             }
             Err(error) => self.report_gpu("gradient", &error),
