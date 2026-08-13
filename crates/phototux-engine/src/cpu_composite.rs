@@ -86,10 +86,41 @@ fn blend_channel(mode: BlendMode, b: f32, s: f32) -> f32 {
         }
         BlendMode::Darken => b.min(s),
         BlendMode::Lighten => b.max(s),
+        BlendMode::ColorDodge => {
+            if s >= 1.0 {
+                1.0
+            } else {
+                (b / (1.0 - s)).min(1.0)
+            }
+        }
+        BlendMode::ColorBurn => {
+            if s <= 0.0 {
+                0.0
+            } else {
+                1.0 - ((1.0 - b) / s).min(1.0)
+            }
+        }
+        BlendMode::HardLight => {
+            if s < 0.5 {
+                2.0 * b * s
+            } else {
+                1.0 - 2.0 * (1.0 - b) * (1.0 - s)
+            }
+        }
+        // Matches the shader's cheap approximation rather than the W3C
+        // formulation, because parity with what the canvas draws is the point.
+        BlendMode::SoftLight => (1.0 - 2.0 * s) * b * b + 2.0 * s * b,
         BlendMode::Difference => (b - s).abs(),
         BlendMode::Exclusion => b + s - 2.0 * b * s,
-        // Remaining modes: Normal (reference subset; expand later).
-        _ => s,
+        // Hue/Saturation/Color/Luminosity are separable-channel impossible and
+        // the shader falls back to the source too; PassThrough is Normal in a
+        // flat stack.
+        BlendMode::Normal
+        | BlendMode::Hue
+        | BlendMode::Saturation
+        | BlendMode::Color
+        | BlendMode::Luminosity
+        | BlendMode::PassThrough => s,
     }
 }
 
@@ -209,5 +240,56 @@ mod tests {
         )
         .expect("composite");
         assert_eq!(&out[..], &[10, 20, 30, 255]);
+    }
+
+    /// Colour dodge brightens and colour burn darkens. Both were absent from
+    /// the CPU reference (it fell through to `_ => s`), and the shader had the
+    /// arms of its `select` reversed, so dodge returned white for every source
+    /// below 1.0 and burn returned black for every source above 0.0.
+    #[test]
+    fn dodge_brightens_and_burn_darkens() {
+        let mid = 0.5;
+        assert!(
+            blend_channel(BlendMode::ColorDodge, mid, 0.5) > mid,
+            "dodge must brighten the backdrop"
+        );
+        assert!(
+            blend_channel(BlendMode::ColorBurn, mid, 0.5) < mid,
+            "burn must darken the backdrop"
+        );
+    }
+
+    #[test]
+    fn dodge_and_burn_saturate_at_their_limits() {
+        assert!((blend_channel(BlendMode::ColorDodge, 0.5, 1.0) - 1.0).abs() < 1e-6);
+        assert!((blend_channel(BlendMode::ColorBurn, 0.5, 0.0) - 0.0).abs() < 1e-6);
+    }
+
+    /// Hard light is overlay with the operands swapped.
+    #[test]
+    fn hard_light_mirrors_overlay() {
+        for step in 0..=10 {
+            let v = step as f32 / 10.0;
+            let hard = blend_channel(BlendMode::HardLight, 0.3, v);
+            let overlay = blend_channel(BlendMode::Overlay, v, 0.3);
+            assert!((hard - overlay).abs() < 1e-6, "at {v}: {hard} vs {overlay}");
+        }
+    }
+
+    /// Every mode must stay in range; a formula that escapes 0..1 shows up as
+    /// clipped or wrapped pixels rather than as an error.
+    #[test]
+    fn every_blend_mode_stays_in_range() {
+        for mode in BlendMode::ALL {
+            for bs in 0..=10 {
+                for ss in 0..=10 {
+                    let out = blend_channel(mode, bs as f32 / 10.0, ss as f32 / 10.0);
+                    assert!(
+                        (-1e-6..=1.0 + 1e-6).contains(&out),
+                        "{mode:?} produced {out}"
+                    );
+                }
+            }
+        }
     }
 }

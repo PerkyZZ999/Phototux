@@ -101,8 +101,25 @@ pub fn checker_rgba(width: u32, height: u32, cell: u32, a: [u8; 4], b: [u8; 4]) 
 }
 
 /// Blend modes covered by CPU reference + GPU shader (parity set).
-pub const PARITY_BLEND_MODES: &[BlendMode] =
-    &[BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen];
+/// Every mode both the CPU reference and the shader genuinely implement.
+///
+/// Hue/Saturation/Color/Luminosity are excluded because neither side computes
+/// them — both fall back to the source — so listing them would assert agreement
+/// on a shared shortcut rather than on a blend.
+pub const PARITY_BLEND_MODES: &[BlendMode] = &[
+    BlendMode::Normal,
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::SoftLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+];
 
 /// CPU blend fixture: bottom solid + top solid with `mode`.
 ///

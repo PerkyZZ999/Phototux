@@ -84,10 +84,12 @@ fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
         case 4u: { return min(b, o); } // darken
         case 5u: { return max(b, o); } // lighten
         case 6u: { // color dodge
-            return select(vec3<f32>(1.0), min(vec3<f32>(1.0), b / max(vec3<f32>(1.0) - o, vec3<f32>(1e-5))), o >= vec3<f32>(1.0));
+            // select(f, t, cond) returns t when cond holds: saturate only where
+            // the source is already 1.0, and divide everywhere else.
+            return select(min(vec3<f32>(1.0), b / max(vec3<f32>(1.0) - o, vec3<f32>(1e-5))), vec3<f32>(1.0), o >= vec3<f32>(1.0));
         }
         case 7u: { // color burn
-            return select(vec3<f32>(0.0), vec3<f32>(1.0) - min(vec3<f32>(1.0), (vec3<f32>(1.0) - b) / max(o, vec3<f32>(1e-5))), o <= vec3<f32>(0.0));
+            return select(vec3<f32>(1.0) - min(vec3<f32>(1.0), (vec3<f32>(1.0) - b) / max(o, vec3<f32>(1e-5))), vec3<f32>(0.0), o <= vec3<f32>(0.0));
         }
         case 8u: { // hard light
             let low = 2.0 * b * o;

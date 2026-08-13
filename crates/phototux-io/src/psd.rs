@@ -3,7 +3,9 @@
 use std::io::{Cursor, Read};
 use std::path::Path;
 
-use phototux_engine::{BlendMode, DocumentGraph, DocumentSize, LayerId, MAX_LAYERS};
+use phototux_engine::{
+    BlendMode, CpuLayerRef, DocumentGraph, DocumentSize, LayerId, MAX_LAYERS, composite_rgba8,
+};
 use thiserror::Error;
 
 use crate::{MAX_DIMENSION, Raster, RasterIoError};
@@ -864,32 +866,21 @@ fn composite_layers_rgba(
     width: u32,
     height: u32,
 ) -> Vec<u8> {
-    let n = (width as usize) * (height as usize);
-    let mut acc = vec![0_u8; n * 4];
-    for (_name, opacity, _blend, raster) in layers {
-        let op = opacity.clamp(0.0, 1.0);
-        let src = raster.pixels();
-        for i in 0..n {
-            let si = i * 4;
-            let sa = (f32::from(src[si + 3]) / 255.0) * op;
-            if sa <= 0.0 {
-                continue;
-            }
-            let da = f32::from(acc[si + 3]) / 255.0;
-            let out_a = sa + da * (1.0 - sa);
-            if out_a <= 0.0 {
-                continue;
-            }
-            for c in 0..3 {
-                let s = f32::from(src[si + c]) / 255.0;
-                let d = f32::from(acc[si + c]) / 255.0;
-                let out = (s * sa + d * da * (1.0 - sa)) / out_a;
-                acc[si + c] = (out * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-            acc[si + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
-    }
-    acc
+    // Delegate to the engine's reference compositor rather than keeping a third
+    // implementation here. The loop this replaced bound the blend mode as
+    // `_blend` and ignored it, so every layer flattened as Normal and a PSD
+    // export silently lost Multiply, Screen and Overlay.
+    let refs: Vec<CpuLayerRef<'_>> = layers
+        .iter()
+        .map(|(_name, opacity, blend, raster)| CpuLayerRef {
+            visible: true,
+            opacity: *opacity,
+            blend: *blend,
+            rgba: raster.pixels(),
+        })
+        .collect();
+    composite_rgba8(width, height, &refs)
+        .unwrap_or_else(|_| vec![0_u8; (width as usize) * (height as usize) * 4])
 }
 
 fn write_pascal_name(out: &mut Vec<u8>, name: &str) -> Result<(), PsdError> {
@@ -1084,5 +1075,57 @@ mod tests {
         bytes.extend_from_slice(&2u16.to_be_bytes()); // ZIP
         let err = import_psd_bytes(&bytes, None).expect_err("zip");
         assert!(matches!(err, PsdError::UnsupportedCompression));
+    }
+
+    /// PSD flatten used its own compositor that bound the blend mode as
+    /// `_blend` and dropped it, so every layer flattened as Normal. Multiply of
+    /// mid grey over mid grey is 0.25, not 0.5 — the two are far enough apart
+    /// that rounding cannot hide the difference.
+    #[test]
+    fn flatten_honours_layer_blend_modes() {
+        let grey =
+            |v: u8| Raster::new(1, 1, vec![v, v, v, 255].into_boxed_slice()).expect("1x1 raster");
+        let normal = composite_layers_rgba(
+            &[
+                ("base".into(), 1.0, BlendMode::Normal, grey(128)),
+                ("top".into(), 1.0, BlendMode::Normal, grey(128)),
+            ],
+            1,
+            1,
+        );
+        let multiply = composite_layers_rgba(
+            &[
+                ("base".into(), 1.0, BlendMode::Normal, grey(128)),
+                ("top".into(), 1.0, BlendMode::Multiply, grey(128)),
+            ],
+            1,
+            1,
+        );
+
+        assert_eq!(normal[0], 128, "normal over normal keeps the value");
+        assert!(
+            multiply[0] < 80,
+            "multiply must darken; got {} (blend mode was dropped)",
+            multiply[0]
+        );
+    }
+
+    #[test]
+    fn flatten_respects_layer_opacity() {
+        let white = Raster::new(1, 1, vec![255, 255, 255, 255].into_boxed_slice()).expect("raster");
+        let black = Raster::new(1, 1, vec![0, 0, 0, 255].into_boxed_slice()).expect("raster");
+        let out = composite_layers_rgba(
+            &[
+                ("base".into(), 1.0, BlendMode::Normal, black),
+                ("top".into(), 0.5, BlendMode::Normal, white),
+            ],
+            1,
+            1,
+        );
+        assert!(
+            (100..=155).contains(&out[0]),
+            "half-opacity white over black should land mid-grey, got {}",
+            out[0]
+        );
     }
 }
