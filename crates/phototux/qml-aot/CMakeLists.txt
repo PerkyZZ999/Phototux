@@ -63,10 +63,12 @@ set(ICON_NAMES
     gradient
     hand
     image-square
+    intersect
     info
     lasso
     magnifying-glass
     minus
+    minus-circle
     minus-square
     monitor
     paint-brush
@@ -77,6 +79,7 @@ set(ICON_NAMES
     question
     rectangle-dashed
     selection
+    selection-plus
     shapes
     text-t
     trash

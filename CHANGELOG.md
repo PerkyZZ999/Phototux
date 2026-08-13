@@ -9,8 +9,15 @@ app stops asking them to relearn placement. Familiar *conventions* only —
 handbook 28 rules out proprietary branding and menu naming, and the KDE-native
 visual tokens stay.
 
+### Shell
+
+- **A tool options bar sits under the main toolbar** ([`ToolOptionsBar.qml`](qml/ToolOptionsBar.qml)), carrying the active tool's constantly-adjusted parameters: brush size/hardness/texture, selection combine mode, fill colour, font and size, crop extent, rotation and constrain, zoom with Fit and 100%. Handbook 06 has specified this as a SHOULD since it was written and the gap analysis tracked it as open; tool options previously lived only in the right dock, two surfaces away from the gesture that needs them.
+- It is disclosure **level 1** and never collapses. Content is chosen by presence — an absent control means the parameter does not apply to the active tool. Options scroll rather than disappear on a narrow window, and Apply/Cancel for an uncommitted crop or transform sit outside the scrolling region so they cannot be scrolled out of reach.
+- Both surfaces edit through the same session slots, so the options bar and the inspector cannot drift.
+
 ### Fixes
 
+- **Three selection-mode icons were never embedded.** `selection-plus`, `minus-circle` and `intersect` are referenced by the Properties selection buttons but were absent from the AOT resource list, so those buttons have been rendering blank.
 - **Shape and Path Edit were unreachable.** `set_active_tool` validates against a list of known ids that omitted both, so clicking either on the shelf silently activated the Brush — the shelf highlighted one tool while another was active. 2 of 17 tools.
 
 ### Input

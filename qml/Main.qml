@@ -1136,10 +1136,17 @@ ApplicationWindow {
     }
 
     // —— Top chrome ——
-    header: Rectangle {
+    // Two stacked bars: the operation toolbar, then the active tool's options.
+    // Handbook 06 keeps these distinct — the first is document-scoped and
+    // constant, the second changes with the tool and is disclosure level 1.
+    header: ColumnLayout {
+        spacing: 0
+
+    Rectangle {
         id: mainToolBar
+        Layout.fillWidth: true
+        Layout.preferredHeight: Theme.toolbarHeight
         implicitHeight: Theme.toolbarHeight
-        height: Theme.toolbarHeight
         color: Theme.surface
         Accessible.role: Accessible.ToolBar
         Accessible.name: qsTr("Main toolbar")
@@ -1252,6 +1259,15 @@ ApplicationWindow {
                 Accessible.name: ToolTip.text
             }
         }
+    }
+
+    ToolOptionsBar {
+        Layout.fillWidth: true
+        Layout.preferredHeight: Theme.toolbarHeight
+        // Presence, not disclosure: with no document there is no tool context
+        // to describe, so the bar is absent rather than empty.
+        visible: AppSession.hasDocument
+    }
     }
 
     footer: Rectangle {

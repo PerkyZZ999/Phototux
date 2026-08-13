@@ -495,6 +495,18 @@ Groups at level 3 and above **MUST** default to collapsed; levels 1–2 carry th
 
 Every registered group **MUST** declare a collapsed summary. A summary names the parameter a user is most likely to check before deciding to expand, so a collapsed group still carries information scent ([28 — UX Guidelines](28-UX-Guidelines.md#disclosure-group-header)).
 
+### Where a Parameter Lives
+
+Level 1 and level 2 are different surfaces, not different amounts of the same surface. A parameter reached *during* a gesture — brush size mid-stroke, selection combine mode before a drag, the commit control for an uncommitted crop — belongs on the tool options bar, always visible and never collapsible. Everything else belongs in the inspector's disclosure groups.
+
+The options bar **MUST NOT** become a second inspector. Its test is whether reaching the parameter interrupts the gesture that needs it; a parameter set once per session does not qualify however useful it is.
+
+Overlap between the two surfaces is permitted where a parameter genuinely qualifies for both, provided both edit through the same host operations so neither can drift ([06 — Toolbar System](06-Toolbar-System.md)).
+
+Options-bar content is chosen by **presence**, not disclosure: an absent control means the parameter does not apply to the active tool. Nothing on this bar collapses, so an empty region is a statement about the tool, not about the user's last click.
+
+A control whose absence would strand the user **MUST NOT** live in an overflow region. Commit and cancel for an uncommitted operation are the clear case: they stay outside any scrolling area, because a narrow window scrolling them out of reach leaves the document in a state the user cannot resolve from the surface that created it.
+
 ### Inspector Badge Rules
 
 Header badges are **derived from host state, never from the group's widgets**. The rules are a pure function of an inspector state snapshot, so a badge is computed identically whether or not the body exists, and each rule is testable without a running shell.
