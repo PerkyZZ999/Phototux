@@ -15,7 +15,7 @@ use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph,
     DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide,
-    GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, LayerId, LayerKind,
+    GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
     LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionRect, SelectionShape,
     SelectionState, SessionState, ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent,
     TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id, contract_mask_r8,
@@ -1306,6 +1306,61 @@ impl AppSession {
             self.selection_undo.remove(0);
         }
         self.selection_redo.clear();
+    }
+
+    /// Run a GPU selection edit with its undo snapshot taken first.
+    ///
+    /// The snapshot reads the GPU mask and `engine.selection` as they are
+    /// *now*, so it has to be taken before the edit overwrites either. Every
+    /// call site used to restate that ordering, and one of them —
+    /// `apply_mask_to_selection_host` — had it inverted, so its snapshot
+    /// captured the post-edit state and Ctrl+Z was a no-op. Taking it here
+    /// makes the order a property of the operation instead.
+    ///
+    /// Returns whether the edit succeeded, so the caller can decide whether to
+    /// record a command.
+    fn commit_selection_edit<F>(&mut self, label: &str, run: F) -> bool
+    where
+        F: FnOnce() -> Result<(), String>,
+    {
+        self.push_selection_snapshot();
+        match run() {
+            Ok(()) => true,
+            Err(error) => {
+                self.report_gpu(label, &error);
+                false
+            }
+        }
+    }
+
+    /// Run a GPU layer edit: snapshot, hand the op current layer metadata, then
+    /// publish the composite time and the repaint together.
+    ///
+    /// The tail is the part that kept getting dropped — T-025 was a composite
+    /// that published its time without asking the canvas to repaint. `run`
+    /// receives the layer metadata the GPU needs and returns its own result
+    /// plus the measured composite milliseconds.
+    fn commit_layer_edit<T, F>(&mut self, label: &str, run: F) -> Option<T>
+    where
+        F: FnOnce(&[Layer]) -> Result<(T, f32), String>,
+    {
+        self.push_transform_snapshot();
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        match run(&layers) {
+            Ok((value, ms)) => {
+                self.record_composite(ms);
+                Some(value)
+            }
+            Err(error) => {
+                self.report_gpu(label, &error);
+                None
+            }
+        }
     }
 
     fn restore_selection_snapshot(&mut self, snap: SelectionSnapshot) {
@@ -5001,15 +5056,11 @@ impl AppSession {
             width: width as u32,
             height: height as u32,
         };
-        self.push_selection_snapshot();
-        let gpu_result = match shape {
+        self.commit_selection_edit("selection apply", || match shape {
             SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
             SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
             SelectionShape::Mask => Ok(()),
-        };
-        if let Err(error) = gpu_result {
-            self.report_gpu("selection apply", &error);
-        }
+        });
         self.selection_preview_active = false;
         self.clear_selection_path();
         let _ = self.invoke_command(
@@ -5101,10 +5152,9 @@ impl AppSession {
             self.clear_selection_path();
             return;
         }
-        self.push_selection_snapshot();
-        if let Err(error) = phototux_canvas::selection_apply_polygon(&parsed, mode) {
-            self.report_gpu("polygon selection", &error);
-        }
+        self.commit_selection_edit("polygon selection", || {
+            phototux_canvas::selection_apply_polygon(&parsed, mode)
+        });
         self.selection_preview_active = false;
         self.clear_selection_path();
         let label = if self.engine.active_tool.contains("lasso") {
@@ -5146,10 +5196,7 @@ impl AppSession {
         {
             return;
         }
-        self.push_selection_snapshot();
-        if let Err(error) = phototux_canvas::selection_clear() {
-            self.report_gpu("deselect", &error);
-        }
+        self.commit_selection_edit("deselect", phototux_canvas::selection_clear);
         self.selection_preview_active = false;
         self.clear_selection_path();
         let _ = self.invoke_command(command_id::SELECTION_DESELECT, CommandArgs::None);
@@ -5160,10 +5207,7 @@ impl AppSession {
         if !self.engine.has_document {
             return;
         }
-        self.push_selection_snapshot();
-        if let Err(error) = phototux_canvas::selection_select_all() {
-            self.report_gpu("select all", &error);
-        }
+        self.commit_selection_edit("select all", phototux_canvas::selection_select_all);
         self.selection_preview_active = false;
         let _ = self.invoke_command(command_id::SELECTION_SELECT_ALL, CommandArgs::None);
     }
@@ -5173,10 +5217,7 @@ impl AppSession {
         if !self.engine.has_document {
             return;
         }
-        self.push_selection_snapshot();
-        if let Err(error) = phototux_canvas::selection_invert() {
-            self.report_gpu("invert selection", &error);
-        }
+        self.commit_selection_edit("invert selection", phototux_canvas::selection_invert);
         self.selection_preview_active = false;
         let _ = self.invoke_command(command_id::SELECTION_INVERT, CommandArgs::None);
     }
@@ -6053,9 +6094,9 @@ impl AppSession {
         };
         match next {
             Ok(bytes) => {
-                self.push_selection_snapshot();
-                if let Err(error) = phototux_canvas::selection_restore(&bytes) {
-                    self.report_gpu("modify selection", &error);
+                if !self.commit_selection_edit("modify selection", || {
+                    phototux_canvas::selection_restore(&bytes)
+                }) {
                     return;
                 }
                 let _ = self.invoke_command(
@@ -6374,8 +6415,9 @@ impl AppSession {
                 return;
             }
         };
-        if let Err(error) = phototux_canvas::selection_restore(&r8) {
-            self.report_gpu("mask to selection", &error);
+        if !self.commit_selection_edit("mask to selection", || {
+            phototux_canvas::selection_restore(&r8)
+        }) {
             return;
         }
         let bounds = phototux_engine::SelectionRect {
@@ -6388,7 +6430,6 @@ impl AppSession {
             .selection
             .set_mask_polygon(bounds, phototux_engine::SelectionCombine::Replace);
         self.engine.announce("Layer mask copied to pixel selection");
-        self.push_selection_snapshot();
         self.sync_selection_fields();
         self.emit_selection_fields();
         self.status_text = self.engine.status_summary();
@@ -6863,21 +6904,14 @@ impl AppSession {
             self.emit_transform_fields();
             return;
         }
-        self.push_transform_snapshot();
-        let layers = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| g.layers().to_vec())
-            .unwrap_or_default();
-        match phototux_canvas::bake_layer_transform(session.layer_id, session.draft, &layers) {
-            Ok(ms) => {
-                self.record_composite(ms);
-                let _ = self.invoke_command(command_id::RASTER_TRANSFORM_COMMIT, CommandArgs::None);
-            }
-            Err(error) => {
-                self.report_gpu("transform bake", &error);
-            }
+        if self
+            .commit_layer_edit("transform bake", |layers| {
+                phototux_canvas::bake_layer_transform(session.layer_id, session.draft, layers)
+                    .map(|ms| ((), ms))
+            })
+            .is_some()
+        {
+            let _ = self.invoke_command(command_id::RASTER_TRANSFORM_COMMIT, CommandArgs::None);
         }
         self.emit_transform_fields();
     }
@@ -6921,33 +6955,25 @@ impl AppSession {
             width: width as u32,
             height: height as u32,
         };
-        self.push_transform_snapshot();
-        let layers = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| {
-                let mut layers = g.layers().to_vec();
-                for layer in &mut layers {
-                    layer.transform = LayerTransform::identity();
-                }
-                layers
-            })
-            .unwrap_or_default();
-        match phototux_canvas::crop_document(rect, &layers) {
-            Ok((new_size, ms)) => {
-                self.record_composite(ms);
-                self.crop_preview_active = false;
-                self.clear_selection_stacks();
-                let _ = self.invoke_command(
-                    command_id::DOCUMENT_CROP,
-                    CommandArgs::DocumentCrop {
-                        width: new_size.width,
-                        height: new_size.height,
-                    },
-                );
+        // Crop bakes into untransformed pixels, so the copies it hands the GPU
+        // are flattened first.
+        let cropped = self.commit_layer_edit("crop", |layers| {
+            let mut flat = layers.to_vec();
+            for layer in &mut flat {
+                layer.transform = LayerTransform::identity();
             }
-            Err(error) => self.report_gpu("crop", &error),
+            phototux_canvas::crop_document(rect, &flat)
+        });
+        if let Some(new_size) = cropped {
+            self.crop_preview_active = false;
+            self.clear_selection_stacks();
+            let _ = self.invoke_command(
+                command_id::DOCUMENT_CROP,
+                CommandArgs::DocumentCrop {
+                    width: new_size.width,
+                    height: new_size.height,
+                },
+            );
         }
     }
 
@@ -6962,22 +6988,16 @@ impl AppSession {
         let Some(id) = self.active_id() else {
             return;
         };
-        self.push_transform_snapshot();
-        let layers = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| g.layers().to_vec())
-            .unwrap_or_default();
-        match phototux_canvas::flip_layer(id, horizontal, &layers) {
-            Ok(ms) => {
-                self.record_composite(ms);
-                let _ = self.invoke_command(
-                    command_id::RASTER_FLIP,
-                    CommandArgs::RasterFlip { horizontal },
-                );
-            }
-            Err(error) => self.report_gpu("flip", &error),
+        if self
+            .commit_layer_edit("flip", |layers| {
+                phototux_canvas::flip_layer(id, horizontal, layers).map(|ms| ((), ms))
+            })
+            .is_some()
+        {
+            let _ = self.invoke_command(
+                command_id::RASTER_FLIP,
+                CommandArgs::RasterFlip { horizontal },
+            );
         }
     }
 
@@ -6986,20 +7006,12 @@ impl AppSession {
         if !self.engine.has_document {
             return;
         }
-        self.push_transform_snapshot();
-        let layers = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| g.layers().to_vec())
-            .unwrap_or_default();
-        match phototux_canvas::rotate_canvas_90_cw(&layers) {
-            Ok((_new_size, ms)) => {
-                self.record_composite(ms);
-                self.clear_selection_stacks();
-                let _ = self.invoke_command(command_id::DOCUMENT_ROTATE_90, CommandArgs::None);
-            }
-            Err(error) => self.report_gpu("rotate canvas", &error),
+        if self
+            .commit_layer_edit("rotate canvas", phototux_canvas::rotate_canvas_90_cw)
+            .is_some()
+        {
+            self.clear_selection_stacks();
+            let _ = self.invoke_command(command_id::DOCUMENT_ROTATE_90, CommandArgs::None);
         }
     }
 
@@ -7020,20 +7032,14 @@ impl AppSession {
             return;
         };
         let fg = self.engine.colors.foreground;
-        self.push_transform_snapshot();
-        let layers = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| g.layers().to_vec())
-            .unwrap_or_default();
         let use_selection = self.engine.selection.active;
-        match phototux_canvas::fill_layer(id, fg, &layers, use_selection) {
-            Ok(ms) => {
-                self.record_composite(ms);
-                let _ = self.invoke_command(command_id::RASTER_FILL, CommandArgs::None);
-            }
-            Err(error) => self.report_gpu("fill", &error),
+        if self
+            .commit_layer_edit("fill", |layers| {
+                phototux_canvas::fill_layer(id, fg, layers, use_selection).map(|ms| ((), ms))
+            })
+            .is_some()
+        {
+            let _ = self.invoke_command(command_id::RASTER_FILL, CommandArgs::None);
         }
     }
 
@@ -7046,28 +7052,23 @@ impl AppSession {
         };
         let c0 = self.engine.colors.foreground;
         let c1 = self.engine.colors.background;
-        self.push_transform_snapshot();
-        let layers = self
-            .engine
-            .graph
-            .as_ref()
-            .map(|g| g.layers().to_vec())
-            .unwrap_or_default();
         let use_selection = self.engine.selection.active;
-        match phototux_canvas::apply_linear_gradient(
-            id,
-            [x0, y0],
-            [x1, y1],
-            c0,
-            c1,
-            &layers,
-            use_selection,
-        ) {
-            Ok(ms) => {
-                self.record_composite(ms);
-                let _ = self.invoke_command(command_id::RASTER_GRADIENT, CommandArgs::None);
-            }
-            Err(error) => self.report_gpu("gradient", &error),
+        if self
+            .commit_layer_edit("gradient", |layers| {
+                phototux_canvas::apply_linear_gradient(
+                    id,
+                    [x0, y0],
+                    [x1, y1],
+                    c0,
+                    c1,
+                    layers,
+                    use_selection,
+                )
+                .map(|ms| ((), ms))
+            })
+            .is_some()
+        {
+            let _ = self.invoke_command(command_id::RASTER_GRADIENT, CommandArgs::None);
         }
     }
 
