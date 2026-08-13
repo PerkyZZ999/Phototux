@@ -34,7 +34,7 @@ One-time: `./scripts/install-git-hooks.sh`. Host packages, crate map, and the re
 
 1. Before architecture, UX, or crate-boundary work, read the relevant handbook chapter and the Decision Register. Pick product slices from the [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
 2. Extend [`internal_docs/`](internal_docs/README.md). Do not add a second tree under `/docs/` (archive is history).
-3. After non-trivial Rust, `rust-tc quick` must pass. Add engine tests for engine logic you touch. Commit only when asked. Before finishing substantial work, `rust-tc doctor`.
+3. After non-trivial Rust, `rust-tc quick` must pass. Add engine tests for engine logic you touch. Commit at your own judgement, whenever the work reaches a sensible commit point. Before finishing substantial work, `rust-tc doctor`.
 
 Cargo workspace: directories kebab-case, packages `phototux_*`. Ownership: Developer Guide [Rust Workspace Boundaries](internal_docs/32-Developer-Guide.md#rust-workspace-boundaries) and [DR-025](internal_docs/Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace).
 
@@ -87,7 +87,7 @@ Clippy cognitive-complexity threshold is **30**; Sonar `S3776` is **15**. Split 
 
 Performance budgets: [DR-017](internal_docs/Appendix/Decision-Register.md#dr-017--performance-budgets-provisional) (former ADR-008). Headless core tests: [DR-022](internal_docs/Appendix/Decision-Register.md#dr-022--headless-testability-of-core). GPU tests (device present): `cargo test -p phototux_gpu --features gpu-tests`. GUI edge cases: [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md).
 
-Commits: atomic, conventional-ish (`feat:`, `fix:`, `docs:`, `chore:`). Reference DRs when changing architecture. Do not commit secrets, `target/`, or `.sonar/`.
+Commits: atomic, conventional-ish (`feat:`, `fix:`, `docs:`, `chore:`). Reference DRs when changing architecture. Do not commit secrets, `target/`, or `.sonar/`. Commit a coherent unit of work once it builds and its checks pass — not a half-applied change, and not a snapshot of whatever is in the tree. When one investigation yields two separate concerns, split them.
 
 **Cursor** loads this file plus path-scoped `.cursor/rules/*.mdc` and nested `AGENTS.md`. **Claude Code** loads root `CLAUDE.md` (imports this file), path-scoped `.claude/rules/`, nested `CLAUDE.md`, and `.claude/settings.json`. Do not copy this constitution into those files.
 
