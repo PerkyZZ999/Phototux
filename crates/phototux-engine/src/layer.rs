@@ -171,6 +171,53 @@ impl LayerMask {
         self.density = self.density.clamp(0.0, 1.0);
         self.feather = self.feather.max(0.0);
     }
+
+    /// Coverage this mask yields for one stored sample, in `0.0..=1.0`.
+    ///
+    /// This is the single definition of mask semantics. The order — invert,
+    /// then contrast/shift refine, then density — is what the composite shader
+    /// applies, and it matters: refining after density would fold the density
+    /// floor into the contrast pivot. Baking the mask into pixels previously
+    /// open-coded its own version that applied invert and density but dropped
+    /// contrast and shift entirely, so Apply Layer Mask produced pixels that
+    /// did not match the canvas the user was looking at.
+    ///
+    /// `feather` is deliberately not applied here: it is a neighbourhood
+    /// operation over the whole mask, not a per-sample one, and it is currently
+    /// unwired on both sides. See the gap analysis rather than assuming this
+    /// function forgot it.
+    #[must_use]
+    pub fn coverage(&self, sample: f32) -> f32 {
+        let mut m = sample.clamp(0.0, 1.0);
+        if self.inverted {
+            m = 1.0 - m;
+        }
+        let contrast = self.contrast.clamp(-1.0, 1.0);
+        let shift = self.shift.clamp(-1.0, 1.0);
+        m = ((m - 0.5) * (1.0 + contrast) + 0.5 + shift).clamp(0.0, 1.0);
+        let density = self.density.clamp(0.0, 1.0);
+        1.0 - density * (1.0 - m)
+    }
+
+    /// Multiply an RGBA8 buffer's alpha by this mask's coverage, in place.
+    ///
+    /// `mask_r8` carries one coverage byte per pixel, so it must be exactly a
+    /// quarter of `rgba`'s length; a mismatch means the caller paired a mask
+    /// with the wrong layer and is reported rather than silently truncated.
+    ///
+    /// # Errors
+    /// Returns the mismatched lengths when the buffers do not correspond.
+    pub fn bake_into_rgba8(&self, rgba: &mut [u8], mask_r8: &[u8]) -> Result<(), (usize, usize)> {
+        if mask_r8.len() * 4 != rgba.len() {
+            return Err((rgba.len(), mask_r8.len()));
+        }
+        for (px, &m) in rgba.chunks_exact_mut(4).zip(mask_r8.iter()) {
+            let coverage = self.coverage(f32::from(m) / 255.0);
+            let alpha = (f32::from(px[3]) / 255.0) * coverage;
+            px[3] = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        Ok(())
+    }
 }
 
 /// Lock flags for professional layer workflow.
@@ -789,5 +836,90 @@ mod tests {
         layer.locks.all = true;
         assert!(layer.position_blocked());
         assert!(layer.paint_blocked());
+    }
+
+    /// The shader applies invert, then contrast/shift, then density. Baking
+    /// dropped the middle step, so a mask with contrast or shift baked to
+    /// different pixels than the canvas showed.
+    #[test]
+    fn coverage_applies_refine_between_invert_and_density() {
+        let mask = LayerMask {
+            contrast: 0.5,
+            ..LayerMask::default()
+        };
+        // Refine pivots on 0.5, so the midpoint is a fixed point ...
+        assert!((mask.coverage(0.5) - 0.5).abs() < 1e-6);
+        // ... while everything else is pushed away from it.
+        assert!(mask.coverage(0.75) > 0.75);
+        assert!(mask.coverage(0.25) < 0.25);
+    }
+
+    #[test]
+    fn coverage_shift_raises_every_sample() {
+        let plain = LayerMask::default();
+        let shifted = LayerMask {
+            shift: 0.25,
+            ..LayerMask::default()
+        };
+        for step in 0..=10 {
+            let sample = step as f32 / 10.0;
+            assert!(
+                shifted.coverage(sample) >= plain.coverage(sample),
+                "shift must not lower coverage at {sample}"
+            );
+        }
+    }
+
+    #[test]
+    fn coverage_inverts_before_refining() {
+        let mask = LayerMask {
+            inverted: true,
+            ..LayerMask::default()
+        };
+        assert!((mask.coverage(1.0) - 0.0).abs() < 1e-6);
+        assert!((mask.coverage(0.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zero_density_yields_full_coverage_whatever_the_sample() {
+        let mask = LayerMask {
+            density: 0.0,
+            ..LayerMask::default()
+        };
+        for step in 0..=10 {
+            assert!((mask.coverage(step as f32 / 10.0) - 1.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn coverage_stays_in_range_across_extremes() {
+        for &contrast in &[-1.0, 0.0, 1.0] {
+            for &shift in &[-1.0, 0.0, 1.0] {
+                for &density in &[0.0, 0.5, 1.0] {
+                    let mask = LayerMask {
+                        contrast,
+                        shift,
+                        density,
+                        ..LayerMask::default()
+                    };
+                    for step in 0..=20 {
+                        let c = mask.coverage(step as f32 / 20.0);
+                        assert!((0.0..=1.0).contains(&c), "coverage {c} out of range");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bake_multiplies_alpha_and_rejects_mismatched_buffers() {
+        let mask = LayerMask::default();
+        let mut rgba = vec![255u8; 8];
+        mask.bake_into_rgba8(&mut rgba, &[255, 0]).expect("bake");
+        assert_eq!(rgba[3], 255, "full coverage keeps alpha");
+        assert_eq!(rgba[7], 0, "zero coverage clears alpha");
+
+        let mut short = vec![255u8; 8];
+        assert!(mask.bake_into_rgba8(&mut short, &[255]).is_err());
     }
 }

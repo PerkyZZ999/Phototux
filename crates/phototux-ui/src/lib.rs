@@ -6367,19 +6367,12 @@ impl AppSession {
                 return;
             }
         };
-        if r8.len() * 4 != rgba.len() {
+        // One definition of mask semantics, shared with the composite shader.
+        // The copy that used to live here dropped contrast and shift, so baking
+        // produced pixels that did not match the canvas.
+        if mask_meta.bake_into_rgba8(&mut rgba, &r8).is_err() {
             self.report_gpu("apply mask", "mask/layer size mismatch");
             return;
-        }
-        let density = mask_meta.density.clamp(0.0, 1.0);
-        for (px, &m) in rgba.chunks_exact_mut(4).zip(r8.iter()) {
-            let mut mf = m as f32 / 255.0;
-            if mask_meta.inverted {
-                mf = 1.0 - mf;
-            }
-            mf = 1.0 - density * (1.0 - mf);
-            let a = (px[3] as f32 / 255.0) * mf;
-            px[3] = (a * 255.0).round().clamp(0.0, 255.0) as u8;
         }
         if let Err(error) = phototux_canvas::write_layer_rgba(id, &rgba) {
             self.report_gpu("apply mask", &error);
