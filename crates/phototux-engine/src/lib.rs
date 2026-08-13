@@ -26,6 +26,7 @@ mod layer;
 mod layer_style;
 mod paths;
 mod selection;
+mod shape_bake;
 mod shape_boolean;
 mod shell;
 mod snapshot_publish;
@@ -92,6 +93,7 @@ pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
     contract_mask_r8, expand_mask_r8, feather_mask_r8,
 };
+pub use shape_bake::{rasterize_shape_content, rgba_f32_to_u8};
 pub use shape_boolean::{BooleanOp, boolean_rgba8};
 pub use shell::{
     AdjustmentParamRange, DisclosureBadge, DisclosureGroupDescriptor, InspectorState,

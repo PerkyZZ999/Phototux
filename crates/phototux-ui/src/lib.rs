@@ -19,8 +19,8 @@ use phototux_engine::{
     LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionRect, SelectionShape,
     SelectionState, SessionState, ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent,
     TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id, contract_mask_r8,
-    ellipse_path, expand_mask_r8, feather_mask_r8, fill_gradient_even_odd, polygon_path,
-    rasterize_shape_rgba8, rect_path, stroke_path_rgba8, tool_id,
+    ellipse_path, expand_mask_r8, feather_mask_r8, polygon_path, rect_path, stroke_path_rgba8,
+    tool_id,
 };
 use prefs::Preferences;
 
@@ -5829,7 +5829,7 @@ impl AppSession {
                 let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) else {
                     return;
                 };
-                match Self::shape_pixels(&content, doc_w, doc_h) {
+                match phototux_engine::rasterize_shape_content(&content, doc_w, doc_h) {
                     Ok(pixels) => {
                         if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
                             self.report_gpu("shape upload", &error);
@@ -5845,82 +5845,6 @@ impl AppSession {
             }
             Err(error) => self.report_gpu("add shape", &error.to_string()),
         }
-    }
-
-    fn shape_pixels(content: &ShapeContent, w: u32, h: u32) -> Result<Vec<u8>, String> {
-        let stroke = content.stroked.then(|| {
-            [
-                (content.stroke_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (content.stroke_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (content.stroke_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (content.stroke_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-            ]
-        });
-        let mut base = if let Some(grad) = content.gradient.as_ref() {
-            let pixels = (w as usize)
-                .checked_mul(h as usize)
-                .and_then(|n| n.checked_mul(4))
-                .ok_or_else(|| "dimensions overflow".to_owned())?;
-            let mut out = vec![0_u8; pixels];
-            if content.filled {
-                let c0 = [
-                    (grad.c0_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (grad.c0_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (grad.c0_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (grad.c0_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-                ];
-                let c1 = [
-                    (grad.c1_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (grad.c1_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (grad.c1_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (grad.c1_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-                ];
-                fill_gradient_even_odd(
-                    &mut out,
-                    w,
-                    h,
-                    &content.path,
-                    grad.x0,
-                    grad.y0,
-                    grad.x1,
-                    grad.y1,
-                    c0,
-                    c1,
-                );
-            }
-            if let Some(stroke) = stroke {
-                let stroked = stroke_path_rgba8(w, h, &content.path, stroke, content.stroke_width)?;
-                for (d, s) in out.chunks_exact_mut(4).zip(stroked.chunks_exact(4)) {
-                    if s[3] > 0 {
-                        d.copy_from_slice(s);
-                    }
-                }
-            }
-            out
-        } else {
-            let fill = content.filled.then(|| {
-                [
-                    (content.fill_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (content.fill_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (content.fill_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (content.fill_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-                ]
-            });
-            rasterize_shape_rgba8(w, h, &content.path, fill, stroke, content.stroke_width)?
-        };
-        if let Some(partner) = content.boolean_partner.as_ref() {
-            let op = phototux_engine::BooleanOp::parse(&partner.op)
-                .unwrap_or(phototux_engine::BooleanOp::Union);
-            let fill_b = [
-                (partner.fill_rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (partner.fill_rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (partner.fill_rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (partner.fill_rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-            ];
-            let b = rasterize_shape_rgba8(w, h, &partner.path, Some(fill_b), None, 0.0)?;
-            base = phototux_engine::boolean_rgba8(&base, &b, op)?;
-        }
-        Ok(base)
     }
 
     fn apply_shape_boolean_host(
@@ -5956,18 +5880,18 @@ impl AppSession {
                 layer.shape = Some(preserved.clone());
             }
         }
-        let combined = match Self::shape_pixels(&preserved, w, h) {
+        let combined = match phototux_engine::rasterize_shape_content(&preserved, w, h) {
             Ok(p) => p,
             Err(_error) => {
                 // Fallback: pure raster boolean bake.
-                let pixels_a = match Self::shape_pixels(&content_a, w, h) {
+                let pixels_a = match phototux_engine::rasterize_shape_content(&content_a, w, h) {
                     Ok(p) => p,
                     Err(e) => {
                         self.report_gpu("shape boolean", &e);
                         return;
                     }
                 };
-                let pixels_b = match Self::shape_pixels(&content_b, w, h) {
+                let pixels_b = match phototux_engine::rasterize_shape_content(&content_b, w, h) {
                     Ok(p) => p,
                     Err(e) => {
                         self.report_gpu("shape boolean", &e);
@@ -6013,7 +5937,7 @@ impl AppSession {
             return;
         };
         let (w, h) = (graph.size.width, graph.size.height);
-        let pixels = match Self::shape_pixels(&content, w, h) {
+        let pixels = match phototux_engine::rasterize_shape_content(&content, w, h) {
             Ok(p) => p,
             Err(error) => {
                 self.report_gpu("shape path upload", &error);
@@ -6048,7 +5972,7 @@ impl AppSession {
             return;
         };
         let (w, h) = (graph.size.width, graph.size.height);
-        let pixels = match Self::shape_pixels(&content, w, h) {
+        let pixels = match phototux_engine::rasterize_shape_content(&content, w, h) {
             Ok(p) => p,
             Err(error) => {
                 self.report_gpu("rasterize shape", &error);
