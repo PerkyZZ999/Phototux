@@ -26,6 +26,7 @@ mod host_request;
 mod layer;
 mod layer_style;
 mod paths;
+mod render_plan;
 mod selection;
 mod shape_bake;
 mod shape_boolean;
@@ -91,6 +92,7 @@ pub use paths::{
     PathDocument, PathPoint, VectorPath, ellipse_path, fill_gradient_even_odd, polygon_path,
     rasterize_shape_rgba8, rect_path, stroke_path_rgba8,
 };
+pub use render_plan::{ColorOverlayPlan, LayerRenderPlan, ShadowPlan, StrokePlan};
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
     contract_mask_r8, expand_mask_r8, feather_mask_r8,
