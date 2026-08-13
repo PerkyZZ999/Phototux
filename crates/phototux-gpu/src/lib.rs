@@ -9,6 +9,7 @@ mod filters;
 mod layer_mask;
 mod mask_stamp;
 mod parity;
+mod pass;
 mod pass_timer;
 mod selection;
 mod transform_bake;

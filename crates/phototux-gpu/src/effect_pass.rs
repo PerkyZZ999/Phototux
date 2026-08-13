@@ -1,11 +1,13 @@
 //! Fullscreen GPU passes for wave-2 filters and layer styles (Phase 4 close-out).
 
+use crate::pass::{FULLSCREEN_VS, make_render_target};
 use bytemuck::{Pod, Zeroable};
 
 use crate::GpuContext;
 use crate::blur::SeparableBlur;
 
-const EFFECT_WGSL: &str = r#"
+/// Fragment stage only; the shared vertex stage is prepended at build time.
+const EFFECT_WGSL_FS: &str = r#"
 struct EffectUniforms {
     mode: u32,
     p0: f32,
@@ -21,20 +23,6 @@ struct EffectUniforms {
 @group(0) @binding(2) var under_tex: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> u: EffectUniforms;
 
-struct VsOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-    var out: VsOut;
-    let x = f32(i32(vi & 1u) * 4 - 1);
-    let y = f32(i32(vi >> 1u) * 4 - 1);
-    out.pos = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    return out;
-}
 
 fn over(dst: vec4<f32>, src: vec4<f32>) -> vec4<f32> {
     let a = src.a + dst.a * (1.0 - src.a);
@@ -237,7 +225,7 @@ impl EffectPass {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("effect-wgsl"),
-                source: wgpu::ShaderSource::Wgsl(EFFECT_WGSL.into()),
+                source: wgpu::ShaderSource::Wgsl(format!("{FULLSCREEN_VS}{EFFECT_WGSL_FS}").into()),
             });
         let pipeline_layout = ctx
             .device
@@ -293,9 +281,27 @@ impl EffectPass {
             bind_layout,
             sampler,
             uniform_buf,
-            scratch_a: make_rt(ctx, width, height, "effect-a"),
-            scratch_b: make_rt(ctx, width, height, "effect-b"),
-            scratch_c: make_rt(ctx, width, height, "effect-c"),
+            scratch_a: make_render_target(
+                ctx,
+                width,
+                height,
+                wgpu::TextureFormat::Rgba8Unorm,
+                "effect-a",
+            ),
+            scratch_b: make_render_target(
+                ctx,
+                width,
+                height,
+                wgpu::TextureFormat::Rgba8Unorm,
+                "effect-b",
+            ),
+            scratch_c: make_render_target(
+                ctx,
+                width,
+                height,
+                wgpu::TextureFormat::Rgba8Unorm,
+                "effect-c",
+            ),
             black: ctx.create_cleared_texture(width, height, [0.0, 0.0, 0.0, 0.0]),
         }
     }
@@ -799,24 +805,4 @@ impl LayerPackPlan {
         }
         plan
     }
-}
-
-fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
-    ctx.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_DST
-            | wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
 }

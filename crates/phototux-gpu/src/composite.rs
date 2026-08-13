@@ -3,6 +3,7 @@
 //! Single full-screen pass samples up to [`MAX_LAYERS`] layer textures and
 //! blends bottom→top in the fragment shader (avoids 10 serial full-frame RT passes).
 
+use crate::pass::{FULLSCREEN_VS, make_render_target};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -20,7 +21,8 @@ use crate::pass_timer::PassTimer;
 use crate::transform_bake::inverse_affine_coeffs;
 use crate::{GpuContext, TextureTransferError};
 
-const BLEND_WGSL: &str = r#"
+/// Fragment stage only; the shared vertex stage is prepended at build time.
+const BLEND_WGSL_FS: &str = r#"
 struct LayerParams {
     opacity: f32,
     mode: u32,
@@ -57,20 +59,6 @@ struct Uniforms {
 @group(0) @binding(2) var masks_tex: texture_2d_array<f32>;
 @group(0) @binding(3) var<uniform> u: Uniforms;
 
-struct VsOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-    var out: VsOut;
-    let x = f32(i32(vi & 1u) * 4 - 1);
-    let y = f32(i32(vi >> 1u) * 4 - 1);
-    out.pos = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    return out;
-}
 
 fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
     switch mode {
@@ -352,7 +340,7 @@ impl LayerCompositeEngine {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("composite-wgsl"),
-                source: wgpu::ShaderSource::Wgsl(BLEND_WGSL.into()),
+                source: wgpu::ShaderSource::Wgsl(format!("{FULLSCREEN_VS}{BLEND_WGSL_FS}").into()),
             });
 
         let pipeline_layout = ctx
@@ -442,7 +430,13 @@ impl LayerCompositeEngine {
 
         let mask_white = make_r8_filled(ctx, width, height, 255, "mask-white");
 
-        let result = make_rt(ctx, width, height, "comp-result");
+        let result = make_render_target(
+            ctx,
+            width,
+            height,
+            wgpu::TextureFormat::Rgba8Unorm,
+            "comp-result",
+        );
 
         Self {
             width,
@@ -1347,7 +1341,13 @@ impl LayerCompositeEngine {
     /// GPU copy of a layer texture (for stroke undo).
     pub fn clone_layer_texture(&self, ctx: &GpuContext, id: LayerId) -> Option<wgpu::Texture> {
         let src = self.layer_tex.get(&id)?;
-        let dst = make_rt(ctx, self.width, self.height, "layer-undo-bak");
+        let dst = make_render_target(
+            ctx,
+            self.width,
+            self.height,
+            wgpu::TextureFormat::Rgba8Unorm,
+            "layer-undo-bak",
+        );
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1554,26 +1554,6 @@ fn rgba_byte_len(width: u32, height: u32) -> Result<usize, TextureTransferError>
         .and_then(|pixels| pixels.checked_mul(4))
         .and_then(|bytes| usize::try_from(bytes).ok())
         .ok_or(TextureTransferError::DimensionOverflow)
-}
-
-fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
-    ctx.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_SRC
-            | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    })
 }
 
 fn make_r8_empty(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {

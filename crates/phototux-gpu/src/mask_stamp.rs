@@ -1,12 +1,14 @@
 //! Grayscale dab stamps onto R8 layer masks.
 
+use crate::pass::{FULLSCREEN_VS, plan_dab_batch};
 use bytemuck::{Pod, Zeroable};
 use phototux_engine::{BrushParams, Dab};
 
 use crate::GpuContext;
 use crate::brush::StampRequest;
 
-const MASK_STAMP_WGSL: &str = r#"
+/// Fragment stage only; the shared vertex stage is prepended at build time.
+const MASK_STAMP_WGSL_FS: &str = r#"
 struct Uniforms {
     center: vec2<f32>,
     radius: f32,
@@ -19,20 +21,6 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-struct VsOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-    var out: VsOut;
-    let x = f32(i32(vi & 1u) * 4 - 1);
-    let y = f32(i32(vi >> 1u) * 4 - 1);
-    out.pos = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    return out;
-}
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
@@ -91,7 +79,9 @@ impl MaskStamper {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("mask-stamp-wgsl"),
-                source: wgpu::ShaderSource::Wgsl(MASK_STAMP_WGSL.into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    format!("{FULLSCREEN_VS}{MASK_STAMP_WGSL_FS}").into(),
+                ),
             });
         let pl = ctx
             .device
@@ -185,18 +175,7 @@ impl MaskStamper {
         if requests.is_empty() {
             return;
         }
-        // Same shape as BrushStamper::stamp_batch: bound each dab to the region
-        // it can touch, and record the batch as one pass.
-        let drawable: Vec<(usize, StampRequest, crate::brush::PixelRect)> = requests
-            .iter()
-            .copied()
-            .filter_map(|req| {
-                crate::brush::dab_scissor(req.x, req.y, req.radius_px, self.width, self.height)
-                    .map(|rect| (req, rect))
-            })
-            .enumerate()
-            .map(|(index, (req, rect))| (index, req, rect))
-            .collect();
+        let drawable = plan_dab_batch(requests, self.width, self.height);
         if drawable.is_empty() {
             return;
         }
@@ -204,9 +183,9 @@ impl MaskStamper {
         self.ensure_uniform_slots(ctx, drawable.len());
         let binds: Vec<wgpu::BindGroup> = drawable
             .iter()
-            .map(|&(index, req, _)| {
-                let uniforms = self.uniforms_for(req);
-                let ubo = &self.uniform_bufs[index];
+            .map(|dab| {
+                let uniforms = self.uniforms_for(dab.request);
+                let ubo = &self.uniform_bufs[dab.slot];
                 ctx.queue
                     .write_buffer(ubo, 0, bytemuck::bytes_of(&uniforms));
                 ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -244,8 +223,13 @@ impl MaskStamper {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
-            for (&(_, _, rect), bind) in drawable.iter().zip(binds.iter()) {
-                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+            for (dab, bind) in drawable.iter().zip(binds.iter()) {
+                pass.set_scissor_rect(
+                    dab.scissor.x,
+                    dab.scissor.y,
+                    dab.scissor.width,
+                    dab.scissor.height,
+                );
                 pass.set_bind_group(0, bind, &[]);
                 pass.draw(0..3, 0..1);
             }

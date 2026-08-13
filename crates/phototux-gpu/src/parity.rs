@@ -302,7 +302,7 @@ mod gpu_tests {
     }
 
     #[test]
-    fn gpu_cpu_blend_parity_normal_multiply_screen() {
+    fn gpu_cpu_blend_parity_across_every_shared_mode() {
         for &mode in PARITY_BLEND_MODES {
             let (cpu, gpu) = gpu_blend(mode).expect("gpu blend");
             assert_rgba8_within(&cpu, &gpu, 2.0, 1.0)

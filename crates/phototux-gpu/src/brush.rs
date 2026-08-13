@@ -1,11 +1,13 @@
 //! GPU circular dab stamps onto a layer texture.
 
+use crate::pass::{FULLSCREEN_VS, plan_dab_batch};
 use bytemuck::{Pod, Zeroable};
 use phototux_engine::{BrushParams, BrushTextureKind, Dab};
 
 use crate::GpuContext;
 
-const STAMP_WGSL: &str = r#"
+/// Fragment stage only; the shared vertex stage is prepended at build time.
+const STAMP_WGSL_FS: &str = r#"
 struct Uniforms {
     center: vec2<f32>,
     radius: f32,
@@ -24,20 +26,6 @@ fn tip_noise(p: vec2<f32>) -> f32 {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-struct VsOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-    var out: VsOut;
-    let x = f32(i32(vi & 1u) * 4 - 1);
-    let y = f32(i32(vi >> 1u) * 4 - 1);
-    out.pos = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    return out;
-}
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
@@ -128,7 +116,7 @@ impl BrushStamper {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("stamp-wgsl"),
-                source: wgpu::ShaderSource::Wgsl(STAMP_WGSL.into()),
+                source: wgpu::ShaderSource::Wgsl(format!("{FULLSCREEN_VS}{STAMP_WGSL_FS}").into()),
             });
 
         let pl = ctx
@@ -259,18 +247,7 @@ impl BrushStamper {
         if requests.is_empty() {
             return;
         }
-        // Only dabs that touch the target get a draw; a scissor rect must lie
-        // inside the attachment and may not be empty.
-        let drawable: Vec<(usize, StampRequest, PixelRect)> = requests
-            .iter()
-            .copied()
-            .filter_map(|req| {
-                dab_scissor(req.x, req.y, req.radius_px, self.width, self.height)
-                    .map(|rect| (req, rect))
-            })
-            .enumerate()
-            .map(|(index, (req, rect))| (index, req, rect))
-            .collect();
+        let drawable = plan_dab_batch(requests, self.width, self.height);
         if drawable.is_empty() {
             return;
         }
@@ -281,9 +258,9 @@ impl BrushStamper {
         self.ensure_uniform_slots(ctx, drawable.len());
         let binds: Vec<wgpu::BindGroup> = drawable
             .iter()
-            .map(|&(index, req, _)| {
-                let uniforms = self.uniforms_for(req);
-                let ubo = &self.uniform_bufs[index];
+            .map(|dab| {
+                let uniforms = self.uniforms_for(dab.request);
+                let ubo = &self.uniform_bufs[dab.slot];
                 ctx.queue
                     .write_buffer(ubo, 0, bytemuck::bytes_of(&uniforms));
                 ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -325,18 +302,23 @@ impl BrushStamper {
                 multiview_mask: None,
             });
             let mut bound_eraser: Option<bool> = None;
-            for (&(_, req, rect), bind) in drawable.iter().zip(binds.iter()) {
+            for (dab, bind) in drawable.iter().zip(binds.iter()) {
                 // The draw is a full-screen triangle whose fragments outside the
                 // dab are discarded, so without a scissor a 20 px dab on a 4K
                 // layer rasterizes every pixel of the layer to keep ~1250.
-                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
-                if bound_eraser != Some(req.params.eraser) {
-                    pass.set_pipeline(if req.params.eraser {
+                pass.set_scissor_rect(
+                    dab.scissor.x,
+                    dab.scissor.y,
+                    dab.scissor.width,
+                    dab.scissor.height,
+                );
+                if bound_eraser != Some(dab.request.params.eraser) {
+                    pass.set_pipeline(if dab.request.params.eraser {
                         &self.pipeline_erase
                     } else {
                         &self.pipeline_paint
                     });
-                    bound_eraser = Some(req.params.eraser);
+                    bound_eraser = Some(dab.request.params.eraser);
                 }
                 pass.set_bind_group(0, bind, &[]);
                 pass.draw(0..3, 0..1);

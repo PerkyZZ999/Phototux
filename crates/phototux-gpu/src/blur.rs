@@ -1,10 +1,12 @@
 //! Separable Gaussian blur for nondestructive layer effects.
 
+use crate::pass::{FULLSCREEN_VS, make_render_target};
 use bytemuck::{Pod, Zeroable};
 
 use crate::GpuContext;
 
-const BLUR_WGSL: &str = r#"
+/// Fragment stage only; the shared vertex stage is prepended at build time.
+const BLUR_WGSL_FS: &str = r#"
 struct BlurUniforms {
     direction: vec2<f32>,
     radius: f32,
@@ -15,20 +17,6 @@ struct BlurUniforms {
 @group(0) @binding(1) var src_tex: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> u: BlurUniforms;
 
-struct VsOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-    var out: VsOut;
-    let x = f32(i32(vi & 1u) * 4 - 1);
-    let y = f32(i32(vi >> 1u) * 4 - 1);
-    out.pos = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    return out;
-}
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
@@ -111,7 +99,7 @@ impl SeparableBlur {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("blur-wgsl"),
-                source: wgpu::ShaderSource::Wgsl(BLUR_WGSL.into()),
+                source: wgpu::ShaderSource::Wgsl(format!("{FULLSCREEN_VS}{BLUR_WGSL_FS}").into()),
             });
         let pipeline_layout = ctx
             .device
@@ -162,8 +150,20 @@ impl SeparableBlur {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let temp_a = make_rt(ctx, width, height, "blur-temp-a");
-        let temp_b = make_rt(ctx, width, height, "blur-temp-b");
+        let temp_a = make_render_target(
+            ctx,
+            width,
+            height,
+            wgpu::TextureFormat::Rgba8Unorm,
+            "blur-temp-a",
+        );
+        let temp_b = make_render_target(
+            ctx,
+            width,
+            height,
+            wgpu::TextureFormat::Rgba8Unorm,
+            "blur-temp-b",
+        );
         Self {
             pipeline,
             bind_layout,
@@ -248,24 +248,4 @@ impl SeparableBlur {
             pass.draw(0..3, 0..1);
         }
     }
-}
-
-fn make_rt(ctx: &GpuContext, w: u32, h: u32, label: &str) -> wgpu::Texture {
-    ctx.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_DST
-            | wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
 }
