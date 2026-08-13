@@ -156,6 +156,14 @@ sequenceDiagram
     C->>O: Publish active tool schema
 ```
 
+## Shelf Order and Grouping
+
+Shelf order is a familiarity contract, not a taxonomy. Users of raster editors reach for a position before they read an icon, so the shelf **SHOULD** follow the established sequence: pointer, then selection, then crop and transform, then sampling, then the painting family, then text, then vector, then navigation last.
+
+Groups **MUST** be contiguous. A shelf that separates on group change will draw a divider in the middle of a family whose members are split across the list, which reads as two families rather than one, and a conformance test **MUST** enforce contiguity rather than leaving it to review.
+
+Tool titles **SHOULD** use the generic term the wider field uses where one exists, so a tool is recognisable before its icon is learned.
+
 ## Tool Activation Reach
 
 Every tool on the shelf **MUST** be reachable by pointer, by keyboard, and from action search. Registering tools as actions is what makes the three equivalent; a tool that exists only as a shelf entry has no key, cannot be searched, and cannot be rebound.

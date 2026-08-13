@@ -1028,7 +1028,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         ),
         act(
             "action.tool.text",
-            "&Type",
+            "&Text",
             "tools",
             "has_document",
             None,

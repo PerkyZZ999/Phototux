@@ -16,6 +16,8 @@ visual tokens stay.
 ### Input
 
 - **Tools are registered actions with the conventional letter keys**: V move, M / Shift+M marquee, L / Shift+L lasso, C crop, I eyedropper, B brush, E eraser, G / Shift+G gradient and bucket, T type, P path, U shape, H hand, Z zoom, Ctrl+T free transform. Previously tools were shelf-only — no keys, no action search, nothing rebindable, which handbook 06 requires as equivalent routes.
+- **The shelf follows the established order**: pointer, selection, crop and transform, sampling, painting, text, vector, navigation. It previously opened with Brush and Eraser and listed the `paint` family in two pieces with selection and transform between them — the shelf separates on group change, so that drew a divider through the middle of the painting family. Groups are now contiguous, and a test enforces it.
+- `Fill` is titled Paint Bucket and the type tool is titled Text, the terms the wider field uses.
 - Tools sit in a search-only `tools` group rather than a menu-bar entry, matching editors of this kind, and route through the same activation the shelf uses so an in-progress transform or crop cancels identically however the tool was switched.
 
 ## [paint-fluidity-3] — 2026-08-12

@@ -93,16 +93,10 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
     use crate::tool_id;
     vec![
         ToolDescriptor {
-            id: tool_id::BRUSH.into(),
-            title: "Brush".into(),
-            icon_key: "paint-brush".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::ERASER.into(),
-            title: "Eraser".into(),
-            icon_key: "eraser".into(),
-            group: "paint".into(),
+            id: tool_id::MOVE.into(),
+            title: "Move".into(),
+            icon_key: "arrows-out-cardinal".into(),
+            group: "move".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_RECT.into(),
@@ -129,9 +123,9 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "select".into(),
         },
         ToolDescriptor {
-            id: tool_id::MOVE.into(),
-            title: "Move".into(),
-            icon_key: "arrows-out-cardinal".into(),
+            id: tool_id::CROP.into(),
+            title: "Crop".into(),
+            icon_key: "crop".into(),
             group: "transform".into(),
         },
         ToolDescriptor {
@@ -141,15 +135,21 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "transform".into(),
         },
         ToolDescriptor {
-            id: tool_id::CROP.into(),
-            title: "Crop".into(),
-            icon_key: "crop".into(),
-            group: "transform".into(),
+            id: tool_id::EYEDROPPER.into(),
+            title: "Eyedropper".into(),
+            icon_key: "eyedropper".into(),
+            group: "sample".into(),
         },
         ToolDescriptor {
-            id: tool_id::FILL.into(),
-            title: "Fill".into(),
-            icon_key: "paint-bucket".into(),
+            id: tool_id::BRUSH.into(),
+            title: "Brush".into(),
+            icon_key: "paint-brush".into(),
+            group: "paint".into(),
+        },
+        ToolDescriptor {
+            id: tool_id::ERASER.into(),
+            title: "Eraser".into(),
+            icon_key: "eraser".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
@@ -159,9 +159,9 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "paint".into(),
         },
         ToolDescriptor {
-            id: tool_id::EYEDROPPER.into(),
-            title: "Eyedropper".into(),
-            icon_key: "eyedropper".into(),
+            id: tool_id::FILL.into(),
+            title: "Paint Bucket".into(),
+            icon_key: "paint-bucket".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
@@ -171,20 +171,20 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "type".into(),
         },
         ToolDescriptor {
-            id: tool_id::SHAPE.into(),
-            title: "Shape".into(),
-            icon_key: "shapes".into(),
-            group: "vector".into(),
-        },
-        ToolDescriptor {
             id: tool_id::PATH_EDIT.into(),
             title: "Path Edit".into(),
             icon_key: "pen-nib".into(),
             group: "vector".into(),
         },
         ToolDescriptor {
+            id: tool_id::SHAPE.into(),
+            title: "Shape".into(),
+            icon_key: "shapes".into(),
+            group: "vector".into(),
+        },
+        ToolDescriptor {
             id: tool_id::PAN.into(),
-            title: "Pan".into(),
+            title: "Hand".into(),
             icon_key: "hand".into(),
             group: "navigate".into(),
         },
@@ -461,6 +461,43 @@ mod tests {
         assert!(tools.contains("tool.brush"));
         let groups = disclosure_groups_json();
         assert!(groups.contains("inspector.brush"));
+    }
+
+    /// The shelf draws a separator wherever the group changes between
+    /// neighbours, so a family split across the list produces a separator in
+    /// the middle of it. Contiguity is what makes the bands read as families.
+    #[test]
+    fn tool_groups_are_contiguous() {
+        let tools = default_tools();
+        let mut seen: Vec<&str> = Vec::new();
+        let mut previous = "";
+        for tool in &tools {
+            if tool.group != previous {
+                assert!(
+                    !seen.contains(&tool.group.as_str()),
+                    "group {} resumes after {} — the shelf would separate it mid-family",
+                    tool.group,
+                    previous
+                );
+                seen.push(tool.group.as_str());
+                previous = tool.group.as_str();
+            }
+        }
+        assert!(tools.iter().all(|t| !t.group.is_empty()));
+    }
+
+    /// Pointer and selection lead, navigation trails. Users reach for these
+    /// positions before they read the icons.
+    #[test]
+    fn tool_shelf_opens_with_pointer_and_ends_with_navigation() {
+        let tools = default_tools();
+        let ids: Vec<&str> = tools.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids.first().copied(), Some(crate::tool_id::MOVE));
+        assert_eq!(ids.get(1).copied(), Some(crate::tool_id::SELECT_RECT));
+        assert_eq!(ids.last().copied(), Some(crate::tool_id::ZOOM));
+        let paint = ids.iter().position(|id| *id == crate::tool_id::BRUSH);
+        let select = ids.iter().position(|id| *id == crate::tool_id::SELECT_RECT);
+        assert!(select < paint, "selection must precede the paint family");
     }
 
     #[test]
