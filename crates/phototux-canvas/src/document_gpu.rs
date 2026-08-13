@@ -229,8 +229,7 @@ pub fn read_all_mask_r8() -> Result<LayerMaskR8, String> {
         .map(|layer| layer.id)
         .collect();
     for id in masked {
-        doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, id)?;
-        let pixels = doc.engine.read_mask_r8(id)?;
+        let pixels = doc.engine.read_mask_r8(&doc.ctx, id)?;
         masks.insert(id, pixels);
     }
     Ok(masks)
@@ -246,8 +245,7 @@ pub fn read_mask_r8(id: LayerId) -> Result<Vec<u8>, String> {
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, id)?;
-    doc.engine.read_mask_r8(id)
+    doc.engine.read_mask_r8(&doc.ctx, id)
 }
 
 /// Ensure a white R8 mask texture exists for `id`.
@@ -907,13 +905,10 @@ pub fn end_stroke() -> Result<(), String> {
     let doc = guard
         .as_mut()
         .ok_or_else(|| "no document GPU state".to_owned())?;
-    let mask_layer = doc
-        .stroke_backup
-        .as_ref()
-        .and_then(|backup| (backup.target == PaintTarget::LayerMask).then_some(backup.layer));
-    if let Some(layer) = mask_layer {
-        doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, layer)?;
-    }
+    // No mask readback here. It used to download the whole mask -- 8.3 MB at
+    // 4K -- and block on GPU completion under both the shared queue guard and
+    // the document lock, at every mask pen-up. `read_mask_r8` refreshes the CPU
+    // mirror as part of reading it, so nothing observed the eager sync.
     if let Some(bak) = doc.stroke_backup.take() {
         doc.stroke_undo.push(bak);
         if doc.stroke_undo.len() > 64 {

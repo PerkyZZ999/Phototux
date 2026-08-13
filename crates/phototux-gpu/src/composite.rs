@@ -1312,7 +1312,17 @@ impl LayerCompositeEngine {
     ///
     /// # Errors
     /// Returns an error when the mask is missing or GPU readback fails.
-    pub fn read_mask_r8(&self, id: LayerId) -> Result<Vec<u8>, String> {
+    /// Read a layer mask as tightly packed R8, refreshing the CPU mirror first.
+    ///
+    /// The download happens here rather than at stroke end so painting never
+    /// pays for it: a caller that wants the bytes is already on a slow path,
+    /// while a pen-up is not. Syncing inside the reader also means a future
+    /// caller cannot forget to, which is the failure this replaces.
+    ///
+    /// # Errors
+    /// Returns an error when the mask is missing or the readback fails.
+    pub fn read_mask_r8(&mut self, ctx: &GpuContext, id: LayerId) -> Result<Vec<u8>, String> {
+        self.sync_mask_cpu_from_gpu(ctx, id)?;
         let mask = self
             .mask_tex
             .get(&id)
