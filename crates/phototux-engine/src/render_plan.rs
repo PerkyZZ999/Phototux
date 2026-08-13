@@ -48,6 +48,10 @@ pub struct LayerRenderPlan {
     pub sharpen: Option<f32>,
     pub noise: Option<f32>,
     pub drop_shadow: Option<ShadowPlan>,
+    /// Outer glow, kept separate from the drop shadow so a layer carrying both
+    /// renders both. A glow is a shadow at zero offset, which is why they share
+    /// a shape — but not a slot.
+    pub outer_glow: Option<ShadowPlan>,
     pub color_overlay: Option<ColorOverlayPlan>,
     pub stroke: Option<StrokePlan>,
 }
@@ -69,6 +73,7 @@ impl LayerRenderPlan {
             sharpen: None,
             noise: None,
             drop_shadow: None,
+            outer_glow: None,
             color_overlay: None,
             stroke: None,
         }
@@ -87,6 +92,7 @@ impl LayerRenderPlan {
             || self.sharpen.is_some_and(|a| a > 0.001)
             || self.noise.is_some_and(|a| a > 0.001)
             || self.drop_shadow.is_some()
+            || self.outer_glow.is_some()
             || self.color_overlay.is_some()
             || self.stroke.is_some()
     }
@@ -97,12 +103,9 @@ impl LayerRenderPlan {
     /// Gaussian blurs take the larger radius, because the second is a stronger
     /// request for the same thing, not a second blur to run.
     ///
-    /// **Known defect, preserved deliberately:** an outer glow is only honoured
-    /// when the layer has no drop shadow, because both are expressed through the
-    /// single `drop_shadow` slot — a glow is a shadow at zero offset. A layer
-    /// carrying both silently loses the glow. Representing them separately means
-    /// a second shadow pass in the renderer, so the fix is not local to this
-    /// function; it is recorded in the gap analysis rather than papered over.
+    /// A drop shadow and an outer glow occupy separate slots. They share a
+    /// shape — a glow is a shadow at zero offset — and for a while shared one
+    /// slot too, which meant a layer carrying both silently lost the glow.
     #[must_use]
     pub fn from_layer(layer: &Layer) -> Self {
         let mut plan = Self::identity();
@@ -170,8 +173,8 @@ impl LayerRenderPlan {
                     radius,
                     opacity,
                     color_rgba,
-                } if plan.drop_shadow.is_none() => {
-                    plan.drop_shadow = Some(ShadowPlan {
+                } => {
+                    plan.outer_glow = Some(ShadowPlan {
                         offset_x: 0.0,
                         offset_y: 0.0,
                         blur: *radius,
@@ -297,17 +300,18 @@ mod tests {
             color_rgba: [1.0, 1.0, 0.0, 1.0],
         });
         let shadow = LayerRenderPlan::from_layer(&layer)
-            .drop_shadow
-            .expect("glow becomes a shadow");
+            .outer_glow
+            .expect("glow is planned");
         assert!((shadow.offset_x).abs() < 1e-6);
         assert!((shadow.offset_y).abs() < 1e-6);
         assert!((shadow.blur - 7.0).abs() < 1e-6);
     }
 
-    /// Pins the known defect so the behaviour is a recorded decision rather
-    /// than a surprise, and so fixing it fails loudly here first.
+    /// A layer carrying both must render both. This previously asserted the
+    /// opposite — that the glow was dropped — so that fixing it would fail here
+    /// first rather than change rendering silently.
     #[test]
-    fn a_glow_is_currently_lost_when_a_drop_shadow_is_present() {
+    fn a_glow_and_a_drop_shadow_both_survive() {
         let mut layer = raster();
         layer.styles.push(LayerStyle::DropShadow {
             enabled: true,
@@ -323,13 +327,15 @@ mod tests {
             opacity: 1.0,
             color_rgba: [1.0, 1.0, 0.0, 1.0],
         });
-        let shadow = LayerRenderPlan::from_layer(&layer)
-            .drop_shadow
-            .expect("shadow");
+        let plan = LayerRenderPlan::from_layer(&layer);
+        let shadow = plan.drop_shadow.expect("drop shadow");
+        let glow = plan.outer_glow.expect("outer glow");
         assert!(
             (shadow.offset_x - 4.0).abs() < 1e-6,
-            "the drop shadow wins the single slot; the glow is dropped"
+            "shadow keeps its offset"
         );
+        assert!((glow.offset_x).abs() < 1e-6, "a glow has no offset");
+        assert!((glow.blur - 9.0).abs() < 1e-6, "glow keeps its radius");
     }
 
     #[test]

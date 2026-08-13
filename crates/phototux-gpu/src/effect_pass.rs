@@ -401,7 +401,11 @@ impl EffectPass {
         self.apply_pair_filter(ctx, encoder, 2, plan.emboss, &mut use_a);
         self.apply_amount_filter(ctx, encoder, 7, plan.sharpen, &mut use_a);
         self.apply_amount_filter(ctx, encoder, 9, plan.noise, &mut use_a);
+        // Drop shadow first, then glow: both sit behind the content, and the
+        // shadow is the outermost of the two — the order raster editors use
+        // when a layer carries both.
         self.apply_drop_shadow(ctx, encoder, blur, plan.drop_shadow, &mut use_a);
+        self.apply_drop_shadow(ctx, encoder, blur, plan.outer_glow, &mut use_a);
         self.apply_color_overlay(ctx, encoder, plan.color_overlay, &mut use_a);
         self.apply_stroke_style(ctx, encoder, plan.stroke, &mut use_a);
 
