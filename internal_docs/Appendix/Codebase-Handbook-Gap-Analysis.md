@@ -111,7 +111,7 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | --- | --- | --- | --- |
 | U1 | Dock tear-off / auto-hide / topology (04) | Shipped + persisted | **Closed (v1)** |
 | U2 | Panel descriptors (05) | `panels_json` + visibility/titles; Paths/Character body depth | **Closed (v1)**; panel body parity → **Partial** |
-| U3 | Registry-driven tools (06) | `tools_json` strip + overflow; options/edit-target polish | **Closed (v1)**; options bar → **Partial** |
+| U3 | Registry-driven tools (06) | `tools_json` shelf in conventional order + overflow; tools registered as actions with letter keys; `ToolOptionsBar.qml` | **Closed (v1)** |
 | U4 | Context menus from actions (07) | Layer/canvas/selection/mask from registry | **Closed (v1)**; path context / selection-preserve → **Partial** |
 | U5 | Customizable shortcuts (09) | Action map + conflict UI + persist + yield | **Closed (v1)** |
 | U6 | Themes / density / contrast (25) | `Theme.qml` packs; `densityScale` drives spacing, control heights, hit targets, and chrome extents (not type alone) | **Closed (v1)**; full token audit → **Partial** |
@@ -183,7 +183,8 @@ Prefer these over gated P11/P12 work. Sync checklist checkboxes when closing a r
 | **4** | I1 / P8 codec + loss-report polish | Codecs already in `phototux_io`; broaden disclosure UX | Structured loss dialog for PSD/export |
 | **5** | P1 DR-017 evidence | Soft CI green; present budgets Provisional | Release cold-boot + zoom/pan FPS pack |
 | **6** | Assign ≠ convert disclosures | Distinct actions exist; handbook wants consequence copy | ToolTips / announce strings on Image menu |
-| **7** | Right-dock height distribution | Layers and History collapse to header-only in a ~900 px window and at 200 % scale; the Properties body clips mid-control there. The per-panel reserve is a fixed fraction plus a fixed minimum, so it does not adapt to how many panels are stacked | Distribute the stack by content demand instead of a fixed 42 % cap plus reserve |
+| **7** | Tabbed dock groups | Panels stack one above another; the familiar layout groups them into tabbed sets, which is also the real fix for the row below — five simultaneous panels is why the lower two get no height | `DockTopology` gains contiguous-run grouping plus an active tab per group, with a v1 migration; dock QML renders a tab bar per group |
+| **7b** | Right-dock height distribution | Layers and History collapse to header-only in a ~900 px window and at 200 % scale; the Properties body clips mid-control there. The per-panel reserve is a fixed fraction plus a fixed minimum, so it does not adapt to how many panels are stacked | Distribute the stack by content demand instead of a fixed 42 % cap plus reserve |
 | **8** | Font discovery is lazy and blocking | The missing-font badge cannot fire before `fc-list` has run, so a text layer whose family is uninstalled shows no warning until the Character body is first built | Discover off the UI thread after first frame, then re-evaluate the badge |
 | — | P11 tiling / spill / sparse | Large-doc / memory evidence | **Do not start** (DR-029) |
 | — | P12 plugin host | No product need | **Do not start** (DR-029) |
