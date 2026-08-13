@@ -2324,10 +2324,16 @@ mod tests {
     /// reordered, so the inspector must lay groups out in registry order.
     /// Reading the QML is what makes the two orders comparable at all — the
     /// layout is declarative and has no runtime handle to assert against.
+    ///
+    /// Which file that is, is part of what this test pins. The groups lived in
+    /// `Main.qml` until the Properties body was extracted, and reading a file
+    /// that no longer declares any leaves an empty list — which compares
+    /// unequal and so still fails, but reports a reorder rather than a move.
+    /// The emptiness check below names the real cause.
     #[test]
     fn inspector_lays_groups_out_in_registry_order() {
-        let main_qml = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/Main.qml");
-        let source = std::fs::read_to_string(main_qml).expect("read Main.qml");
+        let panel_qml = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/PropertiesPanel.qml");
+        let source = std::fs::read_to_string(panel_qml).expect("read PropertiesPanel.qml");
         let laid_out: Vec<&str> = source
             .lines()
             .filter_map(|line| {
@@ -2335,6 +2341,11 @@ mod tests {
                 rest.strip_suffix('"')
             })
             .collect();
+        assert!(
+            !laid_out.is_empty(),
+            "PropertiesPanel.qml declares no groups — the panel body moved, \
+             and this test needs to follow it to keep checking anything"
+        );
         let registered: Vec<String> = phototux_engine::default_disclosure_groups()
             .into_iter()
             .map(|group| group.id)
