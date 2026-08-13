@@ -401,6 +401,9 @@ Mark `[N]` unless Decision Register amends:
 | T-023 | med | §2.1 | Properties laid out `inspector.brush` ninth though the registry declares it second; handbook 28 forbids reordering registered groups | Compare Properties order to `default_disclosure_groups()` | **fixed** — block moved; `inspector_lays_groups_out_in_registry_order` asserts the two orders match |
 | T-024 | low | §2.1 | Right dock gives Layers and History header-only height in a ~900 px window and at 200 % scale; the Properties body clips mid-control there | 1440×900 window, five panels stacked | **open** — pre-existing distribution model; ranked in gap analysis backlog |
 
+| T-025 | high | §2.2 | Undo/redo of a brush stroke ran the command and restored the GPU layer but left the canvas unchanged: only 2 of 17 composite paths raised the repaint signal after repaint became demand-driven | Paint a stroke → Ctrl+Z | **fixed** — one `record_composite` publishes the time and bumps the generation together |
+| T-026 | low | §2.1 | Layers and History still collapse to header-only at 1440×900 with five panels stacked | Open any document | **open** — subsumed by tabbed dock groups, ranked in the gap analysis |
+
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
 ---
@@ -423,6 +426,7 @@ Severity guide: **blocker** = no window / data loss / crash on smoke; **high** =
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §4.1 pan/zoom | — | wheel zoom; Fit shortcut; middle-drag pan |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 1440×900 | §15 conflicts/races | — | undo spam; gallery Esc/close; host markers; Esc modals |
 | 2026-07-18 | agent (kwinmcp) | Wayland isolated 900×520 | §2.2 More tools overflow | T-016 | deferred open; settled outside-close; Theme rows; pick closes |
+| 2026-08-12 | agent (kwin-mcp) | isolated virtual KWin, isolated home, 1920×1080 | tool keys, shelf order, options bar, disclosure toggle, paint, undo/redo | T-025 found and fixed; T-026 confirmed | first pass with real input injection. Verified live: V/U/P/M/B select the right tool (`tool.shape` and `tool.path-edit` reachable), options bar switches per tool with all four selection-mode icons drawn, collapse/expand-all round-trips with summaries and right-pointing carets, brush painting works through the `PointHandler`, History lists the stroke, undo/redo round-trips |
 | 2026-08-12 | agent (spectacle) | Wayland host session, isolated `XDG_CONFIG_HOME` | dense / comfortable / `QT_SCALE_FACTOR=2` | T-021…T-024 | first visual pass on the density work; ten group headers reviewed via a forced-visibility QML override. **Pointer clicks could not be injected** (KWin ignores `ydotool` uinput events), so header-button *state* was verified by seeding `disclosure_open` both ways, not by pressing it |
 
 ---
