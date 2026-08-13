@@ -43,13 +43,76 @@ ComboBox {
         color: control.enabled ? Theme.colorOnSurfaceVariant : Theme.iconDisabledEffective
     }
 
-    // The drop-down list is deliberately left to the style.
+    // The popup owns its rows over the source array rather than sharing the
+    // ComboBox's `delegateModel`.
     //
-    // Overriding `popup` + `delegate` to theme it left the row at `currentIndex`
-    // blank in every combo — the list reserved its slot but painted neither the
-    // label nor the highlight, through both DelegateModel access and direct
-    // array indexing. A light-on-dark list is a cosmetic mismatch; a list that
-    // hides one of its options is a functional defect, so the popup keeps the
-    // style's own rendering until that is understood. Tracked in the gap
-    // analysis as the dark combo popup item.
+    // Sharing it left the row at `currentIndex` blank on the popup's first open
+    // — drawn, sized, but with no text — and neither reading the delegate's own
+    // `model`, nor indexing the array, nor re-evaluating on `visible` fixed it.
+    // A ListView over the plain array has no shared item to contend for.
+    popup: Popup {
+        y: control.height
+        width: control.width
+        height: Math.min(contentItem.implicitHeight + 2, 280)
+        padding: 1
+
+        contentItem: ListView {
+            id: optionList
+            clip: true
+            implicitHeight: contentHeight
+            model: control.popup.visible ? control.model : null
+            currentIndex: control.currentIndex
+            ScrollIndicator.vertical: ScrollIndicator {}
+
+            delegate: ItemDelegate {
+                id: option
+                required property var modelData
+                required property int index
+
+                width: optionList.width
+                implicitHeight: Theme.controlHeight
+                highlighted: index === control.currentIndex
+
+                // Opaque: the Basic style paints a light plate behind a
+                // delegate, and a transparent background let it through under
+                // text coloured for dark chrome.
+                background: Rectangle {
+                    color: option.highlighted
+                           ? Theme.primary
+                           : (option.hovered ? Theme.surfaceContainerHigh : Theme.surfaceOverlay)
+                }
+
+                contentItem: Text {
+                    leftPadding: Theme.spaceSm
+                    text: {
+                        var row = option.modelData
+                        if (row === undefined || row === null)
+                            return ""
+                        if (control.textRole.length > 0 && row[control.textRole] !== undefined)
+                            return row[control.textRole]
+                        return row
+                    }
+                    font.family: control.font.family
+                    font.pixelSize: control.font.pixelSize
+                    font.weight: option.highlighted ? Font.DemiBold : Font.Normal
+                    color: option.highlighted ? Theme.primaryOn : Theme.colorOnSurfaceEffective
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
+
+                onClicked: {
+                    control.currentIndex = option.index
+                    control.activated(option.index)
+                    control.popup.close()
+                }
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceOverlay
+            radius: Theme.radiusSm
+            border.width: 1
+            border.color: Theme.borderEffective
+        }
+    }
 }

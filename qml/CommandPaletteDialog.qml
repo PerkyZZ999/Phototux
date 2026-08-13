@@ -206,10 +206,21 @@ Popup {
             model: dialog.filteredActions()
             currentIndex: dialog.selectedIndex
             delegate: ItemDelegate {
+                id: row
                 width: paletteList.width
                 height: Theme.toolHit
                 highlighted: index === dialog.selectedIndex
                 opacity: dialog.actionIsEnabled(modelData.id) ? 1.0 : 0.45
+
+                // Opaque on purpose. The Basic style paints its own light
+                // delegate background, and leaving this transparent let it show
+                // through under text coloured for dark chrome — near-white on
+                // near-white, which is why every unhighlighted row looked empty
+                // while its grey menu and blue chord stayed readable.
+                background: Rectangle {
+                    color: row.highlighted ? Theme.primary : Theme.surfaceOverlay
+                }
+
                 contentItem: RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spaceSm
@@ -218,18 +229,18 @@ Popup {
                     Label {
                         Layout.fillWidth: true
                         text: (modelData.label || "").replace(/&/g, "")
-                        color: Theme.colorOnSurface
+                        color: row.highlighted ? Theme.primaryOn : Theme.colorOnSurfaceEffective
                         font.pixelSize: Theme.fontBodySm
                         elide: Text.ElideRight
                     }
                     Label {
                         text: modelData.menu || ""
-                        color: Theme.colorOnSurfaceMuted
+                        color: row.highlighted ? Theme.primaryOn : Theme.colorOnSurfaceMuted
                         font.pixelSize: Theme.fontLabelSm
                     }
                     Label {
                         text: dialog.shortcutForAction(modelData.id)
-                        color: Theme.primary
+                        color: row.highlighted ? Theme.primaryOn : Theme.primary
                         font.pixelSize: Theme.fontMono
                         font.family: "Noto Sans Mono"
                     }

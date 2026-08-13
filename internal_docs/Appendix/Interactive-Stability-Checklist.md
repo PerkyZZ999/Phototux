@@ -114,7 +114,7 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 **Blocked by T-034:** the palette does not open at all, so the rows below record
 the last pass that could exercise them rather than current behaviour.
 
-- [!] Palette opens (Ctrl+Shift+P or Edit → Command Palette…) — T-034
+- [x] Palette opens (Ctrl+Shift+P or Edit → Command Palette…) — T-034 fixed; rows legible since T-035
 - [~] Fuzzy filter finds actions by label — typed `about` (last verified before T-034)
 - [~] Enter invokes selected action (last verified before T-034)
 - [~] Escape closes without mutation — Esc returns to Welcome; no doc created (last verified before T-034)
@@ -415,7 +415,7 @@ Mark `[N]` unless Decision Register amends:
 | T-032 | med | §3 | Hiding the raised tab of a dock group blanked the whole group — its siblings vanished too. `DockTopology` records which tab was last raised but has no view of panel visibility, so the stored selection was used even once hidden | Window → uncheck Navigator | **fixed** — `WorkspaceState::effective_active_tab` falls through to the first visible sibling; three engine tests, two of which fail against the old behaviour |
 | T-033 | high | §2.5 | Undo after Mask → Selection did nothing. Twelve call sites took the pre-edit snapshot before mutating; `apply_mask_to_selection_host` took it after, so the snapshot captured the state the undo was meant to reverse | Add a layer mask → Mask to Selection → Ctrl+Z | **fixed** — `commit_selection_edit` / `commit_layer_edit` own the ordering; no call site snapshots directly |
 | T-034 | high | §2.4 | The command palette never opened. `LazyDialog` wraps a `Loader`, whose default property is `data`, not `sourceComponent` — so every dialog written inside one became a plain child object, `sourceComponent` stayed null, and `item` was null forever. Dialogs driven by a `visible:` binding worked anyway (as eager children), hiding the fault; the palette reaches its API through `ensure()` and got null | Ctrl+Shift+P | **fixed** — `LazyDialog` declares `default property Component dialog` and binds `sourceComponent` to it. Every dialog is now genuinely lazy, which is what the type existed for |
-| T-035 | med | §2.4 | Command palette rows show their menu and shortcut but no label for most entries. `modelData.id` and `modelData.menu` resolve on the same row, and the `Label` already sets an explicit `Theme` colour, so it is not the Basic-style contrast fault | Ctrl+Shift+P with a document open | **open** — only visible now that T-034 lets the palette open at all |
+| T-035 | med | §2.4 | Command palette rows showed menu and shortcut but no label. It *was* the Basic-style contrast fault after all: the delegate had no background, so the style's light plate showed through under `colorOnSurface` text — near-white on near-white. The grey menu and blue chord survived because they are darker | Ctrl+Shift+P with a document open | **fixed** — opaque themed delegate background; text flips to `primaryOn` when highlighted |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
 
