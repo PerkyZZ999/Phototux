@@ -2,6 +2,22 @@
 
 All notable decision milestones and project state changes.
 
+## [familiar-shell-1] — 2026-08-12
+
+Shell alignment with the conventions raster-editor users already have, so the
+app stops asking them to relearn placement. Familiar *conventions* only —
+handbook 28 rules out proprietary branding and menu naming, and the KDE-native
+visual tokens stay.
+
+### Fixes
+
+- **Shape and Path Edit were unreachable.** `set_active_tool` validates against a list of known ids that omitted both, so clicking either on the shelf silently activated the Brush — the shelf highlighted one tool while another was active. 2 of 17 tools.
+
+### Input
+
+- **Tools are registered actions with the conventional letter keys**: V move, M / Shift+M marquee, L / Shift+L lasso, C crop, I eyedropper, B brush, E eraser, G / Shift+G gradient and bucket, T type, P path, U shape, H hand, Z zoom, Ctrl+T free transform. Previously tools were shelf-only — no keys, no action search, nothing rebindable, which handbook 06 requires as equivalent routes.
+- Tools sit in a search-only `tools` group rather than a menu-bar entry, matching editors of this kind, and route through the same activation the shelf uses so an in-progress transform or crop cancels identically however the tool was switched.
+
 ## [paint-fluidity-3] — 2026-08-12
 
 Canvas fluidity pass, part three: stop paying whole-canvas cost for small dabs.

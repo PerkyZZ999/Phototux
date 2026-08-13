@@ -1727,6 +1727,14 @@ impl AppSession {
                 self.status_text_changed();
             }
             "prefs.open" => self.open_preferences(),
+            // Shortcut and palette route through the same activation the tool
+            // shelf uses, so leaving an in-progress transform or crop is
+            // cancelled identically however the tool was switched.
+            "tool.activate" => {
+                if let Some(id) = arg {
+                    self.set_active_tool(id.to_owned());
+                }
+            }
             "inspector.expand_all" => self.set_all_disclosure_groups(true),
             "inspector.collapse_all" => self.set_all_disclosure_groups(false),
             "document.embed_icc" => {
@@ -4207,6 +4215,8 @@ impl AppSession {
                 | tool_id::GRADIENT
                 | tool_id::EYEDROPPER
                 | tool_id::TEXT
+                | tool_id::SHAPE
+                | tool_id::PATH_EDIT
         );
         let id = if known {
             tool

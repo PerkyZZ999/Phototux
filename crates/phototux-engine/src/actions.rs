@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::command_id;
+use crate::{command_id, tool_id};
 
 /// Menu / toolbar / shortcut / context-menu contribution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -901,6 +901,197 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
         ),
+        // Tools — letter keys follow the conventional raster-editor
+        // assignments so muscle memory transfers. `tools` is a search-only
+        // menu: these belong on the tool shelf and in action search, not in
+        // the menu bar, which is where every editor of this kind puts them.
+        act(
+            "action.tool.move",
+            "&Move",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::MOVE),
+            Some("V"),
+            Some("arrows-out-cardinal"),
+        ),
+        act(
+            "action.tool.select-rect",
+            "&Rectangular Marquee",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::SELECT_RECT),
+            Some("M"),
+            Some("selection"),
+        ),
+        act(
+            "action.tool.select-ellipse",
+            "&Elliptical Marquee",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::SELECT_ELLIPSE),
+            Some("Shift+M"),
+            Some("circle-dashed"),
+        ),
+        act(
+            "action.tool.select-lasso",
+            "&Lasso",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::SELECT_LASSO),
+            Some("L"),
+            Some("lasso"),
+        ),
+        act(
+            "action.tool.select-polygon",
+            "&Polygonal Lasso",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::SELECT_POLYGON),
+            Some("Shift+L"),
+            Some("polygon"),
+        ),
+        act(
+            "action.tool.crop",
+            "&Crop",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::CROP),
+            Some("C"),
+            Some("crop"),
+        ),
+        act(
+            "action.tool.eyedropper",
+            "Eye&dropper",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::EYEDROPPER),
+            Some("I"),
+            Some("eyedropper"),
+        ),
+        act(
+            "action.tool.brush",
+            "&Brush",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::BRUSH),
+            Some("B"),
+            Some("paint-brush"),
+        ),
+        act(
+            "action.tool.eraser",
+            "&Eraser",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::ERASER),
+            Some("E"),
+            Some("eraser"),
+        ),
+        act(
+            "action.tool.gradient",
+            "&Gradient",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::GRADIENT),
+            Some("G"),
+            Some("gradient"),
+        ),
+        act(
+            "action.tool.fill",
+            "Paint Buc&ket",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::FILL),
+            Some("Shift+G"),
+            Some("paint-bucket"),
+        ),
+        act(
+            "action.tool.text",
+            "&Type",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::TEXT),
+            Some("T"),
+            Some("text-t"),
+        ),
+        act(
+            "action.tool.path-edit",
+            "&Path Edit",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::PATH_EDIT),
+            Some("P"),
+            Some("pen-nib"),
+        ),
+        act(
+            "action.tool.shape",
+            "Shape",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::SHAPE),
+            Some("U"),
+            Some("shapes"),
+        ),
+        act(
+            "action.tool.pan",
+            "&Hand",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::PAN),
+            Some("H"),
+            Some("hand"),
+        ),
+        act(
+            "action.tool.zoom",
+            "&Zoom",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::ZOOM),
+            Some("Z"),
+            Some("magnifying-glass"),
+        ),
+        act(
+            "action.tool.transform",
+            "&Free Transform",
+            "tools",
+            "has_document",
+            None,
+            Some("tool.activate"),
+            Some(tool_id::TRANSFORM),
+            Some("Ctrl+T"),
+            Some("arrows-out"),
+        ),
         // View
         act(
             "action.view.zoom-fit",
@@ -1443,6 +1634,51 @@ mod tests {
     #[test]
     fn action_table_matches_the_builder() {
         assert_eq!(action_table(), default_actions().as_slice());
+    }
+
+    /// Every tool on the shelf must be reachable by key and by search, and
+    /// must name a tool the host will actually accept — a typo or a missing
+    /// entry in the host's known-tool list silently selects the brush instead.
+    #[test]
+    fn every_tool_has_an_action_with_a_shortcut() {
+        let actions = action_table();
+        for tool in crate::default_tools() {
+            let action = actions
+                .iter()
+                .find(|a| a.arg.as_deref() == Some(tool.id.as_str()) && a.menu == "tools")
+                .unwrap_or_else(|| panic!("{} has no action, so no key and no search", tool.id));
+            assert_eq!(action.host_op.as_deref(), Some("tool.activate"));
+            assert!(
+                action.shortcut.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no shortcut",
+                tool.id
+            );
+        }
+    }
+
+    /// Tools belong on the shelf and in search, not in the menu bar — the
+    /// menu-building code filters on these names, so a stray tool menu would
+    /// appear as a bar entry no editor of this kind has.
+    #[test]
+    fn tools_are_search_only_and_not_a_menu_bar_entry() {
+        const BAR: [&str; 9] = [
+            "file", "edit", "select", "image", "layer", "filter", "view", "window", "help",
+        ];
+        for action in action_table() {
+            if action.id.starts_with("action.tool.") {
+                assert_eq!(
+                    action.menu, "tools",
+                    "{} is not in the tools group",
+                    action.id
+                );
+            }
+            assert!(
+                BAR.contains(&action.menu.as_str()) || action.menu == "tools",
+                "{} uses unknown menu {}",
+                action.id,
+                action.menu
+            );
+        }
     }
 
     #[test]

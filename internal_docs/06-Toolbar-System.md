@@ -156,6 +156,16 @@ sequenceDiagram
     C->>O: Publish active tool schema
 ```
 
+## Tool Activation Reach
+
+Every tool on the shelf **MUST** be reachable by pointer, by keyboard, and from action search. Registering tools as actions is what makes the three equivalent; a tool that exists only as a shelf entry has no key, cannot be searched, and cannot be rebound.
+
+Tool keys **SHOULD** follow the letter assignments the wider raster-editing world already uses, because that is the single largest source of transferable muscle memory. Alternates within one family **SHOULD** share a letter under a modifier rather than consuming a second one.
+
+Tools **MUST NOT** occupy a menu-bar entry. They belong on the shelf and in action search; editors of this kind present no tool menu, and adding one is a visible deviation for no gain.
+
+A host that validates tool ids against a list **MUST** keep that list complete, and a conformance test **MUST** compare it against the registered shelf. Rejecting an unknown id by falling back to a default tool is silent: the shelf highlights the tool the user clicked while a different one is active, which reads as the click having been missed.
+
 ## Tool Options
 
 Options are generated from a semantic schema with type, unit, bounds, precision, default, grouping, validation, applicability, and persistence domain. Tool defaults usually belong to application preferences or local tool presets; gesture-specific preview values are ephemeral; any option that changes document content does so only through a command.
