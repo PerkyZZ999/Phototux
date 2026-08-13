@@ -14,6 +14,21 @@ import QtQuick
 Loader {
     id: root
 
+    /// The wrapped dialog, as the default property.
+    ///
+    /// This declaration is load-bearing. `Loader` inherits its default property
+    /// from `Item`, so without it a dialog written inside `LazyDialog { … }`
+    /// became an ordinary child object: `sourceComponent` stayed null, the
+    /// Loader loaded nothing, and `item` was null forever. Dialogs driven by a
+    /// `visible:` binding still worked — they existed as children, just eagerly
+    /// rather than lazily, so the deferral this type exists for never happened.
+    /// The command palette, which reaches its API through `ensure()`, got null
+    /// and silently failed to open.
+    ///
+    /// Declaring the property as `Component` makes QML wrap the object
+    /// declaration for us, so call sites are unchanged.
+    default property Component dialog
+
     /// Bind to host state for dialogs that open declaratively. Latches the
     /// dialog into existence; the wrapped dialog's own `visible` binding then
     /// governs show and hide.
@@ -22,6 +37,7 @@ Loader {
     /// Mirrors the wrapped dialog's visibility, or false before first load.
     readonly property bool dialogVisible: root.item ? root.item.visible : false
 
+    sourceComponent: root.dialog
     active: false
     // Synchronous so `open()` can drive the freshly created dialog immediately.
     asynchronous: false
