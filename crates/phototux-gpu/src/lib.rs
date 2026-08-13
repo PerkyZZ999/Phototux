@@ -13,7 +13,7 @@ mod pass_timer;
 mod selection;
 mod transform_bake;
 
-pub use brush::{BrushStamper, StampRequest};
+pub use brush::{BrushStamper, PixelRect, StampRequest, dab_scissor};
 pub use composite::LayerCompositeEngine;
 pub use composite::benchmark_10x4k_ms;
 pub use effect_pass::LayerPackPlan;

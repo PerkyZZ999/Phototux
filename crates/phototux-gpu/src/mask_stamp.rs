@@ -187,7 +187,7 @@ impl MaskStamper {
         }
         // Same shape as BrushStamper::stamp_batch: bound each dab to the region
         // it can touch, and record the batch as one pass.
-        let drawable: Vec<(usize, StampRequest, crate::brush::ScissorRect)> = requests
+        let drawable: Vec<(usize, StampRequest, crate::brush::PixelRect)> = requests
             .iter()
             .copied()
             .filter_map(|req| {

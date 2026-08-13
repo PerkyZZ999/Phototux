@@ -9,10 +9,24 @@ use phototux_engine::{
     SelectionCombine, SelectionRect,
 };
 use phototux_gpu::{
-    BrushStamper, GpuContext, LayerCompositeEngine, MaskStamper, SelectionMask, StampRequest,
-    bake_affine_rgba, crop_rgba, fill_rgba, flip_rgba, linear_gradient_rgba, mask_has_selection,
-    rotate_rgba_90_cw, sample_rgba_at,
+    BrushStamper, GpuContext, LayerCompositeEngine, MaskStamper, PixelRect, SelectionMask,
+    StampRequest, bake_affine_rgba, crop_rgba, dab_scissor, fill_rgba, flip_rgba,
+    linear_gradient_rgba, mask_has_selection, rotate_rgba_90_cw, sample_rgba_at,
 };
+
+/// Union of the regions a dab batch can touch, or `None` when no dab lands on
+/// the canvas or a bound cannot be established for one.
+fn painted_bounds(requests: &[StampRequest], width: u32, height: u32) -> Option<PixelRect> {
+    let mut bounds: Option<PixelRect> = None;
+    for req in requests {
+        let rect = dab_scissor(req.x, req.y, req.radius_px, width, height)?;
+        bounds = Some(match bounds {
+            Some(existing) => existing.union(rect),
+            None => rect,
+        });
+    }
+    bounds
+}
 
 struct StrokeBackup {
     layer: LayerId,
@@ -839,7 +853,14 @@ pub fn stamp_dabs(
                     return Err("layer texture missing".into());
                 };
                 doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
-                doc.engine.mark_layer_painted(layer);
+                // Report the region the batch could touch, so the composite can
+                // re-blend it instead of the whole canvas. Falls back to the
+                // unbounded mark if any dab's bounds cannot be established.
+                let (doc_w, doc_h) = doc.engine.size();
+                match painted_bounds(&requests, doc_w, doc_h) {
+                    Some(rect) => doc.engine.mark_layer_painted_in(layer, rect),
+                    None => doc.engine.mark_layer_painted(layer),
+                }
             }
             PaintTarget::LayerMask => {
                 let Some(tex) = doc.engine.mask_texture(layer) else {

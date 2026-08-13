@@ -257,6 +257,18 @@ Consequences that are normative, not incidental:
 
 Paths that map GPU memory to host memory — readback, sampling, export, parity fixtures — are unaffected and continue to wait.
 
+### Bounding a composite to what changed
+
+Re-blending the whole canvas for a brush dab is the dominant steady-state cost of painting, and it scales with document size and layer count while the change does not. A composite **SHOULD** re-blend only the region invalidated since the last one.
+
+Bounding is only sound when nothing outside the region can have changed, so it **MUST** be gated on all of: a previous composite having produced a complete result to load, no structural repack of the layer array, every invalidation since the last composite having carried a region, and the layer parameters being unchanged. Parameters are the subtle one — opacity, blend, visibility, and transform alter every pixel a layer contributes without invalidating any region, so they **MUST** be compared rather than assumed stable. Failing any gate **MUST** fall back to a full clear-and-blend; the cost of an unnecessary full pass is bounded, the cost of a wrongly-skipped one is a corrupt canvas.
+
+The region **MUST** own the accumulation itself rather than accepting one per call, so the bound used to copy pixels and the bound used to blend them cannot disagree.
+
+A bounded pass **MUST** load the existing attachment rather than clear it. An effect that reads beyond the pixels that changed — any blur or convolution — **MUST NOT** have its output copied under a region bound, because its result changes outside the region that fed it.
+
+Because an under-sized region yields a canvas that is wrong rather than a call that fails, correctness **MUST** be established by comparing a bounded composite against a full one over identical state, and the comparison **MUST** assert that the bounded path was actually taken — routing that a structural invalidation silently redirects to the full path would otherwise pass while testing nothing.
+
 Queues are bounded by requests, graph nodes, tile jobs, uploads, GPU submissions, readbacks, and bytes. Coalescing keeps newest view transform and newest snapshot generation per view. User mutations are not renderer queue items and cannot be lost because renderer is overloaded.
 
 Pressure policy:

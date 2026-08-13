@@ -261,7 +261,7 @@ impl BrushStamper {
         }
         // Only dabs that touch the target get a draw; a scissor rect must lie
         // inside the attachment and may not be empty.
-        let drawable: Vec<(usize, StampRequest, ScissorRect)> = requests
+        let drawable: Vec<(usize, StampRequest, PixelRect)> = requests
             .iter()
             .copied()
             .filter_map(|req| {
@@ -346,26 +346,62 @@ impl BrushStamper {
     }
 }
 
-/// Integer scissor rect in texels.
+/// Integer rect in texels, used for scissoring and for bounded copies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ScissorRect {
+pub struct PixelRect {
     pub x: u32,
     pub y: u32,
     pub width: u32,
     pub height: u32,
 }
 
+impl PixelRect {
+    /// Smallest rect containing both.
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        let right = (self.x + self.width).max(other.x + other.width);
+        let bottom = (self.y + self.height).max(other.y + other.height);
+        Self {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        }
+    }
+
+    /// Grow by `pad` texels on every side, clamped to a `width` x `height` target.
+    #[must_use]
+    pub fn expanded(self, pad: u32, width: u32, height: u32) -> Self {
+        let x = self.x.saturating_sub(pad);
+        let y = self.y.saturating_sub(pad);
+        let right = (self.x + self.width).saturating_add(pad).min(width);
+        let bottom = (self.y + self.height).saturating_add(pad).min(height);
+        Self {
+            x,
+            y,
+            width: right.saturating_sub(x),
+            height: bottom.saturating_sub(y),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+
+    #[must_use]
+    pub fn covers(self, width: u32, height: u32) -> bool {
+        self.x == 0 && self.y == 0 && self.width >= width && self.height >= height
+    }
+}
+
 /// Pixel bounds a dab can touch, clamped to the target.
 ///
 /// Returns `None` when the dab lies entirely outside, which must not produce a
 /// draw: an empty scissor rect is invalid.
-pub(crate) fn dab_scissor(
-    x: f32,
-    y: f32,
-    radius_px: f32,
-    width: u32,
-    height: u32,
-) -> Option<ScissorRect> {
+pub fn dab_scissor(x: f32, y: f32, radius_px: f32, width: u32, height: u32) -> Option<PixelRect> {
     if width == 0 || height == 0 || !x.is_finite() || !y.is_finite() || !radius_px.is_finite() {
         return None;
     }
@@ -383,7 +419,7 @@ pub(crate) fn dab_scissor(
     if max_x <= min_x || max_y <= min_y {
         return None;
     }
-    Some(ScissorRect {
+    Some(PixelRect {
         x: min_x,
         y: min_y,
         width: max_x - min_x,

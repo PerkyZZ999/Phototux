@@ -12,6 +12,7 @@ use phototux_engine::{
 };
 
 use crate::blur::SeparableBlur;
+use crate::brush::PixelRect;
 use crate::effect_pass::{EffectPass, LayerPackPlan};
 use crate::filters::adjustment_pass;
 use crate::layer_mask::LayerMaskChannel;
@@ -261,6 +262,20 @@ pub struct LayerCompositeEngine {
     mask_white: wgpu::Texture,
     array_dirty: bool,
     mask_dirty: bool,
+    /// `result` holds a complete composite, so a bounded pass may load it.
+    result_valid: bool,
+    /// Whether the last composite re-blended only a region. Observable so a
+    /// test asserting "bounded matches full" cannot pass by never taking the
+    /// bounded path.
+    last_composite_bounded: bool,
+    /// Union of regions painted since the last composite.
+    dirty_rect: Option<PixelRect>,
+    /// False once anything marked a layer dirty without a region, which makes
+    /// the accumulated rect an under-estimate and forces a full pass.
+    dirty_rect_complete: bool,
+    /// Last uniforms written. Any difference means layer parameters moved and
+    /// the whole canvas has to be re-blended, not just the painted region.
+    last_uniforms: Vec<u8>,
     /// Array-slice indices dirty from paint (incremental copy; avoids full repack).
     dirty_slices: Vec<u32>,
     dirty_mask_slices: Vec<u32>,
@@ -438,6 +453,11 @@ impl LayerCompositeEngine {
             mask_white,
             array_dirty: true,
             mask_dirty: true,
+            result_valid: false,
+            last_composite_bounded: false,
+            dirty_rect: None,
+            dirty_rect_complete: true,
+            last_uniforms: Vec::new(),
             dirty_slices: Vec::new(),
             dirty_mask_slices: Vec::new(),
             result,
@@ -650,7 +670,8 @@ impl LayerCompositeEngine {
         }
         for (id, slice) in pack {
             self.layer_index.insert(id, slice);
-            self.copy_layer_slice(ctx, encoder, id, slice)?;
+            // Full repack: every slice is rebuilt, so no region bound applies.
+            self.copy_layer_slice(ctx, encoder, id, slice, None)?;
         }
         Ok(())
     }
@@ -670,8 +691,9 @@ impl LayerCompositeEngine {
                     .map(|id| (id, slice))
             })
             .collect();
+        let bound = self.dirty_rect.filter(|_| self.dirty_rect_complete);
         for (id, slice) in dirty {
-            self.copy_layer_slice(ctx, encoder, id, slice)?;
+            self.copy_layer_slice(ctx, encoder, id, slice, bound)?;
         }
         Ok(())
     }
@@ -699,6 +721,7 @@ impl LayerCompositeEngine {
             .get(&id)
             .map(LayerMaskChannel::texture)
             .unwrap_or(&self.mask_white);
+        // Masks are not region-tracked yet, so their slices copy whole.
         copy_slice_2d(
             encoder,
             src,
@@ -706,6 +729,7 @@ impl LayerCompositeEngine {
             slice,
             self.width,
             self.height,
+            None,
         );
     }
 
@@ -715,6 +739,7 @@ impl LayerCompositeEngine {
         encoder: &mut wgpu::CommandEncoder,
         id: LayerId,
         slice: u32,
+        bound: Option<PixelRect>,
     ) -> Result<(), String> {
         let Some(src) = self.layer_tex.get(&id) else {
             return Ok(());
@@ -725,12 +750,16 @@ impl LayerCompositeEngine {
             .get(&id)
             .cloned()
             .unwrap_or_else(LayerPackPlan::identity);
-        let pack_src = if plan.needs_effects() {
+        let needs_effects = plan.needs_effects();
+        let pack_src = if needs_effects {
             self.effects
                 .apply_pack(ctx, encoder, &mut self.blur, &src, &plan)
         } else {
             src
         };
+        // An effect reads beyond the pixels that changed — a blur of a painted
+        // region alters output outside it — so its result must be copied whole.
+        let bound = bound.filter(|_| !needs_effects);
         copy_slice_2d(
             encoder,
             &pack_src,
@@ -738,6 +767,7 @@ impl LayerCompositeEngine {
             slice,
             self.width,
             self.height,
+            bound,
         );
         Ok(())
     }
@@ -829,11 +859,24 @@ impl LayerCompositeEngine {
     ///
     /// # Errors
     /// Returns an error when GPU poll fails or the bind group is missing after repack.
+    /// Composite the layer stack into the result texture.
+    ///
+    /// Re-blends only the region painted since the last composite when that is
+    /// provably sufficient: `result` already holds a complete composite, the
+    /// layer array needed no structural repack, every dirty mark carried a
+    /// region, and the layer parameters are byte-identical to the previous
+    /// pass. Any of those failing falls back to a full clear-and-blend, so the
+    /// worst case is the cost this had before — never a stale canvas.
+    ///
+    /// # Errors
+    /// Returns an error when the repack fails or the bind group is missing.
     pub fn composite(
         &mut self,
         ctx: &GpuContext,
         layers_bottom_to_top: &[Layer],
     ) -> Result<f32, String> {
+        let structural = self.array_dirty || self.mask_dirty || self.bind_group.is_none();
+        let dirty = self.dirty_rect.filter(|_| self.dirty_rect_complete);
         self.repack_array_if_needed(ctx)?;
 
         let count = layers_bottom_to_top.len().min(MAX_LAYERS);
@@ -870,8 +913,20 @@ impl LayerCompositeEngine {
             uniforms.layers[i] = self.layer_params_gpu(layer);
         }
 
-        ctx.queue
-            .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniforms));
+        let uniform_bytes = bytemuck::bytes_of(&uniforms);
+        let params_moved = self.last_uniforms != uniform_bytes;
+        if params_moved {
+            self.last_uniforms.clear();
+            self.last_uniforms.extend_from_slice(uniform_bytes);
+        }
+        ctx.queue.write_buffer(&self.uniform_buf, 0, uniform_bytes);
+
+        let bounded = dirty
+            .filter(|rect| !rect.is_empty())
+            .filter(|rect| !rect.covers(self.width, self.height))
+            .filter(|_| self.result_valid && !structural && !params_moved);
+
+        self.last_composite_bounded = bounded.is_some();
 
         let Some(bind) = self.bind_group.as_ref() else {
             return Err("composite bind group missing".to_owned());
@@ -895,7 +950,14 @@ impl LayerCompositeEngine {
                     view: &result_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        // A bounded pass must keep the pixels it is not
+                        // re-blending; clearing would erase the rest of the
+                        // canvas and leave only the painted region.
+                        load: if bounded.is_some() {
+                            wgpu::LoadOp::Load
+                        } else {
+                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -907,6 +969,9 @@ impl LayerCompositeEngine {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, bind, &[]);
+            if let Some(rect) = bounded {
+                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+            }
             pass.draw(0..3, 0..1);
         }
         // This barrier — not a host wait — is what orders Qt's sampling after
@@ -929,6 +994,12 @@ impl LayerCompositeEngine {
         );
 
         ctx.queue.submit(Some(encoder.finish()));
+        // Every path above writes a complete composite except a bounded one,
+        // which requires a complete one to already be there — so after either,
+        // `result` is whole.
+        self.result_valid = true;
+        self.dirty_rect = None;
+        self.dirty_rect_complete = true;
         if timed {
             if let Some(timer) = self.timer.as_mut() {
                 timer.map_after_submit();
@@ -1169,7 +1240,34 @@ impl LayerCompositeEngine {
     }
 
     /// After painting into a layer texture, mark only that array slice dirty.
+    /// True when the last composite re-blended only the painted region.
+    pub fn last_composite_bounded(&self) -> bool {
+        self.last_composite_bounded
+    }
+
     pub fn mark_layer_painted(&mut self, id: LayerId) {
+        // No region: the next composite cannot be bounded, because the
+        // accumulated rect would understate what changed.
+        self.dirty_rect_complete = false;
+        self.mark_slice_dirty(id);
+    }
+
+    /// Mark a layer painted within `rect`, so the next composite can bound
+    /// itself to the union of such regions.
+    pub fn mark_layer_painted_in(&mut self, id: LayerId, rect: PixelRect) {
+        if rect.is_empty() {
+            return;
+        }
+        if self.dirty_rect_complete {
+            self.dirty_rect = Some(match self.dirty_rect {
+                Some(existing) => existing.union(rect),
+                None => rect,
+            });
+        }
+        self.mark_slice_dirty(id);
+    }
+
+    fn mark_slice_dirty(&mut self, id: LayerId) {
         if let Some(&slice) = self.layer_index.get(&id) {
             if !self.dirty_slices.contains(&slice) {
                 self.dirty_slices.push(slice);
@@ -1375,27 +1473,40 @@ fn copy_slice_2d(
     slice: u32,
     width: u32,
     height: u32,
+    bound: Option<PixelRect>,
 ) {
+    // Copying the painted region instead of the whole layer is the difference
+    // between moving a few kilobytes and a full layer per composite.
+    let rect = bound.unwrap_or(PixelRect {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    });
     encoder.copy_texture_to_texture(
         wgpu::TexelCopyTextureInfo {
             texture: src,
             mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
+            origin: wgpu::Origin3d {
+                x: rect.x,
+                y: rect.y,
+                z: 0,
+            },
             aspect: wgpu::TextureAspect::All,
         },
         wgpu::TexelCopyTextureInfo {
             texture: dst_array,
             mip_level: 0,
             origin: wgpu::Origin3d {
-                x: 0,
-                y: 0,
+                x: rect.x,
+                y: rect.y,
                 z: slice,
             },
             aspect: wgpu::TextureAspect::All,
         },
         wgpu::Extent3d {
-            width,
-            height,
+            width: rect.width,
+            height: rect.height,
             depth_or_array_layers: 1,
         },
     );
@@ -1715,6 +1826,171 @@ mod tests {
         assert!(
             ms < 2.05,
             "ADR-008 gate failed: 10×4K composite {ms:.3} ms >= 2.05 ms"
+        );
+    }
+}
+
+/// A bounded composite must be indistinguishable from a full one.
+///
+/// This is the failure mode the rest of the suite cannot see: an under-sized
+/// region, or a load/clear mix-up, produces a canvas that is merely *wrong*
+/// rather than a call that fails. Every test asserts the bounded path was
+/// actually taken, because `write_layer_rgba` marks the array structurally
+/// dirty and would otherwise route these through the full path unnoticed.
+#[cfg(all(test, feature = "gpu-tests"))]
+mod region_tests {
+    use super::*;
+    use crate::{BrushStamper, GpuContext, StampRequest, dab_scissor};
+    use phototux_engine::{BrushParams, DocumentGraph, DocumentSize};
+
+    const W: u32 = 64;
+    const H: u32 = 64;
+
+    struct Fixture {
+        ctx: GpuContext,
+        engine: LayerCompositeEngine,
+        stamper: BrushStamper,
+        layers: Vec<Layer>,
+        id: LayerId,
+    }
+
+    fn fixture(base: [u8; 4]) -> Fixture {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(W, H);
+        let graph = DocumentGraph::new(size);
+        let mut engine = LayerCompositeEngine::new(&ctx, size);
+        engine
+            .sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        let id = graph.layers()[0].id;
+        let mut pixels = Vec::with_capacity((W * H * 4) as usize);
+        for _ in 0..(W * H) {
+            pixels.extend_from_slice(&base);
+        }
+        engine.write_layer_rgba(&ctx, id, &pixels).expect("base");
+        let layers = graph.layers().to_vec();
+        // Settle the structural upload so later composites can be bounded.
+        engine.composite(&ctx, &layers).expect("warm");
+        let stamper = BrushStamper::new(&ctx, W, H);
+        Fixture {
+            ctx,
+            engine,
+            stamper,
+            layers,
+            id,
+        }
+    }
+
+    /// Paint one dab through the real stamper and report its region.
+    fn paint(fx: &mut Fixture, x: f32, y: f32, radius: f32, color: [f32; 4]) -> PixelRect {
+        let req = StampRequest {
+            x,
+            y,
+            radius_px: radius,
+            pressure: 1.0,
+            params: BrushParams {
+                size: radius * 2.0,
+                hardness: 0.95,
+                color,
+                ..BrushParams::default()
+            },
+        };
+        let tex = fx.engine.layer_texture(fx.id).expect("layer").clone();
+        fx.stamper.stamp_batch(&fx.ctx, &tex, &[req]);
+        dab_scissor(x, y, radius, W, H).expect("dab on canvas")
+    }
+
+    fn px(buf: &[u8], x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * W + x) * 4) as usize;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    }
+
+    #[test]
+    fn a_bounded_composite_matches_a_full_one() {
+        let mut fx = fixture([200, 40, 40, 255]);
+        let rect = paint(&mut fx, 20.0, 20.0, 6.0, [0.1, 0.9, 0.1, 1.0]);
+        fx.engine.mark_layer_painted_in(fx.id, rect);
+
+        let layers = fx.layers.clone();
+        fx.engine.composite(&fx.ctx, &layers).expect("bounded");
+        assert!(
+            fx.engine.last_composite_bounded(),
+            "the bounded path was not taken, so this test proves nothing"
+        );
+        let bounded = fx.engine.read_result_rgba(&fx.ctx).expect("read bounded");
+
+        // Same layer state, forced through the full path.
+        fx.engine.mark_layer_painted(fx.id);
+        fx.engine.composite(&fx.ctx, &layers).expect("full");
+        assert!(!fx.engine.last_composite_bounded());
+        let full = fx.engine.read_result_rgba(&fx.ctx).expect("read full");
+
+        let differing: Vec<_> = bounded
+            .chunks_exact(4)
+            .zip(full.chunks_exact(4))
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, (a, b))| (i as u32 % W, i as u32 / W, a.to_vec(), b.to_vec()))
+            .take(4)
+            .collect();
+        assert!(
+            differing.is_empty(),
+            "bounded composite differs from full at (x, y, bounded, full): {differing:?}"
+        );
+    }
+
+    #[test]
+    fn a_bounded_composite_keeps_pixels_outside_the_region() {
+        let mut fx = fixture([10, 20, 200, 255]);
+        let before = fx.engine.read_result_rgba(&fx.ctx).expect("before");
+
+        let rect = paint(&mut fx, 8.0, 8.0, 5.0, [1.0, 1.0, 0.1, 1.0]);
+        fx.engine.mark_layer_painted_in(fx.id, rect);
+        let layers = fx.layers.clone();
+        fx.engine.composite(&fx.ctx, &layers).expect("bounded");
+        assert!(fx.engine.last_composite_bounded(), "not bounded");
+        let after = fx.engine.read_result_rgba(&fx.ctx).expect("after");
+
+        assert_ne!(
+            px(&before, 8, 8),
+            px(&after, 8, 8),
+            "the painted region was not re-blended"
+        );
+        assert_eq!(
+            px(&before, 50, 50),
+            px(&after, 50, 50),
+            "a pixel outside the region changed — cleared or stale"
+        );
+        assert_ne!(
+            px(&after, 50, 50)[3],
+            0,
+            "outside the region went transparent"
+        );
+    }
+
+    /// A layer parameter change invalidates the whole canvas, so a stale
+    /// accumulated region must not bound it.
+    #[test]
+    fn a_parameter_change_forces_a_full_composite() {
+        let mut fx = fixture([255, 255, 255, 255]);
+        let before = fx.engine.read_result_rgba(&fx.ctx).expect("before");
+
+        let rect = paint(&mut fx, 4.0, 4.0, 3.0, [1.0, 0.0, 0.0, 1.0]);
+        fx.engine.mark_layer_painted_in(fx.id, rect);
+
+        let mut dimmed = fx.layers.clone();
+        dimmed[0].opacity = 0.25;
+        fx.engine.composite(&fx.ctx, &dimmed).expect("composite");
+        assert!(
+            !fx.engine.last_composite_bounded(),
+            "a parameter change was allowed to take the bounded path"
+        );
+        let after = fx.engine.read_result_rgba(&fx.ctx).expect("after");
+
+        assert_ne!(
+            px(&before, 50, 50),
+            px(&after, 50, 50),
+            "opacity change did not reach outside the declared region"
         );
     }
 }
