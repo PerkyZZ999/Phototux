@@ -185,44 +185,68 @@ impl MaskStamper {
         if requests.is_empty() {
             return;
         }
-        self.ensure_uniform_slots(ctx, requests.len());
+        // Same shape as BrushStamper::stamp_batch: bound each dab to the region
+        // it can touch, and record the batch as one pass.
+        let drawable: Vec<(usize, StampRequest, crate::brush::ScissorRect)> = requests
+            .iter()
+            .copied()
+            .filter_map(|req| {
+                crate::brush::dab_scissor(req.x, req.y, req.radius_px, self.width, self.height)
+                    .map(|rect| (req, rect))
+            })
+            .enumerate()
+            .map(|(index, (req, rect))| (index, req, rect))
+            .collect();
+        if drawable.is_empty() {
+            return;
+        }
+
+        self.ensure_uniform_slots(ctx, drawable.len());
+        let binds: Vec<wgpu::BindGroup> = drawable
+            .iter()
+            .map(|&(index, req, _)| {
+                let uniforms = self.uniforms_for(req);
+                let ubo = &self.uniform_bufs[index];
+                ctx.queue
+                    .write_buffer(ubo, 0, bytemuck::bytes_of(&uniforms));
+                ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("mask-stamp-bg"),
+                    layout: &self.bind_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ubo.as_entire_binding(),
+                    }],
+                })
+            })
+            .collect();
+
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("mask-stamp-batch-enc"),
             });
-        for (i, req) in requests.iter().copied().enumerate() {
-            let u = self.uniforms_for(req);
-            let ubo = &self.uniform_bufs[i];
-            ctx.queue.write_buffer(ubo, 0, bytemuck::bytes_of(&u));
-            let bind = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("mask-stamp-bg"),
-                layout: &self.bind_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ubo.as_entire_binding(),
-                }],
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mask-stamp-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             });
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mask-stamp-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &bind, &[]);
+            pass.set_pipeline(&self.pipeline);
+            for (&(_, _, rect), bind) in drawable.iter().zip(binds.iter()) {
+                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+                pass.set_bind_group(0, bind, &[]);
                 pass.draw(0..3, 0..1);
             }
         }

@@ -10,6 +10,7 @@ Canvas fluidity pass, part three: stop paying whole-canvas cost for small dabs.
 
 - **A dab batch is one scissored render pass, not a pass per dab.** Each dab began its own `begin_render_pass` over the entire layer and drew a full-screen triangle whose off-dab fragments were discarded — on a 4K layer a 20 px dab rasterized 8.3 M fragments to keep about 1 250, and consecutive dabs paid a pipeline drain plus a full attachment load and store between them. The batch now records one pass and scissors each dab to the region it can touch. Draws within a pass blend in submission order, so the result is unchanged. Dabs entirely off-canvas are skipped, since an empty scissor rect is invalid.
 - Pipeline switches are now only rebound when the paint/erase mode actually changes within a batch.
+- Mask painting uses the same batched, scissored path, sharing the bounding helper rather than repeating it.
 
 ### Tests
 
