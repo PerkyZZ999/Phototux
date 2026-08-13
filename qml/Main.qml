@@ -263,18 +263,7 @@ ApplicationWindow {
     }
 
     function panelIsVisible(panelId) {
-        if (panelId === "panel.navigator")
-            return AppSession.panelNavigatorVisible
-        if (panelId === "panel.swatches")
-            return AppSession.panelSwatchesVisible
-        if (panelId === "panel.layers")
-            return AppSession.panelLayersVisible
-        if (panelId === "panel.history")
-            return AppSession.panelHistoryVisible
-        if (panelId === "panel.properties")
-            return AppSession.panelPropertiesVisible
-        var m = root.panelVisibilityMap
-        return m[panelId] === true
+        return root.panelVisibilityMap[panelId] === true
     }
 
     function panelHasBody(panelId) {
@@ -437,11 +426,7 @@ ApplicationWindow {
                 + AppSession.prefShowGrid
                 + AppSession.prefShowRulers
                 + AppSession.prefSnap
-                + AppSession.panelNavigatorVisible
-                + AppSession.panelSwatchesVisible
-                + AppSession.panelLayersVisible
-                + AppSession.panelHistoryVisible
-                + AppSession.panelPropertiesVisible
+                + AppSession.panelVisibilityJson
                 + root.activeLayerClips
                 + root.activeMaskEnabled
     }
@@ -468,15 +453,16 @@ ApplicationWindow {
         case "action.view.toggle-snap":
             return AppSession.prefSnap
         case "action.window.panel-navigator":
-            return AppSession.panelNavigatorVisible
         case "action.window.panel-swatches":
-            return AppSession.panelSwatchesVisible
         case "action.window.panel-layers":
-            return AppSession.panelLayersVisible
         case "action.window.panel-history":
-            return AppSession.panelHistoryVisible
         case "action.window.panel-properties":
-            return AppSession.panelPropertiesVisible
+        case "action.window.panel-paths":
+        case "action.window.panel-character":
+            // Every Window-menu panel toggle reads the one registry map, so a
+            // new panel needs no case of its own.
+            return root.panelIsVisible(actionId.replace("action.window.panel-",
+                                                        "panel."))
         case "action.layer.toggle-clip":
             return root.activeLayerClips
         default:
@@ -499,19 +485,14 @@ ApplicationWindow {
             AppSession.setSnapEnabled(checked)
             break
         case "action.window.panel-navigator":
-            AppSession.setPanelNavigatorVisible(checked)
-            break
         case "action.window.panel-swatches":
-            AppSession.setPanelSwatchesVisible(checked)
-            break
         case "action.window.panel-layers":
-            AppSession.setPanelLayersVisible(checked)
-            break
         case "action.window.panel-history":
-            AppSession.setPanelHistoryVisible(checked)
-            break
         case "action.window.panel-properties":
-            AppSession.setPanelPropertiesVisible(checked)
+        case "action.window.panel-paths":
+        case "action.window.panel-character":
+            AppSession.setPanelVisible(
+                        actionId.replace("action.window.panel-", "panel."), checked)
             break
         case "action.layer.toggle-clip":
             AppSession.setClipsToBelowOnActive(checked)

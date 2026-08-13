@@ -294,11 +294,6 @@ pub struct AppSession {
     pref_ui_density: String,
     pref_high_contrast: bool,
     pref_reduced_motion: bool,
-    panel_navigator_visible: bool,
-    panel_swatches_visible: bool,
-    panel_layers_visible: bool,
-    panel_history_visible: bool,
-    panel_properties_visible: bool,
     text_layer_active: bool,
     text_body: String,
     text_font_family: String,
@@ -523,11 +518,6 @@ impl AppSession {
             pref_ui_density: "dense".into(),
             pref_high_contrast: false,
             pref_reduced_motion: false,
-            panel_navigator_visible: true,
-            panel_swatches_visible: true,
-            panel_layers_visible: true,
-            panel_history_visible: true,
-            panel_properties_visible: true,
             text_layer_active: false,
             text_body: String::new(),
             text_font_family: "Noto Sans".into(),
@@ -1513,11 +1503,6 @@ impl AppSession {
     }
 
     fn sync_panel_visibility_from_workspace(&mut self) {
-        self.panel_navigator_visible = self.workspace.is_visible("panel.navigator");
-        self.panel_swatches_visible = self.workspace.is_visible("panel.swatches");
-        self.panel_layers_visible = self.workspace.is_visible("panel.layers");
-        self.panel_history_visible = self.workspace.is_visible("panel.history");
-        self.panel_properties_visible = self.workspace.is_visible("panel.properties");
         self.panel_visibility_json = self.workspace.visibility_json();
         self.dock_topology_json = self
             .workspace
@@ -1534,11 +1519,6 @@ impl AppSession {
         self.prefs.apply_workspace(&self.workspace);
         self.sync_panel_visibility_from_workspace();
         self.persist_prefs();
-        self.panel_navigator_visible_changed();
-        self.panel_swatches_visible_changed();
-        self.panel_layers_visible_changed();
-        self.panel_history_visible_changed();
-        self.panel_properties_visible_changed();
         self.panel_visibility_json_changed();
         self.dock_topology_json_changed();
         self.dock_groups_json_changed();
@@ -1557,11 +1537,6 @@ impl AppSession {
         self.pref_reduced_motion_changed();
         self.pref_safe_start_next_changed();
         self.pref_history_retention_changed();
-        self.panel_navigator_visible_changed();
-        self.panel_swatches_visible_changed();
-        self.panel_layers_visible_changed();
-        self.panel_history_visible_changed();
-        self.panel_properties_visible_changed();
         self.guides_json_changed();
         self.grid_spacing_changed();
     }
@@ -1861,20 +1836,7 @@ impl AppSession {
             "workspace.reset" => self.reset_workspace(),
             op if op.starts_with("panel.toggle:") => {
                 let panel = op.trim_start_matches("panel.toggle:");
-                match panel {
-                    "navigator" => {
-                        self.set_panel_navigator_visible(!self.panel_navigator_visible);
-                    }
-                    "swatches" => {
-                        self.set_panel_swatches_visible(!self.panel_swatches_visible);
-                    }
-                    "layers" => self.set_panel_layers_visible(!self.panel_layers_visible),
-                    "history" => self.set_panel_history_visible(!self.panel_history_visible),
-                    "properties" => {
-                        self.set_panel_properties_visible(!self.panel_properties_visible);
-                    }
-                    _ => {}
-                }
+                self.toggle_panel_by_id(&format!("panel.{panel}"));
             }
             _ => {
                 self.status_text = format!("Unknown host op: {op}");
@@ -3012,31 +2974,6 @@ impl AppSession {
         Member = pref_restore_last_tool,
         Notify = pref_restore_last_tool_changed
     );
-    qproperty!(
-        "panelNavigatorVisible",
-        Member = panel_navigator_visible,
-        Notify = panel_navigator_visible_changed
-    );
-    qproperty!(
-        "panelSwatchesVisible",
-        Member = panel_swatches_visible,
-        Notify = panel_swatches_visible_changed
-    );
-    qproperty!(
-        "panelLayersVisible",
-        Member = panel_layers_visible,
-        Notify = panel_layers_visible_changed
-    );
-    qproperty!(
-        "panelHistoryVisible",
-        Member = panel_history_visible,
-        Notify = panel_history_visible_changed
-    );
-    qproperty!(
-        "panelPropertiesVisible",
-        Member = panel_properties_visible,
-        Notify = panel_properties_visible_changed
-    );
 
     #[qsignal]
     fn doc_width_changed(&mut self);
@@ -3358,16 +3295,6 @@ impl AppSession {
     fn text_wrap_changed(&mut self);
     #[qsignal]
     fn pref_restore_last_tool_changed(&mut self);
-    #[qsignal]
-    fn panel_navigator_visible_changed(&mut self);
-    #[qsignal]
-    fn panel_swatches_visible_changed(&mut self);
-    #[qsignal]
-    fn panel_layers_visible_changed(&mut self);
-    #[qsignal]
-    fn panel_history_visible_changed(&mut self);
-    #[qsignal]
-    fn panel_properties_visible_changed(&mut self);
 
     #[qslot]
     fn assign_document_profile(&mut self, profile: String) {
@@ -3855,36 +3782,6 @@ impl AppSession {
         self.persist_workspace_visibility();
     }
 
-    #[qslot]
-    fn set_panel_navigator_visible(&mut self, value: bool) {
-        let _ = self.workspace.set_visible("panel.navigator", value);
-        self.persist_workspace_visibility();
-    }
-
-    #[qslot]
-    fn set_panel_swatches_visible(&mut self, value: bool) {
-        let _ = self.workspace.set_visible("panel.swatches", value);
-        self.persist_workspace_visibility();
-    }
-
-    #[qslot]
-    fn set_panel_layers_visible(&mut self, value: bool) {
-        let _ = self.workspace.set_visible("panel.layers", value);
-        self.persist_workspace_visibility();
-    }
-
-    #[qslot]
-    fn set_panel_history_visible(&mut self, value: bool) {
-        let _ = self.workspace.set_visible("panel.history", value);
-        self.persist_workspace_visibility();
-    }
-
-    #[qslot]
-    fn set_panel_properties_visible(&mut self, value: bool) {
-        let _ = self.workspace.set_visible("panel.properties", value);
-        self.persist_workspace_visibility();
-    }
-
     /// Set visibility by panel descriptor id (prefs / descriptor-driven chrome).
     #[qslot]
     fn set_panel_visible(&mut self, panel_id: String, value: bool) {
@@ -3915,15 +3812,28 @@ impl AppSession {
         }
     }
 
-    /// Move a panel within the right stack (`delta` −1 up / +1 down).
-    #[qslot]
-    fn move_panel_in_stack(&mut self, panel_id: String, delta: i32) {
-        if let Err(reason) = self.workspace.move_panel_in_stack(&panel_id, delta) {
-            self.status_text = format!("Panel move failed: {reason}");
+    /// Apply a workspace mutation, reporting failure and persisting on success.
+    ///
+    /// Seven slots previously repeated this epilogue verbatim. Keeping it in one
+    /// place is what makes "a rejected layout change must not be persisted" a
+    /// property of the operation rather than a convention each slot restates.
+    fn commit_workspace_op(&mut self, result: Result<(), String>, failure_label: &str) {
+        if let Err(reason) = result {
+            self.status_text = format!("{failure_label}: {reason}");
             self.status_text_changed();
             return;
         }
         self.persist_workspace_visibility();
+    }
+
+    /// Move a panel within the right stack (`delta` −1 up / +1 down).
+    #[qslot]
+    fn move_panel_in_stack(&mut self, panel_id: String, delta: i32) {
+        let outcome = self
+            .workspace
+            .move_panel_in_stack(&panel_id, delta)
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Panel move failed");
     }
 
     /// Reorder right stack by indices (DnD commit).
@@ -3932,15 +3842,11 @@ impl AppSession {
         if from < 0 || to < 0 {
             return;
         }
-        if let Err(reason) = self
+        let outcome = self
             .workspace
             .reorder_panel_in_stack(from as usize, to as usize)
-        {
-            self.status_text = format!("Panel reorder failed: {reason}");
-            self.status_text_changed();
-            return;
-        }
-        self.persist_workspace_visibility();
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Panel reorder failed");
     }
 
     /// Tear a docked panel into a floating window.
@@ -3948,23 +3854,21 @@ impl AppSession {
     fn tear_off_panel(&mut self, panel_id: String, x: i32, y: i32, width: i32, height: i32) {
         let w = width.max(200) as u32;
         let h = height.max(120) as u32;
-        if let Err(reason) = self.workspace.tear_off_panel(&panel_id, x, y, w, h, "") {
-            self.status_text = format!("Tear-off failed: {reason}");
-            self.status_text_changed();
-            return;
-        }
-        self.persist_workspace_visibility();
+        let outcome = self
+            .workspace
+            .tear_off_panel(&panel_id, x, y, w, h, "")
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Tear-off failed");
     }
 
     /// Return a floating panel to the right dock stack.
     #[qslot]
     fn redock_panel(&mut self, panel_id: String) {
-        if let Err(reason) = self.workspace.redock_panel(&panel_id) {
-            self.status_text = format!("Redock failed: {reason}");
-            self.status_text_changed();
-            return;
-        }
-        self.persist_workspace_visibility();
+        let outcome = self
+            .workspace
+            .redock_panel(&panel_id)
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Redock failed");
     }
 
     /// Persist floating window geometry (move/resize).
@@ -3979,12 +3883,11 @@ impl AppSession {
     ) {
         let w = width.max(200) as u32;
         let h = height.max(120) as u32;
-        if let Err(reason) = self.workspace.set_floating_geometry(&panel_id, x, y, w, h) {
-            self.status_text = format!("Float geometry failed: {reason}");
-            self.status_text_changed();
-            return;
-        }
-        self.persist_workspace_visibility();
+        let outcome = self
+            .workspace
+            .set_floating_geometry(&panel_id, x, y, w, h)
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Float geometry failed");
     }
 
     /// Clamp floating windows to the given screen rect (logical pixels).
@@ -4008,23 +3911,21 @@ impl AppSession {
     /// Toggle auto-hide for a docked panel (edge strip).
     #[qslot]
     fn toggle_panel_auto_hide(&mut self, panel_id: String) {
-        if let Err(reason) = self.workspace.toggle_auto_hide(&panel_id) {
-            self.status_text = format!("Auto-hide failed: {reason}");
-            self.status_text_changed();
-            return;
-        }
-        self.persist_workspace_visibility();
+        let outcome = self
+            .workspace
+            .toggle_auto_hide(&panel_id)
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Auto-hide failed");
     }
 
     /// Pin (reveal) an auto-hidden panel.
     #[qslot]
     fn pin_panel(&mut self, panel_id: String) {
-        if let Err(reason) = self.workspace.pin_panel(&panel_id) {
-            self.status_text = format!("Pin failed: {reason}");
-            self.status_text_changed();
-            return;
-        }
-        self.persist_workspace_visibility();
+        let outcome = self
+            .workspace
+            .pin_panel(&panel_id)
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Pin failed");
     }
 
     fn toggle_panel_by_id(&mut self, panel_id: &str) {

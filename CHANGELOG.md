@@ -2,6 +2,14 @@
 
 All notable decision milestones and project state changes.
 
+## [architecture-slices] — 2026-08-13
+
+### Internal
+
+- **Five panel-visibility properties were shadowing the registry that already answered the same question.** `panelNavigatorVisible` and its four siblings each occupied ten sites — field, initializer, sync line, two emit lines, a host-op branch, a `qproperty!`, a `#[qsignal]`, a dedicated slot, and its body — fifty sites for five booleans, all subsumed by `panelVisibilityJson` and `setPanelVisible(id, value)`, which are driven off `default_panels()`. Deleting them concentrates the logic where it already lived rather than moving it. Adding a sixth panel is now a registry entry instead of ten Rust edits.
+- The Window menu's checked state and its toggles now derive the panel id from the action id, so Paths and Character get real checked state — they previously read `false` unconditionally because no case existed for them.
+- Seven workspace slots repeated the same failure epilogue verbatim (format a message, emit `statusText`, return early, else persist). One `commit_workspace_op` owns it, so "a rejected layout change must not be persisted" is a property of the operation rather than a convention each slot restates.
+
 ## [reentrancy-and-contrast] — 2026-08-13
 
 ### Fixes
