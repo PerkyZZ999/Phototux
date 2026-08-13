@@ -10,6 +10,12 @@ All notable decision milestones and project state changes.
 - Every reactive write-back now defers through `root.afterHostSlot`. `refreshShortcutYield` defers at the function rather than at each call site, which makes all six of its reactive callers safe at once. The same treatment covers the viewport size write-back, ending a stroke when the tool changes under it, the status-marker drain behind File ▸ New/Open/Save As, and the preferences and gallery close paths — each of which could abort on the right timing. Deferral also coalesces the write-back storms during a window drag or resize into one call per event-loop turn.
 - The tear-off crash reproduced identically on the pre-tabbed-dock build, so it predates that work rather than being a regression from it. The rule is now a normative contract in handbook [32 — Host Slot Re-entrancy](internal_docs/32-Developer-Guide.md#host-slot-re-entrancy); recorded as T-027 and T-028.
 
+### Shell
+
+- **Preferences was unreadable.** No Qt Quick Controls style is configured, so the shell runs the Basic style, which hardcodes a light palette and — unlike Fusion — ignores `palette` overrides entirely. Controls that draw on their *own* background looked fine, but every `CheckBox` label and every inline dialog title landed as near-black text on dark chrome, around 1.3:1 against the AA floor handbook 28 requires. `ThemedCheckBox`, `ThemedComboBox`, `ThemedSpinBox` and `ThemedDialogHeader` draw from `Theme.qml` tokens; all seventeen checkboxes, five combo boxes, eight spin boxes and seven dialog titles use them (T-029).
+- The Filter Gallery drew its content over its own title — the `contentItem` was anchored to `parent`, which spans the whole popup rather than the region a `Dialog` reserves between header and footer (T-030). Preferences grows into the window now that its header and footer occupy real height.
+- Combo drop-down lists stay light-on-dark for now. Theming the popup left the row at `currentIndex` blank in every combo — the list reserved its slot but painted neither label nor highlight, through both delegate-model access and direct array indexing. A list that hides one of its options is worse than one that clashes, so the style's own popup was kept and the gap ranked (T-031).
+
 ## [familiar-shell-2] — 2026-08-12
 
 ### Shell

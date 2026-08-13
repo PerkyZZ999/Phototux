@@ -254,7 +254,7 @@ Rectangle {
                     ValueText {
                         text: qsTr("%1°").arg(Math.round(AppSession.transformRot))
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Constrain")
                         checked: AppSession.transformConstrain
                         enabled: AppSession.transformActive

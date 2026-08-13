@@ -1084,6 +1084,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("Recover unsaved work")
+            header: ThemedDialogHeader { text: recoveryDialog.title }
             width: 440
             standardButtons: Dialog.Close
             onClosed: {
@@ -3496,7 +3497,7 @@ ApplicationWindow {
                                     placeholderText: qsTr("Text")
                                     onEditingFinished: characterProps.pushText()
                                 }
-                                ComboBox {
+                                ThemedComboBox {
                                     id: fontFamilyCombo
                                     Layout.fillWidth: true
                                     enabled: AppSession.textLayerActive
@@ -3533,7 +3534,7 @@ ApplicationWindow {
                                         color: Theme.colorOnSurface
                                         font.pixelSize: Theme.fontBodySm
                                     }
-                                    SpinBox {
+                                    ThemedSpinBox {
                                         id: fontSizeSpin
                                         from: 4
                                         to: 512
@@ -3549,7 +3550,7 @@ ApplicationWindow {
                                         color: Theme.colorOnSurface
                                         font.pixelSize: Theme.fontBodySm
                                     }
-                                    SpinBox {
+                                    ThemedSpinBox {
                                         id: trackingSpin
                                         from: -20
                                         to: 40
@@ -3565,7 +3566,7 @@ ApplicationWindow {
                                         color: Theme.colorOnSurface
                                         font.pixelSize: Theme.fontBodySm
                                     }
-                                    SpinBox {
+                                    ThemedSpinBox {
                                         id: lineSpacingSpin
                                         from: 50
                                         to: 400
@@ -3576,7 +3577,7 @@ ApplicationWindow {
                                         onValueModified: characterProps.pushText()
                                     }
                                 }
-                                ComboBox {
+                                ThemedComboBox {
                                     id: alignCombo
                                     Layout.fillWidth: true
                                     enabled: AppSession.textLayerActive
@@ -3606,7 +3607,7 @@ ApplicationWindow {
                                         color: Theme.colorOnSurface
                                         font.pixelSize: Theme.fontBodySm
                                     }
-                                    SpinBox {
+                                    ThemedSpinBox {
                                         id: frameWSpin
                                         from: 0
                                         to: 16384
@@ -3622,7 +3623,7 @@ ApplicationWindow {
                                         color: Theme.colorOnSurface
                                         font.pixelSize: Theme.fontBodySm
                                     }
-                                    SpinBox {
+                                    ThemedSpinBox {
                                         id: frameHSpin
                                         from: 0
                                         to: 16384
@@ -3631,7 +3632,7 @@ ApplicationWindow {
                                         onValueModified: characterProps.pushText()
                                     }
                                 }
-                                CheckBox {
+                                ThemedCheckBox {
                                     id: wrapCheck
                                     text: qsTr("Wrap within frame")
                                     checked: AppSession.textWrap
@@ -3711,7 +3712,7 @@ ApplicationWindow {
                                     font.pixelSize: Theme.fontLabelSm
                                     text: qsTr("Drag anchors to move. Click empty to add. Delete removes selected. Close toggles the path.")
                                 }
-                                CheckBox {
+                                ThemedCheckBox {
                                     text: qsTr("Closed")
                                     checked: AppSession.pathClosed
                                     enabled: AppSession.pathAnchorCount >= 2
@@ -3796,7 +3797,7 @@ ApplicationWindow {
                                         }
                                     }
                                 }
-                                CheckBox {
+                                ThemedCheckBox {
                                     visible: AppSession.transformActive || root.isTransformTool()
                                     text: qsTr("Constrain proportions")
                                     checked: AppSession.transformConstrain
@@ -4081,7 +4082,7 @@ ApplicationWindow {
                                         readonly property string effectId: parts.length > 0 ? parts[0] : ""
                                         readonly property string effectName: parts.length > 1 ? parts[1] : ""
                                         readonly property bool effectOn: parts.length > 2 && parts[2] === "1"
-                                        CheckBox {
+                                        ThemedCheckBox {
                                             checked: effectOn
                                             text: effectName
                                             Layout.fillWidth: true
@@ -4328,12 +4329,12 @@ ApplicationWindow {
                                     ToolTip.text: qsTr("Edit layer mask")
                                 }
                             }
-                            CheckBox {
+                            ThemedCheckBox {
                                 text: qsTr("Enable mask")
                                 checked: root.activeMaskEnabled
                                 onToggled: AppSession.setMaskEnabledOnActive(checked)
                             }
-                            CheckBox {
+                            ThemedCheckBox {
                                 text: qsTr("Invert")
                                 checked: AppSession.maskInverted
                                 onToggled: AppSession.setMaskAttributesOnActive(
@@ -4341,7 +4342,7 @@ ApplicationWindow {
                                                checked, AppSession.maskLinked,
                                                AppSession.maskContrast, AppSession.maskShift)
                             }
-                            CheckBox {
+                            ThemedCheckBox {
                                 text: qsTr("Link mask")
                                 checked: AppSession.maskLinked
                                 onToggled: AppSession.setMaskAttributesOnActive(
@@ -4464,7 +4465,7 @@ ApplicationWindow {
                                 font.italic: true
                                 Accessible.name: qsTr("Blend mode mixed across selection")
                             }
-                            ComboBox {
+                            ThemedComboBox {
                                 id: blendCombo
                                 Layout.fillWidth: true
                                 model: [
@@ -5541,6 +5542,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("Unsaved changes")
+            header: ThemedDialogHeader { text: unsavedDialog.title }
             closePolicy: Popup.CloseOnEscape
             onRejected: root.pendingDestructiveAction = ""
             width: 440
@@ -5590,6 +5592,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("Compatibility report")
+            header: ThemedDialogHeader { text: compatibilityDialog.title }
             standardButtons: Dialog.Ok
             width: 480
             visible: AppSession.compatibilityReport.length > 0
@@ -5620,6 +5623,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("File operation failed")
+            header: ThemedDialogHeader { text: ioErrorDialog.title }
             standardButtons: Dialog.Ok
             width: Math.min(560, parent ? parent.width - 48 : 560)
 
@@ -5656,6 +5660,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("Filter Gallery")
+            header: ThemedDialogHeader { text: filterGalleryDialog.title }
             width: 420
             height: 360
             visible: AppSession.filterGalleryOpen
@@ -5678,9 +5683,12 @@ ApplicationWindow {
                 radius: Theme.radiusMd
             }
 
+            padding: Theme.spaceMd
+
+            // No anchors: a Dialog positions its own contentItem between the
+            // header and the footer. Filling `parent` instead spans the whole
+            // popup, which drew this content straight over the title bar.
             contentItem: ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spaceMd
                 spacing: Theme.spaceSm
 
                 Label {
@@ -5690,7 +5698,7 @@ ApplicationWindow {
                     color: Theme.colorOnSurfaceMuted
                     font.pixelSize: Theme.fontLabelSm
                 }
-                ComboBox {
+                ThemedComboBox {
                     id: filterKindCombo
                     Layout.fillWidth: true
                     property var kinds: ["gaussian", "motion", "emboss", "sharpen", "noise"]
@@ -5801,9 +5809,13 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("Preferences")
+            header: ThemedDialogHeader { text: preferencesDialog.title }
             standardButtons: Dialog.Close
             width: 480
-            height: 560
+            // Grow into the window when there is room: the themed header and
+            // footer take real height now that content no longer draws over
+            // them, and a fixed 560 clipped the last row mid-line.
+            height: Math.min(640, Math.max(480, root.height - 160))
             visible: AppSession.preferencesOpen
             onRejected: root.afterHostSlot(preferencesDialog.closeIfOpen)
             onAccepted: root.afterHostSlot(preferencesDialog.closeIfOpen)
@@ -5936,27 +5948,27 @@ ApplicationWindow {
                         font.pixelSize: Theme.fontLabel
                         font.weight: Font.DemiBold
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Show guides")
                         checked: AppSession.prefShowGuides
                         onToggled: AppSession.setPrefShowGuides(checked)
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Show grid")
                         checked: AppSession.prefShowGrid
                         onToggled: AppSession.setGridVisible(checked)
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Show rulers")
                         checked: AppSession.prefShowRulers
                         onToggled: AppSession.setRulersVisible(checked)
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Snap to grid / guides")
                         checked: AppSession.prefSnap
                         onToggled: AppSession.setSnapEnabled(checked)
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Restore last tool on launch")
                         checked: AppSession.prefRestoreLastTool
                         onToggled: AppSession.setPrefRestoreLastTool(checked)
@@ -5977,24 +5989,24 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontBodySm
                             Layout.fillWidth: true
                         }
-                        ComboBox {
+                        ThemedComboBox {
                             model: [qsTr("Dense"), qsTr("Comfortable")]
                             currentIndex: AppSession.prefUiDensity === "comfortable" ? 1 : 0
                             onActivated: AppSession.setPrefUiDensity(
                                              index === 1 ? "comfortable" : "dense")
                         }
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("High contrast chrome")
                         checked: AppSession.prefHighContrast
                         onToggled: AppSession.setPrefHighContrast(checked)
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Reduced motion")
                         checked: AppSession.prefReducedMotion
                         onToggled: AppSession.setPrefReducedMotion(checked)
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         text: qsTr("Safe start next launch")
                         checked: AppSession.prefSafeStartNext
                         onToggled: AppSession.setPrefSafeStartNext(checked)
@@ -6010,7 +6022,7 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontBodySm
                             Layout.fillWidth: true
                         }
-                        SpinBox {
+                        ThemedSpinBox {
                             id: historyRetentionSpin
                             from: 8
                             to: 512
@@ -6066,7 +6078,7 @@ ApplicationWindow {
                             }
                             return out
                         }
-                        delegate: CheckBox {
+                        delegate: ThemedCheckBox {
                             required property var modelData
                             text: qsTr(modelData.title || modelData.id)
                             checked: root.panelIsVisible(modelData.id)
@@ -6386,9 +6398,10 @@ ApplicationWindow {
                 radius: Theme.radiusMd
             }
 
+            // Unanchored so the Popup's own `padding` above actually applies;
+            // filling `parent` pushed the content flush against the border.
             contentItem: ColumnLayout {
                 spacing: Theme.spaceSm
-                anchors.fill: parent
 
                 Label {
                     text: qsTr("Command palette")
@@ -6490,6 +6503,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             modal: true
             title: qsTr("About PhotoTux")
+            header: ThemedDialogHeader { text: aboutDialog.title }
             standardButtons: Dialog.Ok
             width: 400
 

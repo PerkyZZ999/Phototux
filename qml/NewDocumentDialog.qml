@@ -316,7 +316,7 @@ Popup {
                             font.pixelSize: Theme.fontLabelSm
                         }
 
-                        SpinBox {
+                        ThemedSpinBox {
                             id: spinW
                             Layout.fillWidth: true
                             from: 1
@@ -334,7 +334,7 @@ Popup {
                             font.pixelSize: Theme.fontLabelSm
                         }
 
-                        SpinBox {
+                        ThemedSpinBox {
                             id: spinH
                             Layout.fillWidth: true
                             from: 1

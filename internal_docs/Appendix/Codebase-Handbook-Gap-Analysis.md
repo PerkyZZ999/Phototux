@@ -183,12 +183,12 @@ Prefer these over gated P11/P12 work. Sync checklist checkboxes when closing a r
 | **4** | I1 / P8 codec + loss-report polish | Codecs already in `phototux_io`; broaden disclosure UX | Structured loss dialog for PSD/export |
 | **5** | P1 DR-017 evidence | Soft CI green; present budgets Provisional | Release cold-boot + zoom/pan FPS pack |
 | **6** | Assign ≠ convert disclosures | Distinct actions exist; handbook wants consequence copy | ToolTips / announce strings on Image menu |
-| **7** | Right-dock height distribution | Layers and History collapse to header-only in a ~900 px window and at 200 % scale; the Properties body clips mid-control there. The per-panel reserve is a fixed fraction plus a fixed minimum, so it does not adapt to how many panels are stacked | Distribute the stack by content demand instead of a fixed 42 % cap plus reserve |
-| **8** | Font discovery is lazy and blocking | The missing-font badge cannot fire before `fc-list` has run, so a text layer whose family is uninstalled shows no warning until the Character body is first built | Discover off the UI thread after first frame, then re-evaluate the badge |
+| **7** | Font discovery is lazy and blocking | The missing-font badge cannot fire before `fc-list` has run, so a text layer whose family is uninstalled shows no warning until the Character body is first built | Discover off the UI thread after first frame, then re-evaluate the badge |
+| **8** | Combo drop-down lists are light-on-dark (T-031) | No Controls style is configured, so the shell runs Basic, which hardcodes a light palette. Field chrome is themed; the popup is not, because overriding `popup` + `delegate` left the row at `currentIndex` blank in every combo — the list reserved its slot but painted neither label nor highlight, through both DelegateModel access and direct array indexing | Understand why the current row does not resolve in a hand-rolled popup, or evaluate adopting a palette-aware style (Fusion) for the whole shell — the latter is a broad visual change and wants a DR |
 | — | P11 tiling / spill / sparse | Large-doc / memory evidence | **Do not start** (DR-029) |
 | — | P12 plugin host | No product need | **Do not start** (DR-029) |
 
-**Closed this refresh:** U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6); U9 progressive disclosure (summaries, host-derived badges, registry-order conformance, expand/collapse-all).
+**Closed this refresh:** U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6); U9 progressive disclosure (summaries, host-derived badges, registry-order conformance, expand/collapse-all); right-dock height distribution (T-024 / T-026 — tabbed dock groups show one panel per group, so the collapse-to-header case no longer arises); dialog and control contrast (T-029).
 
 ---
 
