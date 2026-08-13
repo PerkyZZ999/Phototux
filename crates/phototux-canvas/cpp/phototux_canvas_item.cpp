@@ -198,6 +198,18 @@ void PhototuxCanvasItem::setPhase(float p)
     update();
 }
 
+void PhototuxCanvasItem::setContentTick(int t)
+{
+    if (m_contentTick == t)
+        return;
+    m_contentTick = t;
+    emit contentTickChanged();
+    // The only reason to repaint: new composite content is ready. synchronize()
+    // is also where the pending export is pulled from Rust, so this must call
+    // update() or a fresh composite would never reach the screen.
+    update();
+}
+
 void PhototuxCanvasItem::setSelectionAnts(bool v)
 {
     if (m_selectionAnts == v)

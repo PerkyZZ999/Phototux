@@ -31,6 +31,10 @@ class PhototuxCanvasItem : public QQuickRhiItem
     Q_PROPERTY(int docHeight READ docHeight WRITE setDocHeight NOTIFY docHeightChanged)
     Q_PROPERTY(bool hasDocument READ hasDocument WRITE setHasDocument NOTIFY hasDocumentChanged)
     Q_PROPERTY(float phase READ phase WRITE setPhase NOTIFY phaseChanged)
+    // Bumped by the host whenever a new composite is published. Writing it is
+    // what schedules a repaint, so the canvas no longer needs a clock ticking
+    // every vsync to notice that its content changed.
+    Q_PROPERTY(int contentTick READ contentTick WRITE setContentTick NOTIFY contentTickChanged)
     Q_PROPERTY(bool selectionAnts READ selectionAnts WRITE setSelectionAnts NOTIFY selectionAntsChanged)
     Q_PROPERTY(QString gpuStatus READ gpuStatus WRITE setGpuStatus NOTIFY gpuStatusChanged)
     Q_PROPERTY(float fps READ fps WRITE setFps NOTIFY fpsChanged)
@@ -59,6 +63,8 @@ public:
 
     float phase() const { return m_phase; }
     void setPhase(float p);
+    int contentTick() const { return m_contentTick; }
+    void setContentTick(int t);
 
     bool selectionAnts() const { return m_selectionAnts; }
     void setSelectionAnts(bool v);
@@ -81,6 +87,7 @@ signals:
     void docHeightChanged();
     void hasDocumentChanged();
     void phaseChanged();
+    void contentTickChanged();
     void selectionAntsChanged();
     void gpuStatusChanged();
     void fpsChanged();
@@ -99,6 +106,7 @@ private:
     int m_docH = 1080;
     bool m_hasDoc = false;
     float m_phase = 0.f;
+    int m_contentTick = 0;
     bool m_selectionAnts = false;
     float m_fps = 0.f;
     QString m_gpuStatus = QStringLiteral("GPU viewport idle");

@@ -257,6 +257,14 @@ Consequences that are normative, not incidental:
 
 Paths that map GPU memory to host memory — readback, sampling, export, parity fixtures — are unaffected and continue to wait.
 
+### Driving repaint from content, not from a clock
+
+A view **MUST NOT** repaint on a fixed clock merely to stay current. A canvas whose content changes only when a composite is published **MUST** be invalidated by that publication, so an idle document costs no frames at all — an always-on repaint holds the GPU out of its low-power states, and it gives real work no priority over the treadmill it joins.
+
+Care is required where the repaint callback is also the point at which new content is pulled: if presentation state is adopted during synchronization, removing the repaint removes the adoption too, and the view freezes rather than idling. The invalidation signal **MUST** therefore be whatever marks new content ready.
+
+An animated presentation value — a marching-ants phase, a progress shimmer — **MUST** only animate while something samples it. Writing such a value unconditionally repaints for a result no shader reads. Bindings on children of an invisible item still evaluate, so gating the parent's visibility alone does not stop the work.
+
 ### Bounding a composite to what changed
 
 Re-blending the whole canvas for a brush dab is the dominant steady-state cost of painting, and it scales with document size and layer count while the change does not. A composite **SHOULD** re-blend only the region invalidated since the last one.

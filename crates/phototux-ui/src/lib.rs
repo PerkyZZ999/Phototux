@@ -210,6 +210,9 @@ pub struct AppSession {
     disclosure_open_json: String,
     /// Static [`phototux_engine::DisclosureGroupDescriptor`] list for the inspector.
     disclosure_groups_json: String,
+    /// Monotonic count of published composites. The canvas repaints when this
+    /// moves, which is what lets its clock stop when nothing is changing.
+    composite_generation: i32,
     /// Group id → `{text, severity}` for values a collapsed group would hide.
     inspector_badges_json: String,
     /// Static adjustment slider bounds, so QML and the badge rule agree.
@@ -442,6 +445,7 @@ impl AppSession {
             inspector_blend_mixed: false,
             disclosure_open_json: "{}".to_owned(),
             disclosure_groups_json: phototux_engine::disclosure_groups_json(),
+            composite_generation: 0,
             inspector_badges_json: "{}".to_owned(),
             adjustment_ranges_json: phototux_engine::adjustment_editor_ranges_json(),
             pref_effective_json: String::new(),
@@ -1404,6 +1408,12 @@ impl AppSession {
     /// Handbook 28 requires the badge to be available while the group's body
     /// does not exist, so it is derived here from host state rather than from
     /// the widgets that would otherwise own the invalid value.
+    /// A new composite has been published; ask the canvas to repaint.
+    fn bump_composite_generation(&mut self) {
+        self.composite_generation = self.composite_generation.wrapping_add(1);
+        self.composite_generation_changed();
+    }
+
     fn refresh_inspector_badges(&mut self) {
         let state = phototux_engine::InspectorState {
             adjustment_kind: &self.adjustment_kind,
@@ -2040,6 +2050,7 @@ impl AppSession {
             Ok(ms) => {
                 self.engine.set_composite_ms(ms);
                 self.engine.clear_dirty_rect();
+                self.bump_composite_generation();
             }
             Err(e) => {
                 self.report_gpu("composite", &e);
@@ -2627,6 +2638,11 @@ impl AppSession {
         Notify = disclosure_groups_json_changed
     );
     qproperty!(
+        "compositeGeneration",
+        Member = composite_generation,
+        Notify = composite_generation_changed
+    );
+    qproperty!(
         "inspectorBadgesJson",
         Member = inspector_badges_json,
         Notify = inspector_badges_json_changed
@@ -3150,6 +3166,8 @@ impl AppSession {
     fn disclosure_open_json_changed(&mut self);
     #[qsignal]
     fn disclosure_groups_json_changed(&mut self);
+    #[qsignal]
+    fn composite_generation_changed(&mut self);
     #[qsignal]
     fn inspector_badges_json_changed(&mut self);
     #[qsignal]
@@ -4247,6 +4265,7 @@ impl AppSession {
                 if visibly_changed {
                     self.composite_ms_changed();
                 }
+                self.bump_composite_generation();
                 false
             }
             EngineEvent::StrokeLatency { ms } => {

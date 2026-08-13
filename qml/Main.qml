@@ -1679,7 +1679,13 @@ ApplicationWindow {
                 docWidth: AppSession.docWidth
                 docHeight: AppSession.docHeight
                 hasDocument: AppSession.hasDocument
-                phase: frameClock.phase + AppSession.graphRevision * 0.01
+                // The shader reads phase only after an early-out on
+                // selectionAnts, so animating it with ants off forced a full
+                // RHI sync and render pass every vsync for a value nothing
+                // sampled. Repaints are driven by contentTick instead, which
+                // moves exactly when a new composite is published.
+                phase: gpuCanvas.selectionAnts ? frameClock.phase : 0
+                contentTick: AppSession.compositeGeneration
                 selectionAnts: AppSession.selectionActive
                                 && AppSession.selectionShape === "mask"
                 Accessible.role: Accessible.Canvas
@@ -2068,7 +2074,7 @@ ApplicationWindow {
                         fillColor: "transparent"
                         strokeStyle: ShapePath.DashLine
                         dashPattern: [4, 4]
-                        dashOffset: frameClock.phase * 12
+                        dashOffset: selectionAnts.visible ? frameClock.phase * 12 : 0
                         PathSvg {
                             path: AppSession.selectionShape === "ellipse"
                                   ? ("M " + (selectionAnts.width / 2) + " 0 "
@@ -2088,7 +2094,7 @@ ApplicationWindow {
                         fillColor: "transparent"
                         strokeStyle: ShapePath.DashLine
                         dashPattern: [4, 4]
-                        dashOffset: frameClock.phase * 12 + 4
+                        dashOffset: selectionAnts.visible ? frameClock.phase * 12 + 4 : 0
                         PathSvg {
                             path: AppSession.selectionShape === "ellipse"
                                   ? ("M " + (selectionAnts.width / 2) + " 0 "
