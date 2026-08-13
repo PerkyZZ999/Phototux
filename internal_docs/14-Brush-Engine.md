@@ -309,6 +309,16 @@ Input samples arrive far more slowly than dabs are placed — tens per second ag
 
 Spacing **MUST** be derived from the diameter actually being stamped, not from the nominal brush size, and **MUST** be re-evaluated as the segment is walked rather than fixed at its start. Holding spacing at the nominal width while pressure shrinks the dab places small dabs at large-dab intervals, and the stroke breaks into separate dots — the visible form of the pressure-induced bunching named above, in the thin direction. A brush whose size does not follow pressure **MUST** be unaffected by this rule, so that pointer devices without pressure behave exactly as before.
 
+### Bounding dab work
+
+A dab covers a small disc; the pass that draws it **MUST NOT** cost the whole target. Where the tip is produced by discarding fragments outside a full-target draw, the rasterizer still visits every pixel of the layer, so a small dab on a large document does thousands of times the fragment work it needs. Dab draws **MUST** be bounded to the region the dab can touch, and that bound **MUST** include the tip's soft edge and the rounding between a centre in continuous coordinates and the texels it covers.
+
+A batch of dabs **MUST** be recorded as one pass. Beginning a pass per dab forces a pipeline drain and a full attachment load and store between consecutive dabs of the same stroke, which is the dominant cost of a batch long before the fragments are. Draws within one pass blend in submission order, so batching is behaviour-preserving.
+
+A dab lying entirely outside the target **MUST NOT** be drawn, since an empty bounding region is not a valid scissor.
+
+Because a bound that is too tight silently truncates a stroke rather than failing, the bound **MUST** be verified against painted pixels — a suite that never reads back after stamping cannot observe it.
+
 ### Presenting an in-progress stroke
 
 Stamping and presenting are separate rates. Dabs are placed by arc length, so their rate is pointer speed over spacing and has no relationship to the display; presentation is bounded by the refresh rate no matter how often it is asked for.

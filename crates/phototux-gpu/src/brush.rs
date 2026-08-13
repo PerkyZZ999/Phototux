@@ -259,54 +259,136 @@ impl BrushStamper {
         if requests.is_empty() {
             return;
         }
-        self.ensure_uniform_slots(ctx, requests.len());
+        // Only dabs that touch the target get a draw; a scissor rect must lie
+        // inside the attachment and may not be empty.
+        let drawable: Vec<(usize, StampRequest, ScissorRect)> = requests
+            .iter()
+            .copied()
+            .filter_map(|req| {
+                dab_scissor(req.x, req.y, req.radius_px, self.width, self.height)
+                    .map(|rect| (req, rect))
+            })
+            .enumerate()
+            .map(|(index, (req, rect))| (index, req, rect))
+            .collect();
+        if drawable.is_empty() {
+            return;
+        }
+
+        // Uniform writes and bind groups first: `write_buffer` is ordered ahead
+        // of the encoder's commands at submit, and the bind groups must outlive
+        // the pass that references them.
+        self.ensure_uniform_slots(ctx, drawable.len());
+        let binds: Vec<wgpu::BindGroup> = drawable
+            .iter()
+            .map(|&(index, req, _)| {
+                let uniforms = self.uniforms_for(req);
+                let ubo = &self.uniform_bufs[index];
+                ctx.queue
+                    .write_buffer(ubo, 0, bytemuck::bytes_of(&uniforms));
+                ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("stamp-bg"),
+                    layout: &self.bind_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ubo.as_entire_binding(),
+                    }],
+                })
+            })
+            .collect();
+
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("stamp-batch-enc"),
             });
-
-        for (i, req) in requests.iter().copied().enumerate() {
-            let u = self.uniforms_for(req);
-            let ubo = &self.uniform_bufs[i];
-            ctx.queue.write_buffer(ubo, 0, bytemuck::bytes_of(&u));
-            let bind = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("stamp-bg"),
-                layout: &self.bind_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ubo.as_entire_binding(),
-                }],
+        {
+            // One pass for the whole batch. Draws within a pass blend in
+            // submission order, so this is identical to the pass-per-dab
+            // version it replaces — without a pipeline drain and a full
+            // attachment load/store between every dab.
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("stamp-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             });
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("stamp-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                pass.set_pipeline(if req.params.eraser {
-                    &self.pipeline_erase
-                } else {
-                    &self.pipeline_paint
-                });
-                pass.set_bind_group(0, &bind, &[]);
+            let mut bound_eraser: Option<bool> = None;
+            for (&(_, req, rect), bind) in drawable.iter().zip(binds.iter()) {
+                // The draw is a full-screen triangle whose fragments outside the
+                // dab are discarded, so without a scissor a 20 px dab on a 4K
+                // layer rasterizes every pixel of the layer to keep ~1250.
+                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+                if bound_eraser != Some(req.params.eraser) {
+                    pass.set_pipeline(if req.params.eraser {
+                        &self.pipeline_erase
+                    } else {
+                        &self.pipeline_paint
+                    });
+                    bound_eraser = Some(req.params.eraser);
+                }
+                pass.set_bind_group(0, bind, &[]);
                 pass.draw(0..3, 0..1);
             }
         }
         ctx.queue.submit(Some(encoder.finish()));
     }
+}
+
+/// Integer scissor rect in texels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScissorRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Pixel bounds a dab can touch, clamped to the target.
+///
+/// Returns `None` when the dab lies entirely outside, which must not produce a
+/// draw: an empty scissor rect is invalid.
+pub(crate) fn dab_scissor(
+    x: f32,
+    y: f32,
+    radius_px: f32,
+    width: u32,
+    height: u32,
+) -> Option<ScissorRect> {
+    if width == 0 || height == 0 || !x.is_finite() || !y.is_finite() || !radius_px.is_finite() {
+        return None;
+    }
+    // One texel of slack for the edge falloff and for centre-vs-corner rounding.
+    let reach = radius_px.max(0.0) + 1.0;
+    let min_x = (x - reach).floor().max(0.0) as u32;
+    let min_y = (y - reach).floor().max(0.0) as u32;
+    let max_x = (x + reach).ceil().max(0.0) as u32;
+    let max_y = (y + reach).ceil().max(0.0) as u32;
+    if min_x >= width || min_y >= height {
+        return None;
+    }
+    let max_x = max_x.min(width);
+    let max_y = max_y.min(height);
+    if max_x <= min_x || max_y <= min_y {
+        return None;
+    }
+    Some(ScissorRect {
+        x: min_x,
+        y: min_y,
+        width: max_x - min_x,
+        height: max_y - min_y,
+    })
 }
 
 #[cfg(test)]
@@ -343,5 +425,135 @@ mod tests {
         let mut stamper = BrushStamper::new(&ctx, 64, 64);
         let tex = ctx.create_cleared_texture(64, 64, [0.0, 0.0, 0.0, 0.0]);
         stamper.stamp_batch(&ctx, &tex, &[]);
+    }
+
+    #[test]
+    fn scissor_covers_the_dab_and_clamps_to_the_target() {
+        // Fully inside: the rect brackets the dab with a texel of slack.
+        let inside = dab_scissor(50.0, 50.0, 10.0, 256, 256).expect("inside");
+        assert!(inside.x <= 39 && inside.y <= 39, "{inside:?} clips the dab");
+        assert!(
+            inside.x + inside.width >= 61 && inside.y + inside.height >= 61,
+            "{inside:?} clips the dab"
+        );
+
+        // Straddling an edge: clamped, still non-empty, still covers what is on-target.
+        let corner = dab_scissor(2.0, 2.0, 10.0, 256, 256).expect("corner");
+        assert_eq!((corner.x, corner.y), (0, 0));
+        assert!(corner.width >= 13 && corner.height >= 13, "{corner:?}");
+
+        let far = dab_scissor(250.0, 250.0, 20.0, 256, 256).expect("far corner");
+        assert_eq!(far.x + far.width, 256);
+        assert_eq!(far.y + far.height, 256);
+
+        // Entirely outside must not draw: an empty scissor rect is invalid.
+        assert_eq!(dab_scissor(-40.0, 50.0, 10.0, 256, 256), None);
+        assert_eq!(dab_scissor(50.0, 400.0, 10.0, 256, 256), None);
+        assert_eq!(dab_scissor(f32::NAN, 50.0, 10.0, 256, 256), None);
+        assert_eq!(dab_scissor(50.0, 50.0, 10.0, 0, 256), None);
+    }
+}
+
+/// Device-backed checks that the scissor bounds work rather than clip the dab.
+///
+/// The batch is stamped into one scissored render pass, so a rect that is too
+/// small silently truncates a stroke. Nothing in the rest of the suite reads
+/// pixels back after a stamp, so without this the optimisation is unguarded.
+#[cfg(all(test, feature = "gpu-tests"))]
+mod gpu_tests {
+    use super::*;
+    use crate::{GpuContext, LayerCompositeEngine};
+    use phototux_engine::{DocumentGraph, DocumentSize};
+
+    const W: u32 = 128;
+    const H: u32 = 128;
+
+    fn painted_alpha(requests: &[StampRequest]) -> Vec<u8> {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(W, H);
+        let graph = DocumentGraph::new(size);
+        let mut engine = LayerCompositeEngine::new(&ctx, size);
+        engine
+            .sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        let id = graph.layers()[0].id;
+        engine
+            .write_layer_rgba(&ctx, id, &vec![0u8; (W * H * 4) as usize])
+            .expect("clear layer");
+
+        let mut stamper = BrushStamper::new(&ctx, W, H);
+        let target = engine.layer_texture(id).expect("layer texture").clone();
+        stamper.stamp_batch(&ctx, &target, requests);
+
+        let rgba = engine.read_layer_rgba(&ctx, id).expect("readback");
+        rgba.chunks_exact(4).map(|px| px[3]).collect()
+    }
+
+    fn request_at(x: f32, y: f32, radius: f32) -> StampRequest {
+        StampRequest {
+            x,
+            y,
+            radius_px: radius,
+            pressure: 1.0,
+            params: BrushParams {
+                size: radius * 2.0,
+                hardness: 0.9,
+                color: [1.0, 1.0, 1.0, 1.0],
+                ..BrushParams::default()
+            },
+        }
+    }
+
+    fn alpha_at(alpha: &[u8], x: u32, y: u32) -> u8 {
+        alpha[(y * W + x) as usize]
+    }
+
+    #[test]
+    fn a_stamped_dab_covers_its_whole_radius() {
+        let alpha = painted_alpha(&[request_at(64.0, 64.0, 12.0)]);
+        assert!(alpha_at(&alpha, 64, 64) > 200, "centre not painted");
+        // Near the rim, inside the radius: this is what a too-tight scissor eats.
+        for (x, y) in [(54_u32, 64_u32), (74, 64), (64, 54), (64, 74)] {
+            assert!(
+                alpha_at(&alpha, x, y) > 0,
+                "({x},{y}) inside the radius was not painted — scissor clipped it"
+            );
+        }
+        // Well outside stays untouched.
+        assert_eq!(alpha_at(&alpha, 5, 5), 0);
+        assert_eq!(alpha_at(&alpha, 120, 120), 0);
+    }
+
+    #[test]
+    fn a_batch_paints_every_dab_not_just_the_last() {
+        // One pass for the batch: a scissor left set from a previous dab, or a
+        // pass that only honours the final draw, shows up here.
+        let dabs: Vec<StampRequest> = (0..5)
+            .map(|i| request_at(20.0 + i as f32 * 20.0, 64.0, 6.0))
+            .collect();
+        let alpha = painted_alpha(&dabs);
+        for i in 0..5 {
+            let x = 20 + i * 20;
+            assert!(
+                alpha_at(&alpha, x, 64) > 200,
+                "dab {i} at x={x} missing from the batch"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dab_straddling_the_edge_still_paints_what_is_on_canvas() {
+        let alpha = painted_alpha(&[request_at(2.0, 64.0, 10.0)]);
+        assert!(
+            alpha_at(&alpha, 0, 64) > 0,
+            "clamped edge dab did not paint"
+        );
+        assert!(alpha_at(&alpha, 6, 64) > 0, "clamped edge dab truncated");
+    }
+
+    #[test]
+    fn a_dab_entirely_off_canvas_paints_nothing_and_does_not_fail() {
+        let alpha = painted_alpha(&[request_at(-50.0, 64.0, 10.0)]);
+        assert!(alpha.iter().all(|&a| a == 0), "off-canvas dab painted");
     }
 }

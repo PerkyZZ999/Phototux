@@ -2,6 +2,19 @@
 
 All notable decision milestones and project state changes.
 
+## [paint-fluidity-3] — 2026-08-12
+
+Canvas fluidity pass, part three: stop paying whole-canvas cost for small dabs.
+
+### Rendering
+
+- **A dab batch is one scissored render pass, not a pass per dab.** Each dab began its own `begin_render_pass` over the entire layer and drew a full-screen triangle whose off-dab fragments were discarded — on a 4K layer a 20 px dab rasterized 8.3 M fragments to keep about 1 250, and consecutive dabs paid a pipeline drain plus a full attachment load and store between them. The batch now records one pass and scissors each dab to the region it can touch. Draws within a pass blend in submission order, so the result is unchanged. Dabs entirely off-canvas are skipped, since an empty scissor rect is invalid.
+- Pipeline switches are now only rebound when the paint/erase mode actually changes within a batch.
+
+### Tests
+
+- Nothing in the suite read pixels back after stamping, so the previous 42 GPU tests could not have observed a scissor that clipped strokes. Four device-backed tests now cover full-radius coverage, every dab of a batch landing, edge clamping, and the off-canvas case; `a_stamped_dab_covers_its_whole_radius` is verified to fail against a deliberately tight bound.
+
 ## [paint-fluidity-2] — 2026-08-12
 
 Canvas fluidity pass, part two: make the brush respond to pressure. This half is
