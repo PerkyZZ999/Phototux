@@ -257,6 +257,112 @@ mod gpu_tests {
         Ok((cpu, gpu))
     }
 
+    /// Composite one masked layer and hand back (expected, actual) alpha.
+    ///
+    /// `LayerMask::coverage` is the single definition of mask semantics; the
+    /// shader has its own WGSL copy of the same order. Nothing proved they still
+    /// agreed, which is exactly how the *other* copy — the bake path — silently
+    /// dropped contrast and shift.
+    fn gpu_mask_alpha(mask: phototux_engine::LayerMask) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 8;
+        const H: u32 = 8;
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new_flattened(size, "masked");
+        let id = graph.layers()[0].id;
+        graph.set_mask(id, Some(mask.clone()));
+
+        // Opaque white so the composited alpha is the mask's coverage alone.
+        let pixels = solid_rgba(W, H, [255, 255, 255, 255]);
+        // A coverage ramp across the whole byte range, so contrast and shift
+        // have something to act on rather than only the 0/255 endpoints.
+        let coverage: Vec<u8> = (0..(W * H) as usize)
+            .map(|i| (i * 255 / ((W * H) as usize - 1)) as u8)
+            .collect();
+
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())?;
+        eng.write_layer_rgba(&ctx, id, &pixels)
+            .map_err(|e| e.to_string())?;
+        eng.ensure_mask(&ctx, id);
+        eng.write_mask_r8(&ctx, id, &coverage)
+            .map_err(|e| e.to_string())?;
+        eng.composite(&ctx, graph.layers())?;
+        let gpu = eng.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+
+        let expected: Vec<u8> = coverage
+            .iter()
+            .map(|&sample| {
+                let c = mask.coverage(f32::from(sample) / 255.0);
+                (c * 255.0).round().clamp(0.0, 255.0) as u8
+            })
+            .collect();
+        let actual: Vec<u8> = gpu.chunks_exact(4).map(|px| px[3]).collect();
+        Ok((expected, actual))
+    }
+
+    /// The shader must agree with `LayerMask::coverage` across the controls
+    /// that actually change the curve, not only at the defaults.
+    #[test]
+    fn gpu_cpu_mask_coverage_parity() {
+        use phototux_engine::LayerMask;
+        let cases = [
+            ("default", LayerMask::default()),
+            (
+                "inverted",
+                LayerMask {
+                    inverted: true,
+                    ..LayerMask::default()
+                },
+            ),
+            (
+                "half density",
+                LayerMask {
+                    density: 0.5,
+                    ..LayerMask::default()
+                },
+            ),
+            (
+                "contrast",
+                LayerMask {
+                    contrast: 0.6,
+                    ..LayerMask::default()
+                },
+            ),
+            (
+                "shift",
+                LayerMask {
+                    shift: 0.2,
+                    ..LayerMask::default()
+                },
+            ),
+            (
+                "contrast and shift inverted",
+                LayerMask {
+                    contrast: -0.4,
+                    shift: -0.15,
+                    inverted: true,
+                    density: 0.8,
+                    ..LayerMask::default()
+                },
+            ),
+        ];
+        for (name, mask) in cases {
+            let Ok((expected, actual)) = gpu_mask_alpha(mask) else {
+                eprintln!("skipping mask parity: no GPU device");
+                return;
+            };
+            assert_eq!(expected.len(), actual.len(), "{name}: length");
+            for (i, (e, a)) in expected.iter().zip(actual.iter()).enumerate() {
+                let delta = i32::from(*e) - i32::from(*a);
+                assert!(
+                    delta.abs() <= 2,
+                    "{name}: sample {i} expected {e}, shader gave {a}"
+                );
+            }
+        }
+    }
+
     fn gpu_filter_gaussian(radius: f32) -> Result<(Vec<u8>, Vec<u8>), String> {
         let ctx = GpuContext::new().map_err(|e| e.to_string())?;
         const W: u32 = 16;
