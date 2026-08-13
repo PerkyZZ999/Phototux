@@ -209,6 +209,63 @@ impl GraphCommand {
         }
     }
 
+    /// Fold a later edit of the same field on the same target into this one.
+    ///
+    /// A slider drag arrives as a run of separate commands, each carrying the
+    /// value before and after one step. Collapsing them keeps the *oldest*
+    /// `prev` and the *newest* `next`, so one undo returns to where the gesture
+    /// started rather than stepping back through every intermediate value.
+    ///
+    /// Returns `None` when the two are not the same edit — a different variant,
+    /// or the same variant on a different layer — in which case they are
+    /// separate history entries and must stay that way.
+    #[must_use]
+    pub fn merged_with(&self, newer: &Self) -> Option<Self> {
+        match (self, newer) {
+            (
+                Self::SetOpacity { id, prev, .. },
+                Self::SetOpacity {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetOpacity {
+                id: *id,
+                prev: *prev,
+                next: *next,
+            }),
+            (
+                Self::SetAdjustment { id, prev, .. },
+                Self::SetAdjustment {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetAdjustment {
+                id: *id,
+                prev: prev.clone(),
+                next: next.clone(),
+            }),
+            (
+                Self::SetEffects { id, prev, .. },
+                Self::SetEffects {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetEffects {
+                id: *id,
+                prev: prev.clone(),
+                next: next.clone(),
+            }),
+            (
+                Self::SetFilterPlan { id, prev, .. },
+                Self::SetFilterPlan {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetFilterPlan {
+                id: *id,
+                prev: prev.clone(),
+                next: next.clone(),
+            }),
+            _ => None,
+        }
+    }
+
     pub fn invert(&self) -> Self {
         match self {
             Self::AddLayer { id, index, layer } => Self::DeleteLayer {
@@ -373,6 +430,20 @@ impl UndoStack {
         }
     }
 
+    /// Replace the newest command with `cmd` folded into it, when they are the
+    /// same edit. Returns whether the fold happened.
+    pub fn merge_into_newest(&mut self, cmd: &GraphCommand) -> bool {
+        let Some(top) = self.undo.last_mut() else {
+            return false;
+        };
+        let Some(merged) = top.merged_with(cmd) else {
+            return false;
+        };
+        *top = merged;
+        self.redo.clear();
+        true
+    }
+
     /// Record a command that was **already applied** to the graph.
     pub fn push_applied(&mut self, cmd: GraphCommand) {
         self.undo.push(cmd);
@@ -519,7 +590,9 @@ pub mod actions {
             return true;
         }
         graph.bump_generation();
-        history.push_graph_applied(
+        // `layer.set-opacity` is declared `UndoPolicy::Mergeable`; a slider drag
+        // is one gesture, not one entry per step.
+        history.push_graph_mergeable(
             GraphCommand::SetOpacity { id, prev, next },
             "Opacity",
             graph.generation,

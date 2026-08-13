@@ -2228,7 +2228,9 @@ impl SessionState {
         if graph.set_adjustment(id, Some(next.clone())).is_none() {
             return Err(CommandError::Rejected("set adjustment failed"));
         }
-        history.push_graph_applied(
+        // Declared `UndoPolicy::Mergeable`: dragging an adjustment slider is one
+        // gesture, not one history entry per step.
+        history.push_graph_mergeable(
             crate::GraphCommand::SetAdjustment {
                 id,
                 prev: Some(prev),
@@ -2323,7 +2325,8 @@ impl SessionState {
             return Err(CommandError::Rejected("radius unchanged"));
         }
         let generation = self.bump_document_generation();
-        self.history.push_graph_applied(
+        // Declared `UndoPolicy::Mergeable`: a radius drag is one gesture.
+        self.history.push_graph_mergeable(
             crate::GraphCommand::SetEffects { id, prev, next },
             "Blur radius",
             generation,

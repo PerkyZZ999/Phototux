@@ -126,6 +126,37 @@ impl HistoryService {
         self.push_entry(HistoryKind::Graph, label, generation);
     }
 
+    /// Record a graph edit that coalesces with an identical one before it.
+    ///
+    /// This is what `UndoPolicy::Mergeable` means. Dragging an opacity slider
+    /// produces a command per step; without folding, the timeline fills with
+    /// one entry per pixel of travel and undo walks back through every one of
+    /// them instead of returning to where the drag began.
+    ///
+    /// Folding requires the newest entry to be the same command — same label,
+    /// still the newest, and the same edit on the same target — so a slider
+    /// touched, then something else done, then touched again stays two entries.
+    pub fn push_graph_mergeable(
+        &mut self,
+        cmd: GraphCommand,
+        label: impl Into<String>,
+        generation: u64,
+    ) {
+        let label = label.into();
+        let continues_run = self
+            .undo
+            .last()
+            .is_some_and(|entry| entry.kind == HistoryKind::Graph && entry.label == label);
+        if continues_run && self.graph.merge_into_newest(&cmd) {
+            if let Some(entry) = self.undo.last_mut() {
+                entry.generation = generation;
+            }
+            self.redo.clear();
+            return;
+        }
+        self.push_graph_applied(cmd, label, generation);
+    }
+
     /// Record a committed stroke (GPU snapshot already stored).
     pub fn push_stroke(&mut self, label: impl Into<String>, generation: u64) {
         self.push_entry(HistoryKind::Stroke, label, generation);

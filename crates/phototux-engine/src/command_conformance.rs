@@ -184,4 +184,110 @@ mod tests {
             );
         }
     }
+
+    /// `UndoPolicy::Mergeable` was declared on four commands and read by
+    /// nothing: a slider drag wrote one history entry per step, and undo walked
+    /// back through every one instead of returning to where the gesture began.
+    /// This asserts the declaration is true for the command that is easiest to
+    /// drive end to end.
+    #[test]
+    fn a_mergeable_command_coalesces_a_run_into_one_entry() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        assert_eq!(
+            command_meta::meta_for(command_id::LAYER_SET_OPACITY).map(|m| m.undo),
+            Some(command_meta::UndoPolicy::Mergeable),
+            "this test is only meaningful while the command declares Mergeable"
+        );
+
+        let before = session.history.entries_undo().len();
+        for step in 1..=5 {
+            session
+                .invoke(
+                    command_id::LAYER_SET_OPACITY,
+                    CommandArgs::SetOpacity {
+                        opacity: 1.0 - (step as f32) * 0.1,
+                    },
+                )
+                .expect("set opacity");
+        }
+        assert_eq!(
+            session.history.entries_undo().len(),
+            before + 1,
+            "a run of mergeable edits must be one entry"
+        );
+    }
+
+    /// The whole point of keeping the oldest `prev`: one undo returns to where
+    /// the gesture started, not to the previous step of it.
+    #[test]
+    fn undoing_a_merged_run_returns_to_where_it_started() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let original = active_opacity(&session);
+
+        for step in 1..=4 {
+            session
+                .invoke(
+                    command_id::LAYER_SET_OPACITY,
+                    CommandArgs::SetOpacity {
+                        opacity: 1.0 - (step as f32) * 0.15,
+                    },
+                )
+                .expect("set opacity");
+        }
+        assert!(
+            (active_opacity(&session) - original).abs() > 0.01,
+            "opacity moved"
+        );
+
+        session
+            .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        assert!(
+            (active_opacity(&session) - original).abs() < 1e-5,
+            "one undo must return to the start of the run, got {}",
+            active_opacity(&session)
+        );
+    }
+
+    /// Merging must not swallow unrelated edits: a different command between
+    /// two mergeable ones ends the run.
+    #[test]
+    fn an_interrupted_run_stays_two_entries() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let before = session.history.entries_undo().len();
+
+        session
+            .invoke(
+                command_id::LAYER_SET_OPACITY,
+                CommandArgs::SetOpacity { opacity: 0.8 },
+            )
+            .expect("opacity");
+        session
+            .invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("add layer");
+        session
+            .invoke(
+                command_id::LAYER_SET_OPACITY,
+                CommandArgs::SetOpacity { opacity: 0.6 },
+            )
+            .expect("opacity");
+
+        assert_eq!(
+            session.history.entries_undo().len(),
+            before + 3,
+            "an interrupted run must not fold across the interruption"
+        );
+    }
+
+    fn active_opacity(session: &SessionState) -> f32 {
+        session
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .map(|l| l.opacity)
+            .expect("an active layer")
+    }
 }
