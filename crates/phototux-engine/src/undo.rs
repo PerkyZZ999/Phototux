@@ -6,6 +6,7 @@ use crate::layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, Layer, LayerId, LayerMask, LockFlags,
     ShapeContent,
 };
+use crate::layer_style::LayerStyle;
 use crate::paths::PathDocument;
 
 /// One undoable gesture applied to the document graph (structure only in Phase 3).
@@ -95,6 +96,17 @@ pub enum GraphCommand {
         prev: PathDocument,
         next: PathDocument,
     },
+    /// Layer effect styles (drop shadow, stroke, outer glow, colour overlay).
+    SetStyles {
+        id: LayerId,
+        prev: Vec<LayerStyle>,
+        next: Vec<LayerStyle>,
+    },
+    SetVectorMask {
+        id: LayerId,
+        prev: Option<crate::VectorMask>,
+        next: Option<crate::VectorMask>,
+    },
     SetParent {
         id: LayerId,
         prev: Option<LayerId>,
@@ -172,6 +184,16 @@ impl GraphCommand {
             }
             Self::SetPaths { next, .. } => {
                 graph.paths = next.clone();
+            }
+            Self::SetStyles { id, next, .. } => {
+                if let Some(layer) = graph.get_mut(*id) {
+                    layer.styles = next.clone();
+                }
+            }
+            Self::SetVectorMask { id, next, .. } => {
+                if let Some(layer) = graph.get_mut(*id) {
+                    layer.vector_mask = next.clone();
+                }
             }
             Self::SetParent { id, next, .. } => {
                 let _ = graph.set_parent(*id, *next);
@@ -278,6 +300,16 @@ impl GraphCommand {
                 next: prev.clone(),
             },
             Self::SetPaths { prev, next } => Self::SetPaths {
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetStyles { id, prev, next } => Self::SetStyles {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetVectorMask { id, prev, next } => Self::SetVectorMask {
+                id: *id,
                 prev: next.clone(),
                 next: prev.clone(),
             },

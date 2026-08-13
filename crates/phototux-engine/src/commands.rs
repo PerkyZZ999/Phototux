@@ -1887,12 +1887,20 @@ impl SessionState {
         if layer.vector_mask.is_some() {
             return Err(CommandError::Rejected("vector mask already present"));
         }
-        layer.vector_mask = Some(crate::VectorMask::default());
-        graph.bump_generation();
-        let generation = graph.generation;
-        self.history.push_transform("Add vector mask", generation);
+        let next = Some(crate::VectorMask::default());
+        layer.vector_mask = next.clone();
+        // Was `push_transform`, which `HistoryService::undo_next` hands to the
+        // host as a no-op: undo consumed a step and left the mask in the graph.
+        let effects = self.record_graph_edit(
+            crate::GraphCommand::SetVectorMask {
+                id,
+                prev: None,
+                next,
+            },
+            "Add vector mask",
+        )?;
         self.announce("Vector mask added (path edit deferred)");
-        Ok(CommandEffects::document_edit(generation))
+        Ok(effects)
     }
 
     fn cmd_text_create(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
@@ -2715,7 +2723,33 @@ impl SessionState {
         Ok(CommandEffects::document_edit(generation))
     }
 
-    fn cmd_style_add_drop_shadow(&mut self) -> Result<CommandEffects, CommandError> {
+    /// Bump the generation, record the edit in history, and produce its effects.
+    ///
+    /// The tail of every document mutation. Splitting it across call sites is
+    /// how four style commands and `mask.create-vector` ended up bumping the
+    /// generation without recording anything — declared `UndoPolicy::Transaction`
+    /// in `command_meta`, undoable nowhere.
+    fn record_graph_edit(
+        &mut self,
+        command: crate::GraphCommand,
+        label: &'static str,
+    ) -> Result<CommandEffects, CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_graph_applied(command, label, generation);
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    /// Append a layer effect style, recording prev/next so undo can restore it.
+    fn add_layer_style(
+        &mut self,
+        style: LayerStyle,
+        requires_raster: &'static str,
+        label: &'static str,
+    ) -> Result<CommandEffects, CommandError> {
         let id = self.active_layer_id()?;
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
@@ -2724,59 +2758,45 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("drop shadow requires raster"));
+            return Err(CommandError::Rejected(requires_raster));
         }
-        layer.styles.push(LayerStyle::drop_shadow_default());
-        graph.bump_generation();
-        Ok(CommandEffects::document_edit(graph.generation))
+        let prev = layer.styles.clone();
+        let mut next = prev.clone();
+        next.push(style);
+        layer.styles = next.clone();
+        self.record_graph_edit(crate::GraphCommand::SetStyles { id, prev, next }, label)
+    }
+
+    fn cmd_style_add_drop_shadow(&mut self) -> Result<CommandEffects, CommandError> {
+        self.add_layer_style(
+            LayerStyle::drop_shadow_default(),
+            "drop shadow requires raster",
+            "Add drop shadow",
+        )
     }
 
     fn cmd_style_add_stroke(&mut self) -> Result<CommandEffects, CommandError> {
-        let id = self.active_layer_id()?;
-        let Some(graph) = self.graph.as_mut() else {
-            return Err(CommandError::Document(DocumentError::NoDocument));
-        };
-        let Some(layer) = graph.get_mut(id) else {
-            return Err(CommandError::Rejected("layer missing"));
-        };
-        if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("stroke style requires raster"));
-        }
-        layer.styles.push(LayerStyle::stroke_default());
-        graph.bump_generation();
-        Ok(CommandEffects::document_edit(graph.generation))
+        self.add_layer_style(
+            LayerStyle::stroke_default(),
+            "stroke style requires raster",
+            "Add stroke style",
+        )
     }
 
     fn cmd_style_add_outer_glow(&mut self) -> Result<CommandEffects, CommandError> {
-        let id = self.active_layer_id()?;
-        let Some(graph) = self.graph.as_mut() else {
-            return Err(CommandError::Document(DocumentError::NoDocument));
-        };
-        let Some(layer) = graph.get_mut(id) else {
-            return Err(CommandError::Rejected("layer missing"));
-        };
-        if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("outer glow requires raster"));
-        }
-        layer.styles.push(LayerStyle::outer_glow_default());
-        graph.bump_generation();
-        Ok(CommandEffects::document_edit(graph.generation))
+        self.add_layer_style(
+            LayerStyle::outer_glow_default(),
+            "outer glow requires raster",
+            "Add outer glow",
+        )
     }
 
     fn cmd_style_add_color_overlay(&mut self) -> Result<CommandEffects, CommandError> {
-        let id = self.active_layer_id()?;
-        let Some(graph) = self.graph.as_mut() else {
-            return Err(CommandError::Document(DocumentError::NoDocument));
-        };
-        let Some(layer) = graph.get_mut(id) else {
-            return Err(CommandError::Rejected("layer missing"));
-        };
-        if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("color overlay requires raster"));
-        }
-        layer.styles.push(LayerStyle::color_overlay_default());
-        graph.bump_generation();
-        Ok(CommandEffects::document_edit(graph.generation))
+        self.add_layer_style(
+            LayerStyle::color_overlay_default(),
+            "color overlay requires raster",
+            "Add color overlay",
+        )
     }
 
     fn cmd_clipboard_paste_layer(
