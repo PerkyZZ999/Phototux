@@ -1,5 +1,6 @@
 //! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
 
+mod clipboard;
 mod display_icc;
 mod file_worker;
 mod fonts;
@@ -93,14 +94,6 @@ fn local_path(value: &str) -> Result<PathBuf, String> {
         PathBuf::from(decoded.as_ref())
     };
     Ok(path)
-}
-
-fn r8_to_gray_rgba(r8: &[u8]) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity(r8.len().saturating_mul(4));
-    for &v in r8 {
-        rgba.extend_from_slice(&[v, v, v, 255]);
-    }
-    rgba
 }
 
 /// Application session singleton for the desktop shell.
@@ -657,8 +650,7 @@ impl AppSession {
             .announce("Graphics device lost — document preserved");
         self.status_text = "Graphics device lost — document preserved".into();
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
         eprintln!("[phototux] GPU lost — document authority preserved");
     }
 
@@ -3418,8 +3410,7 @@ impl AppSession {
                 self.engine.announce("Graphics recovered — canvas restored");
                 self.status_text = "Graphics recovered — canvas restored".into();
                 self.status_text_changed();
-                self.last_announce = self.engine.last_announce.clone();
-                self.last_announce_changed();
+                self.publish_announcement();
             }
             Err(error) => {
                 self.report_gpu("recover GPU", &error);
@@ -3525,8 +3516,7 @@ impl AppSession {
             self.status_text = error.to_owned();
             self.status_text_changed();
             self.engine.announce(error);
-            self.last_announce = self.engine.last_announce.clone();
-            self.last_announce_changed();
+            self.publish_announcement();
             return;
         }
         self.report_gpu("action", error);
@@ -3754,8 +3744,7 @@ impl AppSession {
                 .announce("Safe start armed — next launch uses essentials chrome");
             self.status_text = self.engine.last_announce.clone();
             self.status_text_changed();
-            self.last_announce = self.engine.last_announce.clone();
-            self.last_announce_changed();
+            self.publish_announcement();
         }
     }
 
@@ -4959,6 +4948,17 @@ impl AppSession {
         self.startup_ms_changed();
     }
 
+    /// Mirror the engine's latest announcement to QML.
+    ///
+    /// Copying the string and emitting its notify were written out as a pair at
+    /// every announcing slot. Pairing them here means an announcement cannot be
+    /// stored without being published, which is the failure that leaves a screen
+    /// reader describing the previous action.
+    fn publish_announcement(&mut self) {
+        self.last_announce = self.engine.last_announce.clone();
+        self.last_announce_changed();
+    }
+
     #[qslot]
     fn set_status(&mut self, text: String) {
         self.status_text = text;
@@ -5266,10 +5266,8 @@ impl AppSession {
         let Ok((width, height, pixels)) = phototux_canvas::read_composite_rgba() else {
             return;
         };
-        // Hostile-input bound: refuse payloads over 64 MiB RGBA.
-        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
-        if pixels.len() > MAX_CLIPBOARD_BYTES {
-            self.status_text = "Copy refused: clipboard size limit".to_owned();
+        if let Err(refusal) = crate::clipboard::accept_rgba(pixels.len()) {
+            self.status_text = refusal.message("Copy");
             self.status_text_changed();
             return;
         }
@@ -5295,15 +5293,14 @@ impl AppSession {
         };
         let width = graph.size.width;
         let height = graph.size.height;
-        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
         let px_count = (width as usize).saturating_mul(height as usize);
         if r8.len() != px_count {
             self.status_text = "Copy selection failed: size mismatch".to_owned();
             self.status_text_changed();
             return;
         }
-        if r8.len() > MAX_CLIPBOARD_BYTES {
-            self.status_text = "Copy refused: clipboard size limit".to_owned();
+        if let Err(refusal) = crate::clipboard::accept_rgba(r8.len()) {
+            self.status_text = refusal.message("Copy");
             self.status_text_changed();
             return;
         }
@@ -5321,8 +5318,8 @@ impl AppSession {
             self.copy_selection_mask();
             return;
         }
-        if pixels.len() > MAX_CLIPBOARD_BYTES {
-            self.status_text = "Copy refused: clipboard size limit".to_owned();
+        if let Err(refusal) = crate::clipboard::accept_rgba(pixels.len()) {
+            self.status_text = refusal.message("Copy");
             self.status_text_changed();
             return;
         }
@@ -5342,8 +5339,7 @@ impl AppSession {
             "Copied selection pixels (app clipboard)".to_owned()
         };
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     #[qslot]
@@ -5358,19 +5354,15 @@ impl AppSession {
         };
         let width = graph.size.width;
         let height = graph.size.height;
-        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
-        if r8.len() > MAX_CLIPBOARD_BYTES {
-            self.status_text = "Copy refused: clipboard size limit".to_owned();
-            self.status_text_changed();
-            return;
-        }
-        if r8.len() != (width as usize) * (height as usize) {
-            self.status_text = "Copy selection failed: size mismatch".to_owned();
+        // Size ceiling and coverage shape are one question: does this buffer
+        // describe this document, and may we hold it.
+        if let Err(refusal) = crate::clipboard::accept_coverage(r8.len(), width, height) {
+            self.status_text = refusal.message("Copy");
             self.status_text_changed();
             return;
         }
         // OS preview: grayscale RGBA so external apps see coverage.
-        let rgba = r8_to_gray_rgba(&r8);
+        let rgba = crate::clipboard::coverage_to_gray_rgba(&r8);
         let os_ok = Self::push_os_clipboard_rgba(width, height, &rgba).is_ok();
         self.clipboard_selection_r8 = Some((width, height, r8));
         self.engine.announce("Selection copied");
@@ -5380,8 +5372,7 @@ impl AppSession {
             "Copied selection (app clipboard)".to_owned()
         };
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     #[qslot]
@@ -5410,13 +5401,12 @@ impl AppSession {
             self.status_text_changed();
             return;
         };
-        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
-        if r8.len() > MAX_CLIPBOARD_BYTES {
-            self.status_text = "Copy refused: clipboard size limit".to_owned();
+        if let Err(refusal) = crate::clipboard::accept_rgba(r8.len()) {
+            self.status_text = refusal.message("Copy");
             self.status_text_changed();
             return;
         }
-        let rgba = r8_to_gray_rgba(&r8);
+        let rgba = crate::clipboard::coverage_to_gray_rgba(&r8);
         let os_ok = Self::push_os_clipboard_rgba(width, height, &rgba).is_ok();
         self.clipboard_mask_r8 = Some((width, height, r8));
         self.engine.announce("Layer mask copied");
@@ -5426,8 +5416,7 @@ impl AppSession {
             "Copied layer mask (app clipboard)".to_owned()
         };
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     #[qslot]
@@ -5460,8 +5449,7 @@ impl AppSession {
         self.engine.announce("Selection pasted");
         self.status_text = "Pasted selection from clipboard".to_owned();
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     #[qslot]
@@ -5510,8 +5498,7 @@ impl AppSession {
         self.engine.announce("Mask pasted onto active layer");
         self.status_text = "Pasted mask onto active layer".to_owned();
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     fn push_os_clipboard_rgba(width: u32, height: u32, pixels: &[u8]) -> Result<(), String> {
@@ -5530,10 +5517,7 @@ impl AppSession {
         let img = clipboard.get_image().ok()?;
         let width = u32::try_from(img.width).ok()?;
         let height = u32::try_from(img.height).ok()?;
-        const MAX_CLIPBOARD_BYTES: usize = 64 * 1024 * 1024;
-        if img.bytes.len() > MAX_CLIPBOARD_BYTES {
-            return None;
-        }
+        crate::clipboard::accept_rgba(img.bytes.len()).ok()?;
         Some((width, height, img.bytes.into_owned()))
     }
 
@@ -6271,8 +6255,7 @@ impl AppSession {
         self.emit_layer_fields();
         self.status_text = self.engine.status_summary();
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     fn apply_mask_host(&mut self) {
@@ -6328,8 +6311,7 @@ impl AppSession {
         self.emit_layer_fields();
         self.status_text = self.engine.status_summary();
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     fn apply_mask_to_selection_host(&mut self) {
@@ -6362,8 +6344,7 @@ impl AppSession {
         self.emit_selection_fields();
         self.status_text = self.engine.status_summary();
         self.status_text_changed();
-        self.last_announce = self.engine.last_announce.clone();
-        self.last_announce_changed();
+        self.publish_announcement();
     }
 
     #[qslot]
