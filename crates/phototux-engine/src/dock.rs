@@ -38,6 +38,19 @@ pub struct DockTopology {
     /// Docked panels collapsed to an edge strip (still in [`Self::right_stack`]).
     #[serde(default)]
     pub auto_hidden: Vec<String>,
+    /// Panels that share the tab group of the panel above them in
+    /// [`Self::right_stack`].
+    ///
+    /// Grouping is derived from the stack rather than stored as nested lists so
+    /// that ordering, move, tear-off and auto-hide keep operating on one flat
+    /// sequence. Empty means every panel is its own group, which is the
+    /// pre-grouping layout.
+    #[serde(default)]
+    pub tabbed_with_previous: Vec<String>,
+    /// Selected tab per group, by panel id. A group with no entry shows its
+    /// first panel.
+    #[serde(default)]
+    pub active_tabs: Vec<String>,
 }
 
 impl Default for DockTopology {
@@ -47,9 +60,12 @@ impl Default for DockTopology {
 }
 
 impl DockTopology {
-    pub const CURRENT_VERSION: u32 = 1;
+    pub const CURRENT_VERSION: u32 = 2;
 
-    /// Essentials order matching the historical QML ColumnLayout.
+    /// Essentials layout: three tabbed groups rather than five stacked panels.
+    ///
+    /// Stacking every panel gave the lower ones no usable height at ordinary
+    /// window sizes, and grouping is what raster-editor users expect anyway.
     pub fn essentials() -> Self {
         Self {
             version: Self::CURRENT_VERSION,
@@ -62,7 +78,91 @@ impl DockTopology {
             ],
             floating: Vec::new(),
             auto_hidden: Vec::new(),
+            tabbed_with_previous: vec!["panel.swatches".into(), "panel.history".into()],
+            active_tabs: Vec::new(),
         }
+    }
+
+    /// Right dock as tab groups, top to bottom.
+    pub fn right_groups(&self) -> Vec<Vec<String>> {
+        let mut groups: Vec<Vec<String>> = Vec::new();
+        for id in &self.right_stack {
+            let joins_previous =
+                !groups.is_empty() && self.tabbed_with_previous.iter().any(|t| t == id);
+            if joins_previous {
+                if let Some(last) = groups.last_mut() {
+                    last.push(id.clone());
+                }
+            } else {
+                groups.push(vec![id.clone()]);
+            }
+        }
+        groups
+    }
+
+    /// Selected panel of the group containing `panel_id`, or `None` when it is
+    /// not docked.
+    pub fn active_tab_of_group(&self, panel_id: &str) -> Option<String> {
+        let group = self
+            .right_groups()
+            .into_iter()
+            .find(|g| g.iter().any(|id| id == panel_id))?;
+        let selected = group
+            .iter()
+            .find(|id| self.active_tabs.iter().any(|a| a == *id))
+            .cloned();
+        selected.or_else(|| group.first().cloned())
+    }
+
+    /// Raise `panel_id` to be the visible tab of its group.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not docked.
+    pub fn set_active_tab(&mut self, panel_id: &str) -> Result<(), &'static str> {
+        let group = self
+            .right_groups()
+            .into_iter()
+            .find(|g| g.iter().any(|id| id == panel_id))
+            .ok_or("panel not in right_stack")?;
+        // At most one selection per group, so clear the group's siblings first.
+        self.active_tabs.retain(|id| !group.contains(id));
+        self.active_tabs.push(panel_id.to_owned());
+        self.normalize_groups();
+        self.validate()
+    }
+
+    /// Restore the grouping invariants after the stack changes.
+    ///
+    /// Tearing off, redocking or reordering can leave a group reference to a
+    /// panel that is no longer docked, or promote a panel that joins a previous
+    /// group to the head of the stack where there is nothing to join. Rather
+    /// than repeat that reasoning at every mutation site, each one normalizes.
+    pub(crate) fn normalize_groups(&mut self) {
+        self.tabbed_with_previous
+            .retain(|id| self.right_stack.contains(id));
+        self.active_tabs.retain(|id| self.right_stack.contains(id));
+        if let Some(first) = self.right_stack.first().cloned() {
+            self.tabbed_with_previous.retain(|id| *id != first);
+        }
+    }
+
+    /// Adopt the current default grouping for a topology saved before groups
+    /// existed.
+    ///
+    /// Presentation state, so migrating rather than preserving the old stack is
+    /// safe — and preserving it would leave existing users on the layout this
+    /// replaced.
+    fn migrate_to_groups(&mut self) {
+        if self.version >= 2 {
+            return;
+        }
+        let defaults = Self::essentials();
+        self.tabbed_with_previous = defaults
+            .tabbed_with_previous
+            .into_iter()
+            .filter(|id| self.is_docked(id))
+            .collect();
+        self.version = Self::CURRENT_VERSION;
     }
 
     /// Index of `panel_id` in the right stack, if present.
@@ -94,6 +194,7 @@ impl DockTopology {
             return Ok(());
         }
         self.auto_hidden.push(panel_id.to_owned());
+        self.normalize_groups();
         self.validate()
     }
 
@@ -108,6 +209,7 @@ impl DockTopology {
             .position(|id| id == panel_id)
             .ok_or("panel not auto-hidden")?;
         self.auto_hidden.remove(pos);
+        self.normalize_groups();
         self.validate()
     }
 
@@ -136,6 +238,7 @@ impl DockTopology {
         }
         let to = to as usize;
         self.right_stack.swap(from, to);
+        self.normalize_groups();
         self.validate()
     }
 
@@ -153,6 +256,7 @@ impl DockTopology {
         }
         let id = self.right_stack.remove(from);
         self.right_stack.insert(to, id);
+        self.normalize_groups();
         self.validate()
     }
 
@@ -189,6 +293,7 @@ impl DockTopology {
             height,
             display_hint: display_hint.into(),
         });
+        self.normalize_groups();
         self.validate()
     }
 
@@ -207,6 +312,7 @@ impl DockTopology {
             .unwrap_or(self.right_stack.len())
             .min(self.right_stack.len());
         self.right_stack.insert(insert_at, panel_id.to_owned());
+        self.normalize_groups();
         self.validate()
     }
 
@@ -265,6 +371,24 @@ impl DockTopology {
         validate_right_stack(&self.right_stack, &known, &mut seen)?;
         validate_floating(&self.floating, &known, &mut seen)?;
         validate_auto_hidden(&self.auto_hidden, |id| self.is_docked(id))?;
+        if self
+            .tabbed_with_previous
+            .iter()
+            .any(|id| !self.is_docked(id))
+        {
+            return Err("tabbed_with_previous names a panel that is not docked");
+        }
+        // The first panel has nothing above it to join.
+        if self
+            .right_stack
+            .first()
+            .is_some_and(|first| self.tabbed_with_previous.iter().any(|id| id == first))
+        {
+            return Err("the first docked panel cannot join a previous group");
+        }
+        if self.active_tabs.iter().any(|id| !self.is_docked(id)) {
+            return Err("active_tabs names a panel that is not docked");
+        }
         Ok(())
     }
 
@@ -274,7 +398,8 @@ impl DockTopology {
     }
 
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let topo: Self = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        let mut topo: Self = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        topo.migrate_to_groups();
         topo.validate().map_err(str::to_owned)?;
         Ok(topo)
     }
@@ -385,12 +510,97 @@ mod tests {
     }
 
     #[test]
+    fn essentials_groups_five_panels_into_three() {
+        let topo = DockTopology::essentials();
+        let groups = topo.right_groups();
+        assert_eq!(groups.len(), 3, "{groups:?}");
+        assert_eq!(groups[0], vec!["panel.properties"]);
+        assert_eq!(groups[1], vec!["panel.navigator", "panel.swatches"]);
+        assert_eq!(groups[2], vec!["panel.layers", "panel.history"]);
+        // No explicit selection yet: each group shows its first tab.
+        assert_eq!(
+            topo.active_tab_of_group("panel.history").as_deref(),
+            Some("panel.layers")
+        );
+    }
+
+    #[test]
+    fn raising_a_tab_replaces_only_its_own_group() {
+        let mut topo = DockTopology::essentials();
+        topo.set_active_tab("panel.history").expect("raise");
+        topo.set_active_tab("panel.swatches").expect("raise");
+        assert_eq!(
+            topo.active_tab_of_group("panel.layers").as_deref(),
+            Some("panel.history")
+        );
+        assert_eq!(
+            topo.active_tab_of_group("panel.navigator").as_deref(),
+            Some("panel.swatches")
+        );
+        // Raising the sibling deselects the first without touching other groups.
+        topo.set_active_tab("panel.layers").expect("raise");
+        assert_eq!(
+            topo.active_tab_of_group("panel.history").as_deref(),
+            Some("panel.layers")
+        );
+        assert_eq!(
+            topo.active_tab_of_group("panel.swatches").as_deref(),
+            Some("panel.swatches")
+        );
+    }
+
+    /// Tearing off or reordering must not leave a group naming a panel that is
+    /// gone, nor leave the head of the stack joining a group above it.
+    #[test]
+    fn stack_changes_keep_grouping_consistent() {
+        let mut topo = DockTopology::essentials();
+        topo.set_active_tab("panel.history").expect("raise");
+        topo.tear_off("panel.history", 10, 10, 300, 200, "")
+            .expect("tear");
+        assert!(topo.validate().is_ok());
+        assert!(
+            !topo
+                .tabbed_with_previous
+                .iter()
+                .any(|id| id == "panel.history")
+        );
+        assert_eq!(
+            topo.active_tab_of_group("panel.layers").as_deref(),
+            Some("panel.layers")
+        );
+
+        // Promote a grouped panel to the head: it can no longer join anything.
+        let mut topo = DockTopology::essentials();
+        topo.reorder(2, 0).expect("reorder swatches to head");
+        assert!(topo.validate().is_ok());
+        assert_eq!(topo.right_groups()[0], vec!["panel.swatches"]);
+    }
+
+    /// Presentation state, so a topology saved before grouping adopts the
+    /// current default rather than keeping the layout it replaced.
+    #[test]
+    fn a_pre_group_topology_migrates_to_the_default_grouping() {
+        let v1 = r#"{"version":1,"right_stack":["panel.properties","panel.navigator","panel.swatches","panel.layers","panel.history"],"floating":[],"auto_hidden":[]}"#;
+        let topo = DockTopology::from_json(v1).expect("v1 loads");
+        assert_eq!(topo.version, DockTopology::CURRENT_VERSION);
+        assert_eq!(topo.right_groups().len(), 3);
+
+        // A v1 file missing some panels only adopts the grouping that applies.
+        let partial = r#"{"version":1,"right_stack":["panel.properties","panel.layers"],"floating":[],"auto_hidden":[]}"#;
+        let topo = DockTopology::from_json(partial).expect("partial v1 loads");
+        assert!(topo.validate().is_ok());
+        assert_eq!(topo.right_groups().len(), 2);
+    }
+
+    #[test]
     fn cannot_tear_off_last() {
         let mut topo = DockTopology {
-            version: 1,
+            version: DockTopology::CURRENT_VERSION,
             right_stack: vec!["panel.layers".into()],
             floating: Vec::new(),
             auto_hidden: Vec::new(),
+            tabbed_with_previous: Vec::new(),
+            active_tabs: Vec::new(),
         };
         assert!(topo.tear_off("panel.layers", 0, 0, 300, 200, "").is_err());
     }

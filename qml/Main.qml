@@ -115,14 +115,68 @@ ApplicationWindow {
     }
     readonly property var dockRightStack: dockTopology.right_stack || []
 
+    /// Right dock as tab groups, derived host-side so the grouping rule lives
+    /// in one place: `[{ tabs: [id, …], active: id }]`.
+    readonly property var dockGroups: {
+        try {
+            return JSON.parse(AppSession.dockGroupsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
     /// Row base for GridLayout dock (header = base*2, body = base*2+1).
+    ///
+    /// Panels in one tab group share a row pair; only the active tab's body is
+    /// visible, so they occupy the same cell without overlapping.
     function dockStackRow(panelId) {
-        var stack = root.dockRightStack
-        for (var i = 0; i < stack.length; ++i) {
-            if (stack[i] === panelId)
-                return i
+        var groups = root.dockGroups
+        for (var g = 0; g < groups.length; ++g) {
+            var tabs = groups[g].tabs || []
+            for (var t = 0; t < tabs.length; ++t) {
+                if (tabs[t] === panelId)
+                    return g
+            }
         }
         return 1000
+    }
+
+    /// Tabs sharing `panelId`'s group, in stack order.
+    function dockGroupTabs(panelId) {
+        var groups = root.dockGroups
+        for (var g = 0; g < groups.length; ++g) {
+            var tabs = groups[g].tabs || []
+            for (var t = 0; t < tabs.length; ++t) {
+                if (tabs[t] === panelId)
+                    return tabs
+            }
+        }
+        return [panelId]
+    }
+
+    /// True when `panelId` is the tab its group is currently showing.
+    function panelIsActiveTab(panelId) {
+        var groups = root.dockGroups
+        for (var g = 0; g < groups.length; ++g) {
+            var tabs = groups[g].tabs || []
+            for (var t = 0; t < tabs.length; ++t) {
+                if (tabs[t] === panelId)
+                    return groups[g].active === panelId
+            }
+        }
+        return true
+    }
+
+    /// Visible tabs of a group, so a hidden or auto-hidden panel leaves no
+    /// dead tab behind.
+    function dockGroupVisibleTabs(panelId) {
+        var tabs = root.dockGroupTabs(panelId)
+        var out = []
+        for (var i = 0; i < tabs.length; ++i) {
+            if (root.panelIsVisible(tabs[i]) && !root.panelIsAutoHidden(tabs[i]))
+                out.push(tabs[i])
+        }
+        return out
     }
 
     function panelIsDocked(panelId) {
@@ -138,10 +192,15 @@ ApplicationWindow {
         return false
     }
 
+    /// Whether this panel renders in the dock right now.
+    ///
+    /// Panels in a tab group share a row pair, so only the active tab draws —
+    /// its header carries the whole group's tab strip.
     function panelShowsInDock(panelId) {
         return root.panelIsVisible(panelId)
                 && root.panelIsDocked(panelId)
                 && !root.panelIsAutoHidden(panelId)
+                && root.panelIsActiveTab(panelId)
     }
 
     function commitHeaderDrag(panelId, dy) {
@@ -2794,11 +2853,9 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
                         anchors.rightMargin: Theme.spaceXs
-                        Label {
-                            text: qsTr(root.panelTitle("panel.properties"))
-                            color: Theme.colorOnSurfaceVariant
-                            font.pixelSize: Theme.fontLabel
-                            font.weight: Font.Medium
+                        PanelTabStrip {
+                            panelId: "panel.properties"
+                            tabs: root.dockGroupVisibleTabs("panel.properties")
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
@@ -4507,11 +4564,9 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
                         anchors.rightMargin: Theme.spaceXs
-                        Label {
-                            text: qsTr(root.panelTitle("panel.navigator"))
-                            color: Theme.colorOnSurfaceVariant
-                            font.pixelSize: Theme.fontLabel
-                            font.weight: Font.Medium
+                        PanelTabStrip {
+                            panelId: "panel.navigator"
+                            tabs: root.dockGroupVisibleTabs("panel.navigator")
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
@@ -4657,11 +4712,9 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
                         anchors.rightMargin: Theme.spaceXs
-                        Label {
-                            text: qsTr(root.panelTitle("panel.swatches"))
-                            color: Theme.colorOnSurfaceVariant
-                            font.pixelSize: Theme.fontLabel
-                            font.weight: Font.Medium
+                        PanelTabStrip {
+                            panelId: "panel.swatches"
+                            tabs: root.dockGroupVisibleTabs("panel.swatches")
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
@@ -4888,11 +4941,9 @@ ApplicationWindow {
                         anchors.leftMargin: Theme.spaceSm
                         anchors.rightMargin: Theme.spaceXs
                         spacing: Theme.spaceXs
-                        Label {
-                            text: qsTr(root.panelTitle("panel.layers"))
-                            color: Theme.colorOnSurfaceVariant
-                            font.pixelSize: Theme.fontLabel
-                            font.weight: Font.Medium
+                        PanelTabStrip {
+                            panelId: "panel.layers"
+                            tabs: root.dockGroupVisibleTabs("panel.layers")
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
@@ -5227,11 +5278,9 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
                         anchors.rightMargin: Theme.spaceXs
-                        Label {
-                            text: qsTr(root.panelTitle("panel.history"))
-                            color: Theme.colorOnSurfaceVariant
-                            font.pixelSize: Theme.fontLabel
-                            font.weight: Font.Medium
+                        PanelTabStrip {
+                            panelId: "panel.history"
+                            tabs: root.dockGroupVisibleTabs("panel.history")
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {

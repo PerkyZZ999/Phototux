@@ -68,6 +68,10 @@ pub fn builtin_workspace_presets() -> Vec<WorkspacePreset> {
     compact_dock.right_stack = vec!["panel.properties".into(), "panel.layers".into()];
     compact_dock.floating.clear();
     compact_dock.auto_hidden.clear();
+    // Compact means one group: both panels share the dock's full height and
+    // the user tabs between them.
+    compact_dock.tabbed_with_previous = vec!["panel.layers".into()];
+    compact_dock.normalize_groups();
 
     let mut painting_vis = essentials.panel_visibility.clone();
     painting_vis.insert("panel.navigator".into(), false);
@@ -80,6 +84,10 @@ pub fn builtin_workspace_presets() -> Vec<WorkspacePreset> {
     ];
     painting_dock.floating.clear();
     painting_dock.auto_hidden.clear();
+    // Three panels fit stacked without starving each other, so painting keeps
+    // them separate and visible at once.
+    painting_dock.tabbed_with_previous.clear();
+    painting_dock.normalize_groups();
 
     vec![
         WorkspacePreset::from_parts(

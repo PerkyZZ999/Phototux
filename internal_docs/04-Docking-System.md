@@ -172,6 +172,20 @@ Every pointer rearrangement **MUST** have named actions: Move Panel, Dock Left/R
 
 Drop previews produce rate-limited status such as “Dock Properties after Layers” or “Cannot place: minimum canvas width.” Focus remains on moved content after commit. Auto-hide overlays trap neither keyboard nor assistive navigation; Escape closes overlay and returns focus to invoker.
 
+## Tab Groups
+
+A dock region presents panels as **tab groups**: a contiguous run of the region's ordered stack shown in one place, with one member visible at a time. Stacking every panel gives the lower ones no usable height at ordinary window sizes, and grouping is what users of comparable editors expect.
+
+Grouping **MUST** be derived from the region's existing ordered sequence rather than stored as nested lists, so ordering, move, tear-off and auto-hide keep operating on one flat structure and cannot disagree with the grouping.
+
+Every operation that changes the sequence **MUST** restore the grouping invariants: a group **MUST NOT** reference a panel that has left the region, and the first panel of a region **MUST NOT** be marked as joining a group above it. Normalizing at each mutation is required rather than validating after the fact, because the invalid states are reachable through ordinary use — tearing off the first tab of a group, or reordering a grouped panel to the head.
+
+A group's selection is presentation state. It **MUST** be scoped to its own group: raising a tab **MUST NOT** change which tab any other group is showing.
+
+A group of one **MUST** present exactly as an ungrouped panel did. Grouping is a layout decision, and a lone panel wearing tab chrome asks the user to interpret a distinction that carries no information.
+
+Tab selection **MUST NOT** be indicated by colour alone, and the selected tab's state **MUST** reach assistive technology. The header controls shown alongside the tabs belong to the **visible** panel, not to the group.
+
 ## Persistence and Versioning
 
 Serialization stores semantic topology, logical sizes, normalized display anchors, content IDs, and placement history. Runtime geometry, animations, host handles, and hit zones are excluded. Validator checks cycles, duplicates, missing roots, oversized collections, invalid ratios, unknown enums, and incompatible placements.

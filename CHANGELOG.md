@@ -2,6 +2,14 @@
 
 All notable decision milestones and project state changes.
 
+## [familiar-shell-2] — 2026-08-12
+
+### Shell
+
+- **The right dock groups panels into tabbed sets.** Essentials is now Properties, then Navigator/Swatches, then Layers/History — three groups instead of five stacked panels. This is the layout raster-editor users expect, and it is also the fix for panels starving each other: Layers previously rendered as a bare header at 1440×900 and now shows its content.
+- `DockTopology` version 2 derives groups from the existing ordered stack rather than storing nested lists, so ordering, move, tear-off and auto-hide keep operating on one flat structure. Every stack mutation normalizes the grouping, because tearing off the first tab of a group or reordering a grouped panel to the head are both reachable through ordinary use. A v1 topology migrates to the current grouping — it is presentation state, and preserving the old stack would leave existing users on the layout this replaces.
+- A group of one presents exactly as an ungrouped panel did; tab chrome only appears where it carries information. Selection is shown by weight, colour **and** an accent underline, and reaches assistive technology as a tab role with selected state — handbook 28 forbids colour-only state. The header controls belong to the visible panel, not the group.
+
 ## [repaint-regression-fix] — 2026-08-12
 
 ### Fixes

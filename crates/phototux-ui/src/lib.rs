@@ -266,6 +266,9 @@ pub struct AppSession {
     workspace_focus_json: String,
     active_workspace_preset_id: String,
     dock_topology_json: String,
+    /// Right dock as `[{tabs: [...], active: "..."}]`, derived so QML never
+    /// re-implements the grouping rule.
+    dock_groups_json: String,
     panel_visibility_json: String,
     tool_descriptors_json: String,
     actions_json: String,
@@ -492,6 +495,7 @@ impl AppSession {
                 serde_json::to_string(&phototux_engine::WorkspaceFocus::default())
                     .unwrap_or_else(|_| "{}".into()),
             active_workspace_preset_id: "workspace.preset.essentials".into(),
+            dock_groups_json: "[]".to_owned(),
             dock_topology_json: phototux_engine::DockTopology::essentials()
                 .to_json()
                 .unwrap_or_else(|_| "{}".into()),
@@ -1403,6 +1407,24 @@ impl AppSession {
             serde_json::to_string(&resolved).unwrap_or_else(|_| "{}".to_owned());
     }
 
+    /// Project the dock's tab groups for QML.
+    fn build_dock_groups_json(&self) -> String {
+        let groups: Vec<serde_json::Value> = self
+            .workspace
+            .dock
+            .right_groups()
+            .into_iter()
+            .map(|tabs| {
+                let active = tabs
+                    .first()
+                    .and_then(|id| self.workspace.dock.active_tab_of_group(id))
+                    .unwrap_or_default();
+                serde_json::json!({ "tabs": tabs, "active": active })
+            })
+            .collect();
+        serde_json::to_string(&groups).unwrap_or_else(|_| "[]".into())
+    }
+
     /// Record a completed composite: publish its time and repaint the canvas.
     ///
     /// Both halves belong together. Repaint is driven by the generation
@@ -1502,6 +1524,7 @@ impl AppSession {
             .dock
             .to_json()
             .unwrap_or_else(|_| "{}".into());
+        self.dock_groups_json = self.build_dock_groups_json();
         self.workspace_focus_json =
             serde_json::to_string(&self.workspace.focus).unwrap_or_else(|_| "{}".into());
         self.active_workspace_preset_id = self.workspace.active_preset_id.clone();
@@ -1518,6 +1541,7 @@ impl AppSession {
         self.panel_properties_visible_changed();
         self.panel_visibility_json_changed();
         self.dock_topology_json_changed();
+        self.dock_groups_json_changed();
         self.workspace_focus_json_changed();
         self.active_workspace_preset_id_changed();
     }
@@ -2796,6 +2820,11 @@ impl AppSession {
         Notify = dock_topology_json_changed
     );
     qproperty!(
+        "dockGroupsJson",
+        Member = dock_groups_json,
+        Notify = dock_groups_json_changed
+    );
+    qproperty!(
         "panelVisibilityJson",
         Member = panel_visibility_json,
         Notify = panel_visibility_json_changed
@@ -3247,6 +3276,8 @@ impl AppSession {
     fn active_workspace_preset_id_changed(&mut self);
     #[qsignal]
     fn dock_topology_json_changed(&mut self);
+    #[qsignal]
+    fn dock_groups_json_changed(&mut self);
     #[qsignal]
     fn panel_visibility_json_changed(&mut self);
     #[qsignal]
@@ -3813,6 +3844,15 @@ impl AppSession {
     #[qslot]
     fn collapse_all_disclosure_groups(&mut self) {
         self.set_all_disclosure_groups(false);
+    }
+
+    /// Raise a docked panel to be the visible tab of its group.
+    #[qslot]
+    fn raise_panel_tab(&mut self, panel_id: String) {
+        if self.workspace.dock.set_active_tab(&panel_id).is_err() {
+            return;
+        }
+        self.persist_workspace_visibility();
     }
 
     #[qslot]
