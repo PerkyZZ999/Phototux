@@ -1407,7 +1407,7 @@ impl AppSession {
             .map(|tabs| {
                 let active = tabs
                     .first()
-                    .and_then(|id| self.workspace.dock.active_tab_of_group(id))
+                    .and_then(|id| self.workspace.effective_active_tab(id))
                     .unwrap_or_default();
                 serde_json::json!({ "tabs": tabs, "active": active })
             })

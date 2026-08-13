@@ -79,6 +79,27 @@ impl WorkspaceState {
             })
     }
 
+    /// Tab a group should actually show, given what is currently visible.
+    ///
+    /// `DockTopology` records which tab the user last raised, but it has no
+    /// view of panel visibility — that lives here. Hiding the raised tab must
+    /// fall through to a visible sibling rather than blanking the whole group,
+    /// which is what happens when the stored selection is used unconditionally.
+    /// Returns `None` when the group has no visible tab left, and the group is
+    /// then legitimately absent from the dock.
+    pub fn effective_active_tab(&self, panel_id: &str) -> Option<String> {
+        let group = self
+            .dock
+            .right_groups()
+            .into_iter()
+            .find(|g| g.iter().any(|id| id == panel_id))?;
+        let stored = self.dock.active_tab_of_group(panel_id);
+        if let Some(stored) = stored.filter(|id| self.is_visible(id)) {
+            return Some(stored);
+        }
+        group.into_iter().find(|id| self.is_visible(id))
+    }
+
     pub fn set_visible(&mut self, panel_id: &str, visible: bool) -> bool {
         if !default_panels().iter().any(|p| p.id == panel_id) {
             return false;
@@ -322,5 +343,58 @@ mod tests {
         ws.move_panel_in_stack("panel.history", -1).expect("move");
         assert!(ws.revision > rev);
         assert_eq!(session.document_generation(), doc_gen);
+    }
+
+    /// Hiding the raised tab of a group must reveal a sibling, not blank the
+    /// group. Regression: `dock.active_tab_of_group` has no view of visibility,
+    /// so using it directly hid Swatches whenever Navigator was hidden.
+    #[test]
+    fn hiding_the_raised_tab_falls_through_to_a_visible_sibling() {
+        let mut ws = WorkspaceState::essentials();
+        let group = ws
+            .dock
+            .right_groups()
+            .into_iter()
+            .find(|g| g.len() > 1)
+            .expect("essentials has a multi-tab group");
+        let raised = group[0].clone();
+        let sibling = group[1].clone();
+        ws.dock.set_active_tab(&raised).expect("raise first tab");
+        assert_eq!(ws.effective_active_tab(&raised), Some(raised.clone()));
+
+        assert!(ws.set_visible(&raised, false));
+        assert_eq!(
+            ws.effective_active_tab(&sibling),
+            Some(sibling.clone()),
+            "hiding the raised tab must fall through to the visible sibling"
+        );
+    }
+
+    #[test]
+    fn a_group_with_no_visible_tab_has_no_active_tab() {
+        let mut ws = WorkspaceState::essentials();
+        let group = ws
+            .dock
+            .right_groups()
+            .into_iter()
+            .find(|g| g.len() > 1)
+            .expect("essentials has a multi-tab group");
+        for id in &group {
+            assert!(ws.set_visible(id, false));
+        }
+        assert_eq!(ws.effective_active_tab(&group[0]), None);
+    }
+
+    #[test]
+    fn effective_active_tab_prefers_the_raised_tab_while_it_is_visible() {
+        let mut ws = WorkspaceState::essentials();
+        let group = ws
+            .dock
+            .right_groups()
+            .into_iter()
+            .find(|g| g.len() > 1)
+            .expect("essentials has a multi-tab group");
+        ws.dock.set_active_tab(&group[1]).expect("raise second tab");
+        assert_eq!(ws.effective_active_tab(&group[0]), Some(group[1].clone()));
     }
 }
