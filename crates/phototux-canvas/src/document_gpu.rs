@@ -34,6 +34,50 @@ struct StrokeBackup {
     texture: wgpu::Texture,
 }
 
+impl StrokeBackup {
+    /// VRAM this backup holds.
+    fn bytes(&self) -> u64 {
+        let texels = u64::from(self.texture.width()) * u64::from(self.texture.height());
+        let per_texel = match self.texture.format() {
+            wgpu::TextureFormat::R8Unorm => 1,
+            _ => 4,
+        };
+        texels * per_texel
+    }
+}
+
+/// VRAM ceiling for stroke undo backups.
+///
+/// Each backup is a full copy of the painted surface, so a count-based cap
+/// bounds nothing useful: sixty-four entries is a few megabytes on a small
+/// document and over two gigabytes at 4K, which provokes allocator pressure or
+/// eviction hitches long before the count is reached. Depth follows from the
+/// budget instead, so a large document simply keeps fewer strokes.
+const STROKE_UNDO_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
+
+/// How many oldest entries to drop so the remainder fits `budget`.
+///
+/// Never drops the last entry: at a document size where one backup alone
+/// exceeds the budget, the choice is between one undo step and none, and none
+/// would silently make painting unundoable on exactly the documents where an
+/// accidental stroke costs most.
+fn overflow_count(sizes: &[u64], budget: u64) -> usize {
+    let mut total: u64 = sizes.iter().copied().sum();
+    let mut dropped = 0;
+    while dropped + 1 < sizes.len() && total > budget {
+        total = total.saturating_sub(sizes[dropped]);
+        dropped += 1;
+    }
+    dropped
+}
+
+/// Drop oldest entries until the stack fits the VRAM budget.
+fn trim_stroke_stack(stack: &mut Vec<StrokeBackup>) {
+    let sizes: Vec<u64> = stack.iter().map(StrokeBackup::bytes).collect();
+    let dropped = overflow_count(&sizes, STROKE_UNDO_BUDGET_BYTES);
+    stack.drain(..dropped);
+}
+
 struct DocGpu {
     ctx: Arc<GpuContext>,
     engine: LayerCompositeEngine,
@@ -911,9 +955,7 @@ pub fn end_stroke() -> Result<(), String> {
     // mirror as part of reading it, so nothing observed the eager sync.
     if let Some(bak) = doc.stroke_backup.take() {
         doc.stroke_undo.push(bak);
-        if doc.stroke_undo.len() > 64 {
-            doc.stroke_undo.remove(0);
-        }
+        trim_stroke_stack(&mut doc.stroke_undo);
     }
     with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
     publish_result(&doc.engine)?;
@@ -964,6 +1006,7 @@ pub fn undo_stroke() -> Result<f32, String> {
         target: prev.target,
         texture: cur,
     });
+    trim_stroke_stack(&mut doc.stroke_redo);
     match prev.target {
         PaintTarget::LayerPixels => {
             doc.engine
@@ -1026,11 +1069,45 @@ pub fn redo_stroke() -> Result<f32, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::dim_to_i32;
+    use super::{STROKE_UNDO_BUDGET_BYTES, dim_to_i32, overflow_count};
 
     #[test]
     fn dim_to_i32_rejects_overflow() {
         assert!(dim_to_i32(u32::MAX).is_err());
         assert_eq!(dim_to_i32(1920).unwrap(), 1920);
+    }
+
+    #[test]
+    fn undo_depth_follows_the_byte_budget_not_a_count() {
+        // A 4K RGBA backup is ~33 MB, so the budget admits about 15 of them —
+        // the old cap of 64 entries would have held over 2 GB of VRAM.
+        let big = 3840 * 2160 * 4;
+        let sizes = vec![big; 64];
+        let dropped = overflow_count(&sizes, STROKE_UNDO_BUDGET_BYTES);
+        let kept = sizes.len() - dropped;
+        let held: u64 = big * kept as u64;
+        assert!(
+            held <= STROKE_UNDO_BUDGET_BYTES,
+            "kept {kept} entries = {held} bytes"
+        );
+        assert!(
+            kept >= 15,
+            "budget should still allow a usable depth, kept {kept}"
+        );
+
+        // Small documents are not trimmed at all.
+        let small = vec![512 * 512 * 4; 64];
+        assert_eq!(overflow_count(&small, STROKE_UNDO_BUDGET_BYTES), 0);
+    }
+
+    #[test]
+    fn the_last_stroke_stays_undoable_however_large() {
+        // One backup bigger than the whole budget: keep it anyway.
+        let huge = vec![STROKE_UNDO_BUDGET_BYTES * 4];
+        assert_eq!(overflow_count(&huge, STROKE_UNDO_BUDGET_BYTES), 0);
+        // Two of them: drop the older, keep the newest.
+        let two = vec![STROKE_UNDO_BUDGET_BYTES * 4; 2];
+        assert_eq!(overflow_count(&two, STROKE_UNDO_BUDGET_BYTES), 1);
+        assert_eq!(overflow_count(&[], STROKE_UNDO_BUDGET_BYTES), 0);
     }
 }

@@ -151,6 +151,10 @@ Readers observe old state/old timeline or new state/new timeline. If history res
 
 The default timeline is linear for user-visible undo/redo. It has an applied prefix and redo suffix. Undo moves the semantic cursor by applying inverse as a new command/version; the historical source records remain ordered. Redo applies forward meaning when valid.
 
+Where an undo step retains a copy of a surface rather than a description of the change, retention **MUST** be bounded by bytes rather than by entry count. A count bounds nothing useful when entry size scales with document size: the same limit is a few megabytes on a small canvas and gigabytes on a large one, and the failure arrives as allocator pressure or eviction stalls rather than as a clear limit. Depth follows from the budget, so a large document simply keeps fewer steps.
+
+The most recent step **MUST** survive trimming even when it alone exceeds the budget. The alternative is that painting becomes unundoable exactly on the documents where an accidental stroke is most expensive to lose.
+
 **Every committed entry MUST reach the timeline projection.** A command that pushes history but reports no other invalidation still changed the timeline, and a projection keyed only on layer or selection invalidation will not be told. The observable failure is a history list that omits entries and silently corrects itself at the next unrelated edit, which is worse than a stale list because it reads as authoritative. Entry notification **MUST** be driven by the entry list changing, not inferred from a neighbouring sync flag.
 
 When a new ordinary edit commits after undo, default policy discards the visible redo suffix from active traversal. Retained resources are released subject to snapshots/checkpoints. This is “linear branch replacement.” The discarded branch may remain briefly in a diagnostic tombstone but is not user-reachable history and cannot retain unbounded private data.
