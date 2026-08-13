@@ -65,8 +65,14 @@ pub fn write_autosave(
         saved_unix_ms: unix_ms(),
         dirty: true,
     };
+    // The index is written atomically too. It is the file the restore chooser
+    // reads, so a crash midway through a plain write leaves a truncated JSON
+    // that makes a perfectly good snapshot unlistable.
     let index_path = dir.join(format!("{id}.json"));
-    fs::write(index_path, serde_json::to_vec_pretty(&entry)?)?;
+    let encoded = serde_json::to_vec_pretty(&entry)?;
+    crate::atomic::write_atomic(&index_path, |file| {
+        std::io::Write::write_all(file, &encoded)
+    })?;
     Ok(entry)
 }
 

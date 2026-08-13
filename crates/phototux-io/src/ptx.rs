@@ -1,10 +1,9 @@
 //! Native `.ptx` document container (ADR-016).
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 use flate2::Compression;
 use flate2::read::DeflateDecoder;
@@ -24,8 +23,6 @@ pub const PTX_FORMAT_VERSION_V1: u32 = 1;
 const CHUNK_MANI: [u8; 4] = *b"MANI";
 const CHUNK_RASL: [u8; 4] = *b"RASL";
 const CHUNK_MASK: [u8; 4] = *b"MASK";
-
-static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PtxManifest {
@@ -300,21 +297,10 @@ fn finish_document(
 /// Returns [`PtxError`] when encode or filesystem ops fail. Prior file is preserved on failure.
 pub fn save_ptx_atomic(path: &Path, doc: &PtxDocument) -> Result<(), PtxError> {
     let bytes = encode_ptx(doc)?;
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| PtxError::Corrupt("invalid destination path".into()))?;
-    let (temporary_path, mut file) = create_temporary_sibling(parent, file_name)?;
-    let result = (|| {
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temporary_path, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary_path);
+    if path.file_name().is_none() {
+        return Err(PtxError::Corrupt("invalid destination path".into()));
     }
-    result
+    crate::atomic::write_atomic(path, |file| file.write_all(&bytes).map_err(PtxError::from))
 }
 
 /// Load `.ptx` from disk.
@@ -496,29 +482,6 @@ fn read_slice<'a>(buf: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [
         .ok_or_else(|| PtxError::Corrupt("truncated slice".into()))?;
     *cursor = end;
     Ok(slice)
-}
-
-fn create_temporary_sibling(
-    parent: &Path,
-    file_name: &std::ffi::OsStr,
-) -> Result<(PathBuf, File), PtxError> {
-    for _ in 0..16 {
-        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let mut temporary_name = std::ffi::OsString::from(".");
-        temporary_name.push(file_name);
-        temporary_name.push(format!(".phototux-{}-{sequence}.tmp", std::process::id()));
-        let path = parent.join(temporary_name);
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((path, file)),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "could not allocate a unique .ptx temporary file",
-    )
-    .into())
 }
 
 #[cfg(test)]

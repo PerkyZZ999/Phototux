@@ -1,5 +1,6 @@
 //! Document I/O boundaries: rasters, native `.ptx`, recovery, PSD subset (ADR-015/016).
 
+mod atomic;
 mod psd;
 mod ptx;
 mod recovery;
@@ -17,11 +18,9 @@ pub use recovery::{
     write_autosave, write_stroke_journal,
 };
 
-use std::ffi::OsString;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Seek, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
@@ -37,8 +36,6 @@ pub const MAX_DIMENSION: u32 = 32_768;
 pub const MAX_RASTER_BYTES: u64 = 512 * 1024 * 1024;
 /// Default visually lossless JPEG quality for explicit export.
 pub const JPEG_QUALITY: u8 = 92;
-
-static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Raster formats supported at the file boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,47 +298,15 @@ pub fn encode_path_atomic_with_icc(
     format: RasterFormat,
     icc: Option<&[u8]>,
 ) -> Result<(), RasterIoError> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .ok_or(RasterIoError::UnsupportedExtension)?;
-    let (temporary_path, file) = create_temporary_sibling(parent, file_name)?;
-    let result = (|| {
-        let mut writer = BufWriter::new(&file);
+    if path.file_name().is_none() {
+        return Err(RasterIoError::UnsupportedExtension);
+    }
+    crate::atomic::write_atomic(path, |file| {
+        let mut writer = BufWriter::new(&*file);
         encode_with_icc(&mut writer, raster, format, icc)?;
         writer.flush()?;
-        drop(writer);
-        file.sync_all()?;
-        std::fs::rename(&temporary_path, path)?;
         Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary_path);
-    }
-    result
-}
-
-fn create_temporary_sibling(
-    parent: &Path,
-    file_name: &std::ffi::OsStr,
-) -> Result<(PathBuf, File), RasterIoError> {
-    for _ in 0..16 {
-        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let mut temporary_name = OsString::from(".");
-        temporary_name.push(file_name);
-        temporary_name.push(format!(".phototux-{}-{sequence}.tmp", std::process::id()));
-        let path = parent.join(temporary_name);
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((path, file)),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "could not allocate a unique export temporary file",
-    )
-    .into())
+    })
 }
 
 fn decode_limits() -> Limits {
@@ -446,9 +411,9 @@ mod tests {
     #[test]
     fn atomic_path_export_round_trips() {
         let directory = std::env::temp_dir().join(format!(
-            "phototux-io-test-{}-{}",
+            "phototux-io-test-{}-{:?}",
             std::process::id(),
-            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            std::thread::current().id()
         ));
         std::fs::create_dir(&directory).expect("create test directory");
         let path = directory.join("output.png");
