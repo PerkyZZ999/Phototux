@@ -96,6 +96,29 @@ fn local_path(value: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Assign a projected value and notify QML only when it actually moved.
+///
+/// Computing a value and announcing it were two hand-maintained lists, so a
+/// guard could be — and was — added to one half and not the other: the
+/// accessibility tree was rebuilt only on change, then its notify fired on
+/// every layer edit regardless, which is how T-009 flooded AT-SPI until the
+/// session died. Fusing them means the guard cannot be half-applied.
+///
+/// Evaluates to `true` when the value changed, so dependent projections can be
+/// recomputed only when their input moved.
+macro_rules! publish {
+    ($self:expr, $field:ident, $next:expr, $notify:ident) => {{
+        let next = $next;
+        if $self.$field == next {
+            false
+        } else {
+            $self.$field = next;
+            $self.$notify();
+            true
+        }
+    }};
+}
+
 /// Application session singleton for the desktop shell.
 pub struct AppSession {
     doc_width: i32,
@@ -681,12 +704,42 @@ impl AppSession {
         self.active_layer_index = self.engine.active_layer_index();
         self.can_undo = self.engine.can_undo();
         self.can_redo = self.engine.can_redo();
-        self.layer_names = self.engine.layer_names_joined();
-        self.layer_visibility = self.engine.layer_visibility_joined();
-        self.layer_kinds = self.engine.layer_kinds_joined();
-        self.layer_mask_flags = self.engine.layer_mask_flags_joined();
-        self.layer_clips = self.engine.layer_clips_joined();
-        self.layer_selection = self.engine.layer_selection_joined();
+        publish!(
+            self,
+            layer_names,
+            self.engine.layer_names_joined(),
+            layer_names_changed
+        );
+        publish!(
+            self,
+            layer_visibility,
+            self.engine.layer_visibility_joined(),
+            layer_visibility_changed
+        );
+        publish!(
+            self,
+            layer_kinds,
+            self.engine.layer_kinds_joined(),
+            layer_kinds_changed
+        );
+        publish!(
+            self,
+            layer_mask_flags,
+            self.engine.layer_mask_flags_joined(),
+            layer_mask_flags_changed
+        );
+        publish!(
+            self,
+            layer_clips,
+            self.engine.layer_clips_joined(),
+            layer_clips_changed
+        );
+        publish!(
+            self,
+            layer_selection,
+            self.engine.layer_selection_joined(),
+            layer_selection_changed
+        );
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
                 .graph
@@ -733,16 +786,7 @@ impl AppSession {
         } else {
             String::new()
         };
-        self.history_labels = self.engine.history_labels_joined();
-        self.history_entry_ids = self
-            .engine
-            .history
-            .entry_ids_newest_first()
-            .into_iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join("|");
-        self.history_kinds = self.engine.history.kinds_newest_first().join("|");
+        self.publish_history_projection();
         self.brush_preset_names = self.engine.brush_presets.names_joined();
         if let Some(graph) = self.engine.graph.as_ref() {
             self.soft_proof_profile = graph.color.soft_proof_profile.clone();
@@ -753,11 +797,18 @@ impl AppSession {
             self.soft_proof_active = false;
             self.has_embedded_icc = false;
         }
-        let accessibility_tree_json = self.build_accessibility_tree_json();
-        if accessibility_tree_json != self.accessibility_tree_json {
-            self.accessibility_tree_json = accessibility_tree_json;
-            self.atspi_projection_json =
-                phototux_engine::project_semantic_tree_json(&self.accessibility_tree_json);
+        if publish!(
+            self,
+            accessibility_tree_json,
+            self.build_accessibility_tree_json(),
+            accessibility_tree_json_changed
+        ) {
+            publish!(
+                self,
+                atspi_projection_json,
+                phototux_engine::project_semantic_tree_json(&self.accessibility_tree_json),
+                atspi_projection_json_changed
+            );
         }
         self.sync_selection_fields();
         self.sync_transform_fields();
@@ -1072,18 +1123,44 @@ impl AppSession {
         self.pref_effective_json = map.to_string();
     }
 
+    /// Publish the history list, announcing only the parts that moved.
+    ///
+    /// Three index-aligned strings describe one list, and both callers rebuilt
+    /// all three. Painting a stroke changes the labels but rarely the kinds, so
+    /// announcing all three invalidated every History binding on every edit.
+    fn publish_history_projection(&mut self) {
+        publish!(
+            self,
+            history_labels,
+            self.engine.history_labels_joined(),
+            history_labels_changed
+        );
+        publish!(
+            self,
+            history_entry_ids,
+            self.engine
+                .history
+                .entry_ids_newest_first()
+                .into_iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join("|"),
+            history_entry_ids_changed
+        );
+        publish!(
+            self,
+            history_kinds,
+            self.engine.history.kinds_newest_first().join("|"),
+            history_kinds_changed
+        );
+    }
+
     fn emit_layer_fields(&mut self) {
         self.sync_inspector_mixed_fields();
         self.layer_count_changed();
         self.active_layer_index_changed();
         self.can_undo_changed();
         self.can_redo_changed();
-        self.layer_names_changed();
-        self.layer_visibility_changed();
-        self.layer_kinds_changed();
-        self.layer_mask_flags_changed();
-        self.layer_clips_changed();
-        self.layer_selection_changed();
         self.mask_edit_active_changed();
         self.mask_density_changed();
         self.mask_feather_changed();
@@ -1094,17 +1171,12 @@ impl AppSession {
         self.edit_target_changed();
         self.edit_target_label_changed();
         self.active_layer_kind_changed();
-        self.history_labels_changed();
-        self.history_entry_ids_changed();
-        self.history_kinds_changed();
         self.brush_preset_names_changed();
         self.soft_proof_profile_changed();
         self.inspector_opacity_mixed_changed();
         self.inspector_blend_mixed_changed();
         self.soft_proof_active_changed();
         self.has_embedded_icc_changed();
-        self.accessibility_tree_json_changed();
-        self.atspi_projection_json_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
         self.document_path_changed();
@@ -3758,16 +3830,7 @@ impl AppSession {
         self.pref_history_retention_changed();
         self.can_undo = self.engine.history.can_undo();
         self.can_redo = self.engine.history.can_redo();
-        self.history_labels = self.engine.history_labels_joined();
-        self.history_entry_ids = self
-            .engine
-            .history
-            .entry_ids_newest_first()
-            .into_iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join("|");
-        self.history_kinds = self.engine.history.kinds_newest_first().join("|");
+        self.publish_history_projection();
         self.can_undo_changed();
         self.can_redo_changed();
         self.history_labels_changed();
