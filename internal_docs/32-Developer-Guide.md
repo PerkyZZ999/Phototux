@@ -112,8 +112,13 @@ QML lives in `qml/` and ships through the AOT module built by `crates/phototux/b
 | `Theme.qml` | Singleton design tokens (colors, spacing, density, type) |
 | `DisclosureGroup.qml` | Collapsible inspector section ([01](01-Information-Architecture.md#disclosure-group-registry)) |
 | `LazyDialog.qml` | Defers a dialog's object tree to first use |
+| `PropertiesPanel.qml` | Right dock's per-layer editor body |
 | `PanelHeaderControls.qml`, `ThemedIcon.qml`, `ChromeIconToolButton.qml` | Panel and icon chrome |
+| `ThemedCheckBox.qml`, `ThemedComboBox.qml`, `ThemedSpinBox.qml`, `ThemedDialogHeader.qml` | Controls themed off `Theme.qml` rather than the Basic style |
 | `NewDocumentDialog.qml`, `WelcomeDialog.qml` | Entry dialogs |
+| `FilterGalleryDialog.qml`, `CommandPaletteDialog.qml`, `PreferencesDialog.qml` | Extracted shell dialogs |
+
+A component pulled out of `Main.qml` takes its dependencies as `required property` rather than reaching for ids in the shell's scope — that scope is what makes inline blocks unmovable, and declaring the seam is what makes an extraction reviewable. Measure the crossings in both directions before cutting: ids the body reads from outside, and ids outside the body that read into it. The latter are the ones greps miss, and each one needs a function or signal on the new component rather than a reach back.
 
 The CMake module globs `qml/*.qml` and the build script watches the `qml/` directory, so a new component is embedded and rebuilt without registration edits. Singletons are the one exception: a `pragma Singleton` type must also be listed in `QML_SINGLETONS` in the CMake module or it will not resolve.
 
