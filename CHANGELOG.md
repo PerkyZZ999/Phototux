@@ -2,6 +2,14 @@
 
 All notable decision milestones and project state changes.
 
+## [reentrancy-and-contrast] — 2026-08-13
+
+### Fixes
+
+- **Tearing a panel off aborted the process, and so did opening the Filter Gallery.** Both were the same bug reached two ways. A host slot holds the session mutably borrowed for its whole body, including the change notifications it emits, so QML bindings that react to those notifications run *inside* the slot — and any call back into the session from there fails the borrow check and aborts. Tear-off built the floating window synchronously and its geometry write-back re-entered immediately; the Filter Gallery's modal popup moved focus while `openFilterGallery` was still on the stack, and the focus handler pushed the shortcut-yield flag back to the host.
+- Every reactive write-back now defers through `root.afterHostSlot`. `refreshShortcutYield` defers at the function rather than at each call site, which makes all six of its reactive callers safe at once. The same treatment covers the viewport size write-back, ending a stroke when the tool changes under it, the status-marker drain behind File ▸ New/Open/Save As, and the preferences and gallery close paths — each of which could abort on the right timing. Deferral also coalesces the write-back storms during a window drag or resize into one call per event-loop turn.
+- The tear-off crash reproduced identically on the pre-tabbed-dock build, so it predates that work rather than being a regression from it. The rule is now a normative contract in handbook [32 — Host Slot Re-entrancy](internal_docs/32-Developer-Guide.md#host-slot-re-entrancy); recorded as T-027 and T-028.
+
 ## [familiar-shell-2] — 2026-08-12
 
 ### Shell

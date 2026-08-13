@@ -303,6 +303,16 @@ sequenceDiagram
     CR-->>UI: Structured outcome
 ```
 
+## Host Slot Re-entrancy
+
+A host slot holds exclusive access to session state for its whole body, including every change notification it publishes while running. Presentation bindings that react to those notifications therefore execute **inside** the slot that raised them.
+
+A presentation handler that reacts to a host change notification **MUST NOT** invoke a mutating host slot synchronously. It **MUST** defer the call to the next event-loop turn. This applies to change handlers, declarative binding side effects, focus and popup lifecycle callbacks, and anything a lazy loader constructs in response to host state. Direct invocation remains correct from user input — pointer, key, and activation handlers — because the event loop already delivers those outside any slot body.
+
+Violating this is not a recoverable error. The exclusive-access check fails and the process aborts, so it **MUST** be treated as a correctness contract rather than a style preference. Deferral additionally coalesces write-back storms — window drags, viewport resizes — into one call per turn.
+
+Notification handlers that only assign presentation properties are unaffected; the contract governs calls back into the host.
+
 ## Error Model
 
 Errors identify category, stable code, operation/scope, preserved state, retry safety, field details, and correlation ID. Categories include invalid input, unavailable target, stale/version conflict, capability/permission, lifecycle, unsupported feature, resource pressure, external service, codec/format, extension, device, and invariant.

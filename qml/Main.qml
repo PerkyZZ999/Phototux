@@ -377,7 +377,19 @@ ApplicationWindow {
         return false
     }
 
+    /// Recompute whether the host should hand single-key shortcuts to a text
+    /// editor instead of consuming them.
+    ///
+    /// Always deferred. Every caller reacts to focus moving or a popup opening
+    /// or closing, and both happen synchronously inside the host slot that
+    /// showed or hid the dialog — opening the Filter Gallery moves focus into
+    /// its popup while `openFilterGallery` is still on the stack. Calling the
+    /// host from there aborts the process; see `afterHostSlot`.
     function refreshShortcutYield() {
+        root.afterHostSlot(root.applyShortcutYield)
+    }
+
+    function applyShortcutYield() {
         var yieldKeys = root.itemIsTextEditor(root.activeFocusItem)
                 || newDocDialog.opened
         AppSession.setShortcutInputYield(
@@ -567,10 +579,42 @@ ApplicationWindow {
         return false
     }
 
+    /// Run `fn` once the host slot that is currently executing has returned.
+    ///
+    /// Every `AppSession` slot takes `&mut self`, and qtbridge holds that borrow
+    /// for the whole slot body — including the notify signals the slot emits.
+    /// A QML handler that reacts to one of those signals therefore runs *inside*
+    /// the borrow, so calling any other slot from it fails the borrow check and
+    /// aborts the process (`BorrowConflict` in `genericrustproxy.rs`, a hard
+    /// abort rather than a catchable error). Reactive handlers must hand the
+    /// call back to the event loop instead.
+    ///
+    /// Rule: a handler that fires from an `AppSession` notify signal — a
+    /// `Connections` function, a binding-driven `on…Changed`, or anything a
+    /// `Loader` builds in response to host state — must not call an
+    /// `AppSession` slot directly. Route it through here. Direct calls are fine
+    /// from user input (`onClicked`, `onMoved`, `Keys.onPressed`), which the
+    /// event loop already delivers outside any borrow.
+    ///
+    /// Repeated calls with the same function collapse into one, so this also
+    /// coalesces write-back storms such as window drags.
+    function afterHostSlot(fn) {
+        Qt.callLater(fn)
+    }
+
+    /// Re-read the marker at drain time rather than capturing it, so a marker
+    /// superseded before the event loop turns is not acted on twice.
+    function drainHostStatusMarker() {
+        root.handleHostStatusMarker(AppSession.statusText)
+    }
+
     Connections {
         target: AppSession
         function onStatusTextChanged() {
-            root.handleHostStatusMarker(AppSession.statusText)
+            // Deferred: the marker is published from inside a host slot, and
+            // every branch of the handler calls back into AppSession to clear
+            // it. See `root.afterHostSlot` for why that must not be synchronous.
+            root.afterHostSlot(root.drainHostStatusMarker)
         }
     }
 
@@ -1105,14 +1149,21 @@ ApplicationWindow {
         onObjectRemoved: function (index, object) {
             if (!object)
                 return
+            // Deliberately no close(): closing re-emits `onClosing`, which would
+            // call back into an AppSession slot while the slot that shrank this
+            // model still holds the session borrowed. Hiding drops the platform
+            // window on its own.
+            object.retiring = true
             object.visible = false
-            object.close()
             object.destroy()
         }
         delegate: Window {
             id: floatWin
             required property string modelData
             property bool syncingGeometry: false
+            /// Set by the Instantiator just before teardown so the close that
+            /// follows does not ask the host to redock a panel it already moved.
+            property bool retiring: false
             readonly property var placement: {
                 var _ = AppSession.dockTopologyJson
                 return root.floatingPlacement(modelData)
@@ -1127,13 +1178,24 @@ ApplicationWindow {
             flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint
 
             onClosing: function (close) {
-                AppSession.redockPanel(modelData)
                 close.accepted = true
+                root.afterHostSlot(floatWin.requestRedock)
             }
-            onXChanged: floatWin.persistGeometry()
-            onYChanged: floatWin.persistGeometry()
-            onWidthChanged: floatWin.persistGeometry()
-            onHeightChanged: floatWin.persistGeometry()
+            // Every write-back below is deferred. A tear-off builds this Window
+            // from inside `tearOffPanel`, so anything that runs synchronously
+            // here re-enters AppSession while it is still mutably borrowed and
+            // aborts the process. Qt.callLater also coalesces the geometry
+            // storm during a drag into one persist per event-loop turn.
+            onXChanged: root.afterHostSlot(floatWin.persistGeometry)
+            onYChanged: root.afterHostSlot(floatWin.persistGeometry)
+            onWidthChanged: root.afterHostSlot(floatWin.persistGeometry)
+            onHeightChanged: root.afterHostSlot(floatWin.persistGeometry)
+
+            function requestRedock() {
+                if (floatWin.retiring)
+                    return
+                AppSession.redockPanel(floatWin.modelData)
+            }
 
             function applyModelGeometry() {
                 var p = placement
@@ -1154,7 +1216,7 @@ ApplicationWindow {
             }
 
             function persistGeometry() {
-                if (!visible || syncingGeometry || !root.floatingPersistEnabled)
+                if (retiring || !visible || syncingGeometry || !root.floatingPersistEnabled)
                     return
                 AppSession.setFloatingPanelGeometry(modelData, Math.round(x), Math.round(y),
                                                    Math.round(width), Math.round(height))
@@ -1188,7 +1250,7 @@ ApplicationWindow {
                 }
                 Button {
                     text: qsTr("Dock")
-                    onClicked: AppSession.redockPanel(modelData)
+                    onClicked: root.afterHostSlot(floatWin.requestRedock)
                 }
             }
         }
@@ -1741,9 +1803,16 @@ ApplicationWindow {
                 z: -1
             }
 
-            onWidthChanged: AppSession.setViewportSize(width, height)
-            onHeightChanged: AppSession.setViewportSize(width, height)
-            Component.onCompleted: AppSession.setViewportSize(width, height)
+            // Anchored to the tool strip and right dock, so this width changes
+            // synchronously whenever a host slot resizes either — deferring
+            // keeps the write-back out of that slot's borrow, and coalesces the
+            // resize storm into one call per event-loop turn.
+            function pushViewportSize() {
+                AppSession.setViewportSize(canvasHost.width, canvasHost.height)
+            }
+            onWidthChanged: root.afterHostSlot(canvasHost.pushViewportSize)
+            onHeightChanged: root.afterHostSlot(canvasHost.pushViewportSize)
+            Component.onCompleted: canvasHost.pushViewportSize()
 
             PhototuxCanvas {
                 id: gpuCanvas
@@ -1897,12 +1966,9 @@ ApplicationWindow {
                                          : (AppSession.textAlignment === 2
                                             ? TextEdit.AlignRight : TextEdit.AlignLeft)
                     Accessible.name: qsTr("On-canvas text editor")
-                    onActiveFocusChanged: {
-                        if (activeFocus)
-                            AppSession.setShortcutInputYield(true)
-                        else
-                            root.refreshShortcutYield()
-                    }
+                    // Focus can move here from inside a host slot (picking the
+                    // Text tool), so never call the host synchronously.
+                    onActiveFocusChanged: root.refreshShortcutYield()
                     onTextChanged: {
                         if (activeFocus && text !== AppSession.textBody) {
                             AppSession.updateActiveText(
@@ -2393,8 +2459,12 @@ ApplicationWindow {
                     function onActiveToolChanged() {
                         if (!canvasInput.painting)
                             return
-                        AppSession.strokeEnd()
+                        // Clear first so a second tool change cannot queue a
+                        // second end, then defer: `activeTool` flips inside
+                        // `setActiveTool`, and ending the stroke from here would
+                        // re-enter AppSession while it is still borrowed.
                         canvasInput.painting = false
+                        root.afterHostSlot(AppSession.strokeEnd)
                     }
                 }
 
@@ -4854,12 +4924,7 @@ ApplicationWindow {
                                     border.color: parent.activeFocus ? Theme.primary : Theme.border
                                     radius: Theme.radiusSm
                                 }
-                                onActiveFocusChanged: {
-                                    if (activeFocus)
-                                        AppSession.setShortcutInputYield(true)
-                                    else
-                                        root.refreshShortcutYield()
-                                }
+                                onActiveFocusChanged: root.refreshShortcutYield()
                                 onEditingFinished: AppSession.setForegroundHex(text)
                                 Keys.onReturnPressed: {
                                     AppSession.setForegroundHex(text)
@@ -5594,8 +5659,15 @@ ApplicationWindow {
             width: 420
             height: 360
             visible: AppSession.filterGalleryOpen
-            onRejected: AppSession.filterGalleryCancel()
-            onClosed: {
+            // Both are deferred. `visible` is bound to host state that flips
+            // inside `openFilterGallery` / `filterGalleryApply`, so a close that
+            // lands during one of those slots would cancel the gallery from
+            // inside the borrow that opened it. Qt.callLater also collapses the
+            // rejected+closed pair into one cancel.
+            onRejected: root.afterHostSlot(filterGalleryDialog.cancelIfOpen)
+            onClosed: root.afterHostSlot(filterGalleryDialog.cancelIfOpen)
+
+            function cancelIfOpen() {
                 if (AppSession.filterGalleryOpen)
                     AppSession.filterGalleryCancel()
             }
@@ -5695,15 +5767,25 @@ ApplicationWindow {
                 }
             }
 
+            /// Seed the dialog with a default preview. Deferred, because
+            /// `filterGalleryOpen` flips inside `openFilterGallery`: previewing
+            /// from the notify handler would re-enter AppSession while it is
+            /// still mutably borrowed and abort the process.
+            function primeDefaultPreview() {
+                if (!AppSession.filterGalleryOpen)
+                    return
+                AppSession.filterGalleryPreview("gaussian")
+                filterP0Slider.value = AppSession.filterPreviewP0
+                filterP1Slider.value = AppSession.filterPreviewP1
+            }
+
             Connections {
                 target: AppSession
                 function onFilterGalleryOpenChanged() {
-                    if (AppSession.filterGalleryOpen) {
-                        filterKindCombo.currentIndex = 0
-                        AppSession.filterGalleryPreview("gaussian")
-                        filterP0Slider.value = AppSession.filterPreviewP0
-                        filterP1Slider.value = AppSession.filterPreviewP1
-                    }
+                    if (!AppSession.filterGalleryOpen)
+                        return
+                    filterKindCombo.currentIndex = 0
+                    root.afterHostSlot(filterGalleryDialog.primeDefaultPreview)
                 }
             }
         }
@@ -5723,12 +5805,17 @@ ApplicationWindow {
             width: 480
             height: 560
             visible: AppSession.preferencesOpen
-            onRejected: AppSession.closePreferences()
-            onAccepted: AppSession.closePreferences()
+            onRejected: root.afterHostSlot(preferencesDialog.closeIfOpen)
+            onAccepted: root.afterHostSlot(preferencesDialog.closeIfOpen)
             onClosed: {
                 preferencesDialog.capturingActionId = ""
                 preferencesDialog.shortcutConflictHint = ""
-                AppSession.closePreferences()
+                root.afterHostSlot(preferencesDialog.closeIfOpen)
+            }
+
+            function closeIfOpen() {
+                if (AppSession.preferencesOpen)
+                    AppSession.closePreferences()
             }
 
             property string capturingActionId: ""
@@ -6288,10 +6375,10 @@ ApplicationWindow {
                 root.runAction(action.id)
             }
 
-            onClosed: {
-                AppSession.setShortcutInputYield(false)
-                root.refreshShortcutYield()
-            }
+            // refreshShortcutYield already computes `false` once the palette
+            // is gone, and unlike a direct call it cannot land inside a host
+            // slot that closed the palette by changing host state.
+            onClosed: root.refreshShortcutYield()
 
             background: Rectangle {
                 color: Theme.surface
