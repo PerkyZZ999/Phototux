@@ -507,57 +507,49 @@ ApplicationWindow {
         AppSession.invokeAction(actionId)
     }
 
-    function handleHostStatusMarker(text) {
-        if (!text || text.indexOf("host:") !== 0)
-            return false
-        // DR-024 v2: New/Open park the current tab — do not discard-prompt.
-        if (text === "host:document.new") {
+    /// Act on a shell capability request from the host.
+    ///
+    /// The vocabulary is `phototux_engine::HostRequest`; these names are its
+    /// wire names, and every one has a round-trip test on the Rust side. This
+    /// used to prefix-match a `"host:"` marker smuggled through the status-bar
+    /// text, so the contract was ten string literals duplicated across two
+    /// languages with nothing checking they agreed.
+    function handleHostRequest(kind) {
+        if (!kind)
+            return
+        switch (kind) {
+        case "document.new":
             root.openNewDocumentDialog()
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:document.open") {
+            break
+        case "document.open":
             welcomeDialog.close()
             openFileDialog.open()
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:document.save_as") {
+            break
+        case "document.save_as":
             saveFileDialog.open()
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:document.export") {
+            break
+        case "document.export":
             exportFileDialog.open()
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:document.close") {
+            break
+        case "document.close":
             root.requestDestructiveAction("close")
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:app.quit") {
+            break
+        case "app.quit":
             root.requestDestructiveAction("quit")
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:help.about") {
+            break
+        case "help.about":
             aboutDialogLoader.open()
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:palette.open") {
-            commandPaletteLoader.ensure().showPalette()
-            AppSession.clearHostStatusMarker()
-            return true
-        }
-        if (text === "host:document.embed_icc") {
+            break
+        case "document.embed_icc":
             embedIccFileDialog.open()
-            AppSession.clearHostStatusMarker()
-            return true
+            break
+        case "palette.open":
+            commandPaletteLoader.ensure().showPalette()
+            break
+        default:
+            return
         }
-        return false
+        AppSession.clearHostRequest()
     }
 
     /// Run `fn` once the host slot that is currently executing has returned.
@@ -583,19 +575,19 @@ ApplicationWindow {
         Qt.callLater(fn)
     }
 
-    /// Re-read the marker at drain time rather than capturing it, so a marker
-    /// superseded before the event loop turns is not acted on twice.
-    function drainHostStatusMarker() {
-        root.handleHostStatusMarker(AppSession.statusText)
+    /// Re-read at drain time rather than capturing, so a request superseded
+    /// before the event loop turns is not acted on twice.
+    function drainHostRequest() {
+        root.handleHostRequest(AppSession.pendingHostRequest)
     }
 
     Connections {
         target: AppSession
-        function onStatusTextChanged() {
-            // Deferred: the marker is published from inside a host slot, and
-            // every branch of the handler calls back into AppSession to clear
-            // it. See `root.afterHostSlot` for why that must not be synchronous.
-            root.afterHostSlot(root.drainHostStatusMarker)
+        function onPendingHostRequestChanged() {
+            // Deferred: the request is published from inside a host slot, and
+            // every branch of the handler calls back into AppSession — both to
+            // act and to acknowledge. See `root.afterHostSlot`.
+            root.afterHostSlot(root.drainHostRequest)
         }
     }
 

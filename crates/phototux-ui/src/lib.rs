@@ -269,6 +269,8 @@ pub struct AppSession {
     /// Right dock as `[{tabs: [...], active: "..."}]`, derived so QML never
     /// re-implements the grouping rule.
     dock_groups_json: String,
+    /// Pending shell capability request; see `phototux_engine::HostRequest`.
+    pending_host_request: String,
     panel_visibility_json: String,
     tool_descriptors_json: String,
     actions_json: String,
@@ -494,6 +496,7 @@ impl AppSession {
             dock_topology_json: phototux_engine::DockTopology::essentials()
                 .to_json()
                 .unwrap_or_else(|_| "{}".into()),
+            pending_host_request: String::new(),
             panel_visibility_json: WorkspaceState::essentials().visibility_json(),
             tool_descriptors_json: phototux_engine::tools_json(),
             actions_json: phototux_engine::actions_json(),
@@ -1756,40 +1759,32 @@ impl AppSession {
         match op {
             "document.new" => {
                 // QML must open new-doc dialog via destructive flow; signal via status.
-                self.status_text = "host:document.new".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::NewDocument);
             }
             "document.open" => {
-                self.status_text = "host:document.open".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::OpenDocument);
             }
             "document.save" => {
                 if !self.document_path.is_empty() {
                     self.save_document(String::new());
                 } else {
-                    self.status_text = "host:document.save_as".into();
-                    self.status_text_changed();
+                    self.request_host(phototux_engine::HostRequest::SaveDocumentAs);
                 }
             }
             "document.save_as" => {
-                self.status_text = "host:document.save_as".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::SaveDocumentAs);
             }
             "document.export" => {
-                self.status_text = "host:document.export".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::ExportDocument);
             }
             "document.close" => {
-                self.status_text = "host:document.close".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::CloseDocument);
             }
             "app.quit" => {
-                self.status_text = "host:app.quit".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::Quit);
             }
             "help.about" => {
-                self.status_text = "host:help.about".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::ShowAbout);
             }
             "prefs.open" => self.open_preferences(),
             // Shortcut and palette route through the same activation the tool
@@ -1803,8 +1798,7 @@ impl AppSession {
             "inspector.expand_all" => self.set_all_disclosure_groups(true),
             "inspector.collapse_all" => self.set_all_disclosure_groups(false),
             "document.embed_icc" => {
-                self.status_text = "host:document.embed_icc".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::EmbedIccProfile);
             }
             "app.recover_gpu" => self.recover_gpu(),
             "app.simulate_device_lost" => {
@@ -1815,8 +1809,7 @@ impl AppSession {
                 }
             }
             "palette.open" => {
-                self.status_text = "host:palette.open".into();
-                self.status_text_changed();
+                self.request_host(phototux_engine::HostRequest::OpenCommandPalette);
             }
             "clipboard.copy" => self.copy_selection(),
             "clipboard.copy_selection_mask" => self.copy_selection_mask(),
@@ -2842,6 +2835,11 @@ impl AppSession {
         Notify = dock_groups_json_changed
     );
     qproperty!(
+        "pendingHostRequest",
+        Member = pending_host_request,
+        Notify = pending_host_request_changed
+    );
+    qproperty!(
         "panelVisibilityJson",
         Member = panel_visibility_json,
         Notify = panel_visibility_json_changed
@@ -3270,6 +3268,8 @@ impl AppSession {
     fn dock_topology_json_changed(&mut self);
     #[qsignal]
     fn dock_groups_json_changed(&mut self);
+    #[qsignal]
+    fn pending_host_request_changed(&mut self);
     #[qsignal]
     fn panel_visibility_json_changed(&mut self);
     #[qsignal]
@@ -4900,13 +4900,24 @@ impl AppSession {
         }
     }
 
+    /// Publish a shell capability request for QML to act on.
+    ///
+    /// This used to be written into `status_text` behind a `"host:"` prefix,
+    /// which made the status bar an RPC channel and let any QML caller forge a
+    /// request through `setStatus`. A dedicated property keeps the two apart.
+    fn request_host(&mut self, request: phototux_engine::HostRequest) {
+        self.pending_host_request = request.as_str().to_owned();
+        self.pending_host_request_changed();
+    }
+
+    /// Acknowledge the pending request once the host has acted on it.
     #[qslot]
-    fn clear_host_status_marker(&mut self) {
-        if !self.status_text.starts_with("host:") {
+    fn clear_host_request(&mut self) {
+        if self.pending_host_request.is_empty() {
             return;
         }
-        self.status_text = self.engine.status_summary();
-        self.status_text_changed();
+        self.pending_host_request.clear();
+        self.pending_host_request_changed();
     }
 
     #[qslot]

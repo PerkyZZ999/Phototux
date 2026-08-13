@@ -22,6 +22,7 @@ mod filter_plan;
 mod filter_preview;
 mod guides;
 mod history;
+mod host_request;
 mod layer;
 mod layer_style;
 mod paths;
@@ -79,6 +80,7 @@ pub use filter_plan::{FilterPlan, FilterPlanNode};
 pub use filter_preview::{FilterPreviewSession, GALLERY_EFFECT_KINDS, kind_is_supported};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryService};
+pub use host_request::HostRequest;
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
     LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget,
