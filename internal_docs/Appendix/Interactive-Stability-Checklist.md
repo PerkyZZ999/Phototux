@@ -104,16 +104,20 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 ### 2.3 Shortcuts
 
 - [~] Ctrl+N / O / S / Z / Shift+Z / W / Q behave as mapped — N/W/Z exercised
-- [x] Ctrl+Shift+P opens command palette
+- [!] Ctrl+Shift+P opens command palette — regressed since the pass that recorded it; see T-034
 - [x] Shortcuts yield while text field / on-canvas TextEdit focused — T-018; New Document open blocks Ctrl+Shift+P; TextField/SpinBox/TextEdit detection + hex/FG handlers
 - [x] Custom keymap in Preferences persists across restart — T-019; Save→F9 in prefs.json survives relaunch with same XDG config
 - [x] Conflict detection UI surfaces duplicate chords — steal clears prior binding (Open→None when Export took Ctrl+O); hint path present
 
 ### 2.4 Command palette
 
-- [x] Fuzzy filter finds actions by label — typed `about`
-- [x] Enter invokes selected action
-- [x] Escape closes without mutation — Esc returns to Welcome; no doc created
+**Blocked by T-034:** the palette does not open at all, so the rows below record
+the last pass that could exercise them rather than current behaviour.
+
+- [!] Palette opens (Ctrl+Shift+P or Edit → Command Palette…) — T-034
+- [~] Fuzzy filter finds actions by label — typed `about` (last verified before T-034)
+- [~] Enter invokes selected action (last verified before T-034)
+- [~] Escape closes without mutation — Esc returns to Welcome; no doc created (last verified before T-034)
 - [x] Rejected commands show status / error (not silent) — Ctrl+S → `Action unavailable: Save (no document open)` (T-015)
 
 ### 2.5 Context menus
