@@ -81,7 +81,7 @@ pub use error::DocumentError;
 pub use filter_plan::{FilterPlan, FilterPlanNode};
 pub use filter_preview::{FilterPreviewSession, GALLERY_EFFECT_KINDS, kind_is_supported};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
-pub use history::{HistoryEntry, HistoryKind, HistoryService};
+pub use history::{HistoryEntry, HistoryKind, HistoryRow, HistoryService};
 pub use host_request::HostRequest;
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
@@ -755,10 +755,6 @@ impl SessionState {
 
     pub fn announce(&mut self, message: impl Into<String>) {
         self.last_announce = message.into();
-    }
-
-    pub fn history_labels_joined(&self) -> String {
-        self.history.labels_newest_first().join("|")
     }
 
     pub fn status_summary(&self) -> String {

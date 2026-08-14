@@ -20,12 +20,6 @@ ApplicationWindow {
            : qsTr("PhotoTux")
     color: Theme.neutral
     property string pendingDestructiveAction: ""
-    readonly property var historyLabelParts: AppSession.historyLabels.length > 0
-                                            ? AppSession.historyLabels.split("|") : []
-    readonly property var historyKindParts: AppSession.historyKinds.length > 0
-                                           ? AppSession.historyKinds.split("|") : []
-    readonly property var historyIdParts: AppSession.historyEntryIds.length > 0
-                                         ? AppSession.historyEntryIds.split("|") : []
     // The session answers for the active layer directly. These used to split
     // the whole stack's flags and index by activeLayerIndex, which could read
     // past the end of a string that had not caught up yet and silently report
@@ -3769,26 +3763,25 @@ ApplicationWindow {
                         clip: true
                         reuseItems: true
                         cacheBuffer: 88
-                        model: root.historyLabelParts
+                        model: AppSession.historyModel
                         delegate: Label {
+                            // Roles from the model item's field names, which
+                            // the derive leaves in snake_case.
+                            required property string label
+                            required property string kind
+                            required property int entry_id
+
                             width: historyList.width
                             height: 22
                             leftPadding: Theme.spaceSm
-                            text: {
-                                var kind = index < root.historyKindParts.length
-                                           ? root.historyKindParts[index] : ""
-                                return kind.length > 0 ? (modelData + " · " + kind) : modelData
-                            }
+                            text: kind.length > 0 ? (label + " · " + kind) : label
                             color: Theme.colorOnSurfaceVariant
                             font.pixelSize: Theme.fontBodySm
                             elide: Text.ElideRight
                             Accessible.name: text
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: {
-                                    if (index < root.historyIdParts.length)
-                                        AppSession.jumpHistoryEntry(Number(root.historyIdParts[index]))
-                                }
+                                onClicked: AppSession.jumpHistoryEntry(entry_id)
                             }
                         }
                     }

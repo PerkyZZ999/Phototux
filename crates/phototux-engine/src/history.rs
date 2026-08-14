@@ -16,6 +16,22 @@ pub enum HistoryKind {
     Transform,
 }
 
+impl HistoryKind {
+    /// Stable identifier shown beside the entry's label in the panel.
+    ///
+    /// These names reach the user, so they live on the enum rather than in the
+    /// projection that happened to need them first.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Graph => "graph",
+            Self::Stroke => "stroke",
+            Self::Selection => "selection",
+            Self::Transform => "transform",
+        }
+    }
+}
+
 /// One labeled transaction on the unified timeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEntry {
@@ -211,17 +227,39 @@ impl HistoryService {
     }
 
     pub fn kinds_newest_first(&self) -> Vec<&'static str> {
+        self.undo.iter().rev().map(|e| e.kind.as_str()).collect()
+    }
+
+    /// The history panel's rows, newest first.
+    ///
+    /// One walk of the timeline instead of three. The label, kind and id of an
+    /// entry were built by three separate passes returning three lists that the
+    /// panel then re-associated by index — which is only correct as long as all
+    /// three are rebuilt together, a property nothing checked.
+    #[must_use]
+    pub fn rows_newest_first(&self) -> Vec<HistoryRow> {
         self.undo
             .iter()
             .rev()
-            .map(|e| match e.kind {
-                HistoryKind::Graph => "graph",
-                HistoryKind::Stroke => "stroke",
-                HistoryKind::Selection => "selection",
-                HistoryKind::Transform => "transform",
+            .map(|e| HistoryRow {
+                // i64 rather than u64: this is the id the panel hands back to
+                // `jumpHistoryEntry`, which takes a signed value because QML
+                // has no unsigned integer type.
+                entry_id: i64::try_from(e.id).unwrap_or(i64::MAX),
+                label: e.label.clone(),
+                kind: e.kind.as_str().to_owned(),
             })
             .collect()
     }
+}
+
+/// One history entry as the panel draws it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HistoryRow {
+    pub entry_id: i64,
+    pub label: String,
+    /// `graph`, `stroke`, `selection` or `transform`.
+    pub kind: String,
 }
 
 impl Default for HistoryService {

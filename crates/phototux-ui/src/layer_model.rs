@@ -152,7 +152,7 @@ pub enum RowUpdate {
 /// these three rows" and "rebuild" is ordinary logic, and getting it wrong is
 /// either a stale panel or a panel that flickers on every keystroke.
 #[must_use]
-pub fn plan_update(previous: &[LayerItem], next: &[LayerItem]) -> RowUpdate {
+pub fn plan_update<T: PartialEq>(previous: &[T], next: &[T]) -> RowUpdate {
     if previous.len() != next.len() {
         return RowUpdate::Rebuild;
     }

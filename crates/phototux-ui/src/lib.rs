@@ -4,6 +4,7 @@ mod clipboard;
 mod display_icc;
 mod file_worker;
 mod fonts;
+mod history_model;
 mod layer_model;
 mod prefs;
 
@@ -170,9 +171,9 @@ pub struct AppSession {
     edit_target: String,
     edit_target_label: String,
     active_layer_kind: String,
-    history_labels: String,
-    history_entry_ids: String,
-    history_kinds: String,
+    /// The history panel's rows. See `history_model` for why this replaced
+    /// three index-aligned strings.
+    history_model: std::rc::Rc<std::cell::RefCell<crate::history_model::HistoryListModel>>,
     brush_preset_names: String,
     soft_proof_profile: String,
     soft_proof_active: bool,
@@ -412,9 +413,7 @@ impl AppSession {
             edit_target: "layer".to_owned(),
             edit_target_label: "Layer pixels".to_owned(),
             active_layer_kind: String::new(),
-            history_labels: String::new(),
-            history_entry_ids: String::new(),
-            history_kinds: String::new(),
+            history_model: <crate::history_model::HistoryListModel as qtbridge::QObjectHolder>::default_with_attached_qobject(),
             brush_preset_names: String::new(),
             soft_proof_profile: String::new(),
             soft_proof_active: false,
@@ -1216,35 +1215,21 @@ impl AppSession {
         self.pref_effective_json = map.to_string();
     }
 
-    /// Publish the history list, announcing only the parts that moved.
+    /// Bring the history model up to date.
     ///
-    /// Three index-aligned strings describe one list, and both callers rebuilt
-    /// all three. Painting a stroke changes the labels but rarely the kinds, so
-    /// announcing all three invalidated every History binding on every edit.
+    /// The model decides for itself whether anything moved and tells Qt only
+    /// what did, so callers no longer need to guess. Three index-aligned
+    /// strings used to describe this one list, and both callers rebuilt all
+    /// three regardless of which had changed.
     fn publish_history_projection(&mut self) {
-        publish!(
-            self,
-            history_labels,
-            self.engine.history_labels_joined(),
-            history_labels_changed
-        );
-        publish!(
-            self,
-            history_entry_ids,
+        crate::history_model::apply_rows(
+            &self.history_model,
             self.engine
                 .history
-                .entry_ids_newest_first()
+                .rows_newest_first()
                 .into_iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join("|"),
-            history_entry_ids_changed
-        );
-        publish!(
-            self,
-            history_kinds,
-            self.engine.history.kinds_newest_first().join("|"),
-            history_kinds_changed
+                .map(Into::into)
+                .collect(),
         );
     }
 
@@ -2080,7 +2065,6 @@ impl AppSession {
         if effects.sync_selection {
             self.emit_selection_fields();
             self.can_undo_changed();
-            self.history_labels_changed();
             self.status_text_changed();
         }
         if effects.generation > 0 {
@@ -2642,19 +2626,9 @@ impl AppSession {
         Notify = active_layer_kind_changed
     );
     qproperty!(
-        "historyLabels",
-        Member = history_labels,
-        Notify = history_labels_changed
-    );
-    qproperty!(
-        "historyEntryIds",
-        Member = history_entry_ids,
-        Notify = history_entry_ids_changed
-    );
-    qproperty!(
-        "historyKinds",
-        Member = history_kinds,
-        Notify = history_kinds_changed
+        "historyModel",
+        Member = history_model,
+        Notify = history_model_changed
     );
     qproperty!(
         "brushPresetNames",
@@ -3293,12 +3267,10 @@ impl AppSession {
     fn edit_target_label_changed(&mut self);
     #[qsignal]
     fn active_layer_kind_changed(&mut self);
+    /// Fires only to satisfy the property declaration; the model's identity
+    /// never changes. Row changes reach QML through the model's own signals.
     #[qsignal]
-    fn history_labels_changed(&mut self);
-    #[qsignal]
-    fn history_entry_ids_changed(&mut self);
-    #[qsignal]
-    fn history_kinds_changed(&mut self);
+    fn history_model_changed(&mut self);
     #[qsignal]
     fn brush_preset_names_changed(&mut self);
     #[qsignal]
@@ -3954,9 +3926,6 @@ impl AppSession {
         self.publish_history_projection();
         self.can_undo_changed();
         self.can_redo_changed();
-        self.history_labels_changed();
-        self.history_entry_ids_changed();
-        self.history_kinds_changed();
     }
 
     /// Replace the fallback font list with fontconfig's, once.
@@ -4540,7 +4509,6 @@ impl AppSession {
         let prev_can_undo = self.can_undo;
         let prev_can_redo = self.can_redo;
         let prev_dirty = self.dirty;
-        let prev_history = self.history_entry_ids.clone();
         self.sync_from_engine();
         // Guarded: ~100 menu items bind to enablement and re-evaluate together
         // on can_undo/can_redo, so emitting unconditionally rebuilt the whole
@@ -4553,15 +4521,6 @@ impl AppSession {
         }
         if self.dirty != prev_dirty {
             self.dirty_changed();
-        }
-        // A stroke pushes a history entry, but `raster.paint-stroke` reports no
-        // layer sync, so `emit_layer_fields` — the only other emitter of these —
-        // never runs for it. Without this the History panel silently omitted
-        // every brush stroke until some unrelated edit refreshed it.
-        if self.history_entry_ids != prev_history {
-            self.history_labels_changed();
-            self.history_entry_ids_changed();
-            self.history_kinds_changed();
         }
         if self.status_text != prev_status {
             self.status_text_changed();
