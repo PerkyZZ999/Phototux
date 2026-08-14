@@ -1,0 +1,534 @@
+//! The command vocabulary: identifiers, arguments, effects and errors.
+//!
+//! Split out of `commands.rs` because it is the half with no private surface —
+//! every item here is `pub`, so it moves without widening anything. The router
+//! and its eighty-seven command bodies stay together in the parent: those
+//! methods are private by design, and separating them by family would mean
+//! making all of them `pub(crate)` to keep the dispatch able to call them,
+//! trading real encapsulation for shorter files.
+
+use thiserror::Error;
+
+use crate::error::DocumentError;
+use crate::history::HistoryKind;
+use crate::layer::{LayerId, ShapeContent, TextContent};
+use crate::selection::{SelectionCombine, SelectionRect, SelectionShape};
+
+pub mod command_id {
+    pub const HISTORY_UNDO: &str = "history.undo";
+    pub const HISTORY_REDO: &str = "history.redo";
+
+    pub const LAYER_CREATE: &str = "layer.create";
+    pub const LAYER_CREATE_FILL: &str = "layer.create-fill";
+    pub const LAYER_SET_FILL_COLOR: &str = "layer.set-fill-color";
+    pub const LAYER_DELETE: &str = "layer.delete";
+    pub const LAYER_SET_ACTIVE: &str = "layer.set-active";
+    pub const LAYER_SET_VISIBILITY: &str = "layer.set-visibility";
+    pub const LAYER_SET_OPACITY: &str = "layer.set-opacity";
+    pub const LAYER_SET_BLEND: &str = "layer.set-blend";
+    pub const LAYER_REORDER: &str = "layer.reorder";
+    pub const LAYER_GROUP: &str = "layer.group";
+    pub const LAYER_UNGROUP: &str = "layer.ungroup";
+    pub const LAYER_SET_CLIP: &str = "layer.set-clip";
+    pub const LAYER_SET_LOCKS: &str = "layer.set-locks";
+
+    pub const VIEW_ZOOM_TO: &str = "view.zoom-to";
+    pub const VIEW_ZOOM_TO_FIT: &str = "view.zoom-to-fit";
+    pub const VIEW_PAN_TO: &str = "view.pan-to";
+    pub const VIEW_PAN_BY: &str = "view.pan-by";
+    pub const VIEW_ZOOM_AT: &str = "view.zoom-at";
+    pub const VIEW_SET_TOOL: &str = "view.set-tool";
+
+    pub const DOCUMENT_NEW_PRESET: &str = "document.new-preset";
+    pub const DOCUMENT_NEW_SIZE: &str = "document.new-size";
+    pub const DOCUMENT_ASSIGN_PROFILE: &str = "document.assign-profile";
+    pub const DOCUMENT_CONVERT_PROFILE: &str = "document.convert-profile";
+    pub const DOCUMENT_SET_SOFT_PROOF: &str = "document.set-soft-proof";
+    /// Embed or clear validated ICC profile bytes on the document.
+    pub const DOCUMENT_SET_ICC: &str = "document.set-icc";
+    pub const DOCUMENT_CROP: &str = "document.crop";
+    pub const DOCUMENT_ROTATE_90: &str = "document.rotate-90";
+    pub const HISTORY_JUMP: &str = "history.jump";
+
+    pub const SELECTION_REPLACE: &str = "selection.replace";
+    pub const SELECTION_DESELECT: &str = "selection.deselect";
+    pub const SELECTION_INVERT: &str = "selection.invert";
+    pub const SELECTION_SELECT_ALL: &str = "selection.select-all";
+    pub const SELECTION_MODIFY: &str = "selection.modify";
+    /// Copy pixel selection R8 into the active layer mask (host GPU).
+    pub const SELECTION_TO_MASK: &str = "selection.to-mask";
+    /// Load active layer mask R8 into the pixel selection channel (host GPU).
+    pub const MASK_TO_SELECTION: &str = "mask.to-selection";
+
+    pub const MASK_CREATE: &str = "mask.create";
+    pub const MASK_DELETE: &str = "mask.delete";
+    pub const MASK_SET_ENABLED: &str = "mask.set-enabled";
+    pub const MASK_SET_ATTRIBUTES: &str = "mask.set-attributes";
+    pub const MASK_CREATE_VECTOR: &str = "mask.create-vector";
+    pub const MASK_APPLY: &str = "mask.apply";
+
+    pub const TEXT_CREATE: &str = "text.create";
+    pub const TEXT_SET_CONTENT: &str = "text.set-content";
+    pub const TEXT_BAKE: &str = "text.bake";
+
+    pub const SHAPE_CREATE: &str = "shape.create";
+    pub const SHAPE_RASTERIZE: &str = "shape.rasterize";
+    pub const SHAPE_BOOLEAN: &str = "shape.boolean";
+
+    pub const FILTER_ADD_ADJUSTMENT: &str = "filter.add-adjustment";
+    pub const FILTER_SET_PARAMETERS: &str = "filter.set-parameters";
+    pub const FILTER_ADD_EFFECT: &str = "filter.add-effect";
+    pub const FILTER_SET_GAUSSIAN_RADIUS: &str = "filter.set-gaussian-radius";
+    /// Start / refresh ephemeral filter gallery preview (no document dirty).
+    pub const FILTER_PREVIEW: &str = "filter.preview";
+    /// Update preview parameters while gallery is open.
+    pub const FILTER_SET_PREVIEW_PARAMS: &str = "filter.set-preview-params";
+    /// Commit preview into layer effects + filter plan (undoable).
+    pub const FILTER_COMMIT: &str = "filter.commit";
+    /// Abort preview session without mutating authority.
+    pub const FILTER_CANCEL_PREVIEW: &str = "filter.cancel-preview";
+    pub const EFFECT_REORDER: &str = "effect.reorder";
+    pub const EFFECT_SET_ENABLED: &str = "effect.set-enabled";
+
+    pub const PATH_SET_CLOSED: &str = "path.set-closed";
+    pub const PATH_MOVE_ANCHOR: &str = "path.move-anchor";
+    pub const PATH_ADD_ANCHOR: &str = "path.add-anchor";
+    pub const PATH_DELETE_ANCHOR: &str = "path.delete-anchor";
+
+    pub const STYLE_ADD_DROP_SHADOW: &str = "style.add-drop-shadow";
+    pub const STYLE_ADD_STROKE: &str = "style.add-stroke";
+    pub const STYLE_ADD_OUTER_GLOW: &str = "style.add-outer-glow";
+    pub const STYLE_ADD_COLOR_OVERLAY: &str = "style.add-color-overlay";
+
+    pub const CLIPBOARD_PASTE_LAYER: &str = "clipboard.paste-layer";
+    pub const PATH_STROKE_TO_LAYER: &str = "path.stroke-to-layer";
+
+    pub const RASTER_TRANSFORM_COMMIT: &str = "raster.transform-commit";
+    pub const RASTER_FLIP: &str = "raster.flip";
+    pub const RASTER_FILL: &str = "raster.fill";
+    pub const RASTER_GRADIENT: &str = "raster.gradient";
+    pub const RASTER_PAINT_STROKE: &str = "raster.paint-stroke";
+
+    /// Application chrome — host opens preferences dialog.
+    pub const APP_SHOW_PREFERENCES: &str = "app.show-preferences";
+    /// Application chrome — host opens filter gallery dialog.
+    pub const APP_SHOW_FILTER_GALLERY: &str = "app.show-filter-gallery";
+    /// Workspace chrome — reset panel visibility to Essentials.
+    pub const WORKSPACE_RESET: &str = "workspace.reset";
+    /// Workspace chrome — toggle a panel by id (`panel.layers`, …).
+    pub const WORKSPACE_TOGGLE_PANEL: &str = "workspace.toggle-panel";
+    /// Workspace chrome — apply a built-in layout preset by id.
+    pub const WORKSPACE_APPLY_PRESET: &str = "workspace.apply-preset";
+
+    /// Built-in commands registered for discovery / headless tests.
+    pub const ALL: &[&str] = &[
+        HISTORY_UNDO,
+        HISTORY_REDO,
+        HISTORY_JUMP,
+        LAYER_CREATE,
+        LAYER_CREATE_FILL,
+        LAYER_SET_FILL_COLOR,
+        LAYER_DELETE,
+        LAYER_SET_ACTIVE,
+        LAYER_SET_VISIBILITY,
+        LAYER_SET_OPACITY,
+        LAYER_SET_BLEND,
+        LAYER_REORDER,
+        LAYER_GROUP,
+        LAYER_UNGROUP,
+        LAYER_SET_CLIP,
+        LAYER_SET_LOCKS,
+        VIEW_ZOOM_TO,
+        VIEW_ZOOM_TO_FIT,
+        VIEW_PAN_TO,
+        VIEW_PAN_BY,
+        VIEW_ZOOM_AT,
+        VIEW_SET_TOOL,
+        DOCUMENT_NEW_PRESET,
+        DOCUMENT_NEW_SIZE,
+        DOCUMENT_ASSIGN_PROFILE,
+        DOCUMENT_CONVERT_PROFILE,
+        DOCUMENT_SET_SOFT_PROOF,
+        DOCUMENT_SET_ICC,
+        DOCUMENT_CROP,
+        DOCUMENT_ROTATE_90,
+        SELECTION_REPLACE,
+        SELECTION_DESELECT,
+        SELECTION_INVERT,
+        SELECTION_SELECT_ALL,
+        SELECTION_MODIFY,
+        SELECTION_TO_MASK,
+        MASK_TO_SELECTION,
+        MASK_CREATE,
+        MASK_DELETE,
+        MASK_SET_ENABLED,
+        MASK_SET_ATTRIBUTES,
+        MASK_CREATE_VECTOR,
+        MASK_APPLY,
+        TEXT_CREATE,
+        TEXT_SET_CONTENT,
+        TEXT_BAKE,
+        SHAPE_CREATE,
+        SHAPE_RASTERIZE,
+        SHAPE_BOOLEAN,
+        FILTER_ADD_ADJUSTMENT,
+        FILTER_SET_PARAMETERS,
+        FILTER_ADD_EFFECT,
+        FILTER_SET_GAUSSIAN_RADIUS,
+        FILTER_PREVIEW,
+        FILTER_SET_PREVIEW_PARAMS,
+        FILTER_COMMIT,
+        FILTER_CANCEL_PREVIEW,
+        EFFECT_REORDER,
+        EFFECT_SET_ENABLED,
+        PATH_SET_CLOSED,
+        PATH_MOVE_ANCHOR,
+        PATH_ADD_ANCHOR,
+        PATH_DELETE_ANCHOR,
+        STYLE_ADD_DROP_SHADOW,
+        STYLE_ADD_STROKE,
+        STYLE_ADD_OUTER_GLOW,
+        STYLE_ADD_COLOR_OVERLAY,
+        CLIPBOARD_PASTE_LAYER,
+        PATH_STROKE_TO_LAYER,
+        RASTER_TRANSFORM_COMMIT,
+        RASTER_FLIP,
+        RASTER_FILL,
+        RASTER_GRADIENT,
+        RASTER_PAINT_STROKE,
+        APP_SHOW_PREFERENCES,
+        APP_SHOW_FILTER_GALLERY,
+        WORKSPACE_RESET,
+        WORKSPACE_TOGGLE_PANEL,
+        WORKSPACE_APPLY_PRESET,
+    ];
+}
+
+/// Host follow-up after a successful command (canvas / pixel / chrome work).
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostFollowUp {
+    None,
+    /// Rewrite all layer pixels from `from` profile to `to`, then mark converted.
+    ConvertPixels {
+        from: String,
+        to: String,
+    },
+    /// Open the preferences dialog (application chrome).
+    ShowPreferences,
+    /// Reset workspace panel visibility to Essentials.
+    ResetWorkspace,
+    /// Toggle visibility of a dock panel by descriptor id.
+    TogglePanel {
+        panel_id: String,
+    },
+    /// Apply a built-in workspace layout preset.
+    ApplyWorkspacePreset {
+        preset_id: String,
+    },
+    /// Copy pixel selection into the active layer mask (GPU host).
+    SelectionToMask,
+    /// Copy active layer mask into the pixel selection channel (GPU host).
+    MaskToSelection,
+    /// Bake active layer mask into layer pixels, then clear mask (GPU host).
+    ApplyMask,
+    /// Undo `steps` times to jump the history timeline (host applies stroke/selection stacks).
+    HistoryJump {
+        steps: u32,
+    },
+    /// Rasterize two shape layers, boolean-combine, write into `result` raster layer.
+    ShapeBoolean {
+        op: crate::BooleanOp,
+        a: crate::LayerId,
+        b: crate::LayerId,
+        result: crate::LayerId,
+    },
+    /// Re-rasterize a shape layer after path edit (host GPU upload).
+    RasterizeShape {
+        id: crate::LayerId,
+    },
+    /// Open the filter gallery dialog (application chrome).
+    ShowFilterGallery,
+}
+
+/// Parameters for [`SessionState::invoke`].
+#[derive(Debug, Clone)]
+pub enum CommandArgs {
+    None,
+    LayerIndex(i32),
+    SetVisibility {
+        index: i32,
+        visible: bool,
+    },
+    SetOpacity {
+        opacity: f32,
+    },
+    SetBlend {
+        blend: String,
+    },
+    Reorder {
+        to_index: i32,
+    },
+    Zoom {
+        zoom: f32,
+    },
+    Pan {
+        world_x: f32,
+        world_y: f32,
+    },
+    PanBy {
+        dx: f32,
+        dy: f32,
+    },
+    ZoomAt {
+        factor: f32,
+        anchor_x: f32,
+        anchor_y: f32,
+    },
+    Tool {
+        tool: String,
+    },
+    NewPreset {
+        label: String,
+    },
+    NewSize {
+        width: u32,
+        height: u32,
+    },
+    AssignProfile {
+        profile: String,
+    },
+    ConvertProfile {
+        profile: String,
+    },
+    SelectionReplace {
+        shape: SelectionShape,
+        combine: SelectionCombine,
+        rect: SelectionRect,
+        polygon: Vec<(f32, f32)>,
+        label: String,
+    },
+    SelectionModify {
+        op: String,
+        radius: u32,
+    },
+    MaskSetEnabled {
+        enabled: bool,
+    },
+    LayerSetClip {
+        clips: bool,
+    },
+    TextCreate {
+        text: String,
+    },
+    TextSetContent {
+        content: TextContent,
+    },
+    ShapeCreate {
+        content: Box<ShapeContent>,
+    },
+    ShapeBoolean {
+        op: String,
+    },
+    FillCreate {
+        color_rgba: [f32; 4],
+    },
+    FillColor {
+        color_rgba: [f32; 4],
+    },
+    FilterAdjustment {
+        kind: String,
+    },
+    FilterParameters {
+        p0: f32,
+        p1: f32,
+        p2: f32,
+    },
+    FilterEffect {
+        kind: String,
+    },
+    FilterGaussianRadius {
+        radius: f32,
+    },
+    FilterPreview {
+        kind: String,
+    },
+    FilterPreviewParams {
+        p0: f32,
+        p1: f32,
+        p2: f32,
+    },
+    EffectReorder {
+        effect_id: u64,
+        to_index: i32,
+    },
+    EffectSetEnabled {
+        effect_id: u64,
+        enabled: bool,
+    },
+    PathSetClosed {
+        closed: bool,
+    },
+    PathMoveAnchor {
+        index: usize,
+        x: f32,
+        y: f32,
+    },
+    PathAddAnchor {
+        x: f32,
+        y: f32,
+        index: Option<usize>,
+    },
+    PathDeleteAnchor {
+        index: usize,
+    },
+    PasteLayer {
+        name: String,
+    },
+    PathStroke {
+        layer_name: String,
+    },
+    RasterFlip {
+        horizontal: bool,
+    },
+    RasterPaintStroke {
+        label: String,
+    },
+    DocumentCrop {
+        width: u32,
+        height: u32,
+    },
+    TogglePanel {
+        panel_id: String,
+    },
+    ApplyWorkspacePreset {
+        preset_id: String,
+    },
+    SetLocks {
+        pixels: bool,
+        position: bool,
+        all: bool,
+        alpha: bool,
+    },
+    MaskAttributes {
+        enabled: bool,
+        linked: bool,
+        density: f32,
+        feather: f32,
+        inverted: bool,
+        contrast: f32,
+        shift: f32,
+    },
+    SoftProof {
+        profile: String,
+        intent: String,
+    },
+    /// `None` clears embedded ICC; `Some` validates and embeds.
+    SetIcc {
+        bytes: Option<Vec<u8>>,
+    },
+    HistoryJump {
+        entry_id: u64,
+    },
+}
+
+/// Host-side follow-up for undo/redo entries that own GPU or selection stacks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostHistoryAction {
+    Undo(HistoryKind),
+    Redo(HistoryKind),
+}
+
+/// Effects the UI host should apply after a successful command.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandEffects {
+    pub recomposite: bool,
+    pub dirty: bool,
+    pub sync_layers: bool,
+    pub sync_camera: bool,
+    pub sync_doc: bool,
+    pub sync_selection: bool,
+    pub host_history: Option<HostHistoryAction>,
+    pub host_follow_up: HostFollowUp,
+    pub created_layer: Option<LayerId>,
+    /// Document generation after the command (0 if no document).
+    pub generation: u64,
+}
+
+impl CommandEffects {
+    // `pub(super)` rather than `pub`: the router builds these, nothing outside
+    // the command module should. Widening exactly four constructors is the
+    // whole cost of moving the vocabulary out — the eighty-four command bodies
+    // stayed put precisely to avoid paying it eighty-four times.
+    pub(super) fn view_only() -> Self {
+        Self {
+            recomposite: false,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: true,
+            sync_doc: false,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation: 0,
+        }
+    }
+
+    pub(super) fn host_chrome(follow_up: HostFollowUp) -> Self {
+        Self {
+            recomposite: false,
+            dirty: false,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: false,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: follow_up,
+            created_layer: None,
+            generation: 0,
+        }
+    }
+
+    pub(super) fn document_edit(generation: u64) -> Self {
+        Self {
+            recomposite: true,
+            dirty: true,
+            sync_layers: true,
+            sync_camera: false,
+            sync_doc: true,
+            sync_selection: false,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation,
+        }
+    }
+
+    pub(super) fn selection_edit(generation: u64) -> Self {
+        Self {
+            recomposite: false,
+            dirty: true,
+            sync_layers: false,
+            sync_camera: false,
+            sync_doc: false,
+            sync_selection: true,
+            host_history: None,
+            host_follow_up: HostFollowUp::None,
+            created_layer: None,
+            generation,
+        }
+    }
+}
+
+/// Typed command failures.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum CommandError {
+    #[error("unknown command `{0}`")]
+    Unknown(String),
+    #[error(transparent)]
+    Document(#[from] DocumentError),
+    #[error("command rejected: {0}")]
+    Rejected(&'static str),
+    #[error("invalid argument: {0}")]
+    InvalidArgument(&'static str),
+}
