@@ -94,6 +94,47 @@ struct DocGpu {
 
 static DOC_GPU: Mutex<Option<DocGpu>> = Mutex::new(None);
 
+/// Run `body` against the open document's GPU state.
+///
+/// Every entry point in this file needs the same four things first: the shared
+/// queue lock, the document mutex, a document to actually be open, and the
+/// device not to have been lost. Twenty-eight of them wrote the first three out
+/// by hand and only four remembered the fourth, so most GPU work would run
+/// against a lost device and surface whatever wgpu said rather than the app's
+/// device-loss path. Taking the body as a closure is what makes that last step
+/// impossible to leave out.
+fn with_document<T>(body: impl FnOnce(&mut DocGpu) -> Result<T, String>) -> Result<T, String> {
+    with_document_inner(true, body)
+}
+
+/// As [`with_document`], but proceeds even when the device is marked lost.
+///
+/// Exactly one caller wants this. Device loss can be soft — the flag is set but
+/// readback still works — and recovery takes a best-effort pixel snapshot
+/// before tearing the context down. Refusing that read would make every
+/// recovery rebuild the document with blank layers, which is worse than trying
+/// and failing.
+fn with_document_despite_loss<T>(
+    body: impl FnOnce(&mut DocGpu) -> Result<T, String>,
+) -> Result<T, String> {
+    with_document_inner(false, body)
+}
+
+fn with_document_inner<T>(
+    check_device: bool,
+    body: impl FnOnce(&mut DocGpu) -> Result<T, String>,
+) -> Result<T, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
+    let doc = guard
+        .as_mut()
+        .ok_or_else(|| "no document GPU state".to_owned())?;
+    if check_device {
+        doc.ctx.ensure_usable().map_err(|error| error.to_string())?;
+    }
+    body(doc)
+}
+
 fn dim_to_i32(value: u32) -> Result<i32, String> {
     i32::try_from(value).map_err(|_| format!("dimension {value} exceeds i32 for Qt export"))
 }
@@ -198,17 +239,14 @@ pub fn open_raster_document(
 /// # Errors
 /// Returns an error when no document is open or GPU readback fails.
 pub fn read_composite_rgba() -> Result<(u32, u32, Vec<u8>), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_ref()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let pixels = doc
-        .engine
-        .read_result_rgba(&doc.ctx)
-        .map_err(|error| error.to_string())?;
-    Ok((width, height, pixels))
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let pixels = doc
+            .engine
+            .read_result_rgba(&doc.ctx)
+            .map_err(|error| error.to_string())?;
+        Ok((width, height, pixels))
+    })
 }
 
 /// Read one layer into tightly packed RGBA8 memory (native Save / clipboard).
@@ -216,17 +254,14 @@ pub fn read_composite_rgba() -> Result<(u32, u32, Vec<u8>), String> {
 /// # Errors
 /// Returns an error when no document is open or the layer texture is missing.
 pub fn read_layer_rgba(id: LayerId) -> Result<(u32, u32, Vec<u8>), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_ref()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let pixels = doc
-        .engine
-        .read_layer_rgba(&doc.ctx, id)
-        .map_err(|error| error.to_string())?;
-    Ok((width, height, pixels))
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, id)
+            .map_err(|error| error.to_string())?;
+        Ok((width, height, pixels))
+    })
 }
 
 /// Layer id with tightly packed RGBA8 pixels and dimensions.
@@ -237,19 +272,19 @@ pub type LayerRgbaSnapshot = (LayerId, u32, u32, Vec<u8>);
 /// # Errors
 /// Returns an error when no document is open or any layer readback fails.
 pub fn read_all_layer_rgba() -> Result<Vec<LayerRgbaSnapshot>, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_ref()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let mut out = Vec::new();
-    for layer in &doc.layers_meta {
-        if let Ok(pixels) = doc.engine.read_layer_rgba(&doc.ctx, layer.id) {
-            out.push((layer.id, width, height, pixels));
+    // Deliberately not `with_document`: device-loss recovery calls this to take
+    // a best-effort snapshot before rebuilding, and a soft loss often still
+    // permits readback. Refusing here would make recovery restore blank layers.
+    with_document_despite_loss(|doc| {
+        let (width, height) = doc.engine.size();
+        let mut out = Vec::new();
+        for layer in &doc.layers_meta {
+            if let Ok(pixels) = doc.engine.read_layer_rgba(&doc.ctx, layer.id) {
+                out.push((layer.id, width, height, pixels));
+            }
         }
-    }
-    Ok(out)
+        Ok(out)
+    })
 }
 
 /// R8 pixels keyed by layer for all graph-backed layer masks.
@@ -260,23 +295,20 @@ pub type LayerMaskR8 = HashMap<LayerId, Vec<u8>>;
 /// # Errors
 /// Returns an error when no document is open or a graph-backed mask is missing.
 pub fn read_all_mask_r8() -> Result<LayerMaskR8, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let mut masks = HashMap::new();
-    let masked: Vec<LayerId> = doc
-        .layers_meta
-        .iter()
-        .filter(|layer| layer.mask.is_some())
-        .map(|layer| layer.id)
-        .collect();
-    for id in masked {
-        let pixels = doc.engine.read_mask_r8(&doc.ctx, id)?;
-        masks.insert(id, pixels);
-    }
-    Ok(masks)
+    with_document(|doc| {
+        let mut masks = HashMap::new();
+        let masked: Vec<LayerId> = doc
+            .layers_meta
+            .iter()
+            .filter(|layer| layer.mask.is_some())
+            .map(|layer| layer.id)
+            .collect();
+        for id in masked {
+            let pixels = doc.engine.read_mask_r8(&doc.ctx, id)?;
+            masks.insert(id, pixels);
+        }
+        Ok(masks)
+    })
 }
 
 /// Read tightly packed R8 pixels for one graph-backed layer mask.
@@ -284,12 +316,7 @@ pub fn read_all_mask_r8() -> Result<LayerMaskR8, String> {
 /// # Errors
 /// Returns an error when no document is open or the mask is missing.
 pub fn read_mask_r8(id: LayerId) -> Result<Vec<u8>, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.engine.read_mask_r8(&doc.ctx, id)
+    with_document(|doc| doc.engine.read_mask_r8(&doc.ctx, id))
 }
 
 /// Ensure a white R8 mask texture exists for `id`.
@@ -297,13 +324,10 @@ pub fn read_mask_r8(id: LayerId) -> Result<Vec<u8>, String> {
 /// # Errors
 /// Returns an error when no document is open.
 pub fn ensure_mask(id: LayerId) -> Result<(), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.engine.ensure_mask(&doc.ctx, id);
-    Ok(())
+    with_document(|doc| {
+        doc.engine.ensure_mask(&doc.ctx, id);
+        Ok(())
+    })
 }
 
 /// Drop the GPU mask texture for `id`.
@@ -311,13 +335,10 @@ pub fn ensure_mask(id: LayerId) -> Result<(), String> {
 /// # Errors
 /// Returns an error when no document is open.
 pub fn remove_mask(id: LayerId) -> Result<(), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.engine.remove_mask(id);
-    Ok(())
+    with_document(|doc| {
+        doc.engine.remove_mask(id);
+        Ok(())
+    })
 }
 
 /// Upload RGBA8 pixels into an existing layer texture after a `.ptx` open.
@@ -325,18 +346,14 @@ pub fn remove_mask(id: LayerId) -> Result<(), String> {
 /// # Errors
 /// Returns an error when no document is open or the upload fails.
 pub fn write_layer_rgba(id: LayerId, pixels: &[u8]) -> Result<(), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.ctx.ensure_usable().map_err(|error| error.to_string())?;
-    doc.engine
-        .write_layer_rgba(&doc.ctx, id, pixels)
-        .map_err(|error| error.to_string())?;
-    with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(())
+    with_document(|doc| {
+        doc.engine
+            .write_layer_rgba(&doc.ctx, id, pixels)
+            .map_err(|error| error.to_string())?;
+        with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(())
+    })
 }
 
 /// Upload tightly packed R8 pixels into an existing graph-backed layer mask.
@@ -344,24 +361,21 @@ pub fn write_layer_rgba(id: LayerId, pixels: &[u8]) -> Result<(), String> {
 /// # Errors
 /// Returns an error when no document or graph-backed mask is open, or the upload fails.
 pub fn write_mask_r8(id: LayerId, pixels: &[u8]) -> Result<(), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    if !doc
-        .layers_meta
-        .iter()
-        .any(|layer| layer.id == id && layer.mask.is_some())
-    {
-        return Err("layer mask metadata missing".to_owned());
-    }
-    doc.engine
-        .write_mask_r8(&doc.ctx, id, pixels)
-        .map_err(|error| error.to_string())?;
-    with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(())
+    with_document(|doc| {
+        if !doc
+            .layers_meta
+            .iter()
+            .any(|layer| layer.id == id && layer.mask.is_some())
+        {
+            return Err("layer mask metadata missing".to_owned());
+        }
+        doc.engine
+            .write_mask_r8(&doc.ctx, id, pixels)
+            .map_err(|error| error.to_string())?;
+        with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(())
+    })
 }
 
 /// Sync layer textures and re-composite. Returns composite time in ms.
@@ -369,17 +383,13 @@ pub fn write_mask_r8(id: LayerId, pixels: &[u8]) -> Result<(), String> {
 /// # Errors
 /// Returns an error when no document is open or GPU sync/composite fails.
 pub fn sync_and_composite(layers: &[Layer]) -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
-    doc.layers_meta = layers.to_vec();
-    doc.engine.sync_layers_from_graph(&doc.ctx, layers)?;
-    let ms = doc.engine.composite(&doc.ctx, layers)?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+    with_document(|doc| {
+        doc.layers_meta = layers.to_vec();
+        doc.engine.sync_layers_from_graph(&doc.ctx, layers)?;
+        let ms = doc.engine.composite(&doc.ctx, layers)?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 pub fn last_composite_ms() -> f32 {
@@ -418,15 +428,12 @@ fn publish_selection(mask: &SelectionMask) -> Result<(), String> {
 fn with_selection_mut<R>(
     f: impl FnOnce(&GpuContext, &mut SelectionMask) -> R,
 ) -> Result<R, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let ctx = Arc::clone(&doc.ctx);
-    let out = f(&ctx, &mut doc.selection);
-    publish_selection(&doc.selection)?;
-    Ok(out)
+    with_document(|doc| {
+        let ctx = Arc::clone(&doc.ctx);
+        let out = f(&ctx, &mut doc.selection);
+        publish_selection(&doc.selection)?;
+        Ok(out)
+    })
 }
 
 /// Clear the document selection mask.
@@ -507,22 +514,19 @@ pub type TransformLayerPixels = (LayerId, Vec<u8>);
 /// # Errors
 /// Returns an error when no document is open or readback fails.
 pub fn snapshot_document_layers() -> Result<(DocumentSize, Vec<TransformLayerPixels>), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_ref()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let size = DocumentSize::new(width, height);
-    let mut out = Vec::new();
-    for layer in &doc.layers_meta {
-        let pixels = doc
-            .engine
-            .read_layer_rgba(&doc.ctx, layer.id)
-            .map_err(|e| e.to_string())?;
-        out.push((layer.id, pixels));
-    }
-    Ok((size, out))
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let size = DocumentSize::new(width, height);
+        let mut out = Vec::new();
+        for layer in &doc.layers_meta {
+            let pixels = doc
+                .engine
+                .read_layer_rgba(&doc.ctx, layer.id)
+                .map_err(|e| e.to_string())?;
+            out.push((layer.id, pixels));
+        }
+        Ok((size, out))
+    })
 }
 
 fn install_document(
@@ -569,24 +573,21 @@ pub fn bake_layer_transform(
     transform: LayerTransform,
     layers: &[Layer],
 ) -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let pixels = doc
-        .engine
-        .read_layer_rgba(&doc.ctx, id)
-        .map_err(|e| e.to_string())?;
-    let baked = bake_affine_rgba(&pixels, width, height, transform)?;
-    doc.engine
-        .write_layer_rgba(&doc.ctx, id, &baked)
-        .map_err(|e| e.to_string())?;
-    doc.layers_meta = layers.to_vec();
-    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, id)
+            .map_err(|e| e.to_string())?;
+        let baked = bake_affine_rgba(&pixels, width, height, transform)?;
+        doc.engine
+            .write_layer_rgba(&doc.ctx, id, &baked)
+            .map_err(|e| e.to_string())?;
+        doc.layers_meta = layers.to_vec();
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 /// Fill a layer with solid RGBA (0..1), optionally limited by the active selection.
@@ -599,33 +600,30 @@ pub fn fill_layer(
     layers: &[Layer],
     use_selection: bool,
 ) -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let mut pixels = doc
-        .engine
-        .read_layer_rgba(&doc.ctx, id)
-        .map_err(|e| e.to_string())?;
-    let mask = if use_selection {
-        let snap = doc.selection.snapshot_cpu();
-        if mask_has_selection(&snap) {
-            Some(snap)
+    with_document(|doc| {
+        let mut pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, id)
+            .map_err(|e| e.to_string())?;
+        let mask = if use_selection {
+            let snap = doc.selection.snapshot_cpu();
+            if mask_has_selection(&snap) {
+                Some(snap)
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
-    fill_rgba(&mut pixels, color, mask.as_deref());
-    doc.engine
-        .write_layer_rgba(&doc.ctx, id, &pixels)
-        .map_err(|e| e.to_string())?;
-    doc.layers_meta = layers.to_vec();
-    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+        };
+        fill_rgba(&mut pixels, color, mask.as_deref());
+        doc.engine
+            .write_layer_rgba(&doc.ctx, id, &pixels)
+            .map_err(|e| e.to_string())?;
+        doc.layers_meta = layers.to_vec();
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 /// Apply a linear gradient to a layer (document-space endpoints).
@@ -641,34 +639,31 @@ pub fn apply_linear_gradient(
     layers: &[Layer],
     use_selection: bool,
 ) -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let mut pixels = doc
-        .engine
-        .read_layer_rgba(&doc.ctx, id)
-        .map_err(|e| e.to_string())?;
-    let mask = if use_selection {
-        let snap = doc.selection.snapshot_cpu();
-        if mask_has_selection(&snap) {
-            Some(snap)
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let mut pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, id)
+            .map_err(|e| e.to_string())?;
+        let mask = if use_selection {
+            let snap = doc.selection.snapshot_cpu();
+            if mask_has_selection(&snap) {
+                Some(snap)
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
-    linear_gradient_rgba(&mut pixels, width, height, p0, p1, c0, c1, mask.as_deref());
-    doc.engine
-        .write_layer_rgba(&doc.ctx, id, &pixels)
-        .map_err(|e| e.to_string())?;
-    doc.layers_meta = layers.to_vec();
-    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+        };
+        linear_gradient_rgba(&mut pixels, width, height, p0, p1, c0, c1, mask.as_deref());
+        doc.engine
+            .write_layer_rgba(&doc.ctx, id, &pixels)
+            .map_err(|e| e.to_string())?;
+        doc.layers_meta = layers.to_vec();
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 /// Sample RGB from a layer at document coordinates.
@@ -676,17 +671,15 @@ pub fn apply_linear_gradient(
 /// # Errors
 /// Returns an error when the document or layer is missing.
 pub fn sample_layer_at(id: LayerId, x: i32, y: i32) -> Result<[f32; 3], String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_ref()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let pixels = doc
-        .engine
-        .read_layer_rgba(&doc.ctx, id)
-        .map_err(|e| e.to_string())?;
-    sample_rgba_at(&pixels, width, height, x, y).ok_or_else(|| "sample out of bounds".to_owned())
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, id)
+            .map_err(|e| e.to_string())?;
+        sample_rgba_at(&pixels, width, height, x, y)
+            .ok_or_else(|| "sample out of bounds".to_owned())
+    })
 }
 
 /// Sample RGB from the composite result at document coordinates.
@@ -694,17 +687,15 @@ pub fn sample_layer_at(id: LayerId, x: i32, y: i32) -> Result<[f32; 3], String> 
 /// # Errors
 /// Returns an error when the document is missing or the point is out of bounds.
 pub fn sample_composite_at(x: i32, y: i32) -> Result<[f32; 3], String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_ref()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let pixels = doc
-        .engine
-        .read_result_rgba(&doc.ctx)
-        .map_err(|e| e.to_string())?;
-    sample_rgba_at(&pixels, width, height, x, y).ok_or_else(|| "sample out of bounds".to_owned())
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let pixels = doc
+            .engine
+            .read_result_rgba(&doc.ctx)
+            .map_err(|e| e.to_string())?;
+        sample_rgba_at(&pixels, width, height, x, y)
+            .ok_or_else(|| "sample out of bounds".to_owned())
+    })
 }
 
 /// Flip one layer horizontally or vertically.
@@ -712,24 +703,21 @@ pub fn sample_composite_at(x: i32, y: i32) -> Result<[f32; 3], String> {
 /// # Errors
 /// Returns an error when readback or writeback fails.
 pub fn flip_layer(id: LayerId, horizontal: bool, layers: &[Layer]) -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let (width, height) = doc.engine.size();
-    let mut pixels = doc
-        .engine
-        .read_layer_rgba(&doc.ctx, id)
-        .map_err(|e| e.to_string())?;
-    flip_rgba(&mut pixels, width, height, horizontal);
-    doc.engine
-        .write_layer_rgba(&doc.ctx, id, &pixels)
-        .map_err(|e| e.to_string())?;
-    doc.layers_meta = layers.to_vec();
-    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        let mut pixels = doc
+            .engine
+            .read_layer_rgba(&doc.ctx, id)
+            .map_err(|e| e.to_string())?;
+        flip_rgba(&mut pixels, width, height, horizontal);
+        doc.engine
+            .write_layer_rgba(&doc.ctx, id, &pixels)
+            .map_err(|e| e.to_string())?;
+        doc.layers_meta = layers.to_vec();
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 /// Crop every layer to `rect` and rebuild the GPU document at the new size.
@@ -743,6 +731,11 @@ pub fn crop_document(rect: CropRect, layers: &[Layer]) -> Result<(DocumentSize, 
         let doc = guard
             .as_ref()
             .ok_or_else(|| "no document GPU state".to_owned())?;
+        // Not `with_document`: this function holds the shared queue guard
+        // across the reinstall below, so re-entering it here would take that
+        // lock twice. The device check it would have performed is done here
+        // instead rather than skipped.
+        doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
         let (width, height) = doc.engine.size();
         let Some(rect) = rect.clamp_to(width, height) else {
             return Err("invalid crop rect".to_owned());
@@ -774,6 +767,11 @@ pub fn rotate_canvas_90_cw(layers: &[Layer]) -> Result<(DocumentSize, f32), Stri
         let doc = guard
             .as_ref()
             .ok_or_else(|| "no document GPU state".to_owned())?;
+        // Not `with_document`: this function holds the shared queue guard
+        // across the reinstall below, so re-entering it here would take that
+        // lock twice. The device check it would have performed is done here
+        // instead rather than skipped.
+        doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
         let (width, height) = doc.engine.size();
         let mut rotated = Vec::new();
         let mut new_w = height;
@@ -813,6 +811,11 @@ pub fn restore_document_layers(
         let doc = guard
             .as_ref()
             .ok_or_else(|| "no document GPU state".to_owned())?;
+        // Not `with_document`: this function holds the shared queue guard
+        // across the reinstall below, so re-entering it here would take that
+        // lock twice. The device check it would have performed is done here
+        // instead rather than skipped.
+        doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
         Arc::clone(&doc.ctx)
     };
     install_document(ctx, size, layers, pixels)
@@ -835,29 +838,25 @@ pub fn close_document() {
 /// # Errors
 /// Returns an error when no document or paint target texture is available.
 pub fn begin_stroke(layer: LayerId, target: PaintTarget) -> Result<(), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
-    let bak = match target {
-        PaintTarget::LayerPixels => doc
-            .engine
-            .clone_layer_texture(&doc.ctx, layer)
-            .ok_or_else(|| "missing layer texture".to_owned())?,
-        PaintTarget::LayerMask => doc
-            .engine
-            .clone_mask_texture(&doc.ctx, layer)
-            .ok_or_else(|| "missing layer mask texture".to_owned())?,
-    };
-    doc.stroke_backup = Some(StrokeBackup {
-        layer,
-        target,
-        texture: bak,
-    });
-    doc.stroke_redo.clear();
-    Ok(())
+    with_document(|doc| {
+        let bak = match target {
+            PaintTarget::LayerPixels => doc
+                .engine
+                .clone_layer_texture(&doc.ctx, layer)
+                .ok_or_else(|| "missing layer texture".to_owned())?,
+            PaintTarget::LayerMask => doc
+                .engine
+                .clone_mask_texture(&doc.ctx, layer)
+                .ok_or_else(|| "missing layer mask texture".to_owned())?,
+        };
+        doc.stroke_backup = Some(StrokeBackup {
+            layer,
+            target,
+            texture: bak,
+        });
+        doc.stroke_redo.clear();
+        Ok(())
+    })
 }
 
 /// Stamp dabs into the active paint target. `t0_ms` is input timestamp for first dab latency.
@@ -872,71 +871,66 @@ pub fn stamp_dabs(
     t0_ms: Option<f64>,
     recomposite: bool,
 ) -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
     let t_stamp = Instant::now();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
-
-    if !dabs.is_empty() {
-        let requests: Vec<StampRequest> = dabs
-            .iter()
-            .copied()
-            .map(|dab| match target {
-                PaintTarget::LayerPixels => StampRequest::from_dab(dab, params),
-                PaintTarget::LayerMask => StampRequest::from_dab_mask(dab, params),
-            })
-            .collect();
-        match target {
-            PaintTarget::LayerPixels => {
-                let Some(tex) = doc.engine.layer_texture(layer) else {
-                    return Err("layer texture missing".into());
-                };
-                doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
-                // Report the region the batch could touch, so the composite can
-                // re-blend it instead of the whole canvas. Falls back to the
-                // unbounded mark if any dab's bounds cannot be established.
-                let (doc_w, doc_h) = doc.engine.size();
-                match painted_bounds(&requests, doc_w, doc_h) {
-                    Some(rect) => doc.engine.mark_layer_painted_in(layer, rect),
-                    None => doc.engine.mark_layer_painted(layer),
+    with_document(|doc| {
+        if !dabs.is_empty() {
+            let requests: Vec<StampRequest> = dabs
+                .iter()
+                .copied()
+                .map(|dab| match target {
+                    PaintTarget::LayerPixels => StampRequest::from_dab(dab, params),
+                    PaintTarget::LayerMask => StampRequest::from_dab_mask(dab, params),
+                })
+                .collect();
+            match target {
+                PaintTarget::LayerPixels => {
+                    let Some(tex) = doc.engine.layer_texture(layer) else {
+                        return Err("layer texture missing".into());
+                    };
+                    doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
+                    // Report the region the batch could touch, so the composite can
+                    // re-blend it instead of the whole canvas. Falls back to the
+                    // unbounded mark if any dab's bounds cannot be established.
+                    let (doc_w, doc_h) = doc.engine.size();
+                    match painted_bounds(&requests, doc_w, doc_h) {
+                        Some(rect) => doc.engine.mark_layer_painted_in(layer, rect),
+                        None => doc.engine.mark_layer_painted(layer),
+                    }
+                }
+                PaintTarget::LayerMask => {
+                    let Some(tex) = doc.engine.mask_texture(layer) else {
+                        return Err("layer mask texture missing".into());
+                    };
+                    doc.mask_stamper.stamp_batch(&doc.ctx, tex, &requests);
+                    doc.engine.mark_mask_painted(layer);
                 }
             }
-            PaintTarget::LayerMask => {
-                let Some(tex) = doc.engine.mask_texture(layer) else {
-                    return Err("layer mask texture missing".into());
-                };
-                doc.mask_stamper.stamp_batch(&doc.ctx, tex, &requests);
-                doc.engine.mark_mask_painted(layer);
-            }
         }
-    }
 
-    // Never blocking, on any dab. wgpu tracks the stamp→composite texture
-    // dependency and emits the barrier, so waiting for device idle here only
-    // serialized the host against the GPU every fourth dab.
-    let _ = doc.ctx.device.poll(wgpu::PollType::Poll);
+        // Never blocking, on any dab. wgpu tracks the stamp→composite texture
+        // dependency and emits the barrier, so waiting for device idle here only
+        // serialized the host against the GPU every fourth dab.
+        let _ = doc.ctx.device.poll(wgpu::PollType::Poll);
 
-    if let Some(t0) = t0_ms {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        // Input timestamp → dab work submitted. This no longer includes GPU
-        // execution: measuring that required the stall this path exists to
-        // avoid. End-to-end input→present needs present-side instrumentation.
-        doc.last_latency_ms = (now - t0).max(0.0) as f32;
-    }
+        if let Some(t0) = t0_ms {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(0.0);
+            // Input timestamp → dab work submitted. This no longer includes GPU
+            // execution: measuring that required the stall this path exists to
+            // avoid. End-to-end input→present needs present-side instrumentation.
+            doc.last_latency_ms = (now - t0).max(0.0) as f32;
+        }
 
-    let mut comp_ms = 0.0;
-    if recomposite {
-        comp_ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-        publish_result(&doc.engine)?;
-    }
-    let _ = t_stamp;
-    Ok(comp_ms)
+        let mut comp_ms = 0.0;
+        if recomposite {
+            comp_ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+            publish_result(&doc.engine)?;
+        }
+        let _ = t_stamp;
+        Ok(comp_ms)
+    })
 }
 
 /// Finalize the active stroke and push the pre-stroke backup onto the undo stack.
@@ -944,22 +938,19 @@ pub fn stamp_dabs(
 /// # Errors
 /// Returns an error when no document is open or final composite/export fails.
 pub fn end_stroke() -> Result<(), String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    // No mask readback here. It used to download the whole mask -- 8.3 MB at
-    // 4K -- and block on GPU completion under both the shared queue guard and
-    // the document lock, at every mask pen-up. `read_mask_r8` refreshes the CPU
-    // mirror as part of reading it, so nothing observed the eager sync.
-    if let Some(bak) = doc.stroke_backup.take() {
-        doc.stroke_undo.push(bak);
-        trim_stroke_stack(&mut doc.stroke_undo);
-    }
-    with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(())
+    with_document(|doc| {
+        // No mask readback here. It used to download the whole mask -- 8.3 MB at
+        // 4K -- and block on GPU completion under both the shared queue guard and
+        // the document lock, at every mask pen-up. `read_mask_r8` refreshes the CPU
+        // mirror as part of reading it, so nothing observed the eager sync.
+        if let Some(bak) = doc.stroke_backup.take() {
+            doc.stroke_undo.push(bak);
+            trim_stroke_stack(&mut doc.stroke_undo);
+        }
+        with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(())
+    })
 }
 
 pub fn can_undo_stroke() -> bool {
@@ -983,44 +974,41 @@ pub fn can_redo_stroke() -> bool {
 /// # Errors
 /// Returns an error when the undo stack is empty or snapshot/composite fails.
 pub fn undo_stroke() -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let Some(prev) = doc.stroke_undo.pop() else {
-        return Err("no stroke undo".into());
-    };
-    let cur = match prev.target {
-        PaintTarget::LayerPixels => doc
-            .engine
-            .clone_layer_texture(&doc.ctx, prev.layer)
-            .ok_or_else(|| "failed to snapshot layer for redo".to_owned())?,
-        PaintTarget::LayerMask => doc
-            .engine
-            .clone_mask_texture(&doc.ctx, prev.layer)
-            .ok_or_else(|| "failed to snapshot layer mask for redo".to_owned())?,
-    };
-    doc.stroke_redo.push(StrokeBackup {
-        layer: prev.layer,
-        target: prev.target,
-        texture: cur,
-    });
-    trim_stroke_stack(&mut doc.stroke_redo);
-    match prev.target {
-        PaintTarget::LayerPixels => {
-            doc.engine
-                .restore_layer_texture(&doc.ctx, prev.layer, &prev.texture);
+    with_document(|doc| {
+        let Some(prev) = doc.stroke_undo.pop() else {
+            return Err("no stroke undo".into());
+        };
+        let cur = match prev.target {
+            PaintTarget::LayerPixels => doc
+                .engine
+                .clone_layer_texture(&doc.ctx, prev.layer)
+                .ok_or_else(|| "failed to snapshot layer for redo".to_owned())?,
+            PaintTarget::LayerMask => doc
+                .engine
+                .clone_mask_texture(&doc.ctx, prev.layer)
+                .ok_or_else(|| "failed to snapshot layer mask for redo".to_owned())?,
+        };
+        doc.stroke_redo.push(StrokeBackup {
+            layer: prev.layer,
+            target: prev.target,
+            texture: cur,
+        });
+        trim_stroke_stack(&mut doc.stroke_redo);
+        match prev.target {
+            PaintTarget::LayerPixels => {
+                doc.engine
+                    .restore_layer_texture(&doc.ctx, prev.layer, &prev.texture);
+            }
+            PaintTarget::LayerMask => {
+                doc.engine
+                    .restore_mask_texture(&doc.ctx, prev.layer, &prev.texture);
+                doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, prev.layer)?;
+            }
         }
-        PaintTarget::LayerMask => {
-            doc.engine
-                .restore_mask_texture(&doc.ctx, prev.layer, &prev.texture);
-            doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, prev.layer)?;
-        }
-    }
-    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 /// Redo last undone stroke paint.
@@ -1028,43 +1016,40 @@ pub fn undo_stroke() -> Result<f32, String> {
 /// # Errors
 /// Returns an error when the redo stack is empty or snapshot/composite fails.
 pub fn redo_stroke() -> Result<f32, String> {
-    let _queue_guard = super::SharedQueueGuard::lock();
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    let doc = guard
-        .as_mut()
-        .ok_or_else(|| "no document GPU state".to_owned())?;
-    let Some(next) = doc.stroke_redo.pop() else {
-        return Err("no stroke redo".into());
-    };
-    let cur = match next.target {
-        PaintTarget::LayerPixels => doc
-            .engine
-            .clone_layer_texture(&doc.ctx, next.layer)
-            .ok_or_else(|| "failed to snapshot layer for undo".to_owned())?,
-        PaintTarget::LayerMask => doc
-            .engine
-            .clone_mask_texture(&doc.ctx, next.layer)
-            .ok_or_else(|| "failed to snapshot layer mask for undo".to_owned())?,
-    };
-    doc.stroke_undo.push(StrokeBackup {
-        layer: next.layer,
-        target: next.target,
-        texture: cur,
-    });
-    match next.target {
-        PaintTarget::LayerPixels => {
-            doc.engine
-                .restore_layer_texture(&doc.ctx, next.layer, &next.texture);
+    with_document(|doc| {
+        let Some(next) = doc.stroke_redo.pop() else {
+            return Err("no stroke redo".into());
+        };
+        let cur = match next.target {
+            PaintTarget::LayerPixels => doc
+                .engine
+                .clone_layer_texture(&doc.ctx, next.layer)
+                .ok_or_else(|| "failed to snapshot layer for undo".to_owned())?,
+            PaintTarget::LayerMask => doc
+                .engine
+                .clone_mask_texture(&doc.ctx, next.layer)
+                .ok_or_else(|| "failed to snapshot layer mask for undo".to_owned())?,
+        };
+        doc.stroke_undo.push(StrokeBackup {
+            layer: next.layer,
+            target: next.target,
+            texture: cur,
+        });
+        match next.target {
+            PaintTarget::LayerPixels => {
+                doc.engine
+                    .restore_layer_texture(&doc.ctx, next.layer, &next.texture);
+            }
+            PaintTarget::LayerMask => {
+                doc.engine
+                    .restore_mask_texture(&doc.ctx, next.layer, &next.texture);
+                doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, next.layer)?;
+            }
         }
-        PaintTarget::LayerMask => {
-            doc.engine
-                .restore_mask_texture(&doc.ctx, next.layer, &next.texture);
-            doc.engine.sync_mask_cpu_from_gpu(&doc.ctx, next.layer)?;
-        }
-    }
-    let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
-    publish_result(&doc.engine)?;
-    Ok(ms)
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
 }
 
 #[cfg(test)]
@@ -1109,5 +1094,44 @@ mod tests {
         let two = vec![STROKE_UNDO_BUDGET_BYTES * 4; 2];
         assert_eq!(overflow_count(&two, STROKE_UNDO_BUDGET_BYTES), 1);
         assert_eq!(overflow_count(&[], STROKE_UNDO_BUDGET_BYTES), 0);
+    }
+
+    /// Every GPU entry point must go through `with_document`.
+    ///
+    /// The check that matters is the device-loss one: it used to be written by
+    /// hand and only four of twenty-eight entry points had it, so most GPU work
+    /// ran against a lost device and surfaced whatever wgpu said instead of the
+    /// app's recovery path. Routing through one helper is what fixes that, and
+    /// this is what keeps the next entry point from reaching for the mutex
+    /// directly.
+    ///
+    /// The exceptions are named rather than inferred. The two `open_*` entry
+    /// points install the context this helper requires, and `close_document`
+    /// tears it down — refusing to close because the device is already lost is
+    /// exactly backwards.
+    #[test]
+    fn gpu_entry_points_go_through_the_document_helper() {
+        const INSTALLERS: [&str; 3] = ["open_document", "open_raster_document", "close_document"];
+        let source = include_str!("document_gpu.rs");
+
+        let mut offenders = Vec::new();
+        for chunk in source.split("\npub fn ").skip(1) {
+            let name = chunk
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+                .unwrap_or("");
+            let body = chunk.split("\n}\n").next().unwrap_or("");
+            let touches_state = body.contains("DOC_GPU.lock()");
+            let routed = body.contains("with_document");
+            let _ = &routed;
+            if touches_state && !routed && !INSTALLERS.contains(&name) {
+                offenders.push(name.to_owned());
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these reach for DOC_GPU directly instead of with_document, so they \
+             skip the device-loss check: {offenders:?}"
+        );
     }
 }

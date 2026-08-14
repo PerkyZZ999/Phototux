@@ -243,7 +243,18 @@ mod loss_tests {
             crate::sync_and_composite(graph.layers()).is_err(),
             "composite must reject while lost"
         );
-        let pixels = crate::read_all_layer_rgba()
+        // Recovery depends on this readback still being attempted while the
+        // loss flag is set: a soft loss often still permits it, and refusing
+        // would rebuild the document with blank layers. Asserting it here
+        // stops a future "check the device everywhere" sweep from quietly
+        // turning recovery into data loss.
+        let snapshot = crate::read_all_layer_rgba();
+        assert!(
+            snapshot.is_ok(),
+            "readback must be attempted during loss, not refused: {:?}",
+            snapshot.as_ref().err()
+        );
+        let pixels = snapshot
             .unwrap_or_default()
             .into_iter()
             .map(|(id, _w, _h, px)| (id, px))
