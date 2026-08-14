@@ -64,6 +64,102 @@ impl SelectionShape {
     }
 }
 
+/// Which morphological edit `selection.modify` performs.
+///
+/// The op used to travel as a bare `String` from the action registry through
+/// two parsers into the command, and each stop had its own idea of which
+/// strings were valid: the registry wrote three literals, the host matched
+/// three, and the command recognised only `feather`. Nothing checked that the
+/// three lists agreed. Naming the vocabulary once makes an unknown op a parse
+/// failure at the boundary instead of a silent no-op three frames later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionModifyOp {
+    /// Box-blur the mask edge.
+    Feather,
+    /// Dilate the mask.
+    Expand,
+    /// Erode the mask.
+    Contract,
+}
+
+impl SelectionModifyOp {
+    /// Every op, for exhaustiveness checks across the registry and menus.
+    pub const ALL: [Self; 3] = [Self::Feather, Self::Expand, Self::Contract];
+
+    /// Radius used when an argument names an op but no distance.
+    pub const DEFAULT_RADIUS: u32 = 4;
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Feather => "feather",
+            Self::Expand => "expand",
+            Self::Contract => "contract",
+        }
+    }
+
+    /// Parse a registry or QML label, `None` when it names no known op.
+    ///
+    /// Unlike [`SelectionCombine::parse`] and [`SelectionShape::parse`], which
+    /// fall back to their defaults, an unrecognised op has no safe default:
+    /// those two describe *how* to interpret an edit the caller already asked
+    /// for, whereas this one chooses the edit. Quietly feathering because a
+    /// label was misspelled would change pixels nobody asked to change.
+    #[must_use]
+    pub fn parse(label: &str) -> Option<Self> {
+        match label {
+            "feather" => Some(Self::Feather),
+            "expand" => Some(Self::Expand),
+            "contract" => Some(Self::Contract),
+            _ => None,
+        }
+    }
+
+    /// Run this op over an R8 selection mask.
+    ///
+    /// # Errors
+    /// Propagates the buffer-length error from the underlying mask function.
+    pub fn apply(
+        self,
+        width: u32,
+        height: u32,
+        mask: &[u8],
+        radius: u32,
+    ) -> Result<Vec<u8>, String> {
+        match self {
+            Self::Feather => feather_mask_r8(width, height, mask, radius),
+            Self::Expand => expand_mask_r8(width, height, mask, radius),
+            Self::Contract => contract_mask_r8(width, height, mask, radius),
+        }
+    }
+}
+
+/// Parse a `selection.modify` action argument: `"<op>"` or `"<op>:<radius>"`.
+///
+/// `None` when the op is unknown, when the radius is present but not a
+/// non-negative integer, or when a third colon-separated field follows. A
+/// present-but-unparsable radius is refused rather than defaulted: the caller
+/// wrote something it believed was a distance, and substituting a different
+/// one silently applies an edit at the wrong size. An *absent* radius is a
+/// different statement — "this op, at the usual distance" — and takes
+/// [`SelectionModifyOp::DEFAULT_RADIUS`].
+#[must_use]
+pub fn parse_selection_modify_arg(arg: &str) -> Option<(SelectionModifyOp, u32)> {
+    let mut parts = arg.split(':');
+    // `str::split` always yields at least one item, so this never defaults —
+    // an empty argument parses as the empty op and is rejected below.
+    let op = SelectionModifyOp::parse(parts.next().unwrap_or_default().trim())?;
+    let radius = match parts.next() {
+        None => SelectionModifyOp::DEFAULT_RADIUS,
+        Some(raw) => raw.trim().parse::<u32>().ok()?,
+    };
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((op, radius))
+}
+
 /// Axis-aligned rectangle in document pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionRect {
@@ -547,5 +643,101 @@ mod tests {
         s.set_mask_polygon(bounds, SelectionCombine::Replace);
         assert!(s.active);
         assert_eq!(s.shape, SelectionShape::Mask);
+    }
+
+    #[test]
+    fn every_modify_op_round_trips_through_its_label() {
+        for op in SelectionModifyOp::ALL {
+            assert_eq!(
+                SelectionModifyOp::parse(op.as_str()),
+                Some(op),
+                "{} did not survive a parse of its own label",
+                op.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_modify_label_is_refused_rather_than_defaulted() {
+        // The distinguishing property against SelectionCombine and
+        // SelectionShape, which both fall back to a default.
+        assert_eq!(SelectionModifyOp::parse("blur"), None);
+        assert_eq!(SelectionModifyOp::parse("Feather"), None);
+        assert_eq!(SelectionModifyOp::parse(""), None);
+    }
+
+    #[test]
+    fn each_modify_op_dispatches_to_a_different_edit() {
+        // Guards the `apply` match against a copy-paste that points two arms
+        // at the same mask function — the arms are one word apart.
+        let (w, h) = (7_u32, 7_u32);
+        let mut mask = vec![0_u8; 49];
+        for i in 16..19 {
+            mask[i] = 255;
+            mask[i + 7] = 255;
+            mask[i + 14] = 255;
+        }
+        let feathered = SelectionModifyOp::Feather
+            .apply(w, h, &mask, 1)
+            .expect("feather");
+        let expanded = SelectionModifyOp::Expand
+            .apply(w, h, &mask, 1)
+            .expect("expand");
+        let contracted = SelectionModifyOp::Contract
+            .apply(w, h, &mask, 1)
+            .expect("contract");
+        assert_eq!(feathered, feather_mask_r8(w, h, &mask, 1).expect("direct"));
+        assert_eq!(expanded, expand_mask_r8(w, h, &mask, 1).expect("direct"));
+        assert_eq!(
+            contracted,
+            contract_mask_r8(w, h, &mask, 1).expect("direct")
+        );
+        assert_ne!(feathered, expanded);
+        assert_ne!(expanded, contracted);
+        assert_ne!(feathered, contracted);
+    }
+
+    #[test]
+    fn a_modify_argument_carries_its_op_and_radius() {
+        assert_eq!(
+            parse_selection_modify_arg("feather:4"),
+            Some((SelectionModifyOp::Feather, 4))
+        );
+        assert_eq!(
+            parse_selection_modify_arg("contract:2"),
+            Some((SelectionModifyOp::Contract, 2))
+        );
+        assert_eq!(
+            parse_selection_modify_arg(" expand : 12 "),
+            Some((SelectionModifyOp::Expand, 12))
+        );
+    }
+
+    #[test]
+    fn an_omitted_radius_takes_the_default() {
+        assert_eq!(
+            parse_selection_modify_arg("expand"),
+            Some((SelectionModifyOp::Expand, SelectionModifyOp::DEFAULT_RADIUS))
+        );
+    }
+
+    #[test]
+    fn a_present_but_unreadable_radius_is_refused() {
+        // The case worth separating from the one above: substituting the
+        // default here would apply the edit at a distance nobody asked for.
+        assert_eq!(parse_selection_modify_arg("feather:"), None);
+        assert_eq!(parse_selection_modify_arg("feather:-3"), None);
+        assert_eq!(parse_selection_modify_arg("feather:wide"), None);
+        assert_eq!(parse_selection_modify_arg("feather:2.5"), None);
+        assert_eq!(parse_selection_modify_arg("feather:4:9"), None);
+    }
+
+    #[test]
+    fn an_empty_argument_names_no_op() {
+        // The old parser wrote `unwrap_or("feather")` here, which never ran:
+        // `str::split` always yields at least one item, so an empty argument
+        // produced the empty op rather than the intended default.
+        assert_eq!(parse_selection_modify_arg(""), None);
+        assert_eq!(parse_selection_modify_arg(":4"), None);
     }
 }

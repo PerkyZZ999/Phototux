@@ -19,23 +19,12 @@ use phototux_engine::{
     AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph,
     DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide,
     GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
-    LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionRect, SelectionShape,
-    SelectionState, SessionState, ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent,
-    TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id, contract_mask_r8,
-    ellipse_path, expand_mask_r8, feather_mask_r8, polygon_path, rect_path, stroke_path_rgba8,
-    tool_id,
+    LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect,
+    SelectionShape, SelectionState, SessionState, ShapeBooleanPartner, ShapeContent, ShapeGradient,
+    TextContent, TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
+    ellipse_path, parse_selection_modify_arg, polygon_path, rect_path, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
-
-fn parse_modify_arg(arg: &str) -> (String, i32) {
-    let mut parts = arg.split(':');
-    let op = parts.next().unwrap_or("feather").to_owned();
-    let radius = parts
-        .next()
-        .and_then(|r| r.parse::<i32>().ok())
-        .unwrap_or(4);
-    (op, radius)
-}
 
 #[derive(Clone)]
 struct SelectionSnapshot {
@@ -1939,10 +1928,19 @@ impl AppSession {
             "selection.select_all" => self.select_all(),
             "selection.deselect" => self.select_none(),
             "selection.invert" => self.invert_selection(),
-            "selection.modify" => {
-                let (op_name, radius) = parse_modify_arg(arg.unwrap_or("feather:4"));
-                self.modify_selection(op_name, radius);
-            }
+            "selection.modify" => match arg.and_then(parse_selection_modify_arg) {
+                Some((op, radius)) => self.apply_selection_modify(op, radius),
+                None => {
+                    // A registry entry the host cannot read is a wiring bug,
+                    // not user error, so it names the argument that failed
+                    // rather than doing nothing. The engine-side test
+                    // `selection_modify_actions_carry_a_parsable_argument`
+                    // keeps the shipped registry out of this branch.
+                    self.status_text =
+                        format!("Unreadable selection op: {}", arg.unwrap_or_default());
+                    self.status_text_changed();
+                }
+            },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
             "document.rotate_90" => self.rotate_canvas_90_cw(),
             "text.bake" => self.bake_text_layer(),
@@ -6175,9 +6173,26 @@ impl AppSession {
     /// Morphological / feather modify of the live selection mask (`op`: feather|expand|contract).
     #[qslot]
     fn modify_selection(&mut self, op: String, radius: i32) {
-        if radius < 0 {
+        // QML has no enums and no unsigned integers, so both arguments arrive
+        // as the widest thing it can express. Narrow them here and let the
+        // rest of the path carry types that cannot say "unknown op".
+        let Some(parsed) = SelectionModifyOp::parse(&op) else {
+            self.status_text = format!("Unknown selection op: {op}");
+            self.status_text_changed();
             return;
-        }
+        };
+        let Ok(radius) = u32::try_from(radius) else {
+            return;
+        };
+        self.apply_selection_modify(parsed, radius);
+    }
+
+    /// Run a selection-channel edit that has already been named and sized.
+    ///
+    /// Separate from the slot so the action registry path can reach it with
+    /// the op it parsed, rather than rendering the op back to a string for the
+    /// slot to parse a second time.
+    fn apply_selection_modify(&mut self, op: SelectionModifyOp, radius: u32) {
         let Ok(mask) = phototux_canvas::selection_snapshot() else {
             return;
         };
@@ -6185,18 +6200,7 @@ impl AppSession {
             return;
         };
         let (w, h) = (graph.size.width, graph.size.height);
-        let radius_u = radius as u32;
-        let next = match op.as_str() {
-            "feather" => feather_mask_r8(w, h, &mask, radius_u),
-            "expand" => expand_mask_r8(w, h, &mask, radius_u),
-            "contract" => contract_mask_r8(w, h, &mask, radius_u),
-            _ => {
-                self.status_text = format!("Unknown selection op: {op}");
-                self.status_text_changed();
-                return;
-            }
-        };
-        match next {
+        match op.apply(w, h, &mask, radius) {
             Ok(bytes) => {
                 if !self.commit_selection_edit("modify selection", || {
                     phototux_canvas::selection_restore(&bytes)
@@ -6205,12 +6209,9 @@ impl AppSession {
                 }
                 let _ = self.invoke_command(
                     command_id::SELECTION_MODIFY,
-                    CommandArgs::SelectionModify {
-                        op: op.clone(),
-                        radius: radius_u,
-                    },
+                    CommandArgs::SelectionModify { op, radius },
                 );
-                self.status_text = format!("Selection {op} ({radius_u}px)");
+                self.status_text = format!("Selection {} ({radius}px)", op.as_str());
                 self.status_text_changed();
             }
             Err(error) => self.report_gpu("modify selection", &error),

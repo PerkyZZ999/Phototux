@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::error::DocumentError;
 use crate::history::HistoryKind;
 use crate::layer::{LayerId, ShapeContent, TextContent};
-use crate::selection::{SelectionCombine, SelectionRect, SelectionShape};
+use crate::selection::{SelectionCombine, SelectionModifyOp, SelectionRect, SelectionShape};
 
 pub mod command_id {
     pub const HISTORY_UNDO: &str = "history.undo";
@@ -308,7 +308,7 @@ pub enum CommandArgs {
         label: String,
     },
     SelectionModify {
-        op: String,
+        op: SelectionModifyOp,
         radius: u32,
     },
     MaskSetEnabled {

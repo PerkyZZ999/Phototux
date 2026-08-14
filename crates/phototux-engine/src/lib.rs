@@ -96,8 +96,8 @@ pub use paths::{
 };
 pub use render_plan::{ColorOverlayPlan, LayerRenderPlan, ShadowPlan, StrokePlan};
 pub use selection::{
-    SelectionCombine, SelectionEllipse, SelectionRect, SelectionShape, SelectionState,
-    contract_mask_r8, expand_mask_r8, feather_mask_r8,
+    SelectionCombine, SelectionEllipse, SelectionModifyOp, SelectionRect, SelectionShape,
+    SelectionState, contract_mask_r8, expand_mask_r8, feather_mask_r8, parse_selection_modify_arg,
 };
 pub use shape_bake::{rasterize_shape_content, rgba_f32_to_u8};
 pub use shape_boolean::{BooleanOp, boolean_rgba8};

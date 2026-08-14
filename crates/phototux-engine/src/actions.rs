@@ -1610,6 +1610,7 @@ pub fn effective_shortcuts_json(overrides: &BTreeMap<String, String>) -> (String
 mod tests {
     use super::*;
     use crate::command_id;
+    use crate::selection::{SelectionModifyOp, parse_selection_modify_arg};
     use std::collections::HashSet;
 
     /// Enablement is resolved per action per binding evaluation, so the lookup
@@ -1804,5 +1805,39 @@ mod tests {
             shortcut_conflict("action.edit.redo", "Ctrl+Z", &defaults),
             Some("action.edit.undo".into())
         );
+    }
+
+    /// The registry stores `selection.modify` arguments as opaque strings, so
+    /// nothing in the type system connects `"contract:2"` to the op that runs.
+    /// This is that connection: every shipped argument must parse, and every
+    /// op the enum defines must be reachable from a menu.
+    #[test]
+    fn selection_modify_actions_carry_a_parsable_argument() {
+        let modify: Vec<_> = default_actions()
+            .into_iter()
+            .filter(|a| a.host_op.as_deref() == Some("selection.modify"))
+            .collect();
+        assert!(
+            !modify.is_empty(),
+            "no action routes to selection.modify — the host op id moved and this test went blind"
+        );
+
+        let mut reached = Vec::new();
+        for action in &modify {
+            let arg = action.arg.as_deref().unwrap_or_else(|| {
+                panic!("{} routes to selection.modify with no argument", action.id)
+            });
+            let (op, _radius) = parse_selection_modify_arg(arg).unwrap_or_else(|| {
+                panic!("{} carries {arg:?}, which names no selection op", action.id)
+            });
+            reached.push(op);
+        }
+
+        for op in SelectionModifyOp::ALL {
+            assert!(
+                reached.contains(&op),
+                "no action reaches SelectionModifyOp::{op:?} — it exists but the user cannot invoke it"
+            );
+        }
     }
 }

@@ -14,7 +14,7 @@ use crate::layer::{
     PaintTarget, TextContent,
 };
 use crate::layer_style::LayerStyle;
-use crate::selection::SelectionShape;
+use crate::selection::{SelectionModifyOp, SelectionShape};
 use crate::undo::actions as undo_actions;
 use crate::{SessionState, tool_id};
 
@@ -1138,12 +1138,14 @@ impl SessionState {
         if !self.has_document {
             return Err(CommandError::Document(DocumentError::NoDocument));
         }
-        if op == "feather" {
+        // Feather is the one op the document itself remembers: it is a
+        // property of the selection channel, not a one-off edit of the mask.
+        if op == SelectionModifyOp::Feather {
             self.selection.feather = radius as f32;
         }
         let generation = self.bump_document_generation();
         self.history
-            .push_selection(format!("Selection {op}"), generation);
+            .push_selection(format!("Selection {}", op.as_str()), generation);
         Ok(CommandEffects::selection_edit(generation))
     }
 
