@@ -6,6 +6,9 @@ use std::time::Instant;
 use phototux_ui::AppSession;
 use qtbridge::QApp;
 
+// SAFETY: this signature must match `qml-aot/phototux_qml_anchor.cpp`, which
+// defines the anchor as `extern "C" void phototux_qml_force_link() noexcept` —
+// no arguments, no return, and it cannot unwind.
 unsafe extern "C" {
     fn phototux_qml_force_link();
 }

@@ -33,6 +33,11 @@ pub struct WgpuExport {
     pub layout: i32,
 }
 
+// SAFETY: these signatures must match `cpp/register_types.cpp`, where each is
+// defined `extern "C" void` with `unsigned long long` for `u64`, `unsigned int`
+// for `u32` and `int` for `i32`. The lock/unlock pair wraps a `std::mutex`, so
+// unlock is only sound after a matching lock on the same thread — the reason
+// every caller goes through `SharedQueueGuard` below rather than calling them.
 unsafe extern "C" {
     fn phototux_canvas_register_types();
     fn phototux_canvas_set_wgpu_device(
