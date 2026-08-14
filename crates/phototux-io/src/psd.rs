@@ -912,20 +912,45 @@ fn skip_length_prefixed_block(cursor: &mut Cursor<&[u8]>) -> Result<(), PsdError
     Ok(())
 }
 
-fn read_u8_cursor(cursor: &mut Cursor<&[u8]>) -> Result<u8, PsdError> {
-    let mut b = [0_u8; 1];
+// PSD is big-endian throughout. The readers below all answer the same
+// question — take the next N bytes, or fail because there are not N left —
+// and were written out once per width and per access style: five over a
+// cursor, two over an offset, with the offset pair reporting a truncation as
+// `BadSignature`. Sharing the answer keeps the endianness and the failure in
+// one place instead of seven.
+
+/// Take the next `N` bytes from `cursor`.
+fn read_be<const N: usize>(cursor: &mut Cursor<&[u8]>) -> Result<[u8; N], PsdError> {
+    let mut bytes = [0_u8; N];
     cursor
-        .read_exact(&mut b)
+        .read_exact(&mut bytes)
         .map_err(|e| PsdError::Parse(e.to_string()))?;
-    Ok(b[0])
+    Ok(bytes)
+}
+
+/// Read `N` bytes at a fixed `offset`.
+///
+/// `checked_add` rather than `offset + N`: the offsets used here are constants
+/// inside an already length-checked header, but an unchecked add is a debug
+/// panic waiting for the first caller who passes a parsed offset.
+fn read_be_at<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], PsdError> {
+    let end = offset
+        .checked_add(N)
+        .ok_or_else(|| PsdError::Parse("offset overflow".into()))?;
+    let slice = bytes
+        .get(offset..end)
+        .ok_or_else(|| PsdError::Parse(format!("truncated: need {N} bytes at {offset}")))?;
+    slice
+        .try_into()
+        .map_err(|_| PsdError::Parse("truncated".into()))
+}
+
+fn read_u8_cursor(cursor: &mut Cursor<&[u8]>) -> Result<u8, PsdError> {
+    Ok(read_be::<1>(cursor)?[0])
 }
 
 fn read_u16_cursor(cursor: &mut Cursor<&[u8]>) -> Result<u16, PsdError> {
-    let mut b = [0_u8; 2];
-    cursor
-        .read_exact(&mut b)
-        .map_err(|e| PsdError::Parse(e.to_string()))?;
-    Ok(u16::from_be_bytes(b))
+    Ok(u16::from_be_bytes(read_be(cursor)?))
 }
 
 fn read_i16_cursor(cursor: &mut Cursor<&[u8]>) -> Result<i16, PsdError> {
@@ -933,11 +958,7 @@ fn read_i16_cursor(cursor: &mut Cursor<&[u8]>) -> Result<i16, PsdError> {
 }
 
 fn read_u32_cursor(cursor: &mut Cursor<&[u8]>) -> Result<u32, PsdError> {
-    let mut b = [0_u8; 4];
-    cursor
-        .read_exact(&mut b)
-        .map_err(|e| PsdError::Parse(e.to_string()))?;
-    Ok(u32::from_be_bytes(b))
+    Ok(u32::from_be_bytes(read_be(cursor)?))
 }
 
 fn read_i32_cursor(cursor: &mut Cursor<&[u8]>) -> Result<i32, PsdError> {
@@ -963,19 +984,11 @@ fn write_i32(out: &mut Vec<u8>, v: i32) -> Result<(), PsdError> {
 }
 
 fn read_u16_be(bytes: &[u8], offset: usize) -> Result<u16, PsdError> {
-    let slice = bytes
-        .get(offset..offset + 2)
-        .ok_or(PsdError::BadSignature)?;
-    let array: [u8; 2] = slice.try_into().map_err(|_| PsdError::BadSignature)?;
-    Ok(u16::from_be_bytes(array))
+    Ok(u16::from_be_bytes(read_be_at(bytes, offset)?))
 }
 
 fn read_u32_be(bytes: &[u8], offset: usize) -> Result<u32, PsdError> {
-    let slice = bytes
-        .get(offset..offset + 4)
-        .ok_or(PsdError::BadSignature)?;
-    let array: [u8; 4] = slice.try_into().map_err(|_| PsdError::BadSignature)?;
-    Ok(u32::from_be_bytes(array))
+    Ok(u32::from_be_bytes(read_be_at(bytes, offset)?))
 }
 
 /// Format a compatibility report for UI display.
@@ -990,6 +1003,25 @@ pub fn format_report(issues: &[CompatibilityIssue]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fixed_offset_read_refuses_overflow_and_truncation() {
+        let bytes = [0_u8, 1, 2, 3];
+        assert!(read_be_at::<2>(&bytes, usize::MAX).is_err(), "overflow");
+        assert!(read_be_at::<4>(&bytes, 2).is_err(), "past the end");
+        assert_eq!(read_be_at::<2>(&bytes, 2).expect("in bounds"), [2, 3]);
+        assert_eq!(read_u16_be(&bytes, 0).expect("in bounds"), 1);
+        assert_eq!(read_u32_be(&bytes, 0).expect("in bounds"), 0x0001_0203);
+    }
+
+    /// Truncation is a parse failure, not a signature failure. The offset
+    /// readers used to report `BadSignature`, which would have told a user
+    /// their valid-but-short PSD was not a PSD at all.
+    #[test]
+    fn truncation_is_reported_as_a_parse_error() {
+        let bytes = [0_u8; 2];
+        assert!(matches!(read_u32_be(&bytes, 0), Err(PsdError::Parse(_))));
+    }
 
     fn header_rgb(width: u32, height: u32, channels: u16) -> Vec<u8> {
         let mut bytes = vec![0_u8; 26];

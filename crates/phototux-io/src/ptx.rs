@@ -446,14 +446,29 @@ fn usize_as_u32(value: usize) -> Result<u32, PtxError> {
     u32::try_from(value).map_err(|_| PtxError::Corrupt("length exceeds u32".into()))
 }
 
-fn read_u32_at(buf: &[u8], offset: usize) -> Result<u32, PtxError> {
+// `.ptx` is little-endian throughout. `read_slice` already bounded its own
+// arithmetic with `checked_add`; the fixed-width readers beside it added
+// unchecked, so the same question had two answers in one file. Their offsets
+// happen to be bounded today — the cursor only advances through these
+// functions, and the one absolute offset is `len - 4` — so nothing overflowed,
+// but the guard belonged in all three rather than whichever one was written
+// last.
+
+/// Read `N` little-endian bytes at a fixed `offset`.
+fn read_le_at<const N: usize>(buf: &[u8], offset: usize) -> Result<[u8; N], PtxError> {
+    let end = offset
+        .checked_add(N)
+        .ok_or_else(|| PtxError::Corrupt("offset overflow".into()))?;
     let bytes = buf
-        .get(offset..offset + 4)
-        .ok_or_else(|| PtxError::Corrupt("truncated u32".into()))?;
-    let array: [u8; 4] = bytes
+        .get(offset..end)
+        .ok_or_else(|| PtxError::Corrupt(format!("truncated: need {N} bytes at {offset}")))?;
+    bytes
         .try_into()
-        .map_err(|_| PtxError::Corrupt("truncated u32".into()))?;
-    Ok(u32::from_le_bytes(array))
+        .map_err(|_| PtxError::Corrupt("truncated".into()))
+}
+
+fn read_u32_at(buf: &[u8], offset: usize) -> Result<u32, PtxError> {
+    Ok(u32::from_le_bytes(read_le_at(buf, offset)?))
 }
 
 fn read_u32(buf: &[u8], cursor: &mut usize) -> Result<u32, PtxError> {
@@ -463,14 +478,9 @@ fn read_u32(buf: &[u8], cursor: &mut usize) -> Result<u32, PtxError> {
 }
 
 fn read_u64(buf: &[u8], cursor: &mut usize) -> Result<u64, PtxError> {
-    let bytes = buf
-        .get(*cursor..*cursor + 8)
-        .ok_or_else(|| PtxError::Corrupt("truncated u64".into()))?;
-    let array: [u8; 8] = bytes
-        .try_into()
-        .map_err(|_| PtxError::Corrupt("truncated u64".into()))?;
+    let v = u64::from_le_bytes(read_le_at(buf, *cursor)?);
     *cursor += 8;
-    Ok(u64::from_le_bytes(array))
+    Ok(v)
 }
 
 fn read_slice<'a>(buf: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [u8], PtxError> {
@@ -488,6 +498,41 @@ fn read_slice<'a>(buf: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [
 mod tests {
     use super::*;
     use phototux_engine::DocumentSize;
+
+    /// An offset near the top of the address space must be refused, not added
+    /// to. `read_slice` guarded this from the start; the fixed-width readers
+    /// beside it did not, so the same hostile offset had two outcomes
+    /// depending on which one a parser happened to call.
+    #[test]
+    fn an_offset_that_would_overflow_is_refused_by_every_reader() {
+        let buf = [0_u8; 16];
+        assert!(read_le_at::<4>(&buf, usize::MAX).is_err());
+        assert!(read_le_at::<8>(&buf, usize::MAX - 2).is_err());
+        assert!(read_u32_at(&buf, usize::MAX).is_err());
+
+        let mut cursor = usize::MAX;
+        assert!(read_slice(&buf, &mut cursor, 8).is_err());
+    }
+
+    #[test]
+    fn a_reader_past_the_end_reports_truncation() {
+        let buf = [1_u8, 2, 3];
+        assert!(read_le_at::<4>(&buf, 0).is_err());
+        assert!(read_le_at::<2>(&buf, 2).is_err());
+        assert_eq!(read_le_at::<2>(&buf, 0).expect("in bounds"), [1, 2]);
+    }
+
+    /// A failed read must not move the cursor, or the next read resumes from a
+    /// position that was never validated.
+    #[test]
+    fn a_failed_read_leaves_the_cursor_where_it_was() {
+        let buf = [1_u8, 2, 3];
+        let mut cursor = 1usize;
+        assert!(read_u32(&buf, &mut cursor).is_err());
+        assert_eq!(cursor, 1);
+        assert!(read_u64(&buf, &mut cursor).is_err());
+        assert_eq!(cursor, 1);
+    }
 
     #[test]
     fn ptx_roundtrip_preserves_graph_and_pixels() {
