@@ -90,6 +90,60 @@ impl LayerTransform {
         self.scale_y = -self.scale_y;
         self
     }
+
+    /// Smallest magnitude a draft scale may take.
+    ///
+    /// Zero collapses the layer to nothing, and once collapsed the gizmo has
+    /// no handles left to drag it back out with — so the draft is never
+    /// allowed to reach it.
+    pub const MIN_DRAFT_SCALE: f32 = 0.01;
+
+    /// Clean up an in-progress transform draft from the gizmo.
+    ///
+    /// Two things happen, in this order, and the order is the point.
+    ///
+    /// The scale is clamped by **magnitude**, keeping its sign. Clamping the
+    /// value instead — `scale_x.max(0.01)` — also silently rectifies a
+    /// negative scale to a positive one, which is a mirrored layer quietly
+    /// becoming unmirrored. The shipped gizmo never sends a negative (it
+    /// scales by distance from the centre, and takes `abs` first), but
+    /// `LayerTransform` is serialised into `.ptx`, so a negative can arrive
+    /// from a file and reach here on the first drag. Clamping the magnitude
+    /// costs nothing and keeps the sign meaningful.
+    ///
+    /// Then, when `constrain` is set, both axes take the larger magnitude
+    /// while keeping their own signs — so constraining the aspect of a
+    /// mirrored layer does not also unmirror it.
+    ///
+    /// A non-finite scale carries no usable magnitude, so it falls back to the
+    /// floor rather than reaching the affine maths, where an infinite scale
+    /// produces a singular matrix that `inverse_affine` silently replaces with
+    /// the identity — a transform that appears to have been discarded.
+    #[must_use]
+    pub fn with_usable_scale(mut self, constrain: bool) -> Self {
+        self.scale_x = clamp_scale_magnitude(self.scale_x);
+        self.scale_y = clamp_scale_magnitude(self.scale_y);
+        if constrain {
+            let uniform = self.scale_x.abs().max(self.scale_y.abs());
+            self.scale_x = uniform.copysign(self.scale_x);
+            self.scale_y = uniform.copysign(self.scale_y);
+        }
+        self
+    }
+}
+
+/// Push a scale factor out to at least [`LayerTransform::MIN_DRAFT_SCALE`]
+/// without changing which way it faces.
+fn clamp_scale_magnitude(scale: f32) -> f32 {
+    if !scale.is_finite() {
+        // Explicit rather than leaning on `f32::max`, which happens to swallow
+        // NaN but passes infinity straight through.
+        return LayerTransform::MIN_DRAFT_SCALE.copysign(scale);
+    }
+    scale
+        .abs()
+        .max(LayerTransform::MIN_DRAFT_SCALE)
+        .copysign(scale)
 }
 
 /// Preview state while a transform tool is active (commit = one history entry).
@@ -203,6 +257,72 @@ mod tests {
         assert!((t.scale_x + 1.0).abs() < 1e-5);
         let t = LayerTransform::identity().flip_vertical();
         assert!((t.scale_y + 1.0).abs() < 1e-5);
+    }
+
+    fn scaled(scale_x: f32, scale_y: f32) -> LayerTransform {
+        LayerTransform {
+            scale_x,
+            scale_y,
+            ..LayerTransform::identity()
+        }
+    }
+
+    #[test]
+    fn a_usable_draft_leaves_an_ordinary_scale_alone() {
+        let t = scaled(1.5, 0.75).with_usable_scale(false);
+        assert!((t.scale_x - 1.5).abs() < 1e-6);
+        assert!((t.scale_y - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_collapsed_scale_is_pushed_out_to_the_floor() {
+        let t = scaled(0.0, 0.0001).with_usable_scale(false);
+        assert!((t.scale_x - LayerTransform::MIN_DRAFT_SCALE).abs() < 1e-6);
+        assert!((t.scale_y - LayerTransform::MIN_DRAFT_SCALE).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_mirrored_layer_stays_mirrored() {
+        // The old clamp was `scale.max(MIN)`, which turned every negative into
+        // +0.01 — a mirrored layer silently unmirroring on the first drag.
+        let t = scaled(-2.0, -0.5).with_usable_scale(false);
+        assert!(t.scale_x < 0.0, "scale_x flipped sign: {}", t.scale_x);
+        assert!(t.scale_y < 0.0, "scale_y flipped sign: {}", t.scale_y);
+        assert!((t.scale_x + 2.0).abs() < 1e-6);
+        assert!((t.scale_y + 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_mirrored_scale_too_small_to_use_keeps_its_direction() {
+        let t = scaled(-0.0001, 3.0).with_usable_scale(false);
+        assert!((t.scale_x + LayerTransform::MIN_DRAFT_SCALE).abs() < 1e-6);
+    }
+
+    #[test]
+    fn constraining_takes_the_larger_magnitude_on_both_axes() {
+        let t = scaled(0.5, 2.0).with_usable_scale(true);
+        assert!((t.scale_x - 2.0).abs() < 1e-6);
+        assert!((t.scale_y - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn constraining_a_mirrored_layer_does_not_unmirror_it() {
+        // Each axis takes the shared magnitude but keeps its own direction.
+        let t = scaled(-0.5, 2.0).with_usable_scale(true);
+        assert!((t.scale_x + 2.0).abs() < 1e-6, "scale_x was {}", t.scale_x);
+        assert!((t.scale_y - 2.0).abs() < 1e-6, "scale_y was {}", t.scale_y);
+    }
+
+    #[test]
+    fn a_non_finite_scale_is_treated_as_degenerate() {
+        let t = scaled(f32::NAN, f32::INFINITY).with_usable_scale(false);
+        assert!(
+            t.scale_x.is_finite() && t.scale_y.is_finite(),
+            "a draft escaped with a non-finite scale: {} {}",
+            t.scale_x,
+            t.scale_y
+        );
+        assert!((t.scale_x.abs() - LayerTransform::MIN_DRAFT_SCALE).abs() < 1e-6);
     }
 
     #[test]

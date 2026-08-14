@@ -6947,21 +6947,15 @@ impl AppSession {
         let Some(session) = self.engine.transform_session.as_mut() else {
             return;
         };
-        let mut sx = scale_x.max(0.01);
-        let mut sy = scale_y.max(0.01);
-        if constrain {
-            let uniform = sx.abs().max(sy.abs());
-            sx = uniform.copysign(sx);
-            sy = uniform.copysign(sy);
-        }
         session.constrain_aspect = constrain;
         session.draft = LayerTransform {
             translate_x,
             translate_y,
-            scale_x: sx,
-            scale_y: sy,
+            scale_x,
+            scale_y,
             rotation_deg,
-        };
+        }
+        .with_usable_scale(constrain);
         if let Some(graph) = self.engine.graph.as_mut() {
             if let Some(layer) = graph.get_mut(session.layer_id) {
                 layer.transform = session.draft;
