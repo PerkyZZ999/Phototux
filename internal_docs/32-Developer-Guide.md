@@ -113,6 +113,7 @@ QML lives in `qml/` and ships through the AOT module built by `crates/phototux/b
 | `DisclosureGroup.qml` | Collapsible inspector section ([01](01-Information-Architecture.md#disclosure-group-registry)) |
 | `LazyDialog.qml` | Defers a dialog's object tree to first use |
 | `PropertiesPanel.qml` | Right dock's per-layer editor body |
+| `LayersPanel.qml` | Right dock's layer list, over `AppSession.layerModel` |
 | `PanelHeaderControls.qml`, `ThemedIcon.qml`, `ChromeIconToolButton.qml` | Panel and icon chrome |
 | `ThemedCheckBox.qml`, `ThemedComboBox.qml`, `ThemedSpinBox.qml`, `ThemedDialogHeader.qml` | Controls themed off `Theme.qml` rather than the Basic style |
 | `NewDocumentDialog.qml`, `WelcomeDialog.qml` | Entry dialogs |
