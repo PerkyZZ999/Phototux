@@ -31,6 +31,7 @@ mod render_plan;
 mod selection;
 mod shape_bake;
 mod shape_boolean;
+mod shape_preset;
 mod shell;
 mod snapshot_publish;
 mod stroke;
@@ -101,6 +102,7 @@ pub use selection::{
 };
 pub use shape_bake::{rasterize_shape_content, rgba_f32_to_u8};
 pub use shape_boolean::{BooleanOp, boolean_rgba8};
+pub use shape_preset::ShapePreset;
 pub use shell::{
     AdjustmentParamRange, DisclosureBadge, DisclosureGroupDescriptor, InspectorState,
     PanelDescriptor, ToolDescriptor, adjustment_editor_ranges, adjustment_editor_ranges_json,

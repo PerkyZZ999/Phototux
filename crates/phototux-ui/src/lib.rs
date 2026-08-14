@@ -21,9 +21,9 @@ use phototux_engine::{
     DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide,
     GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
     LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect,
-    SelectionShape, SelectionState, SessionState, ShapeBooleanPartner, ShapeContent, ShapeGradient,
-    TextContent, TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
-    ellipse_path, parse_selection_modify_arg, polygon_path, rect_path, stroke_path_rgba8, tool_id,
+    SelectionShape, SelectionState, SessionState, ShapeBooleanPartner, ShapePreset, TextContent,
+    TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
+    parse_selection_modify_arg, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
 use selection_path::PathVerdict;
@@ -2505,6 +2505,40 @@ mod tests {
         assert!(
             checked > 0,
             "no tool ids found in qml/ — the parse broke, not the invariant"
+        );
+    }
+
+    /// The canvas creates shapes directly, not only through the Layer menu, so
+    /// the registry test in the engine does not cover every caller. An unknown
+    /// kind now creates nothing, which from the shell looks like a click that
+    /// did not register.
+    #[test]
+    fn every_shape_created_from_the_qml_shell_names_a_known_preset() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
+        let mut checked = 0_usize;
+        for entry in std::fs::read_dir(dir).expect("read qml/") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read qml file");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            for kind in source
+                .split("addShapeLayer(\"")
+                .skip(1)
+                .filter_map(|rest| rest.split('"').next())
+            {
+                assert!(
+                    phototux_engine::ShapePreset::parse(kind).is_some(),
+                    "{name} creates {kind:?}, which names no shape preset — \
+                     the call would create nothing"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "no addShapeLayer calls found in qml/ — the parse broke, not the invariant"
         );
     }
 }
@@ -5932,75 +5966,21 @@ impl AppSession {
     /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
     #[qslot]
     fn add_shape_layer(&mut self, kind: String) {
+        let Some(preset) = ShapePreset::parse(&kind) else {
+            // Refused rather than defaulted to a rectangle: a shape the user
+            // did not ask for is a document mutation they then have to notice.
+            // `shape_create_actions_name_a_known_preset` keeps the shipped
+            // callers out of this branch.
+            self.status_text = format!("Unknown shape: {kind}");
+            self.status_text_changed();
+            return;
+        };
         let Some(graph) = self.engine.graph.as_ref() else {
             return;
         };
-        let w = graph.size.width as f32;
-        let h = graph.size.height as f32;
         let doc_w = graph.size.width;
         let doc_h = graph.size.height;
-        let (path, kind_key, filled, gradient) = match kind.as_str() {
-            "ellipse" => (
-                ellipse_path("Ellipse", w * 0.5, h * 0.5, w * 0.2, h * 0.15),
-                "ellipse",
-                true,
-                None,
-            ),
-            "polygon" => (
-                polygon_path("Polygon", w * 0.5, h * 0.5, w.min(h) * 0.22, 6),
-                "polygon",
-                true,
-                None,
-            ),
-            "gradient" => (
-                rect_path("Gradient", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
-                "rect",
-                true,
-                Some(ShapeGradient {
-                    x0: w * 0.25,
-                    y0: h * 0.25,
-                    x1: w * 0.75,
-                    y1: h * 0.65,
-                    c0_rgba: [0.2, 0.45, 0.9, 1.0],
-                    c1_rgba: [0.95, 0.35, 0.2, 1.0],
-                }),
-            ),
-            "line" => (
-                VectorPath::polyline(
-                    "Line",
-                    vec![
-                        PathPoint {
-                            x: w * 0.2,
-                            y: h * 0.5,
-                        },
-                        PathPoint {
-                            x: w * 0.8,
-                            y: h * 0.5,
-                        },
-                    ],
-                    false,
-                ),
-                "line",
-                false,
-                None,
-            ),
-            _ => (
-                rect_path("Rectangle", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
-                "rect",
-                true,
-                None,
-            ),
-        };
-        let live_vector = matches!(kind.as_str(), "live" | "polygon" | "gradient");
-        let content = ShapeContent {
-            path,
-            filled,
-            stroked: true,
-            kind: kind_key.into(),
-            live_vector,
-            gradient,
-            ..ShapeContent::default()
-        };
+        let content = preset.content(doc_w, doc_h);
         match self.invoke_command(
             command_id::SHAPE_CREATE,
             CommandArgs::ShapeCreate {

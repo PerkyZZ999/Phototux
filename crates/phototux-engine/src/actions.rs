@@ -1611,6 +1611,7 @@ mod tests {
     use super::*;
     use crate::command_id;
     use crate::selection::{SelectionModifyOp, parse_selection_modify_arg};
+    use crate::shape_preset::ShapePreset;
     use std::collections::HashSet;
 
     /// Enablement is resolved per action per binding evaluation, so the lookup
@@ -1837,6 +1838,39 @@ mod tests {
             assert!(
                 reached.contains(&op),
                 "no action reaches SelectionModifyOp::{op:?} — it exists but the user cannot invoke it"
+            );
+        }
+    }
+
+    /// Same pairing as the selection ops, for the Layer menu's shape entries.
+    /// Since an unknown kind now creates nothing at all, a registry arg that
+    /// stopped parsing would be a menu entry that quietly does nothing.
+    #[test]
+    fn shape_create_actions_name_a_known_preset() {
+        let creates: Vec<_> = default_actions()
+            .into_iter()
+            .filter(|a| a.host_op.as_deref() == Some("shape.create"))
+            .collect();
+        assert!(
+            !creates.is_empty(),
+            "no action routes to shape.create — the host op id moved and this test went blind"
+        );
+
+        let mut reached = Vec::new();
+        for action in &creates {
+            let arg = action
+                .arg
+                .as_deref()
+                .unwrap_or_else(|| panic!("{} routes to shape.create with no kind", action.id));
+            let preset = ShapePreset::parse(arg)
+                .unwrap_or_else(|| panic!("{} carries {arg:?}, which names no shape", action.id));
+            reached.push(preset);
+        }
+
+        for preset in ShapePreset::ALL {
+            assert!(
+                reached.contains(&preset),
+                "no action reaches ShapePreset::{preset:?} — it exists but the user cannot create it"
             );
         }
     }
