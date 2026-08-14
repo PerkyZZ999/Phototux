@@ -202,6 +202,10 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
     }
 }
 
+/// Smallest a legacy v1 asset record can be: a `u64` id and a `u32` length,
+/// before any payload.
+const MIN_V1_ASSET_BYTES: usize = 8 + 4;
+
 fn decode_ptx_v1_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
     let mut cursor = 0usize;
     let manifest_len = read_u32(body, &mut cursor)? as usize;
@@ -210,6 +214,19 @@ fn decode_ptx_v1_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
     let manifest: PtxManifest = serde_json::from_slice(&manifest_json)?;
 
     let asset_count = read_u32(body, &mut cursor)? as usize;
+    // Bound the count by what the file could actually contain before reserving
+    // for it. The value is four attacker-controlled bytes, and every asset
+    // costs at least a `u64` id and a `u32` length, so a file claiming four
+    // billion assets is describing something it cannot hold. Reserving on the
+    // claim first would attempt a multi-gigabyte allocation and abort long
+    // before the first short read reported the truncation.
+    let max_possible = body.len().saturating_sub(cursor) / MIN_V1_ASSET_BYTES;
+    if asset_count > max_possible {
+        return Err(PtxError::Corrupt(format!(
+            "asset count {asset_count} exceeds what {} remaining bytes can hold",
+            body.len().saturating_sub(cursor)
+        )));
+    }
     let mut assets = HashMap::with_capacity(asset_count);
     for _ in 0..asset_count {
         let id = read_u64(body, &mut cursor)?;
@@ -608,6 +625,78 @@ mod tests {
     fn rejects_bad_magic() {
         let err = decode_ptx(b"notptx!!........").expect_err("magic");
         assert!(matches!(err, PtxError::BadMagic));
+    }
+
+    /// A legacy body claiming more assets than its bytes could hold must be
+    /// refused, not reserved for.
+    ///
+    /// `asset_count` is four attacker-controlled bytes that used to size a
+    /// `HashMap` directly, so this file would have attempted a multi-gigabyte
+    /// allocation and aborted before the first short read reported the
+    /// truncation. The claim is now checked against what is actually left.
+    #[test]
+    fn a_v1_body_cannot_claim_more_assets_than_it_holds() {
+        let manifest_z = {
+            let graph = DocumentGraph::new(DocumentSize::new(1, 1));
+            let doc = PtxDocument::from_graph(graph, HashMap::new());
+            let mut manifest = doc.manifest.clone();
+            manifest.format_version = 1;
+            let json = serde_json::to_vec(&manifest).expect("manifest");
+            let mut z = Vec::new();
+            let mut enc = DeflateEncoder::new(&mut z, Compression::default());
+            enc.write_all(&json).expect("deflate");
+            enc.finish().expect("finish");
+            z
+        };
+        let mut body = Vec::new();
+        body.extend_from_slice(&(manifest_z.len() as u32).to_le_bytes());
+        body.extend_from_slice(&manifest_z);
+        // Four billion assets, and not one byte of asset data after it.
+        body.extend_from_slice(&u32::MAX.to_le_bytes());
+
+        let bytes = wrap_container(PTX_FORMAT_VERSION_V1, &body).expect("wrap");
+        let error = decode_ptx(&bytes).expect_err("must refuse the claim");
+        assert!(
+            matches!(&error, PtxError::Corrupt(m) if m.contains("asset count")),
+            "expected the count to be refused by name, got {error}"
+        );
+    }
+
+    /// The bound must not reject a file that is merely small but honest.
+    #[test]
+    fn a_v1_body_with_a_truthful_count_still_loads() {
+        let graph = DocumentGraph::new(DocumentSize::new(2, 1));
+        let id = graph.layers()[0].id.0;
+        let raster =
+            Raster::new(2, 1, vec![9, 8, 7, 255, 6, 5, 4, 255].into_boxed_slice()).expect("raster");
+        let doc = PtxDocument::from_graph(graph, HashMap::from([(id, raster.clone())]));
+        let bytes = legacy_v1_bytes(&doc, id, &raster);
+        let back = decode_ptx(&bytes).expect("decode v1");
+        assert_eq!(back.rasters.get(&id), Some(&raster));
+    }
+
+    /// Build a legacy v1 container holding exactly one asset.
+    fn legacy_v1_bytes(doc: &PtxDocument, id: u64, raster: &Raster) -> Vec<u8> {
+        let mut manifest = doc.manifest.clone();
+        manifest.format_version = 1;
+        let manifest_json = serde_json::to_vec(&manifest).expect("manifest");
+        let mut manifest_z = Vec::new();
+        {
+            let mut enc = DeflateEncoder::new(&mut manifest_z, Compression::default());
+            enc.write_all(&manifest_json).expect("deflate");
+            enc.finish().expect("finish");
+        }
+        let mut png = Vec::new();
+        let mut z = Vec::new();
+        encode_png_asset(&mut png, &mut z, raster).expect("png");
+        let mut body = Vec::new();
+        body.extend_from_slice(&(manifest_z.len() as u32).to_le_bytes());
+        body.extend_from_slice(&manifest_z);
+        body.extend_from_slice(&1u32.to_le_bytes());
+        body.extend_from_slice(&id.to_le_bytes());
+        body.extend_from_slice(&(z.len() as u32).to_le_bytes());
+        body.extend_from_slice(&z);
+        wrap_container(PTX_FORMAT_VERSION_V1, &body).expect("wrap")
     }
 
     #[test]
