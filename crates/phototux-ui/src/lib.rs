@@ -690,20 +690,44 @@ impl AppSession {
         self.brush_g = self.engine.brush_color[1];
         self.brush_b = self.engine.brush_color[2];
         self.fps = self.engine.fps;
-        self.composite_ms = self.engine.composite_ms;
+        publish!(
+            self,
+            composite_ms,
+            self.engine.composite_ms,
+            composite_ms_changed
+        );
         self.stroke_latency_ms = self.engine.stroke_latency_ms;
-        self.dirty_rect_json = match self.engine.dirty_rect {
-            Some([x, y, w, h]) => format!("[{x},{y},{w},{h}]"),
-            None => String::new(),
-        };
-        self.overlay_view_generation =
-            i32::try_from(self.engine.overlay_view_generation.min(i32::MAX as u64)).unwrap_or(0);
+        publish!(
+            self,
+            dirty_rect_json,
+            match self.engine.dirty_rect {
+                Some([x, y, w, h]) => format!("[{x},{y},{w},{h}]"),
+                None => String::new(),
+            },
+            dirty_rect_json_changed
+        );
+        publish!(
+            self,
+            overlay_view_generation,
+            i32::try_from(self.engine.overlay_view_generation.min(i32::MAX as u64)).unwrap_or(0),
+            overlay_view_generation_changed
+        );
         self.active_tool = self.engine.active_tool.clone();
         self.has_document = self.engine.has_document;
-        self.layer_count = self.engine.layer_count();
-        self.active_layer_index = self.engine.active_layer_index();
-        self.can_undo = self.engine.can_undo();
-        self.can_redo = self.engine.can_redo();
+        publish!(
+            self,
+            layer_count,
+            self.engine.layer_count(),
+            layer_count_changed
+        );
+        publish!(
+            self,
+            active_layer_index,
+            self.engine.active_layer_index(),
+            active_layer_index_changed
+        );
+        publish!(self, can_undo, self.engine.can_undo(), can_undo_changed);
+        publish!(self, can_redo, self.engine.can_redo(), can_redo_changed);
         publish!(
             self,
             layer_names,
@@ -749,54 +773,98 @@ impl AppSession {
         }) {
             self.engine.mask_edit_layer = None;
         }
-        self.mask_edit_active = matches!(
-            self.engine.paint_target(),
-            phototux_engine::PaintTarget::LayerMask
+        publish!(
+            self,
+            mask_edit_active,
+            matches!(
+                self.engine.paint_target(),
+                phototux_engine::PaintTarget::LayerMask
+            ),
+            mask_edit_active_changed
         );
-        let mask = self
+        // Read the six mask fields as one tuple rather than assigning each in
+        // both arms of an if/else. The no-mask defaults are the interesting
+        // half — they are what the panel shows for an unmasked layer — and
+        // stating them once beside the real values keeps the two arms honest.
+        let (density, feather, inverted, linked, contrast, shift) = self
             .engine
             .graph
             .as_ref()
             .and_then(|g| g.active_id().and_then(|id| g.get(id)))
-            .and_then(|l| l.mask.as_ref());
-        if let Some(m) = mask {
-            self.mask_density = m.density;
-            self.mask_feather = m.feather;
-            self.mask_inverted = m.inverted;
-            self.mask_linked = m.linked;
-            self.mask_contrast = m.contrast;
-            self.mask_shift = m.shift;
-        } else {
-            self.mask_density = 1.0;
-            self.mask_feather = 0.0;
-            self.mask_inverted = false;
-            self.mask_linked = true;
-            self.mask_contrast = 0.0;
-            self.mask_shift = 0.0;
-        }
-        self.edit_target = self.engine.edit_target_id().to_owned();
-        self.edit_target_label = self.engine.edit_target_label().to_owned();
+            .and_then(|l| l.mask.as_ref())
+            .map_or((1.0, 0.0, false, true, 0.0, 0.0), |m| {
+                (
+                    m.density, m.feather, m.inverted, m.linked, m.contrast, m.shift,
+                )
+            });
+        publish!(self, mask_density, density, mask_density_changed);
+        publish!(self, mask_feather, feather, mask_feather_changed);
+        publish!(self, mask_inverted, inverted, mask_inverted_changed);
+        publish!(self, mask_linked, linked, mask_linked_changed);
+        publish!(self, mask_contrast, contrast, mask_contrast_changed);
+        publish!(self, mask_shift, shift, mask_shift_changed);
+        publish!(
+            self,
+            edit_target,
+            self.engine.edit_target_id().to_owned(),
+            edit_target_changed
+        );
+        publish!(
+            self,
+            edit_target_label,
+            self.engine.edit_target_label().to_owned(),
+            edit_target_label_changed
+        );
         let idx = self.active_layer_index;
-        self.active_layer_kind = if idx >= 0 {
-            self.layer_kinds
-                .split('|')
-                .nth(idx as usize)
-                .unwrap_or("")
-                .to_owned()
-        } else {
-            String::new()
-        };
+        publish!(
+            self,
+            active_layer_kind,
+            if idx >= 0 {
+                self.layer_kinds
+                    .split('|')
+                    .nth(idx as usize)
+                    .unwrap_or("")
+                    .to_owned()
+            } else {
+                String::new()
+            },
+            active_layer_kind_changed
+        );
         self.publish_history_projection();
-        self.brush_preset_names = self.engine.brush_presets.names_joined();
-        if let Some(graph) = self.engine.graph.as_ref() {
-            self.soft_proof_profile = graph.color.soft_proof_profile.clone();
-            self.soft_proof_active = graph.color.soft_proof_active();
-            self.has_embedded_icc = graph.color.has_embedded_icc();
-        } else {
-            self.soft_proof_profile.clear();
-            self.soft_proof_active = false;
-            self.has_embedded_icc = false;
-        }
+        publish!(
+            self,
+            brush_preset_names,
+            self.engine.brush_presets.names_joined(),
+            brush_preset_names_changed
+        );
+        let (proof_profile, proof_active, embedded_icc) = self.engine.graph.as_ref().map_or_else(
+            || (String::new(), false, false),
+            |graph| {
+                (
+                    graph.color.soft_proof_profile.clone(),
+                    graph.color.soft_proof_active(),
+                    graph.color.has_embedded_icc(),
+                )
+            },
+        );
+        publish!(
+            self,
+            soft_proof_profile,
+            proof_profile,
+            soft_proof_profile_changed
+        );
+        publish!(
+            self,
+            soft_proof_active,
+            proof_active,
+            soft_proof_active_changed
+        );
+        publish!(
+            self,
+            has_embedded_icc,
+            embedded_icc,
+            has_embedded_icc_changed
+        );
         if publish!(
             self,
             accessibility_tree_json,
@@ -812,25 +880,47 @@ impl AppSession {
         }
         self.sync_selection_fields();
         self.sync_transform_fields();
-        self.document_path = self.engine.document_path.clone().unwrap_or_default();
-        self.graph_revision = self.engine.graph_revision() as i32;
+        publish!(
+            self,
+            document_path,
+            self.engine.document_path.clone().unwrap_or_default(),
+            document_path_changed
+        );
+        publish!(
+            self,
+            graph_revision,
+            self.engine.graph_revision() as i32,
+            graph_revision_changed
+        );
         let active_layer = self
             .engine
             .graph
             .as_ref()
             .and_then(|g| g.active_id().and_then(|id| g.get(id)));
-        self.active_opacity = active_layer.map(|l| l.opacity).unwrap_or(1.0);
-        self.active_blend = active_layer
-            .map(|l| l.blend.as_str().to_owned())
-            .unwrap_or_else(|| "normal".to_owned());
-        self.fill_color_hex = active_layer
-            .and_then(|l| l.fill.as_ref())
-            .map(|f| phototux_engine::ColorState::to_hex(f.color_rgba))
-            .unwrap_or_else(|| "#738CBF".to_owned());
+        let opacity = active_layer.map_or(1.0, |l| l.opacity);
+        let blend =
+            active_layer.map_or_else(|| "normal".to_owned(), |l| l.blend.as_str().to_owned());
+        let fill_hex = active_layer.and_then(|l| l.fill.as_ref()).map_or_else(
+            || "#738CBF".to_owned(),
+            |f| phototux_engine::ColorState::to_hex(f.color_rgba),
+        );
+        publish!(self, active_opacity, opacity, active_opacity_changed);
+        publish!(self, active_blend, blend, active_blend_changed);
+        publish!(self, fill_color_hex, fill_hex, fill_color_hex_changed);
         self.sync_inspector_mixed_fields();
         self.sync_color_fields();
-        self.viewport_width = self.engine.viewport_w;
-        self.viewport_height = self.engine.viewport_h;
+        publish!(
+            self,
+            viewport_width,
+            self.engine.viewport_w,
+            viewport_width_changed
+        );
+        publish!(
+            self,
+            viewport_height,
+            self.engine.viewport_h,
+            viewport_height_changed
+        );
         self.sync_adjustment_fields();
         self.sync_text_fields();
         self.sync_path_edit_fields();
@@ -839,7 +929,12 @@ impl AppSession {
         self.refresh_pref_effective_json();
         self.pref_effective_json_changed();
         self.refresh_inspector_badges();
-        self.status_text = self.engine.status_summary();
+        publish!(
+            self,
+            status_text,
+            self.engine.status_summary(),
+            status_text_changed
+        );
     }
 
     fn sync_color_fields(&mut self) {
@@ -1074,8 +1169,18 @@ impl AppSession {
 
     fn sync_inspector_mixed_fields(&mut self) {
         let Some(graph) = self.engine.graph.as_ref() else {
-            self.inspector_opacity_mixed = false;
-            self.inspector_blend_mixed = false;
+            publish!(
+                self,
+                inspector_opacity_mixed,
+                false,
+                inspector_opacity_mixed_changed
+            );
+            publish!(
+                self,
+                inspector_blend_mixed,
+                false,
+                inspector_blend_mixed_changed
+            );
             return;
         };
         let ids = if self.engine.selected_layer_ids.is_empty() {
@@ -1091,8 +1196,20 @@ impl AppSession {
             .iter()
             .filter_map(|id| graph.get(*id).map(|l| l.blend.as_str()))
             .collect();
-        self.inspector_opacity_mixed = phototux_engine::values_are_mixed(&opacities);
-        self.inspector_blend_mixed = phototux_engine::values_are_mixed(&blends);
+        let opacity_mixed = phototux_engine::values_are_mixed(&opacities);
+        let blend_mixed = phototux_engine::values_are_mixed(&blends);
+        publish!(
+            self,
+            inspector_opacity_mixed,
+            opacity_mixed,
+            inspector_opacity_mixed_changed
+        );
+        publish!(
+            self,
+            inspector_blend_mixed,
+            blend_mixed,
+            inspector_blend_mixed_changed
+        );
     }
 
     fn refresh_pref_effective_json(&mut self) {
@@ -1155,40 +1272,25 @@ impl AppSession {
         );
     }
 
+    /// Announce the fields that `sync_from_engine` does not publish itself.
+    ///
+    /// This was a hand-maintained list of every layer-adjacent property,
+    /// announced unconditionally on every edit — the twin of the assignment
+    /// list in `sync_from_engine`, and free to drift from it. Thirty-one of
+    /// them now publish where they are computed, so a value that did not move
+    /// no longer wakes its bindings; dragging the opacity slider used to fire
+    /// the whole list once per pointer sample.
+    ///
+    /// What remains is the properties whose value is not stored on the session
+    /// — computed getters and sub-emitters — which have nothing to compare
+    /// against and so must still announce blind.
     fn emit_layer_fields(&mut self) {
         self.sync_inspector_mixed_fields();
-        self.layer_count_changed();
-        self.active_layer_index_changed();
-        self.can_undo_changed();
-        self.can_redo_changed();
-        self.mask_edit_active_changed();
-        self.mask_density_changed();
-        self.mask_feather_changed();
-        self.mask_contrast_changed();
-        self.mask_shift_changed();
-        self.mask_inverted_changed();
-        self.mask_linked_changed();
-        self.edit_target_changed();
-        self.edit_target_label_changed();
-        self.active_layer_kind_changed();
-        self.brush_preset_names_changed();
-        self.soft_proof_profile_changed();
-        self.inspector_opacity_mixed_changed();
-        self.inspector_blend_mixed_changed();
-        self.soft_proof_active_changed();
-        self.has_embedded_icc_changed();
         self.emit_selection_fields();
         self.emit_transform_fields();
-        self.document_path_changed();
-        self.graph_revision_changed();
-        self.active_opacity_changed();
-        self.active_blend_changed();
         self.foreground_hex_changed();
         self.background_hex_changed();
-        self.fill_color_hex_changed();
         self.recent_colors_changed();
-        self.viewport_width_changed();
-        self.viewport_height_changed();
         self.brush_color_changed();
         self.adjustment_kind_changed();
         self.adjustment_p0_changed();
@@ -1197,14 +1299,10 @@ impl AppSession {
         self.has_gaussian_blur_changed();
         self.gaussian_radius_changed();
         self.effects_joined_changed();
-        self.composite_ms_changed();
-        self.status_text_changed();
         self.emit_text_fields();
         self.emit_path_edit_fields();
         self.emit_filter_preview_fields();
         self.emit_guides_fields();
-        self.dirty_rect_json_changed();
-        self.overlay_view_generation_changed();
     }
 
     fn build_accessibility_tree_json(&self) -> String {
@@ -2318,6 +2416,66 @@ mod tests {
     #[test]
     fn local_file_url_rejects_remote_hosts() {
         assert!(local_path("file://example.com/photo.png").is_err());
+    }
+
+    /// A field published conditionally must not also be announced blind.
+    ///
+    /// `publish!` exists to keep a property quiet when its value did not move.
+    /// An unconditional `x_changed()` for the same field in `emit_layer_fields`
+    /// undoes that entirely — the notify fires anyway, so the guard buys
+    /// nothing while looking like it works. That is the exact shape of the
+    /// drift this pairing was introduced to end, and it is invisible at the
+    /// call site because the two halves sit hundreds of lines apart.
+    ///
+    /// Reading the source is what makes them comparable: both halves are
+    /// macro-expanded or generated, so there is no runtime handle to assert
+    /// against.
+    #[test]
+    fn published_fields_are_not_also_announced_unconditionally() {
+        let source = include_str!("lib.rs");
+
+        let body = source
+            .split_once("fn emit_layer_fields(&mut self) {")
+            .expect("emit_layer_fields exists")
+            .1;
+        let body = body.split_once("\n    }").expect("function closes").0;
+
+        let announced: Vec<&str> = body
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("self.")?
+                    .strip_suffix("_changed();")
+            })
+            .collect();
+        assert!(
+            !announced.is_empty(),
+            "emit_layer_fields announces nothing — the parse broke, not the invariant"
+        );
+
+        let published: Vec<&str> = source
+            .split("publish!(")
+            .skip(1)
+            .filter_map(|rest| {
+                let after_self = rest.split_once("self,")?.1;
+                Some(after_self.split(',').next()?.trim())
+            })
+            .collect();
+        assert!(
+            !published.is_empty(),
+            "no publish! sites found — parse broke"
+        );
+
+        let both: Vec<&str> = announced
+            .iter()
+            .copied()
+            .filter(|field| published.contains(field))
+            .collect();
+        assert!(
+            both.is_empty(),
+            "these fields publish conditionally and then announce anyway, \
+             which defeats the guard: {both:?}"
+        );
     }
 
     /// Handbook 28: group registration order is stable and MUST NOT be
