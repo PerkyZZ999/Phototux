@@ -24,6 +24,7 @@ mod guides;
 mod history;
 mod host_request;
 mod layer;
+mod layer_row;
 mod layer_style;
 mod paths;
 mod render_plan;
@@ -87,6 +88,7 @@ pub use layer::{
     LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget,
     ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent, VectorMask,
 };
+pub use layer_row::{LayerRow, layer_rows};
 pub use layer_style::{LayerStyle, apply_styles_rgba8};
 pub use paths::{
     PathDocument, PathPoint, VectorPath, ellipse_path, fill_gradient_even_odd, polygon_path,
@@ -580,52 +582,49 @@ impl SessionState {
         self.pixel_publisher.latest()
     }
 
-    /// Layer names bottom→top, joined for QML (pipe-separated).
-    pub fn layer_names_joined(&self) -> String {
+    /// The active layer, if there is a document and it has one.
+    fn active_layer(&self) -> Option<&crate::layer::Layer> {
         self.graph
             .as_ref()
-            .map(|g| {
-                g.layers()
-                    .iter()
-                    .map(|l| l.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join("|")
-            })
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+    }
+
+    /// Mask state of the active layer: `0` none, `1` enabled, `2` disabled.
+    ///
+    /// A scalar because the shell only ever wanted this one layer's flag. It
+    /// used to reach it by splitting the whole stack's flags in QML and
+    /// indexing by the active index — three chances to be wrong (a stale
+    /// string, an index past the end, a silent `0` fallback) for a value the
+    /// session can simply answer.
+    #[must_use]
+    pub fn active_mask_flag(&self) -> i32 {
+        self.active_layer().map_or(0, |l| i32::from(l.mask_flag()))
+    }
+
+    /// Whether the active layer clips to the one below it.
+    #[must_use]
+    pub fn active_layer_clips(&self) -> bool {
+        self.active_layer().is_some_and(|l| l.clips_to_below)
+    }
+
+    /// The active layer's kind (`raster`, `text`, …), empty when there is none.
+    #[must_use]
+    pub fn active_layer_kind(&self) -> String {
+        self.active_layer()
+            .map(|l| l.kind.as_str().to_owned())
             .unwrap_or_default()
     }
 
-    /// Visibility flags as "1|0|1".
-    pub fn layer_visibility_joined(&self) -> String {
+    /// The layers panel's rows, top of the stack first.
+    ///
+    /// Empty when there is no document — the panel shows nothing, rather than
+    /// a stack of one placeholder. A graph that exists always has at least one
+    /// layer, so this is the only way the list is empty.
+    #[must_use]
+    pub fn layer_rows(&self) -> Vec<LayerRow> {
         self.graph
             .as_ref()
-            .map(|g| {
-                g.layers()
-                    .iter()
-                    .map(|l| if l.visible { "1" } else { "0" })
-                    .collect::<Vec<_>>()
-                    .join("|")
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn layer_kinds_joined(&self) -> String {
-        self.graph
-            .as_ref()
-            .map(|g| g.layer_kinds_joined())
-            .unwrap_or_default()
-    }
-
-    pub fn layer_mask_flags_joined(&self) -> String {
-        self.graph
-            .as_ref()
-            .map(|g| g.layer_mask_flags_joined())
-            .unwrap_or_default()
-    }
-
-    pub fn layer_clips_joined(&self) -> String {
-        self.graph
-            .as_ref()
-            .map(|g| g.layer_clips_joined())
+            .map(|g| layer_rows(g, &self.selected_layer_ids))
             .unwrap_or_default()
     }
 
@@ -644,25 +643,6 @@ impl SessionState {
             .effects
             .iter()
             .map(|e| format!("{}:{}:{}", e.id, e.name, if e.enabled { "1" } else { "0" }))
-            .collect::<Vec<_>>()
-            .join("|")
-    }
-
-    /// Object-selection flags as `"1|0|1"` aligned with stack order.
-    pub fn layer_selection_joined(&self) -> String {
-        let Some(graph) = self.graph.as_ref() else {
-            return String::new();
-        };
-        graph
-            .layers()
-            .iter()
-            .map(|l| {
-                if self.selected_layer_ids.contains(&l.id) {
-                    "1"
-                } else {
-                    "0"
-                }
-            })
             .collect::<Vec<_>>()
             .join("|")
     }
@@ -786,17 +766,15 @@ impl SessionState {
             return "PhotoTux — create or open a document".to_owned();
         }
         let layers = self.layer_count();
-        let idx = self.active_layer_index();
-        let names = self.layer_names_joined();
-        let kinds = self.layer_kinds_joined();
-        let layer_name = names
-            .split('|')
-            .nth(idx as usize)
+        // Read the active layer rather than joining every layer's name and
+        // kind into two strings in order to index one entry out of each.
+        let active = self.active_layer();
+        let layer_name = active
+            .map(|l| l.name.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("—");
-        let layer_kind = kinds
-            .split('|')
-            .nth(idx as usize)
+        let layer_kind = active
+            .map(|l| l.kind.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("?");
         let edit = self.edit_target_label();
@@ -878,7 +856,9 @@ mod tests {
         let mut session = SessionState::default();
         session.apply_flattened(DocumentSize::new(640, 480), "photo.png");
         assert_eq!(session.layer_count(), 1);
-        assert_eq!(session.layer_names_joined(), "photo.png");
+        let rows = session.layer_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "photo.png");
     }
 
     #[test]

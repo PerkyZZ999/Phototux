@@ -20,35 +20,29 @@ ApplicationWindow {
            : qsTr("PhotoTux")
     color: Theme.neutral
     property string pendingDestructiveAction: ""
-    readonly property var layerMaskFlagParts: AppSession.layerMaskFlags.length > 0
-                                             ? AppSession.layerMaskFlags.split("|") : []
-    readonly property var layerClipParts: AppSession.layerClips.length > 0
-                                         ? AppSession.layerClips.split("|") : []
-    readonly property var layerNameParts: AppSession.layerNames.length > 0
-                                         ? AppSession.layerNames.split("|") : []
-    readonly property var layerVisParts: AppSession.layerVisibility.length > 0
-                                        ? AppSession.layerVisibility.split("|") : []
-    readonly property var layerSelParts: AppSession.layerSelection.length > 0
-                                        ? AppSession.layerSelection.split("|") : []
     readonly property var historyLabelParts: AppSession.historyLabels.length > 0
                                             ? AppSession.historyLabels.split("|") : []
     readonly property var historyKindParts: AppSession.historyKinds.length > 0
                                            ? AppSession.historyKinds.split("|") : []
     readonly property var historyIdParts: AppSession.historyEntryIds.length > 0
                                          ? AppSession.historyEntryIds.split("|") : []
-    readonly property int activeMaskFlag: AppSession.activeLayerIndex >= 0
-                                         && AppSession.activeLayerIndex < layerMaskFlagParts.length
-                                         ? Number(layerMaskFlagParts[AppSession.activeLayerIndex]) : 0
+    // The session answers for the active layer directly. These used to split
+    // the whole stack's flags and index by activeLayerIndex, which could read
+    // past the end of a string that had not caught up yet and silently report
+    // "no mask" for a layer that had one.
+    // Read once here so delegates can read it from QML instead of from the
+    // host. A model's dataChanged reaches its view synchronously, and the
+    // session emits those updates from inside a slot that still holds itself
+    // borrowed — so a delegate binding that reads `AppSession.x` directly is
+    // a re-entrant borrow and aborts the process. Going through a root
+    // property makes the host read happen on AppSession's own notify, which
+    // Qt evaluates lazily, outside the borrow.
+    readonly property bool maskEditActive: AppSession.maskEditActive
+    readonly property int activeMaskFlag: AppSession.activeMaskFlag
     readonly property bool activeLayerHasMask: activeMaskFlag !== 0
     readonly property bool activeMaskEnabled: activeMaskFlag === 1
-    readonly property bool activeLayerClips: AppSession.activeLayerIndex >= 0
-                                            && AppSession.activeLayerIndex < layerClipParts.length
-                                            && layerClipParts[AppSession.activeLayerIndex] === "1"
-    readonly property var layerKindParts: AppSession.layerKinds.length > 0
-                                         ? AppSession.layerKinds.split("|") : []
-    readonly property string activeLayerKind: AppSession.activeLayerIndex >= 0
-                                             && AppSession.activeLayerIndex < layerKindParts.length
-                                             ? layerKindParts[AppSession.activeLayerIndex] : ""
+    readonly property bool activeLayerClips: AppSession.activeLayerClips
+    readonly property string activeLayerKind: AppSession.activeLayerKind
     readonly property var guidesModel: {
         try {
             return JSON.parse(AppSession.guidesJson || "[]")
@@ -599,8 +593,15 @@ ApplicationWindow {
     readonly property color surfaceOverlay: Theme.surfaceOverlay
     readonly property color border: Theme.border
 
+    // Cached rather than read through to the host on every call. `iconUrl` is
+    // called from delegate bindings, which re-evaluate when a model row
+    // changes — and the session emits those changes while it still holds
+    // itself borrowed, so reading `AppSession.iconRoot` from inside a delegate
+    // binding is a re-entrant borrow and aborts the process. The asset root
+    // does not change at runtime, so caching it costs nothing.
+    readonly property string iconRoot: AppSession.iconRoot
     function iconUrl(stem) {
-        return Theme.iconUrl(AppSession.iconRoot, stem)
+        return Theme.iconUrl(root.iconRoot, stem)
     }
 
     function docToScreenX(docX) {
@@ -3531,31 +3532,34 @@ ApplicationWindow {
                         spacing: 0
                         reuseItems: true
                         cacheBuffer: Theme.toolHit * 4
-                        model: AppSession.layerCount
+                        model: AppSession.layerModel
                         delegate: Rectangle {
                             width: layerList.width
                             height: 36
-                            readonly property int stackIndex: AppSession.layerCount - 1 - index
-                            readonly property string layerName: stackIndex >= 0 && stackIndex < root.layerNameParts.length
-                                ? root.layerNameParts[stackIndex] : ""
-                            readonly property string layerKind: stackIndex >= 0 && stackIndex < root.layerKindParts.length
-                                ? root.layerKindParts[stackIndex] : "raster"
-                            readonly property bool layerVis: stackIndex >= 0 && stackIndex < root.layerVisParts.length
-                                ? root.layerVisParts[stackIndex] === "1" : true
-                            readonly property int maskFlag: stackIndex >= 0 && stackIndex < root.layerMaskFlagParts.length
-                                ? Number(root.layerMaskFlagParts[stackIndex]) : 0
-                            readonly property bool hasMask: maskFlag !== 0
-                            readonly property bool maskEnabled: maskFlag === 1
-                            readonly property bool clipsToBelow: stackIndex >= 0 && stackIndex < root.layerClipParts.length
-                                ? root.layerClipParts[stackIndex] === "1" : false
-                            readonly property bool isSelected: stackIndex >= 0 && stackIndex < root.layerSelParts.length
-                                ? root.layerSelParts[stackIndex] === "1" : false
-                            readonly property bool isActive: AppSession.activeLayerIndex === stackIndex
-                            color: isActive || isSelected ? Theme.surfaceRaised
+
+                            // Roles from AppSession.layerModel. Names are the
+                            // model item's field names verbatim — the derive
+                            // does not camel-case them — so they read as
+                            // snake_case here and nowhere else in this file.
+                            required property string name
+                            required property string kind
+                            required property bool layer_visible
+                            required property int mask_flag
+                            required property bool clips_to_below
+                            required property bool selected
+                            required property bool active
+                            // Index in the engine's bottom→top order, for the
+                            // commands that take one. Rows arrive already in
+                            // display order, so nothing here inverts an index.
+                            required property int stack_index
+
+                            readonly property bool hasMask: mask_flag !== 0
+                            readonly property bool maskEnabled: mask_flag === 1
+                            color: active || selected ? Theme.surfaceRaised
                                    : (layerHover.hovered ? Theme.surfaceContainer : "transparent")
-                            border.color: isActive ? Theme.primary
-                                          : (isSelected ? Theme.primaryHover : "transparent")
-                            border.width: (isActive || isSelected) ? 1 : 0
+                            border.color: active ? Theme.primary
+                                          : (selected ? Theme.primaryHover : "transparent")
+                            border.width: (active || selected) ? 1 : 0
 
                             ToolButton {
                                 id: layerVisButton
@@ -3566,7 +3570,7 @@ ApplicationWindow {
                                 implicitWidth: 22
                                 implicitHeight: 22
                                 flat: true
-                                icon.source: root.iconUrl(layerVis ? "eye" : "eye-slash")
+                                icon.source: root.iconUrl(layer_visible ? "eye" : "eye-slash")
                                 icon.width: 16
                                 icon.height: 16
                                 contentItem: ThemedIcon {
@@ -3579,10 +3583,10 @@ ApplicationWindow {
                                     radius: Theme.radiusXs
                                     color: layerVisButton.hovered ? Theme.surfaceContainerHigh : "transparent"
                                 }
-                                onClicked: AppSession.toggleLayerVisible(stackIndex)
-                                Accessible.name: layerVis
-                                                 ? qsTr("Hide %1").arg(layerName)
-                                                 : qsTr("Show %1").arg(layerName)
+                                onClicked: AppSession.toggleLayerVisible(stack_index)
+                                Accessible.name: layer_visible
+                                                 ? qsTr("Hide %1").arg(name)
+                                                 : qsTr("Show %1").arg(name)
                                 ToolTip.visible: hovered
                                 ToolTip.text: Accessible.name
                             }
@@ -3603,11 +3607,11 @@ ApplicationWindow {
                                     border.color: Theme.border
                                     Label {
                                         anchors.centerIn: parent
-                                        text: layerKind === "group" ? "G"
-                                              : (layerKind === "text" ? "T"
-                                              : (layerKind === "adjustment" ? "A"
-                                              : (layerKind === "fill" ? "F"
-                                              : (layerKind === "shape" ? "S" : ""))))
+                                        text: kind === "group" ? "G"
+                                              : (kind === "text" ? "T"
+                                              : (kind === "adjustment" ? "A"
+                                              : (kind === "fill" ? "F"
+                                              : (kind === "shape" ? "S" : ""))))
                                         color: Theme.colorOnSurfaceVariant
                                         font.pixelSize: 9
                                     }
@@ -3619,9 +3623,9 @@ ApplicationWindow {
                                     Layout.preferredHeight: 24
                                     radius: Theme.radiusXs
                                     color: maskEnabled ? Theme.surfaceRaised : Theme.surfaceSunken
-                                    border.color: AppSession.maskEditActive && isActive
+                                    border.color: root.maskEditActive && active
                                                   ? Theme.primary : Theme.border
-                                    border.width: AppSession.maskEditActive && isActive ? 2 : 1
+                                    border.width: root.maskEditActive && active ? 2 : 1
                                     z: 2
                                     Label {
                                         anchors.centerIn: parent
@@ -3634,7 +3638,7 @@ ApplicationWindow {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            AppSession.setActiveLayer(stackIndex)
+                                            AppSession.setActiveLayer(stack_index)
                                             AppSession.setMaskEditTarget(true)
                                         }
                                         ToolTip.visible: containsMouse
@@ -3653,7 +3657,7 @@ ApplicationWindow {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            AppSession.setActiveLayer(stackIndex)
+                                            AppSession.setActiveLayer(stack_index)
                                             AppSession.setMaskEnabledOnActive(!maskEnabled)
                                         }
                                         ToolTip.visible: containsMouse
@@ -3664,7 +3668,7 @@ ApplicationWindow {
                                 }
 
                                 ThemedIcon {
-                                    visible: clipsToBelow
+                                    visible: clips_to_below
                                     source: root.iconUrl("arrow-elbow-down-right")
                                     size: 14
                                     color: Theme.primary
@@ -3676,8 +3680,8 @@ ApplicationWindow {
 
                                 Label {
                                     Layout.fillWidth: true
-                                    text: layerName
-                                    color: isActive ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant
+                                    text: name
+                                    color: active ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant
                                     font.pixelSize: Theme.fontBodySm
                                     elide: Text.ElideRight
                                 }
@@ -3693,14 +3697,14 @@ ApplicationWindow {
                                     var ctrl = (mouse.modifiers & Qt.ControlModifier)
                                                || (mouse.modifiers & Qt.MetaModifier)
                                     var shift = !!(mouse.modifiers & Qt.ShiftModifier)
-                                    AppSession.selectLayerClick(stackIndex, ctrl, shift)
+                                    AppSession.selectLayerClick(stack_index, ctrl, shift)
                                     if (mouse.button === Qt.RightButton) {
-                                        layerContextMenu.targetIndex = stackIndex
+                                        layerContextMenu.targetIndex = stack_index
                                         root.openContextMenu(layerContextMenu, this, mouse.x, mouse.y)
                                     }
                                 }
                                 onPressAndHold: {
-                                    layerContextMenu.targetIndex = stackIndex
+                                    layerContextMenu.targetIndex = stack_index
                                     root.openContextMenu(layerContextMenu, this, width / 2, height / 2)
                                 }
                             }

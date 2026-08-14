@@ -4,6 +4,7 @@ mod clipboard;
 mod display_icc;
 mod file_worker;
 mod fonts;
+mod layer_model;
 mod prefs;
 
 use std::collections::HashMap;
@@ -142,12 +143,13 @@ pub struct AppSession {
     active_layer_index: i32,
     can_undo: bool,
     can_redo: bool,
-    layer_names: String,
-    layer_visibility: String,
-    layer_kinds: String,
-    layer_mask_flags: String,
-    layer_clips: String,
-    layer_selection: String,
+    /// The layers panel's rows. Owned here and handed to QML as a property;
+    /// see `layer_model` for why this replaced six index-aligned strings.
+    layer_model: std::rc::Rc<std::cell::RefCell<crate::layer_model::LayerListModel>>,
+    /// Mask state of the active layer only: 0 none, 1 enabled, 2 disabled.
+    active_mask_flag: i32,
+    /// Whether the active layer clips to the one below it.
+    active_layer_clips: bool,
     mask_edit_active: bool,
     mask_density: f32,
     mask_feather: f32,
@@ -392,12 +394,9 @@ impl AppSession {
             active_layer_index: -1,
             can_undo: false,
             can_redo: false,
-            layer_names: String::new(),
-            layer_visibility: String::new(),
-            layer_kinds: String::new(),
-            layer_mask_flags: String::new(),
-            layer_clips: String::new(),
-            layer_selection: String::new(),
+            layer_model: <crate::layer_model::LayerListModel as qtbridge::QObjectHolder>::default_with_attached_qobject(),
+            active_mask_flag: 0,
+            active_layer_clips: false,
             mask_edit_active: false,
             mask_density: 1.0,
             mask_feather: 0.0,
@@ -728,41 +727,27 @@ impl AppSession {
         );
         publish!(self, can_undo, self.engine.can_undo(), can_undo_changed);
         publish!(self, can_redo, self.engine.can_redo(), can_redo_changed);
-        publish!(
-            self,
-            layer_names,
-            self.engine.layer_names_joined(),
-            layer_names_changed
+        // The model notifies Qt itself, per row, so there is no property to
+        // publish here — only rows to bring up to date.
+        crate::layer_model::apply_rows(
+            &self.layer_model,
+            self.engine
+                .layer_rows()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         );
         publish!(
             self,
-            layer_visibility,
-            self.engine.layer_visibility_joined(),
-            layer_visibility_changed
+            active_mask_flag,
+            self.engine.active_mask_flag(),
+            active_mask_flag_changed
         );
         publish!(
             self,
-            layer_kinds,
-            self.engine.layer_kinds_joined(),
-            layer_kinds_changed
-        );
-        publish!(
-            self,
-            layer_mask_flags,
-            self.engine.layer_mask_flags_joined(),
-            layer_mask_flags_changed
-        );
-        publish!(
-            self,
-            layer_clips,
-            self.engine.layer_clips_joined(),
-            layer_clips_changed
-        );
-        publish!(
-            self,
-            layer_selection,
-            self.engine.layer_selection_joined(),
-            layer_selection_changed
+            active_layer_clips,
+            self.engine.active_layer_clips(),
+            active_layer_clips_changed
         );
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
@@ -815,19 +800,10 @@ impl AppSession {
             self.engine.edit_target_label().to_owned(),
             edit_target_label_changed
         );
-        let idx = self.active_layer_index;
         publish!(
             self,
             active_layer_kind,
-            if idx >= 0 {
-                self.layer_kinds
-                    .split('|')
-                    .nth(idx as usize)
-                    .unwrap_or("")
-                    .to_owned()
-            } else {
-                String::new()
-            },
+            self.engine.active_layer_kind(),
             active_layer_kind_changed
         );
         self.publish_history_projection();
@@ -1775,14 +1751,7 @@ impl AppSession {
     }
 
     fn active_layer_has_mask(&self) -> bool {
-        let idx = self.active_layer_index;
-        if idx < 0 {
-            return false;
-        }
-        self.layer_mask_flags
-            .split('|')
-            .nth(idx as usize)
-            .is_some_and(|f| f != "0" && !f.is_empty())
+        self.active_mask_flag != 0
     }
 
     fn action_enablement(&self, tag: &str) -> bool {
@@ -2583,34 +2552,19 @@ impl AppSession {
     qproperty!("canUndo", Member = can_undo, Notify = can_undo_changed);
     qproperty!("canRedo", Member = can_redo, Notify = can_redo_changed);
     qproperty!(
-        "layerNames",
-        Member = layer_names,
-        Notify = layer_names_changed
+        "layerModel",
+        Member = layer_model,
+        Notify = layer_model_changed
     );
     qproperty!(
-        "layerVisibility",
-        Member = layer_visibility,
-        Notify = layer_visibility_changed
+        "activeMaskFlag",
+        Member = active_mask_flag,
+        Notify = active_mask_flag_changed
     );
     qproperty!(
-        "layerKinds",
-        Member = layer_kinds,
-        Notify = layer_kinds_changed
-    );
-    qproperty!(
-        "layerMaskFlags",
-        Member = layer_mask_flags,
-        Notify = layer_mask_flags_changed
-    );
-    qproperty!(
-        "layerClips",
-        Member = layer_clips,
-        Notify = layer_clips_changed
-    );
-    qproperty!(
-        "layerSelection",
-        Member = layer_selection,
-        Notify = layer_selection_changed
+        "activeLayerClips",
+        Member = active_layer_clips,
+        Notify = active_layer_clips_changed
     );
     qproperty!(
         "maskEditActive",
@@ -3299,18 +3253,16 @@ impl AppSession {
     fn can_undo_changed(&mut self);
     #[qsignal]
     fn can_redo_changed(&mut self);
+    /// The model object itself never changes identity — it is created once and
+    /// lives as long as the session — so this fires only to satisfy the
+    /// property declaration. Row changes reach QML through the model's own
+    /// signals, which is the point of having one.
     #[qsignal]
-    fn layer_names_changed(&mut self);
+    fn layer_model_changed(&mut self);
     #[qsignal]
-    fn layer_visibility_changed(&mut self);
+    fn active_mask_flag_changed(&mut self);
     #[qsignal]
-    fn layer_kinds_changed(&mut self);
-    #[qsignal]
-    fn layer_mask_flags_changed(&mut self);
-    #[qsignal]
-    fn layer_clips_changed(&mut self);
-    #[qsignal]
-    fn layer_selection_changed(&mut self);
+    fn active_layer_clips_changed(&mut self);
     #[qsignal]
     fn mask_edit_active_changed(&mut self);
     #[qsignal]

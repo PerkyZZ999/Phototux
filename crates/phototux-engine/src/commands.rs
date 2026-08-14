@@ -3092,11 +3092,11 @@ mod tests {
         assert!(s.can_undo());
         // Object selection must track the newly active layer (checklist §5.1).
         let active_name = s
-            .layer_names_joined()
-            .split('|')
-            .nth(s.active_layer_index() as usize)
-            .unwrap_or("")
-            .to_owned();
+            .layer_rows()
+            .into_iter()
+            .find(|row| row.active)
+            .map(|row| row.name)
+            .unwrap_or_default();
         assert_eq!(s.object_selection_names_joined(), active_name);
         assert!(
             s.status_summary()

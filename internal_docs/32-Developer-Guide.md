@@ -318,6 +318,16 @@ Violating this is not a recoverable error. The exclusive-access check fails and 
 
 Notification handlers that only assign presentation properties are unaffected; the contract governs calls back into the host.
 
+### Item models are the synchronous case
+
+Property change notifications are the forgiving half of this. A presentation binding that merely *reads* host state may be re-evaluated after the slot returns, so reading is normally safe even though the notification was raised inside one.
+
+Item models are not. A model's row-change notification reaches its view synchronously, and the view evaluates its delegates' bindings during that notification — still inside the slot that updated the rows. A delegate binding that reads a host property therefore re-enters the host and aborts the process, exactly as a synchronous mutating call would.
+
+A delegate in a host-driven model view **MUST NOT** read host state in a binding. It **MUST** take per-row values as model roles, and anything else through a presentation property on an ancestor, which caches the host read on the host's own notification. Delegate handlers driven by user input are unaffected and may call host slots directly.
+
+The indirection is easy to lose by accident: a helper function called from a delegate binding counts as a binding read, even though its body is somewhere else entirely. The layers panel hit precisely this — its icon helper resolved an asset root from the host, so an eye icon crashed the process on the first visibility toggle after the panel became model-driven.
+
 ## Error Model
 
 Errors identify category, stable code, operation/scope, preserved state, retry safety, field details, and correlation ID. Categories include invalid input, unavailable target, stale/version conflict, capability/permission, lifecycle, unsupported feature, resource pressure, external service, codec/format, extension, device, and invariant.
