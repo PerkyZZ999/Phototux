@@ -4,6 +4,7 @@
 mod tests {
     use crate::command_id;
     use crate::command_meta;
+    use crate::command_meta::{CommandScope, MutationClass};
     use crate::layer_style::LayerStyle;
     use crate::{CommandArgs, SessionState, SizePreset};
 
@@ -31,24 +32,104 @@ mod tests {
         }
     }
 
+    /// Arguments good enough to invoke each non-document command once.
+    ///
+    /// Every command whose taxonomy says it does not touch the document has to
+    /// appear here, and the test below fails if one does not — otherwise adding
+    /// a view command would quietly opt it out of the check it is supposed to
+    /// satisfy.
+    fn args_for(id: &str) -> CommandArgs {
+        match id {
+            command_id::VIEW_ZOOM_TO => CommandArgs::Zoom { zoom: 2.0 },
+            command_id::VIEW_PAN_TO => CommandArgs::Pan {
+                world_x: 10.0,
+                world_y: 12.0,
+            },
+            command_id::VIEW_PAN_BY => CommandArgs::PanBy { dx: 4.0, dy: 6.0 },
+            command_id::VIEW_ZOOM_AT => CommandArgs::ZoomAt {
+                factor: 1.25,
+                anchor_x: 100.0,
+                anchor_y: 80.0,
+            },
+            command_id::VIEW_SET_TOOL => CommandArgs::Tool {
+                tool: crate::tool_id::ERASER.to_owned(),
+            },
+            command_id::FILTER_PREVIEW => CommandArgs::FilterPreview {
+                kind: "gaussian-blur".to_owned(),
+            },
+            command_id::FILTER_SET_PREVIEW_PARAMS => CommandArgs::FilterPreviewParams {
+                p0: 4.0,
+                p1: 0.0,
+                p2: 0.0,
+            },
+            command_id::WORKSPACE_TOGGLE_PANEL => CommandArgs::TogglePanel {
+                panel_id: "panel.layers".to_owned(),
+            },
+            command_id::WORKSPACE_APPLY_PRESET => CommandArgs::ApplyWorkspacePreset {
+                preset_id: "workspace.preset.compact".to_owned(),
+            },
+            _ => CommandArgs::None,
+        }
+    }
+
+    /// A command that claims not to touch the document must not touch it.
+    ///
+    /// This used to invoke three hand-picked commands. Twelve claim view or
+    /// workspace scope, so nine of them were asserting nothing, and
+    /// `CommandScope` and `MutationClass` were read by no code at all —
+    /// declared for every command and believed on trust. That is the shape that
+    /// let `UndoPolicy::Mergeable` sit unimplemented for as long as it did.
+    ///
+    /// Driving the loop off the taxonomy makes the declaration a claim the
+    /// suite checks: mark a command ephemeral and it must leave the generation
+    /// and the dirty flag alone, or this fails naming it.
     #[test]
-    fn view_and_workspace_commands_do_not_dirty_document() {
+    fn commands_that_claim_not_to_touch_the_document_do_not() {
+        let non_document: Vec<&'static str> = command_meta::ALL
+            .iter()
+            .filter(|m| {
+                m.mutation == MutationClass::Ephemeral || m.scope == CommandScope::Workspace
+            })
+            .map(|m| m.id)
+            .collect();
+        assert!(
+            non_document.len() >= 12,
+            "expected the view and workspace commands to be declared as such, found {}",
+            non_document.len()
+        );
+
+        for id in non_document {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            let generation_before = session.document_generation();
+            let dirty_before = session.is_dirty_vs_persisted();
+
+            // A refusal is fine — some need a document state this fixture does
+            // not set up. What is not fine is succeeding and dirtying anyway.
+            let _ = session.invoke(id, args_for(id));
+
+            assert_eq!(
+                session.document_generation(),
+                generation_before,
+                "{id} is declared not to touch the document but bumped its generation"
+            );
+            assert_eq!(
+                session.is_dirty_vs_persisted(),
+                dirty_before,
+                "{id} is declared not to touch the document but marked it dirty"
+            );
+        }
+    }
+
+    /// Soft-proof is document-scoped chrome: it changes what the canvas shows
+    /// without editing pixels, so it keeps its own case rather than being
+    /// folded into the taxonomy loop above.
+    #[test]
+    fn soft_proof_changes_display_without_dirtying() {
         let mut session = SessionState::default();
         session.apply_preset(SizePreset::P720);
         let generation_before = session.document_generation();
         let dirty = session.is_dirty_vs_persisted();
-
-        session
-            .invoke(command_id::VIEW_ZOOM_TO_FIT, CommandArgs::None)
-            .expect("zoom fit");
-        session
-            .invoke(
-                command_id::WORKSPACE_APPLY_PRESET,
-                CommandArgs::ApplyWorkspacePreset {
-                    preset_id: "workspace.preset.compact".into(),
-                },
-            )
-            .expect("preset");
         session
             .invoke(
                 command_id::DOCUMENT_SET_SOFT_PROOF,
@@ -58,7 +139,6 @@ mod tests {
                 },
             )
             .expect("soft proof");
-
         assert_eq!(session.document_generation(), generation_before);
         assert_eq!(session.is_dirty_vs_persisted(), dirty);
         assert!(
