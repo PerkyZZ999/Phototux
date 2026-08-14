@@ -204,23 +204,48 @@ impl SizePreset {
 
 /// Tool ids aligned with `assets/icons/ICON_MAP.md`.
 pub mod tool_id {
-    pub const BRUSH: &str = "tool.brush";
-    pub const ERASER: &str = "tool.eraser";
-    pub const PAN: &str = "tool.pan";
-    pub const ZOOM: &str = "tool.zoom";
-    pub const SELECT_RECT: &str = "tool.select.rect";
-    pub const SELECT_ELLIPSE: &str = "tool.select.ellipse";
-    pub const SELECT_LASSO: &str = "tool.select.lasso";
-    pub const SELECT_POLYGON: &str = "tool.select.polygon";
-    pub const MOVE: &str = "tool.move";
-    pub const TRANSFORM: &str = "tool.transform";
-    pub const CROP: &str = "tool.crop";
-    pub const FILL: &str = "tool.fill";
-    pub const GRADIENT: &str = "tool.gradient";
-    pub const EYEDROPPER: &str = "tool.eyedropper";
-    pub const TEXT: &str = "tool.text";
-    pub const SHAPE: &str = "tool.shape";
-    pub const PATH_EDIT: &str = "tool.path-edit";
+    /// Declares each tool constant and the [`ALL`] table from one list.
+    ///
+    /// The host has to reject ids it does not recognise, and it used to do
+    /// that by restating all seventeen constants in a `matches!`. Two lists of
+    /// the same thing drift: a tool added to the module but not the match
+    /// would be silently replaced by the brush at the moment the user picked
+    /// it. Generating both from one place removes the second list rather than
+    /// testing that it agrees.
+    macro_rules! tools {
+        ($($name:ident => $id:literal),+ $(,)?) => {
+            $(pub const $name: &str = $id;)+
+
+            /// Every tool id this build knows, in declaration order.
+            pub const ALL: &[&str] = &[$($id),+];
+        };
+    }
+
+    tools! {
+        BRUSH => "tool.brush",
+        ERASER => "tool.eraser",
+        PAN => "tool.pan",
+        ZOOM => "tool.zoom",
+        SELECT_RECT => "tool.select.rect",
+        SELECT_ELLIPSE => "tool.select.ellipse",
+        SELECT_LASSO => "tool.select.lasso",
+        SELECT_POLYGON => "tool.select.polygon",
+        MOVE => "tool.move",
+        TRANSFORM => "tool.transform",
+        CROP => "tool.crop",
+        FILL => "tool.fill",
+        GRADIENT => "tool.gradient",
+        EYEDROPPER => "tool.eyedropper",
+        TEXT => "tool.text",
+        SHAPE => "tool.shape",
+        PATH_EDIT => "tool.path-edit",
+    }
+
+    /// Whether `id` names a tool this build ships.
+    #[must_use]
+    pub fn is_known(id: &str) -> bool {
+        ALL.contains(&id)
+    }
 }
 
 /// Session state: camera + document graph + unified history.

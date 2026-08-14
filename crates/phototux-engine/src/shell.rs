@@ -500,6 +500,27 @@ mod tests {
         assert!(select < paint, "selection must precede the paint family");
     }
 
+    /// The rail and the vocabulary are separate lists that must describe the
+    /// same set of tools. Each direction fails differently and neither is
+    /// visible from the other file, so both are asserted here.
+    #[test]
+    fn the_tool_rail_and_the_tool_vocabulary_describe_the_same_tools() {
+        let tools = default_tools();
+        let ids: Vec<&str> = tools.iter().map(|t| t.id.as_str()).collect();
+        for id in crate::tool_id::ALL {
+            assert!(
+                ids.contains(id),
+                "{id} is a known tool with no rail entry — nothing can select it"
+            );
+        }
+        for id in &ids {
+            assert!(
+                crate::tool_id::is_known(id),
+                "the rail offers {id}, which the host does not recognise and would replace with the brush"
+            );
+        }
+    }
+
     #[test]
     fn disclosure_group_ids_are_unique_and_levelled() {
         let groups = default_disclosure_groups();

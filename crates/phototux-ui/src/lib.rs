@@ -2467,6 +2467,44 @@ mod tests {
             "Properties group order diverged from the disclosure registry"
         );
     }
+
+    /// QML names tools by string, and `set_active_tool` answers an unknown one
+    /// by quietly activating the brush. That fallback is right for a wiring
+    /// bug and terrible as a way to find one: a mistyped id in a rail button
+    /// or a tool predicate looks like a tool that just does not work, with
+    /// nothing logged. Reading the QML is the only way to compare the two
+    /// vocabularies — one side is a declarative binding.
+    #[test]
+    fn every_tool_named_in_the_qml_shell_is_a_tool_the_host_knows() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
+        let mut checked = 0_usize;
+        for entry in std::fs::read_dir(dir).expect("read qml/") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read qml file");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            for id in source.split("\"tool.").skip(1).filter_map(|rest| {
+                let id = rest.split('"').next()?;
+                // `tool.activate` is a host op, not a tool; the ids this test
+                // is about never contain a further quote or a space.
+                (!id.contains(' ') && id != "activate").then_some(id)
+            }) {
+                let full = format!("tool.{id}");
+                assert!(
+                    phototux_engine::tool_id::is_known(&full),
+                    "{name} names {full:?}, which the host does not know — \
+                     selecting it silently activates the brush"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "no tool ids found in qml/ — the parse broke, not the invariant"
+        );
+    }
 }
 
 #[qobject(Singleton, ConvertToCamelCase)]
@@ -4348,27 +4386,11 @@ impl AppSession {
 
     #[qslot]
     fn set_active_tool(&mut self, tool: String) {
-        let known = matches!(
-            tool.as_str(),
-            tool_id::BRUSH
-                | tool_id::ERASER
-                | tool_id::PAN
-                | tool_id::ZOOM
-                | tool_id::SELECT_RECT
-                | tool_id::SELECT_ELLIPSE
-                | tool_id::SELECT_LASSO
-                | tool_id::SELECT_POLYGON
-                | tool_id::MOVE
-                | tool_id::TRANSFORM
-                | tool_id::CROP
-                | tool_id::FILL
-                | tool_id::GRADIENT
-                | tool_id::EYEDROPPER
-                | tool_id::TEXT
-                | tool_id::SHAPE
-                | tool_id::PATH_EDIT
-        );
-        let id = if known {
+        // An unrecognised id falls back rather than being refused: this is the
+        // shell's own tool rail talking, so a miss is a wiring bug, and leaving
+        // the user with no active tool would be worse than the brush. The
+        // engine-side tests keep a shipped id from ever reaching the fallback.
+        let id = if tool_id::is_known(&tool) {
             tool
         } else {
             tool_id::BRUSH.to_owned()
