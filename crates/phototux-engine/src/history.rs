@@ -191,7 +191,14 @@ impl HistoryService {
         let entry = self.undo.pop()?;
         match entry.kind {
             HistoryKind::Graph => {
-                let _ = self.graph.undo(graph);
+                // The timeline and the graph command stack have to move
+                // together. If the graph step did not land, advancing the
+                // timeline anyway would leave the two describing different
+                // documents, so put the entry back and report nothing undone.
+                if !self.graph.undo(graph) {
+                    self.undo.push(entry);
+                    return None;
+                }
             }
             HistoryKind::Stroke | HistoryKind::Selection | HistoryKind::Transform => {}
         }
@@ -205,7 +212,10 @@ impl HistoryService {
         let entry = self.redo.pop()?;
         match entry.kind {
             HistoryKind::Graph => {
-                let _ = self.graph.redo(graph);
+                if !self.graph.redo(graph) {
+                    self.redo.push(entry);
+                    return None;
+                }
             }
             HistoryKind::Stroke | HistoryKind::Selection | HistoryKind::Transform => {}
         }

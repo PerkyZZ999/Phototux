@@ -122,89 +122,97 @@ pub enum GraphCommand {
 }
 
 impl GraphCommand {
-    pub fn apply(&self, graph: &mut DocumentGraph) {
+    /// Apply this command to `graph`, reporting whether it landed.
+    ///
+    /// Every mutation below can miss: the graph accessors return `None` when
+    /// the target layer is gone, and this used to discard that. A command that
+    /// silently did nothing left the document diverged from what history said
+    /// about it, with no way for the caller to notice — the failure was
+    /// unrepresentable, because `apply` returned `()`.
+    ///
+    /// A [`Self::Batch`] reports false if *any* member missed. A partially
+    /// applied batch is exactly the case worth surfacing: the entry claims to
+    /// be one atomic step.
+    #[must_use]
+    pub fn apply(&self, graph: &mut DocumentGraph) -> bool {
         match self {
             Self::AddLayer { index, layer, .. } => {
                 graph.insert_layer_at(*index, layer.clone());
+                true
             }
-            Self::DeleteLayer { id, .. } => {
-                let _ = graph.remove_layer(*id);
-            }
-            Self::MoveLayer { id, to, .. } => {
-                let _ = graph.move_layer(*id, *to);
-            }
-            Self::SetVisibility { id, next, .. } => {
-                let _ = graph.set_visibility(*id, *next);
-            }
-            Self::SetOpacity { id, next, .. } => {
-                let _ = graph.set_opacity(*id, *next);
-            }
-            Self::SetBlend { id, next, .. } => {
-                let _ = graph.set_blend(*id, *next);
-            }
-            Self::Rename { id, next, .. } => {
-                let _ = graph.rename(*id, next.clone());
-            }
+            Self::DeleteLayer { id, .. } => graph.remove_layer(*id).is_some(),
+            Self::MoveLayer { id, to, .. } => graph.move_layer(*id, *to).is_some(),
+            Self::SetVisibility { id, next, .. } => graph.set_visibility(*id, *next).is_some(),
+            Self::SetOpacity { id, next, .. } => graph.set_opacity(*id, *next).is_some(),
+            Self::SetBlend { id, next, .. } => graph.set_blend(*id, *next).is_some(),
+            Self::Rename { id, next, .. } => graph.rename(*id, next.clone()).is_some(),
             Self::SetActive { next, .. } => match next {
-                Some(id) => {
-                    let _ = graph.set_active(*id);
+                Some(id) => graph.set_active(*id),
+                None => {
+                    graph.clear_active();
+                    true
                 }
-                None => graph.clear_active(),
             },
-            Self::SetMask { id, next, .. } => {
-                let _ = graph.set_mask(*id, next.clone());
-            }
-            Self::SetLocks { id, next, .. } => {
-                if let Some(layer) = graph.get_mut(*id) {
+            Self::SetMask { id, next, .. } => graph.set_mask(*id, next.clone()).is_some(),
+            Self::SetLocks { id, next, .. } => match graph.get_mut(*id) {
+                Some(layer) => {
                     layer.locks = *next;
                     layer.locked = next.all;
+                    true
                 }
-            }
+                None => false,
+            },
             Self::SetClipsToBelow { id, next, .. } => {
-                let _ = graph.set_clips_to_below(*id, *next);
+                graph.set_clips_to_below(*id, *next).is_some()
             }
             Self::SetAdjustment { id, next, .. } => {
-                let _ = graph.set_adjustment(*id, next.clone());
+                graph.set_adjustment(*id, next.clone()).is_some()
             }
-            Self::SetEffects { id, next, .. } => {
-                let _ = graph.set_effects(*id, next.clone());
-            }
-            Self::SetFill { id, next, .. } => {
-                let _ = graph.set_fill(*id, next.clone());
-            }
-            Self::SetShape { id, next, .. } => {
-                if let Some(layer) = graph.get_mut(*id) {
+            Self::SetEffects { id, next, .. } => graph.set_effects(*id, next.clone()).is_some(),
+            Self::SetFill { id, next, .. } => graph.set_fill(*id, next.clone()).is_some(),
+            Self::SetShape { id, next, .. } => match graph.get_mut(*id) {
+                Some(layer) => {
                     layer.shape = next.clone();
+                    true
                 }
-            }
-            Self::SetFilterPlan { id, next, .. } => {
-                if let Some(layer) = graph.get_mut(*id) {
+                None => false,
+            },
+            Self::SetFilterPlan { id, next, .. } => match graph.get_mut(*id) {
+                Some(layer) => {
                     layer.filter_plan = next.clone();
+                    true
                 }
-            }
+                None => false,
+            },
             Self::SetPaths { next, .. } => {
                 graph.paths = next.clone();
+                true
             }
-            Self::SetStyles { id, next, .. } => {
-                if let Some(layer) = graph.get_mut(*id) {
+            Self::SetStyles { id, next, .. } => match graph.get_mut(*id) {
+                Some(layer) => {
                     layer.styles = next.clone();
+                    true
                 }
-            }
-            Self::SetVectorMask { id, next, .. } => {
-                if let Some(layer) = graph.get_mut(*id) {
+                None => false,
+            },
+            Self::SetVectorMask { id, next, .. } => match graph.get_mut(*id) {
+                Some(layer) => {
                     layer.vector_mask = next.clone();
+                    true
                 }
-            }
-            Self::SetParent { id, next, .. } => {
-                let _ = graph.set_parent(*id, *next);
-            }
-            Self::SetStackOrder { next, .. } => {
-                let _ = graph.reorder_stack(next);
-            }
+                None => false,
+            },
+            Self::SetParent { id, next, .. } => graph.set_parent(*id, *next).is_some(),
+            Self::SetStackOrder { next, .. } => graph.reorder_stack(next),
             Self::Batch(cmds) => {
+                // A loop rather than `all`: every member must be attempted, and
+                // short-circuiting would leave the rest of an atomic step
+                // unapplied on the first miss.
+                let mut applied = true;
                 for cmd in cmds {
-                    cmd.apply(graph);
+                    applied &= cmd.apply(graph);
                 }
+                applied
             }
         }
     }
@@ -453,23 +461,38 @@ impl UndoStack {
         self.redo.clear();
     }
 
+    /// Reverse the newest graph command.
+    ///
+    /// Returns false when there was nothing to reverse *or* when the reversal
+    /// did not land — the second case means the graph no longer contains what
+    /// the command described, and the caller must not treat the step as done.
     pub fn undo(&mut self, graph: &mut DocumentGraph) -> bool {
         let Some(cmd) = self.undo.pop() else {
             return false;
         };
         let inv = cmd.invert();
-        inv.apply(graph);
+        if !inv.apply(graph) {
+            // Put it back: a command that could not be reversed is still the
+            // newest thing done, and dropping it would strand the redo stack.
+            self.undo.push(cmd);
+            return false;
+        }
         // Restore active after delete invert special-case
         restore_prev_active_after_delete_undo(graph, &cmd);
         self.redo.push(cmd);
         true
     }
 
+    /// Reapply the newest undone graph command. See [`Self::undo`] for what a
+    /// false return means.
     pub fn redo(&mut self, graph: &mut DocumentGraph) -> bool {
         let Some(cmd) = self.redo.pop() else {
             return false;
         };
-        cmd.apply(graph);
+        if !cmd.apply(graph) {
+            self.redo.push(cmd);
+            return false;
+        }
         self.undo.push(cmd);
         true
     }
@@ -741,5 +764,133 @@ mod tests {
         }));
         h.undo_next(&mut g);
         assert!(g.get(id).unwrap().effects.is_empty());
+    }
+
+    /// A command whose target no longer exists must say so.
+    ///
+    /// `apply` used to return `()`, so every one of these misses was
+    /// unrepresentable: the graph accessor returned `None`, the arm discarded
+    /// it, and the caller had no way to learn the document did not change.
+    #[test]
+    fn applying_to_a_missing_layer_reports_failure() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(4, 4));
+        let ghost = LayerId(9_999);
+        let cases: Vec<GraphCommand> = vec![
+            GraphCommand::SetVisibility {
+                id: ghost,
+                prev: true,
+                next: false,
+            },
+            GraphCommand::SetOpacity {
+                id: ghost,
+                prev: 1.0,
+                next: 0.5,
+            },
+            GraphCommand::Rename {
+                id: ghost,
+                prev: "a".into(),
+                next: "b".into(),
+            },
+            GraphCommand::MoveLayer {
+                id: ghost,
+                from: 0,
+                to: 1,
+            },
+        ];
+        for cmd in cases {
+            assert!(
+                !cmd.apply(&mut graph),
+                "{cmd:?} claimed to apply to a layer that is not there"
+            );
+        }
+    }
+
+    /// The same commands must report success against a layer that is present,
+    /// or the check above would pass for the wrong reason.
+    #[test]
+    fn applying_to_a_present_layer_reports_success() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(4, 4));
+        let id = graph.layers()[0].id;
+        assert!(
+            GraphCommand::SetVisibility {
+                id,
+                prev: true,
+                next: false,
+            }
+            .apply(&mut graph)
+        );
+        assert!(
+            GraphCommand::Rename {
+                id,
+                prev: "a".into(),
+                next: "renamed".into(),
+            }
+            .apply(&mut graph)
+        );
+        assert_eq!(graph.get(id).expect("layer").name, "renamed");
+    }
+
+    /// A batch is one atomic step, so a member that misses fails the whole
+    /// thing — while the members that can apply still do.
+    #[test]
+    fn a_batch_reports_failure_but_still_applies_what_it_can() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(4, 4));
+        let id = graph.layers()[0].id;
+        let batch = GraphCommand::Batch(vec![
+            GraphCommand::Rename {
+                id,
+                prev: "a".into(),
+                next: "applied".into(),
+            },
+            GraphCommand::Rename {
+                id: LayerId(9_999),
+                prev: "x".into(),
+                next: "missed".into(),
+            },
+        ]);
+        assert!(
+            !batch.apply(&mut graph),
+            "a partial batch must report false"
+        );
+        assert_eq!(
+            graph.get(id).expect("layer").name,
+            "applied",
+            "the member that could apply still did"
+        );
+    }
+
+    /// The timeline must not advance past a graph step the stack cannot make.
+    ///
+    /// The two stacks have to move together; advancing the timeline when the
+    /// graph stack had nothing left them describing different documents, with
+    /// nothing able to notice.
+    #[test]
+    fn the_timeline_does_not_advance_when_the_graph_stack_is_empty() {
+        use crate::history::{HistoryKind, HistoryService};
+        let mut graph = DocumentGraph::new(DocumentSize::new(4, 4));
+        let mut history = HistoryService::new(16);
+        // A Graph entry on the timeline with no matching command on the stack.
+        history.push_graph_applied(
+            GraphCommand::SetPaths {
+                prev: Default::default(),
+                next: Default::default(),
+            },
+            "paths",
+            1,
+        );
+        history.graph_stack_mut().clear();
+
+        assert!(history.can_undo(), "the timeline still holds the entry");
+        assert_eq!(
+            history.undo_next(&mut graph),
+            None,
+            "an unmatched graph step must report nothing undone"
+        );
+        assert!(
+            history.can_undo(),
+            "and must leave the entry where it was rather than move it to redo"
+        );
+        assert!(!history.can_redo());
+        let _ = HistoryKind::Graph;
     }
 }
