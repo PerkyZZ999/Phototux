@@ -267,11 +267,14 @@ pub struct AppSession {
     worker: PaintWorker,
     file_worker: FileWorker,
     /// RGBA image clipboard (app-local; may also push OS image).
-    clipboard_rgba: Option<(u32, u32, Vec<u8>)>,
+    ///
+    /// Typed rather than a bare tuple so a buffer that does not match its own
+    /// dimensions cannot be stored — see `clipboard::ImagePayload`.
+    clipboard_rgba: Option<crate::clipboard::ImagePayload>,
     /// Selection coverage clipboard (R8, document-sized).
-    clipboard_selection_r8: Option<(u32, u32, Vec<u8>)>,
+    clipboard_selection_r8: Option<crate::clipboard::CoveragePayload>,
     /// Layer mask clipboard (R8, document-sized).
-    clipboard_mask_r8: Option<(u32, u32, Vec<u8>)>,
+    clipboard_mask_r8: Option<crate::clipboard::CoveragePayload>,
     selection_undo: Vec<SelectionSnapshot>,
     selection_redo: Vec<SelectionSnapshot>,
     transform_undo: Vec<TransformSnapshot>,
@@ -5409,13 +5412,16 @@ impl AppSession {
         let Ok((width, height, pixels)) = phototux_canvas::read_composite_rgba() else {
             return;
         };
-        if let Err(refusal) = crate::clipboard::accept_rgba(pixels.len()) {
-            self.status_text = refusal.message("Copy");
-            self.status_text_changed();
-            return;
-        }
-        let os_ok = Self::push_os_clipboard_rgba(width, height, &pixels).is_ok();
-        self.clipboard_rgba = Some((width, height, pixels));
+        let payload = match crate::clipboard::ImagePayload::new(width, height, pixels) {
+            Ok(payload) => payload,
+            Err(refusal) => {
+                self.status_text = refusal.message("Copy");
+                self.status_text_changed();
+                return;
+            }
+        };
+        let os_ok = Self::push_os_clipboard_rgba(&payload).is_ok();
+        self.clipboard_rgba = Some(payload);
         self.status_text = if os_ok {
             "Copied (app + system clipboard)".to_owned()
         } else {
@@ -5436,45 +5442,47 @@ impl AppSession {
         };
         let width = graph.size.width;
         let height = graph.size.height;
-        let px_count = (width as usize).saturating_mul(height as usize);
-        if r8.len() != px_count {
+
+        // Validate both buffers against the document before either is used.
+        // The masking loop below indexes `pixels` by `r8`'s length, so their
+        // agreement is a precondition of that loop rather than a policy check
+        // that could be deferred to the payload constructors.
+        let Ok(coverage) = crate::clipboard::CoveragePayload::new(width, height, r8) else {
             self.status_text = "Copy selection failed: size mismatch".to_owned();
             self.status_text_changed();
             return;
-        }
-        if let Err(refusal) = crate::clipboard::accept_rgba(r8.len()) {
-            self.status_text = refusal.message("Copy");
-            self.status_text_changed();
-            return;
-        }
-
+        };
         let rgba_result = self
             .active_id()
             .and_then(|id| phototux_canvas::read_layer_rgba(id).ok())
             .or_else(|| phototux_canvas::read_composite_rgba().ok());
-        let Some((rw, rh, mut pixels)) = rgba_result else {
+        let Some((rw, rh, pixels)) = rgba_result else {
             // Coverage-only fallback so Paste as Selection still works.
             self.copy_selection_mask();
             return;
         };
-        if rw != width || rh != height || pixels.len() != px_count.saturating_mul(4) {
+        let (Ok(image), true) = (
+            crate::clipboard::ImagePayload::new(rw, rh, pixels),
+            coverage.fits(rw, rh),
+        ) else {
             self.copy_selection_mask();
             return;
-        }
-        if let Err(refusal) = crate::clipboard::accept_rgba(pixels.len()) {
-            self.status_text = refusal.message("Copy");
-            self.status_text_changed();
-            return;
-        }
+        };
 
-        for (i, &cov) in r8.iter().enumerate() {
+        // Both now describe the same document, so one coverage byte lines up
+        // with one pixel's alpha.
+        let mut pixels = image.rgba().to_vec();
+        for (i, &cov) in coverage.coverage().iter().enumerate() {
             let a = u16::from(pixels[i * 4 + 3]);
             pixels[i * 4 + 3] = ((a * u16::from(cov)) / 255) as u8;
         }
-
-        let os_ok = Self::push_os_clipboard_rgba(width, height, &pixels).is_ok();
-        self.clipboard_selection_r8 = Some((width, height, r8));
-        self.clipboard_rgba = Some((width, height, pixels));
+        let Ok(image) = crate::clipboard::ImagePayload::new(width, height, pixels) else {
+            self.copy_selection_mask();
+            return;
+        };
+        let os_ok = Self::push_os_clipboard_rgba(&image).is_ok();
+        self.clipboard_selection_r8 = Some(coverage);
+        self.clipboard_rgba = Some(image);
         self.engine.announce("Selection copied");
         self.status_text = if os_ok {
             "Copied selection pixels (app + system clipboard)".to_owned()
@@ -5499,15 +5507,16 @@ impl AppSession {
         let height = graph.size.height;
         // Size ceiling and coverage shape are one question: does this buffer
         // describe this document, and may we hold it.
-        if let Err(refusal) = crate::clipboard::accept_coverage(r8.len(), width, height) {
-            self.status_text = refusal.message("Copy");
-            self.status_text_changed();
-            return;
-        }
-        // OS preview: grayscale RGBA so external apps see coverage.
-        let rgba = crate::clipboard::coverage_to_gray_rgba(&r8);
-        let os_ok = Self::push_os_clipboard_rgba(width, height, &rgba).is_ok();
-        self.clipboard_selection_r8 = Some((width, height, r8));
+        let coverage = match crate::clipboard::CoveragePayload::new(width, height, r8) {
+            Ok(coverage) => coverage,
+            Err(refusal) => {
+                self.status_text = refusal.message("Copy");
+                self.status_text_changed();
+                return;
+            }
+        };
+        let os_ok = Self::push_os_clipboard_gray(&coverage).is_ok();
+        self.clipboard_selection_r8 = Some(coverage);
         self.engine.announce("Selection copied");
         self.status_text = if os_ok {
             "Copied selection (app + system grayscale)".to_owned()
@@ -5544,14 +5553,18 @@ impl AppSession {
             self.status_text_changed();
             return;
         };
-        if let Err(refusal) = crate::clipboard::accept_rgba(r8.len()) {
-            self.status_text = refusal.message("Copy");
-            self.status_text_changed();
-            return;
-        }
-        let rgba = crate::clipboard::coverage_to_gray_rgba(&r8);
-        let os_ok = Self::push_os_clipboard_rgba(width, height, &rgba).is_ok();
-        self.clipboard_mask_r8 = Some((width, height, r8));
+        // Coverage, not an image: this validates the buffer describes *this*
+        // document, which the ceiling check that used to stand here did not.
+        let coverage = match crate::clipboard::CoveragePayload::new(width, height, r8) {
+            Ok(coverage) => coverage,
+            Err(refusal) => {
+                self.status_text = refusal.message("Copy");
+                self.status_text_changed();
+                return;
+            }
+        };
+        let os_ok = Self::push_os_clipboard_gray(&coverage).is_ok();
+        self.clipboard_mask_r8 = Some(coverage);
         self.engine.announce("Layer mask copied");
         self.status_text = if os_ok {
             "Copied layer mask (app + system grayscale)".to_owned()
@@ -5564,7 +5577,7 @@ impl AppSession {
 
     #[qslot]
     fn paste_selection_mask(&mut self) {
-        let Some((width, height, r8)) = self
+        let Some(coverage) = self
             .clipboard_selection_r8
             .clone()
             .or_else(|| self.clipboard_mask_r8.clone())
@@ -5575,14 +5588,17 @@ impl AppSession {
         let Some(graph) = self.engine.graph.as_ref() else {
             return;
         };
-        if width != graph.size.width || height != graph.size.height {
+        // One question, not two: the payload already guarantees its buffer
+        // matches its own dimensions, so this only asks whether those are the
+        // open document's.
+        if !coverage.fits(graph.size.width, graph.size.height) {
             self.fail_io(
                 "Paste selection",
                 "clipboard mask size does not match document",
             );
             return;
         }
-        if let Err(error) = phototux_canvas::selection_restore(&r8) {
+        if let Err(error) = phototux_canvas::selection_restore(coverage.coverage()) {
             self.report_gpu("paste selection", &error);
             return;
         }
@@ -5597,7 +5613,7 @@ impl AppSession {
 
     #[qslot]
     fn paste_layer_mask(&mut self) {
-        let Some((width, height, r8)) = self
+        let Some(coverage) = self
             .clipboard_mask_r8
             .clone()
             .or_else(|| self.clipboard_selection_r8.clone())
@@ -5612,7 +5628,7 @@ impl AppSession {
         let Some(graph) = self.engine.graph.as_ref() else {
             return;
         };
-        if width != graph.size.width || height != graph.size.height {
+        if !coverage.fits(graph.size.width, graph.size.height) {
             self.fail_io("Paste mask", "clipboard mask size does not match document");
             return;
         }
@@ -5631,7 +5647,7 @@ impl AppSession {
             self.report_gpu("paste mask ensure", &error);
             return;
         }
-        if let Err(error) = phototux_canvas::write_mask_r8(id, &r8) {
+        if let Err(error) = phototux_canvas::write_mask_r8(id, coverage.coverage()) {
             self.report_gpu("paste mask upload", &error);
             return;
         }
@@ -5644,24 +5660,39 @@ impl AppSession {
         self.publish_announcement();
     }
 
-    fn push_os_clipboard_rgba(width: u32, height: u32, pixels: &[u8]) -> Result<(), String> {
+    fn push_os_clipboard_rgba(image: &crate::clipboard::ImagePayload) -> Result<(), String> {
         let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
         clipboard
             .set_image(arboard::ImageData {
-                width: width as usize,
-                height: height as usize,
-                bytes: std::borrow::Cow::Borrowed(pixels),
+                width: image.width() as usize,
+                height: image.height() as usize,
+                bytes: std::borrow::Cow::Borrowed(image.rgba()),
             })
             .map_err(|e| e.to_string())
     }
 
-    fn pull_os_clipboard_rgba() -> Option<(u32, u32, Vec<u8>)> {
+    /// Push coverage to the OS as a greyscale image, so external apps see it.
+    fn push_os_clipboard_gray(coverage: &crate::clipboard::CoveragePayload) -> Result<(), String> {
+        let preview = crate::clipboard::ImagePayload::new(
+            coverage.width(),
+            coverage.height(),
+            coverage.to_gray_rgba(),
+        )
+        .map_err(|refusal| refusal.message("Copy"))?;
+        Self::push_os_clipboard_rgba(&preview)
+    }
+
+    /// Read an image from the OS clipboard, if it is one we may carry.
+    ///
+    /// Anything the OS offers is untrusted: the dimensions and the buffer come
+    /// from another process and need not agree, so this validates rather than
+    /// assuming.
+    fn pull_os_clipboard_rgba() -> Option<crate::clipboard::ImagePayload> {
         let mut clipboard = arboard::Clipboard::new().ok()?;
         let img = clipboard.get_image().ok()?;
         let width = u32::try_from(img.width).ok()?;
         let height = u32::try_from(img.height).ok()?;
-        crate::clipboard::accept_rgba(img.bytes.len()).ok()?;
-        Some((width, height, img.bytes.into_owned()))
+        crate::clipboard::ImagePayload::new(width, height, img.bytes.into_owned()).ok()
     }
 
     #[qslot]
@@ -5776,11 +5807,22 @@ impl AppSession {
             .clipboard_rgba
             .clone()
             .or_else(Self::pull_os_clipboard_rgba);
-        let Some((width, height, pixels)) = payload else {
+        let Some(image) = payload else {
             self.fail_io("Paste", "clipboard empty");
             return;
         };
-        let _ = (width, height);
+        // Checked before the command runs. The upload is validated at the GPU
+        // too, but by then the paste has already committed a layer — the user
+        // was left with an empty "Pasted" layer and a texture error instead of
+        // a refusal.
+        let Some(size) = self.engine.graph.as_ref().map(|g| g.size) else {
+            self.fail_io("Paste", "no document");
+            return;
+        };
+        if !image.fits(size.width, size.height) {
+            self.fail_io("Paste", "clipboard image size does not match document");
+            return;
+        }
         match self.invoke_command(
             command_id::CLIPBOARD_PASTE_LAYER,
             CommandArgs::PasteLayer {
@@ -5789,7 +5831,7 @@ impl AppSession {
         ) {
             Ok(()) => {
                 if let Some(id) = self.engine.graph.as_ref().and_then(|g| g.active_id()) {
-                    if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+                    if let Err(error) = phototux_canvas::write_layer_rgba(id, image.rgba()) {
                         self.report_gpu("paste upload", &error);
                         return;
                     }
