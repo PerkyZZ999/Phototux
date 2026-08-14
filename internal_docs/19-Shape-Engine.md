@@ -171,6 +171,15 @@ Parameters define units, finite ranges, clamping/rejection, orientation, degener
 
 Editing primitive handles updates parameters, not converted path points. `shape.convert-primitive-to-path` is a command preserving appearance and creating editable path segments; history retains primitive. Operations unsupported parametrically may offer conversion preview, never automatic hidden conversion.
 
+### Starting geometry for a new shape layer
+
+What "New Rectangle" actually creates is `phototux_engine::ShapePreset` (`shape_preset.rs`), one variant per menu entry, next to the path helpers it calls. Two properties hold for every preset and are asserted rather than assumed:
+
+- **Every dimension is a fraction of the document.** A preset that used absolute pixels would open too small to grab on a 4K canvas and off-canvas on a small one. The tests state this as "doubling the document doubles the shape" plus a minimum fraction of the smaller dimension — the proportionality half is what catches a size that was clamped to a constant, which a "did it enclose anything" check passes.
+- **An unknown kind creates nothing.** `ShapePreset::parse` returns `Option` with no fallback, unlike [`tool_id::is_known`](32-Developer-Guide.md#shared-vocabularies), which does fall back. Picking an unknown *tool* would leave the user with no tool; creating an unrequested *layer* is a document mutation they then have to notice and undo, so making nothing is the recoverable answer.
+
+`kind_key` is deliberately not `as_str`: a gradient and a live rectangle both record `rect`, since they are rectangles differing only in what decorates them.
+
 ## Geometry Hierarchy and Boolean Operations
 
 Geometry tree permits ordered groups and boolean nodes. Boolean record references child geometry under containment, not arbitrary document objects, unless future typed reference semantics exist. Operations:

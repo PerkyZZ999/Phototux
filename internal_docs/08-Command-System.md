@@ -19,6 +19,13 @@ Direct mutation of the authoritative document graph from widgets, panels, tools,
 | **Host I/O adapters** | File dialogs, open/save/export workers, GPU document open sync | Lifecycle / async-job; taxonomy may name them later without forcing a full persistence bus today |
 | **Telemetry / shell** | Viewport size, FPS, status text | Non-authoritative |
 
+An ephemeral draft is still edited state and gets the same input discipline as a command's arguments, because it reaches the renderer before any command sees it. The worked example is `LayerTransform::with_usable_scale`, which every free-transform draft passes through:
+
+- **Clamp a scale by magnitude, never by value.** `scale.max(MIN)` silently rectifies a negative to a positive — a mirrored layer unmirroring on the first drag. `scale.abs().max(MIN).copysign(scale)` keeps the direction. Under aspect constraint, both axes take the shared magnitude and keep their own signs.
+- **Reject non-finite explicitly.** `f32::max` happens to swallow NaN but passes infinity straight through, and an infinite scale reaches `forward_affine` as a singular matrix that `inverse_affine` replaces with the identity — a transform that looks discarded rather than rejected.
+
+Neither case is producible by the shipped gizmo. Both are representable in a `.ptx` layer transform, which is the reason they are handled at all.
+
 ## Responsibilities
 
 The command system **MUST**:
