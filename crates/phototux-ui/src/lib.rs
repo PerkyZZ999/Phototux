@@ -7,6 +7,7 @@ mod fonts;
 mod history_model;
 mod layer_model;
 mod prefs;
+mod selection_path;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,6 +26,7 @@ use phototux_engine::{
     ellipse_path, parse_selection_modify_arg, polygon_path, rect_path, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
+use selection_path::PathVerdict;
 
 #[derive(Clone)]
 struct SelectionSnapshot {
@@ -5262,24 +5264,6 @@ impl AppSession {
         self.selection_path_active_changed();
     }
 
-    fn parse_selection_path(points: &str) -> Vec<(f32, f32)> {
-        let mut out = Vec::new();
-        for part in points.split('|') {
-            let mut xy = part.split(',');
-            let (Some(xs), Some(ys)) = (xy.next(), xy.next()) else {
-                continue;
-            };
-            let Ok(x) = xs.trim().parse::<f32>() else {
-                continue;
-            };
-            let Ok(y) = ys.trim().parse::<f32>() else {
-                continue;
-            };
-            out.push((x, y));
-        }
-        out
-    }
-
     #[qslot]
     fn select_rect(&mut self, x: i32, y: i32, width: i32, height: i32, combine: String) {
         self.commit_selection_shape(
@@ -5319,16 +5303,14 @@ impl AppSession {
         if !self.engine.has_document {
             return;
         }
-        let parsed = Self::parse_selection_path(&points);
-        if parsed.len() < 3 {
+        let PathVerdict::Polygon(parsed) = selection_path::classify(&points) else {
+            // Every way a path can be unusable ends here: too few points, or
+            // points that enclose nothing. There is nothing to commit, so the
+            // in-progress path is dropped without a report.
             self.clear_selection_path();
             return;
-        }
+        };
         let mode = SelectionCombine::parse(&combine);
-        if SelectionState::polygon_bounds(&parsed).is_none() {
-            self.clear_selection_path();
-            return;
-        }
         self.commit_selection_edit("polygon selection", || {
             phototux_canvas::selection_apply_polygon(&parsed, mode)
         });
