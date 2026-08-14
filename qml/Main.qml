@@ -2830,33 +2830,16 @@ ApplicationWindow {
                         var _ = AppSession.dockTopologyJson
                         return root.autoHiddenPanels
                     }
-                    ToolButton {
-                        id: autoHidePinBtn
+                    ChromeIconToolButton {
                         required property string modelData
                         implicitWidth: Theme.panelHeaderBtn
                         implicitHeight: Theme.panelHeaderBtn
-                        padding: 0
-                        display: AbstractButton.IconOnly
                         icon.source: root.iconUrl(root.panelIconStem(modelData))
                         icon.width: Theme.iconMd
                         icon.height: Theme.iconMd
                         ToolTip.visible: hovered
                         ToolTip.text: qsTr("Show %1").arg(qsTr(root.panelTitle(modelData)))
                         Accessible.name: ToolTip.text
-                        contentItem: Item {
-                            implicitWidth: Theme.iconMd
-                            implicitHeight: Theme.iconMd
-                            ThemedIcon {
-                                anchors.centerIn: parent
-                                source: autoHidePinBtn.icon.source
-                                size: Theme.iconMd
-                                color: Theme.iconOnSurfaceEffective
-                            }
-                        }
-                        background: Rectangle {
-                            radius: Theme.radiusXs
-                            color: autoHidePinBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
-                        }
                         onClicked: AppSession.pinPanel(modelData)
                     }
                 }
@@ -3171,33 +3154,12 @@ ApplicationWindow {
                             onTearOffRequested: root.tearOffAndClamp("panel.swatches",
                                                                        root.x + root.width - 360, root.y + 160, 320, 280)
                         }
-                        ToolButton {
-                            id: swapFgBgBtn
+                        ChromeIconToolButton {
                             implicitWidth: Theme.panelHeaderBtn
                             implicitHeight: Theme.panelHeaderBtn
-                            padding: 0
-                            leftPadding: 0
-                            rightPadding: 0
-                            topPadding: 0
-                            bottomPadding: 0
-                            display: AbstractButton.IconOnly
                             icon.source: root.iconUrl("arrows-left-right")
                             icon.width: Theme.iconMd
                             icon.height: Theme.iconMd
-                            contentItem: Item {
-                                implicitWidth: Theme.iconMd
-                                implicitHeight: Theme.iconMd
-                                ThemedIcon {
-                                    anchors.centerIn: parent
-                                    source: swapFgBgBtn.icon.source
-                                    size: Theme.iconMd
-                                    color: swapFgBgBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                }
-                            }
-                            background: Rectangle {
-                                radius: Theme.radiusXs
-                                color: swapFgBgBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
-                            }
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Swap foreground / background")
                             Accessible.name: qsTr("Swap foreground / background")
@@ -3395,100 +3357,37 @@ ApplicationWindow {
                             onTearOffRequested: root.tearOffAndClamp("panel.layers",
                                                                        root.x + root.width - 360, root.y + 200, 320, 360)
                         }
-                        ToolButton {
-                            id: addLayerBtn
+                        ChromeIconToolButton {
                             implicitWidth: Theme.panelHeaderBtn
                             implicitHeight: Theme.panelHeaderBtn
-                            padding: 0
-                            leftPadding: 0
-                            rightPadding: 0
-                            topPadding: 0
-                            bottomPadding: 0
-                            display: AbstractButton.IconOnly
                             icon.source: root.iconUrl("plus")
                             icon.width: Theme.iconMd
                             icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument
-                            contentItem: Item {
-                                implicitWidth: Theme.iconMd
-                                implicitHeight: Theme.iconMd
-                                ThemedIcon {
-                                    anchors.centerIn: parent
-                                    source: addLayerBtn.icon.source
-                                    size: Theme.iconMd
-                                    color: addLayerBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                }
-                            }
-                            background: Rectangle {
-                                radius: Theme.radiusXs
-                                color: addLayerBtn.hovered && addLayerBtn.enabled ? Theme.surfaceContainerHigh : "transparent"
-                            }
                             onClicked: AppSession.addLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Add layer")
                             Accessible.name: qsTr("Add layer")
                         }
-                        ToolButton {
-                            id: addGroupBtn
+                        ChromeIconToolButton {
                             implicitWidth: Theme.panelHeaderBtn
                             implicitHeight: Theme.panelHeaderBtn
-                            padding: 0
-                            leftPadding: 0
-                            rightPadding: 0
-                            topPadding: 0
-                            bottomPadding: 0
-                            display: AbstractButton.IconOnly
                             icon.source: root.iconUrl("folder")
                             icon.width: Theme.iconMd
                             icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument
-                            contentItem: Item {
-                                implicitWidth: Theme.iconMd
-                                implicitHeight: Theme.iconMd
-                                ThemedIcon {
-                                    anchors.centerIn: parent
-                                    source: addGroupBtn.icon.source
-                                    size: Theme.iconMd
-                                    color: addGroupBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                }
-                            }
-                            background: Rectangle {
-                                radius: Theme.radiusXs
-                                color: addGroupBtn.hovered && addGroupBtn.enabled ? Theme.surfaceContainerHigh : "transparent"
-                            }
                             onClicked: AppSession.addGroupLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Add group")
                             Accessible.name: qsTr("Add group")
                         }
-                        ToolButton {
-                            id: delLayerBtn
+                        ChromeIconToolButton {
                             implicitWidth: Theme.panelHeaderBtn
                             implicitHeight: Theme.panelHeaderBtn
-                            padding: 0
-                            leftPadding: 0
-                            rightPadding: 0
-                            topPadding: 0
-                            bottomPadding: 0
-                            display: AbstractButton.IconOnly
                             icon.source: root.iconUrl("trash")
                             icon.width: Theme.iconMd
                             icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument && AppSession.layerCount > 1
-                            contentItem: Item {
-                                implicitWidth: Theme.iconMd
-                                implicitHeight: Theme.iconMd
-                                ThemedIcon {
-                                    anchors.centerIn: parent
-                                    source: delLayerBtn.icon.source
-                                    size: Theme.iconMd
-                                    color: delLayerBtn.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                                }
-                            }
-                            background: Rectangle {
-                                radius: Theme.radiusXs
-                                color: delLayerBtn.hovered && delLayerBtn.enabled ? Theme.surfaceContainerHigh : "transparent"
-                            }
                             onClicked: AppSession.deleteActiveLayer()
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Delete layer")

@@ -26,9 +26,14 @@ ToolButton {
         implicitWidth: 34
         implicitHeight: 34
         radius: Theme.radiusSm
+        // Hover only reads as hover when the button can actually be pressed.
+        // The hand-rolled panel-header buttons this type replaced all guarded
+        // on `enabled` and this one did not, so a disabled button lit up.
         color: control.down || control.checked
                ? Theme.toolActiveBg
-               : (control.hovered ? Theme.surfaceContainerHigh : "transparent")
+               : (control.hovered && control.enabled
+                  ? Theme.surfaceContainerHigh
+                  : "transparent")
         border.color: control.checked ? Theme.primary : "transparent"
         border.width: 1
     }
