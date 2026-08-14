@@ -1,4 +1,11 @@
 //! Separable Gaussian blur for nondestructive layer effects.
+//!
+//! The fragment stage is format-agnostic — it samples `texture_2d<f32>` and
+//! writes `vec4<f32>`, so an R8 source reads as `(r, 0, 0, 1)` and an R8 target
+//! keeps only the red channel. Only the pipeline's colour target and the two
+//! scratch textures pinned this to RGBA, which is why layer masks (stored R8)
+//! could not be blurred and mask feathering shipped disabled. They are a
+//! parameter now rather than a second shader.
 
 use crate::pass::{FULLSCREEN_VS, make_render_target};
 use bytemuck::{Pod, Zeroable};
@@ -53,13 +60,31 @@ pub struct SeparableBlur {
     pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    uniform_buf: wgpu::Buffer,
     temp_a: wgpu::Texture,
     temp_b: wgpu::Texture,
+    format: wgpu::TextureFormat,
 }
 
 impl SeparableBlur {
+    /// RGBA blur, for layer effects.
     pub fn new(ctx: &GpuContext, width: u32, height: u32) -> Self {
+        Self::with_format(ctx, width, height, wgpu::TextureFormat::Rgba8Unorm)
+    }
+
+    /// Single-channel blur, for coverage such as layer masks.
+    pub fn new_r8(ctx: &GpuContext, width: u32, height: u32) -> Self {
+        Self::with_format(ctx, width, height, wgpu::TextureFormat::R8Unorm)
+    }
+
+    /// Blur writing `format`, which must match the textures passed to
+    /// [`Self::blur`] — a render pass rejects an attachment whose format
+    /// differs from the pipeline's.
+    pub fn with_format(
+        ctx: &GpuContext,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let width = width.max(1);
         let height = height.max(1);
         let bind_layout = ctx
@@ -124,7 +149,7 @@ impl SeparableBlur {
                     entry_point: Some("fs_main"),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -144,33 +169,15 @@ impl SeparableBlur {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
-        let uniform_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("blur-ubo"),
-            size: std::mem::size_of::<BlurUniformsGpu>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let temp_a = make_render_target(
-            ctx,
-            width,
-            height,
-            wgpu::TextureFormat::Rgba8Unorm,
-            "blur-temp-a",
-        );
-        let temp_b = make_render_target(
-            ctx,
-            width,
-            height,
-            wgpu::TextureFormat::Rgba8Unorm,
-            "blur-temp-b",
-        );
+        let temp_a = make_render_target(ctx, width, height, format, "blur-temp-a");
+        let temp_b = make_render_target(ctx, width, height, format, "blur-temp-b");
         Self {
             pipeline,
             bind_layout,
             sampler,
-            uniform_buf,
             temp_a,
             temp_b,
+            format,
         }
     }
 
@@ -183,6 +190,11 @@ impl SeparableBlur {
         radius: f32,
     ) -> &wgpu::Texture {
         let radius = radius.clamp(0.0, 64.0);
+        debug_assert_eq!(
+            src.format(),
+            self.format,
+            "blur source format must match the pipeline's colour target"
+        );
         let temp_a = self.temp_a.clone();
         let temp_b = self.temp_b.clone();
         self.pass(ctx, encoder, src, &temp_a, [1.0, 0.0], radius);
@@ -199,13 +211,29 @@ impl SeparableBlur {
         direction: [f32; 2],
         radius: f32,
     ) {
+        // One buffer per pass, with its contents mapped in at creation.
+        //
+        // A single shared buffer written through `Queue::write_buffer` cannot
+        // work here: those writes are staged and flushed when the encoder is
+        // submitted, so every pass recorded into one encoder reads whichever
+        // value was written last. Both halves of this separable blur therefore
+        // ran with the second direction — the blur has only ever blurred along
+        // one axis — and two `blur` calls in a frame shared one radius.
         let uniforms = BlurUniformsGpu {
             direction,
             radius,
             _pad: 0.0,
         };
-        ctx.queue
-            .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniforms));
+        let uniform_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("blur-ubo"),
+            size: std::mem::size_of::<BlurUniformsGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: true,
+        });
+        if let Ok(mut mapped) = uniform_buf.slice(..).get_mapped_range_mut() {
+            mapped.copy_from_slice(bytemuck::bytes_of(&uniforms));
+        }
+        uniform_buf.unmap();
         let src_view = src.create_view(&wgpu::TextureViewDescriptor::default());
         let dst_view = dst.create_view(&wgpu::TextureViewDescriptor::default());
         let bind = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -222,7 +250,7 @@ impl SeparableBlur {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: self.uniform_buf.as_entire_binding(),
+                    resource: uniform_buf.as_entire_binding(),
                 },
             ],
         });
@@ -247,5 +275,44 @@ impl SeparableBlur {
             pass.set_bind_group(0, &bind, &[]);
             pass.draw(0..3, 0..1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The R8 instance exists so layer masks can be feathered. A pipeline whose
+    /// colour target disagreed with the texture it renders into is rejected at
+    /// pass creation, so constructing one is the check that the format actually
+    /// threads through.
+    #[test]
+    fn an_r8_blur_builds_with_a_single_channel_target() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        let blur = SeparableBlur::new_r8(&ctx, 8, 8);
+        assert_eq!(blur.format, wgpu::TextureFormat::R8Unorm);
+    }
+
+    #[test]
+    fn the_default_blur_is_still_rgba() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        assert_eq!(
+            SeparableBlur::new(&ctx, 8, 8).format,
+            wgpu::TextureFormat::Rgba8Unorm
+        );
+    }
+
+    /// A zero-size document must not produce a zero-extent texture, which wgpu
+    /// rejects outright.
+    #[test]
+    fn a_degenerate_size_is_clamped_up() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        let _ = SeparableBlur::new_r8(&ctx, 0, 0);
     }
 }

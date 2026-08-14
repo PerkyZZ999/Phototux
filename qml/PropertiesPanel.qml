@@ -1438,30 +1438,25 @@ ColumnLayout {
                          AppSession.maskInverted, AppSession.maskLinked,
                          AppSession.maskContrast, AppSession.maskShift)
         }
-        // Feather is stored, clamped and undone, but no
-        // renderer consumes it: unlike density, contrast and
-        // shift it is a neighbourhood operation, and the
-        // composite samples masks from an R8 array that the
-        // RGBA-only separable blur cannot filter. Shown
-        // disabled rather than removed — the value persists
-        // in existing documents, and a control that moves
-        // without changing a pixel is worse than one that
-        // says it is unavailable.
+        // Feather softens the mask using each texel's neighbours, so unlike
+        // density, contrast and shift it cannot be applied as the composite
+        // samples: the mask is blurred before it is packed. The control was
+        // disabled while the separable blur was RGBA-only and could not filter
+        // the R8 mask array.
         Label {
-            text: qsTr("Feather %1 px — not yet applied")
-                      .arg(AppSession.maskFeather.toFixed(1))
-            color: Theme.colorOnSurfaceDisabled
+            text: qsTr("Feather %1 px").arg(AppSession.maskFeather.toFixed(1))
+            color: Theme.colorOnSurfaceVariant
             font.pixelSize: Theme.fontLabelSm
-            ToolTip.visible: featherSlider.hovered
-            ToolTip.text: qsTr("Mask feather is recorded but not yet rendered")
         }
         Slider {
-            id: featherSlider
             Layout.fillWidth: true
-            enabled: false
             from: 0
             to: 64
             value: AppSession.maskFeather
+            onMoved: AppSession.setMaskAttributesOnActive(
+                         AppSession.maskDensity, value,
+                         AppSession.maskInverted, AppSession.maskLinked,
+                         AppSession.maskContrast, AppSession.maskShift)
         }
         Label {
             text: qsTr("Contrast %1").arg(AppSession.maskContrast.toFixed(2))

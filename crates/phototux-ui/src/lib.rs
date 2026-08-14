@@ -6456,7 +6456,7 @@ impl AppSession {
         else {
             return;
         };
-        let (_w, _h, mut rgba) = match phototux_canvas::read_layer_rgba(id) {
+        let (width, height, mut rgba) = match phototux_canvas::read_layer_rgba(id) {
             Ok(v) => v,
             Err(error) => {
                 self.report_gpu("apply mask", &error);
@@ -6470,10 +6470,13 @@ impl AppSession {
                 return;
             }
         };
-        // One definition of mask semantics, shared with the composite shader.
-        // The copy that used to live here dropped contrast and shift, so baking
+        // One definition of mask semantics, shared with the composite shader:
+        // soften by feather over the whole mask, then apply the four per-sample
+        // parameters to each texel. The copy that used to live here dropped
+        // contrast and shift, and neither side softened at all, so baking
         // produced pixels that did not match the canvas.
-        if mask_meta.bake_into_rgba8(&mut rgba, &r8).is_err() {
+        let softened = mask_meta.feathered(width, height, &r8);
+        if mask_meta.bake_into_rgba8(&mut rgba, &softened).is_err() {
             self.report_gpu("apply mask", "mask/layer size mismatch");
             return;
         }

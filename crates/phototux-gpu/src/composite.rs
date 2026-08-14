@@ -281,9 +281,19 @@ pub struct LayerCompositeEngine {
     stack_order: Vec<LayerId>,
     /// Pre-pack effect/style plan per layer.
     pack_plans: HashMap<LayerId, LayerPackPlan>,
+    /// Feather radius per masked layer, in pixels.
+    ///
+    /// Separate from the other mask parameters because it is the only one that
+    /// is not a per-sample function: density, contrast, shift and invert are
+    /// applied in the shader as it reads each texel, while feather softens a
+    /// texel using its neighbours and so has to run before the mask is
+    /// sampled at all.
+    mask_feather: HashMap<LayerId, f32>,
     /// Last applied solid fill colors (rewrite GPU when params change).
     fill_colors: HashMap<LayerId, [f32; 4]>,
     blur: SeparableBlur,
+    /// Single-channel blur used only to feather masks before packing.
+    mask_blur: SeparableBlur,
     effects: EffectPass,
 }
 
@@ -466,8 +476,10 @@ impl LayerCompositeEngine {
             timer: PassTimer::new(ctx, "composite-timer"),
             stack_order: Vec::new(),
             pack_plans: HashMap::new(),
+            mask_feather: HashMap::new(),
             fill_colors: HashMap::new(),
             blur: SeparableBlur::new(ctx, width, height),
+            mask_blur: SeparableBlur::new_r8(ctx, width, height),
             effects: EffectPass::new(ctx, width, height),
         }
     }
@@ -561,6 +573,7 @@ impl LayerCompositeEngine {
             [0.95, 0.55, 0.30, 0.65],
         ];
         let mut pack_plans = HashMap::new();
+        let mut mask_feather = HashMap::new();
         for (i, layer) in layers.iter().enumerate() {
             match layer.kind {
                 LayerKind::Adjustment => {
@@ -587,10 +600,18 @@ impl LayerCompositeEngine {
                     self.ensure_layer(ctx, layer.id, color);
                 }
             }
-            if layer.mask.is_some() {
+            if let Some(mask) = layer.mask.as_ref() {
                 self.ensure_mask(ctx, layer.id);
+                mask_feather.insert(layer.id, mask.feather.max(0.0));
             }
             pack_plans.insert(layer.id, LayerPackPlan::from_layer(layer));
+        }
+        if mask_feather != self.mask_feather {
+            // The packed slice is the blurred mask, so a feather change means
+            // every masked slice has to be rebuilt rather than merely resampled.
+            self.mask_feather = mask_feather;
+            self.mask_dirty = true;
+            self.dirty_mask_slices.clear();
         }
         if pack_plans != self.pack_plans {
             self.pack_plans = pack_plans;
@@ -694,33 +715,58 @@ impl LayerCompositeEngine {
         Ok(())
     }
 
-    fn pack_all_mask_slices(&mut self, encoder: &mut wgpu::CommandEncoder) -> Result<(), String> {
-        for (i, id) in self.stack_order.iter().take(MAX_LAYERS).enumerate() {
+    fn pack_all_mask_slices(
+        &mut self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), String> {
+        let order: Vec<LayerId> = self.stack_order.iter().take(MAX_LAYERS).copied().collect();
+        for (i, id) in order.into_iter().enumerate() {
             let slice = u32::try_from(i).map_err(|_| "layer index exceeds u32".to_owned())?;
-            self.copy_mask_slice(encoder, *id, slice);
+            self.copy_mask_slice(ctx, encoder, id, slice);
         }
         Ok(())
     }
 
-    fn pack_dirty_mask_slices(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        for &slice in &self.dirty_mask_slices {
+    fn pack_dirty_mask_slices(&mut self, ctx: &GpuContext, encoder: &mut wgpu::CommandEncoder) {
+        let slices: Vec<u32> = self.dirty_mask_slices.to_vec();
+        for slice in slices {
             let Some(id) = self.stack_order.get(slice as usize).copied() else {
                 continue;
             };
-            self.copy_mask_slice(encoder, id, slice);
+            self.copy_mask_slice(ctx, encoder, id, slice);
         }
     }
 
-    fn copy_mask_slice(&self, encoder: &mut wgpu::CommandEncoder, id: LayerId, slice: u32) {
-        let src = self
+    fn copy_mask_slice(
+        &mut self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        id: LayerId,
+        slice: u32,
+    ) {
+        let stored = self
             .mask_tex
             .get(&id)
             .map(LayerMaskChannel::texture)
-            .unwrap_or(&self.mask_white);
+            .unwrap_or(&self.mask_white)
+            .clone();
+        // Feather runs here rather than in the shader: softening a texel needs
+        // its neighbours, so it has to happen before the composite samples the
+        // mask. The blurred result is what gets packed, and the shader then
+        // applies invert, contrast, shift and density to it per sample —
+        // matching `LayerMask::coverage`, which describes those four and not
+        // this one.
+        let feather = self.mask_feather.get(&id).copied().unwrap_or(0.0);
+        let src = if feather > 0.01 {
+            self.mask_blur.blur(ctx, encoder, &stored, feather).clone()
+        } else {
+            stored
+        };
         // Masks are not region-tracked yet, so their slices copy whole.
         copy_slice_2d(
             encoder,
-            src,
+            &src,
             &self.mask_array_tex,
             slice,
             self.width,
@@ -788,9 +834,9 @@ impl LayerCompositeEngine {
         }
 
         if self.mask_dirty {
-            self.pack_all_mask_slices(&mut encoder)?;
+            self.pack_all_mask_slices(ctx, &mut encoder)?;
         } else {
-            self.pack_dirty_mask_slices(&mut encoder);
+            self.pack_dirty_mask_slices(ctx, &mut encoder);
         }
 
         ctx.queue.submit(Some(encoder.finish()));
@@ -1807,6 +1853,110 @@ mod tests {
         let out = eng.read_result_rgba(&ctx).expect("readback");
         assert_eq!(&out[0..4], &[0, 0, 0, 0]);
         assert_eq!(&out[4..8], &[255, 0, 0, 255]);
+    }
+
+    /// Feather must soften a hard mask edge on the canvas.
+    ///
+    /// This is the whole point of the control, and what it did not do while the
+    /// separable blur was RGBA-only and could not filter the R8 mask.
+    ///
+    /// The document is deliberately one texel tall, so only the *horizontal*
+    /// half of the separable blur can soften anything. That makes this a guard
+    /// against the uniform aliasing that made both passes run along the same
+    /// axis: with that bug the mask came back unchanged.
+    #[test]
+    fn feather_softens_the_mask_edge_on_canvas() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        let size = DocumentSize::new(16, 1);
+        let mut graph = DocumentGraph::new(size);
+        let keep = graph.layers()[0].id;
+        let drop_id = graph.layers()[1].id;
+        graph.remove_layer(drop_id);
+        graph.set_mask(keep, Some(Default::default()));
+
+        let opaque: Vec<u8> = (0..16).flat_map(|_| [255_u8, 0, 0, 255]).collect();
+        // A step: left half hidden, right half revealed.
+        let step: Vec<u8> = (0..16).map(|x| if x < 8 { 0_u8 } else { 255 }).collect();
+
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        eng.write_layer_rgba(&ctx, keep, &opaque).expect("layer");
+        eng.write_mask_r8(&ctx, keep, &step).expect("mask");
+        eng.composite(&ctx, graph.layers()).expect("composite");
+        let hard = eng.read_result_rgba(&ctx).expect("readback");
+        assert_eq!(
+            hard[7 * 4 + 3],
+            0,
+            "unfeathered, the last hidden texel is fully hidden"
+        );
+        assert_eq!(
+            hard[8 * 4 + 3],
+            255,
+            "and the first revealed one is fully revealed"
+        );
+
+        graph.set_mask(
+            keep,
+            Some(phototux_engine::LayerMask {
+                feather: 4.0,
+                ..Default::default()
+            }),
+        );
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("resync");
+        eng.composite(&ctx, graph.layers()).expect("recomposite");
+        let soft = eng.read_result_rgba(&ctx).expect("readback");
+
+        let a = |px: usize| soft[px * 4 + 3];
+        assert!(
+            a(7) > 0 && a(7) < 255,
+            "feathered, the texel before the edge is partial: {}",
+            a(7)
+        );
+        assert!(a(8) > 0 && a(8) < 255, "and the one after it: {}", a(8));
+        assert!(a(7) < a(8), "coverage still rises across the edge");
+    }
+
+    /// The vertical half of the same guard: a one-texel-wide document, where
+    /// only the vertical pass can soften. Both axes are pinned because a
+    /// separable blur that runs one direction twice still blurs — just never
+    /// along the axis the other pass was meant to cover.
+    #[test]
+    fn feather_softens_along_the_vertical_axis_too() {
+        let Ok(ctx) = GpuContext::new() else {
+            return;
+        };
+        let size = DocumentSize::new(1, 16);
+        let mut graph = DocumentGraph::new(size);
+        let keep = graph.layers()[0].id;
+        let drop_id = graph.layers()[1].id;
+        graph.remove_layer(drop_id);
+        graph.set_mask(
+            keep,
+            Some(phototux_engine::LayerMask {
+                feather: 4.0,
+                ..Default::default()
+            }),
+        );
+
+        let opaque: Vec<u8> = (0..16).flat_map(|_| [255_u8, 0, 0, 255]).collect();
+        let step: Vec<u8> = (0..16).map(|y| if y < 8 { 0_u8 } else { 255 }).collect();
+
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+        eng.write_layer_rgba(&ctx, keep, &opaque).expect("layer");
+        eng.write_mask_r8(&ctx, keep, &step).expect("mask");
+        eng.composite(&ctx, graph.layers()).expect("composite");
+        let out = eng.read_result_rgba(&ctx).expect("readback");
+
+        let a = |px: usize| out[px * 4 + 3];
+        assert!(a(7) > 0 && a(7) < 255, "texel above the edge: {}", a(7));
+        assert!(a(8) > 0 && a(8) < 255, "texel below it: {}", a(8));
+        assert!(a(7) < a(8), "coverage still rises down the edge");
     }
 
     #[test]

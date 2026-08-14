@@ -1,5 +1,7 @@
 //! Layer types for the document stack (ADR-011, ADR-017).
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 /// Stable id for a layer within a document.
@@ -182,10 +184,12 @@ impl LayerMask {
     /// contrast and shift entirely, so Apply Layer Mask produced pixels that
     /// did not match the canvas the user was looking at.
     ///
-    /// `feather` is deliberately not applied here: it is a neighbourhood
-    /// operation over the whole mask, not a per-sample one, and it is currently
-    /// unwired on both sides. See the gap analysis rather than assuming this
-    /// function forgot it.
+    /// `feather` is deliberately not applied here, and its absence is the
+    /// point rather than an omission: it softens a texel using its neighbours,
+    /// so it cannot be a function of one sample. [`Self::feathered`] is the
+    /// other half — run it over the stored mask first, then this over each
+    /// resulting sample. The composite does exactly that, blurring the mask
+    /// before packing it and applying these four in the shader.
     #[must_use]
     pub fn coverage(&self, sample: f32) -> f32 {
         let mut m = sample.clamp(0.0, 1.0);
@@ -197,6 +201,32 @@ impl LayerMask {
         m = ((m - 0.5) * (1.0 + contrast) + 0.5 + shift).clamp(0.0, 1.0);
         let density = self.density.clamp(0.0, 1.0);
         1.0 - density * (1.0 - m)
+    }
+
+    /// Soften the stored mask by this mask's feather radius.
+    ///
+    /// The neighbourhood half of the mask definition; [`Self::coverage`] is the
+    /// per-sample half, and both must run — in this order — for a baked result
+    /// to match what the canvas shows.
+    ///
+    /// Borrows unchanged when there is nothing to do, which is the common case:
+    /// feather defaults to zero and most masks never set it.
+    ///
+    /// The kernel is a box average where the GPU uses a Gaussian, so the two
+    /// soften by the same radius but not identically — the same approximation
+    /// the Gaussian blur effect already documents in `phototux_gpu::parity`.
+    #[must_use]
+    pub fn feathered<'a>(&self, width: u32, height: u32, mask_r8: &'a [u8]) -> Cow<'a, [u8]> {
+        let radius = self.feather.max(0.0).round() as u32;
+        if radius == 0 {
+            return Cow::Borrowed(mask_r8);
+        }
+        match crate::selection::feather_mask_r8(width, height, mask_r8, radius) {
+            Ok(softened) => Cow::Owned(softened),
+            // A size disagreement is the caller's to report; softening is not
+            // the place to fail a bake that would otherwise succeed.
+            Err(_) => Cow::Borrowed(mask_r8),
+        }
     }
 
     /// Multiply an RGBA8 buffer's alpha by this mask's coverage, in place.
@@ -803,6 +833,61 @@ impl Layer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Zero feather must not copy: most masks never set it, and the bake runs
+    /// on every apply.
+    #[test]
+    fn no_feather_borrows_the_mask_unchanged() {
+        let mask = LayerMask::default();
+        let stored = vec![0_u8, 128, 255, 64];
+        let out = mask.feathered(2, 2, &stored);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(&*out, &stored[..]);
+    }
+
+    /// Feathering a hard edge must soften it — the whole point of the control,
+    /// and what it did not do while nothing consumed the stored value.
+    #[test]
+    fn feather_softens_a_hard_edge() {
+        let mask = LayerMask {
+            feather: 1.0,
+            ..Default::default()
+        };
+        // A 4x1 step from fully hidden to fully revealed.
+        let stored = vec![0_u8, 0, 255, 255];
+        let out = mask.feathered(4, 1, &stored);
+        assert!(matches!(out, std::borrow::Cow::Owned(_)));
+        assert!(
+            out[1] > 0 && out[1] < 255,
+            "the texel before the edge picks up its neighbour: {out:?}"
+        );
+        assert!(out[2] > 0 && out[2] < 255, "and the one after it: {out:?}");
+    }
+
+    /// Feather and the per-sample parameters are two halves of one definition,
+    /// applied in that order. Baking without softening first is what made the
+    /// control appear to do nothing.
+    #[test]
+    fn a_baked_mask_reflects_feather_before_coverage() {
+        let mask = LayerMask {
+            feather: 1.0,
+            ..Default::default()
+        };
+        let stored = vec![0_u8, 0, 255, 255];
+        let mut hard = vec![255_u8; 16];
+        let mut soft = vec![255_u8; 16];
+
+        mask.bake_into_rgba8(&mut hard, &stored).expect("hard bake");
+        let softened = mask.feathered(4, 1, &stored);
+        mask.bake_into_rgba8(&mut soft, &softened)
+            .expect("soft bake");
+
+        assert_eq!(hard[7], 0, "unsoftened, the second texel is fully hidden");
+        assert!(
+            soft[7] > 0,
+            "softened, it takes some coverage from its neighbour"
+        );
+    }
 
     #[test]
     fn opacity_clamped() {
