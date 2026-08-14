@@ -2459,7 +2459,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
-                            id: propertiesHeaderControls
+                            panelId: "panel.properties"
+                            stackRow: root.dockStackRow("panel.properties")
+                            stackLength: root.dockRightStack.length
                             // Properties is the only panel whose body is
                             // disclosure groups, so it is the only one that
                             // carries the panel-local expand/collapse action.
@@ -2471,13 +2473,6 @@ ApplicationWindow {
                                 else
                                     AppSession.expandAllDisclosureGroups()
                             }
-                            canMoveUp: root.dockStackRow("panel.properties") > 0
-                            canMoveDown: root.dockStackRow("panel.properties") >= 0
-                                         && root.dockStackRow("panel.properties") < root.dockRightStack.length - 1
-                            canTearOff: root.dockRightStack.length > 1
-                            onMoveUpRequested: AppSession.movePanelInStack("panel.properties", -1)
-                            onMoveDownRequested: AppSession.movePanelInStack("panel.properties", 1)
-                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.properties")
                             onTearOffRequested: root.tearOffAndClamp("panel.properties",
                                                                        root.x + root.width - 360, root.y + 80, 320, 400)
                         }
@@ -2578,14 +2573,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
-                            id: navigatorHeaderControls
-                            canMoveUp: root.dockStackRow("panel.navigator") > 0
-                            canMoveDown: root.dockStackRow("panel.navigator") >= 0
-                                         && root.dockStackRow("panel.navigator") < root.dockRightStack.length - 1
-                            canTearOff: root.dockRightStack.length > 1
-                            onMoveUpRequested: AppSession.movePanelInStack("panel.navigator", -1)
-                            onMoveDownRequested: AppSession.movePanelInStack("panel.navigator", 1)
-                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.navigator")
+                            panelId: "panel.navigator"
+                            stackRow: root.dockStackRow("panel.navigator")
+                            stackLength: root.dockRightStack.length
                             onTearOffRequested: root.tearOffAndClamp("panel.navigator",
                                                                        root.x + root.width - 360, root.y + 120, 320, 280)
                         }
@@ -2726,14 +2716,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
-                            id: swatchesHeaderControls
-                            canMoveUp: root.dockStackRow("panel.swatches") > 0
-                            canMoveDown: root.dockStackRow("panel.swatches") >= 0
-                                         && root.dockStackRow("panel.swatches") < root.dockRightStack.length - 1
-                            canTearOff: root.dockRightStack.length > 1
-                            onMoveUpRequested: AppSession.movePanelInStack("panel.swatches", -1)
-                            onMoveDownRequested: AppSession.movePanelInStack("panel.swatches", 1)
-                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.swatches")
+                            panelId: "panel.swatches"
+                            stackRow: root.dockStackRow("panel.swatches")
+                            stackLength: root.dockRightStack.length
                             onTearOffRequested: root.tearOffAndClamp("panel.swatches",
                                                                        root.x + root.width - 360, root.y + 160, 320, 280)
                         }
@@ -2929,14 +2914,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
-                            id: layersHeaderControls
-                            canMoveUp: root.dockStackRow("panel.layers") > 0
-                            canMoveDown: root.dockStackRow("panel.layers") >= 0
-                                         && root.dockStackRow("panel.layers") < root.dockRightStack.length - 1
-                            canTearOff: root.dockRightStack.length > 1
-                            onMoveUpRequested: AppSession.movePanelInStack("panel.layers", -1)
-                            onMoveDownRequested: AppSession.movePanelInStack("panel.layers", 1)
-                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.layers")
+                            panelId: "panel.layers"
+                            stackRow: root.dockStackRow("panel.layers")
+                            stackLength: root.dockRightStack.length
                             onTearOffRequested: root.tearOffAndClamp("panel.layers",
                                                                        root.x + root.width - 360, root.y + 200, 320, 360)
                         }
@@ -3030,14 +3010,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         PanelHeaderControls {
-                            id: historyHeaderControls
-                            canMoveUp: root.dockStackRow("panel.history") > 0
-                            canMoveDown: root.dockStackRow("panel.history") >= 0
-                                         && root.dockStackRow("panel.history") < root.dockRightStack.length - 1
-                            canTearOff: root.dockRightStack.length > 1
-                            onMoveUpRequested: AppSession.movePanelInStack("panel.history", -1)
-                            onMoveDownRequested: AppSession.movePanelInStack("panel.history", 1)
-                            onAutoHideRequested: AppSession.togglePanelAutoHide("panel.history")
+                            panelId: "panel.history"
+                            stackRow: root.dockStackRow("panel.history")
+                            stackLength: root.dockRightStack.length
                             onTearOffRequested: root.tearOffAndClamp("panel.history",
                                                                        root.x + root.width - 360, root.y + 240, 320, 240)
                         }

@@ -8,17 +8,28 @@ RowLayout {
     id: root
     spacing: 0
 
-    property bool canMoveUp: true
-    property bool canMoveDown: true
-    property bool canTearOff: true
+    /// Which panel this header belongs to. Every call site used to restate it
+    /// four times over — once per enablement expression and once per dispatch —
+    /// and the enablement rule was written out in full for each panel.
+    required property string panelId
+    /// This panel's position in the right dock stack, and the stack's length.
+    /// The three enablement rules below are derived from them here rather than
+    /// at each header.
+    required property int stackRow
+    required property int stackLength
+
+    readonly property bool canMoveUp: stackRow > 0
+    readonly property bool canMoveDown: stackRow >= 0 && stackRow < stackLength - 1
+    readonly property bool canTearOff: stackLength > 1
+
     /// Panels whose body is disclosure groups (Properties) offer expand/collapse all.
     property bool showsDisclosureToggle: false
     /// Drives which direction the toggle offers, per handbook 05 panel-local view actions.
     property bool anyGroupExpanded: true
 
-    signal moveUpRequested()
-    signal moveDownRequested()
-    signal autoHideRequested()
+    /// Tear-off stays a signal because its placement differs per panel; the
+    /// shell decides where a floated panel lands. Moving and auto-hiding are
+    /// the same action everywhere, so they are performed here.
     signal tearOffRequested()
     signal disclosureToggleRequested()
 
@@ -69,7 +80,7 @@ RowLayout {
         Accessible.name: qsTr("Move panel up")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
-        onClicked: root.moveUpRequested()
+        onClicked: AppSession.movePanelInStack(root.panelId, -1)
     }
     HeaderIconButton {
         enabled: root.canMoveDown
@@ -77,14 +88,14 @@ RowLayout {
         Accessible.name: qsTr("Move panel down")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
-        onClicked: root.moveDownRequested()
+        onClicked: AppSession.movePanelInStack(root.panelId, 1)
     }
     HeaderIconButton {
         icon.source: Theme.iconUrl(AppSession.iconRoot, "minus-square")
         Accessible.name: qsTr("Auto-hide panel")
         ToolTip.visible: hovered
         ToolTip.text: Accessible.name
-        onClicked: root.autoHideRequested()
+        onClicked: AppSession.togglePanelAutoHide(root.panelId)
     }
     HeaderIconButton {
         enabled: root.canTearOff
