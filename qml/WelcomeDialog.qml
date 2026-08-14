@@ -55,8 +55,8 @@ Popup {
 
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter
-                        width: 128
-                        height: 128
+                        implicitWidth: 128
+                        implicitHeight: 128
                         radius: Theme.radiusLg
                         color: Theme.surfaceSunken
                         border.color: Theme.border
@@ -106,7 +106,7 @@ Popup {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        implicitHeight: 1
                         color: Theme.borderSubtle
                     }
 
@@ -138,7 +138,6 @@ Popup {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            anchors.margins: 0
             spacing: 0
 
             Item {
@@ -256,7 +255,7 @@ Popup {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 1
+                            implicitHeight: 1
                             color: Theme.borderSubtle
                         }
 

@@ -510,8 +510,8 @@ ColumnLayout {
                     onEditingFinished: AppSession.setActiveFillHex(text)
                 }
                 Rectangle {
-                    width: 22
-                    height: 22
+                    implicitWidth: 22
+                    implicitHeight: 22
                     radius: Theme.radiusXs
                     color: AppSession.fillColorHex
                     border.color: Theme.border
@@ -1577,8 +1577,8 @@ ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.spaceSm
             Rectangle {
-                width: 28
-                height: 28
+                implicitWidth: 28
+                implicitHeight: 28
                 radius: Theme.radiusSm
                 color: Qt.rgba(AppSession.brushR, AppSession.brushG, AppSession.brushB, 1)
                 border.color: Theme.border

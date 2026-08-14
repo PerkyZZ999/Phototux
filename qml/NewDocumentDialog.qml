@@ -209,8 +209,8 @@ Popup {
 
                                         Rectangle {
                                             Layout.alignment: Qt.AlignHCenter
-                                            width: Math.max(36, Math.min(72, modelData.w / modelData.h * 48))
-                                            height: Math.max(28, Math.min(56, modelData.h / modelData.w * 48))
+                                            implicitWidth: Math.max(36, Math.min(72, modelData.w / modelData.h * 48))
+                                            implicitHeight: Math.max(28, Math.min(56, modelData.h / modelData.w * 48))
                                             color: Theme.surfaceSunken
                                             border.color: dialog.selectedPreset === modelData.label
                                                           ? Theme.primary : Theme.border

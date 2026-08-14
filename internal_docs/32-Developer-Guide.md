@@ -126,6 +126,17 @@ The CMake module globs `qml/*.qml` and the build script watches the `qml/` direc
 
 Any file using `AppSession` must `import phototux_ui`. That module is registered at runtime by qtbridge rather than on disk, so `qmllint` reports it as unresolved and flags `AppSession` as unqualified access in every file — that output is the expected baseline, not a regression.
 
+What is *not* baseline is `Quick.layout-positioning` and `property-override`, both of which report genuinely undefined behaviour:
+
+- **Give a layout child an implicit size, never `width` / `height` / `anchors`.** A `RowLayout` or `ColumnLayout` owns the geometry of its children, so assigning `width: 24` fights the layout and Qt does not define who wins. Write `implicitWidth: 24` (or `Layout.preferredWidth`, when the value only makes sense inside a layout) and let the layout read it. `Layout.fillWidth` composes with either.
+- **Do not name a property after one the base type already has.** `Item` already carries `scale` — the render transform — so a `readonly property real scale` on an `Item` shadows it, and no reader can tell which one a binding meant. Pick a name that says what the value is: the navigator's fit ratio is `fitScale`.
+
+Filtering the two out of a `qmllint qml/*.qml` run should print nothing:
+
+```bash
+qmllint qml/*.qml 2>&1 | grep -cE "layout-positioning|property-override"
+```
+
 ### Logical ownership map (modules — not a rename mandate)
 
 The following names communicate **responsibilities**. Implement them as modules (or later optional crate splits) **inside** the shipping packages above — not as an immediate 18-crate rewrite ([Alignment Roadmap](Appendix/Alignment-Roadmap.md)):

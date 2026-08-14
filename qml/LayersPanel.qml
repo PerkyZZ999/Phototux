@@ -109,8 +109,8 @@ ListView {
             // Visibility control is layerVisButton (above) so it stays above the row MouseArea.
 
             Rectangle {
-                width: 24
-                height: 24
+                implicitWidth: 24
+                implicitHeight: 24
                 radius: Theme.radiusXs
                 color: Theme.surface
                 border.color: Theme.border

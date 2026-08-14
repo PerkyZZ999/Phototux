@@ -1447,8 +1447,8 @@ ApplicationWindow {
             Rectangle {
                 radius: Theme.radiusXs
                 color: Theme.successSubtle
-                width: gpuBadge.implicitWidth + Theme.spaceSm
-                height: Theme.controlHeight - 6
+                implicitWidth: gpuBadge.implicitWidth + Theme.spaceSm
+                implicitHeight: Theme.controlHeight - 6
                 Accessible.ignored: true
                 Label {
                     id: gpuBadge
@@ -2610,15 +2610,20 @@ ApplicationWindow {
                     readonly property real docH: Math.max(1, AppSession.docHeight)
                     readonly property real availW: width - pad * 2
                     readonly property real availH: height - pad * 2
-                    readonly property real scale: Math.min(availW / docW, availH / docH)
-                    readonly property real frameW: docW * scale
-                    readonly property real frameH: docH * scale
+                    // `fitScale`, not `scale`: every Item already has a `scale`,
+                    // the render transform. A property of that name shadows it,
+                    // so a reader cannot tell which one a binding meant and a
+                    // stray `scale: …` elsewhere in the pane would resize the
+                    // whole navigator instead of setting this ratio.
+                    readonly property real fitScale: Math.min(availW / docW, availH / docH)
+                    readonly property real frameW: docW * fitScale
+                    readonly property real frameH: docH * fitScale
                     readonly property real frameX: (width - frameW) / 2
                     readonly property real frameY: (height - frameH) / 2
-                    readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * scale)
-                    readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * scale)
-                    readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * scale)) * scale
-                    readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * scale)) * scale
+                    readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * fitScale)
+                    readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * fitScale)
+                    readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * fitScale)) * fitScale
+                    readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * fitScale)) * fitScale
 
                     function panToLocal(lx, ly) {
                         if (!AppSession.hasDocument || frameW < 1 || frameH < 1)
@@ -2770,8 +2775,8 @@ ApplicationWindow {
                             spacing: Theme.spaceMd
 
                             Item {
-                                width: 44
-                                height: 36
+                                implicitWidth: 44
+                                implicitHeight: 36
                                 Rectangle {
                                     x: 12
                                     y: 10
