@@ -406,6 +406,8 @@ A tool is an interaction state machine, not mutation authority. Contributor defi
 
 Implementation keeps transient gesture state outside document. Preview is generation/version-tagged and disposable. Predicted input never becomes authoritative without confirmed reconciliation. Focus loss, device removal, Escape, tool switch, target deletion, device loss, and extension crash have explicit outcomes. Tests use canonical input traces and compare command meaning independent from native device adapter.
 
+Mechanically, the id goes in the `tools!` list in `phototux_engine::tool_id`, which declares the constant and the `ALL` table together — the host validates against `tool_id::is_known`, so there is no second list to update. Then add the rail entry in `shell::default_tools`. Forgetting either half fails `the_tool_rail_and_the_tool_vocabulary_describe_the_same_tools`: a constant with no rail entry is a tool nothing can select, and a rail entry the host does not know is a button that silently activates the brush. QML naming the id is checked separately by `every_tool_named_in_the_qml_shell_is_a_tool_the_host_knows`, because the fallback makes a typo there look like a tool that merely does not work.
+
 ## Adding a Panel
 
 Panels consume immutable semantic projections and emit action invocations. A panel declares application/document/view/selection/pinned following policy. It **MUST NOT** infer target from one global “active” pointer when scope differs.
@@ -620,6 +622,17 @@ Architecture checks combine review, compile boundaries, static policy, and tests
 - no network/account/AI/proprietary dependency enters core workflow.
 
 Some rules can be checked by dependency graph or lints; others require tests and reviewer judgment. A lint suppression names rule, rationale, scope, owner, and review condition. Architecture conformance is not satisfied by moving forbidden code behind a re-export.
+
+### Shared vocabularies
+
+A set of names that crosses a crate or language boundary — tool ids, command ids, selection ops, blend modes — is a vocabulary, and the recurring defect is the same every time: it gets written out in more than one place, the copies drift, and the drift is silent because the reading side has a fallback. An unknown tool becomes the brush; an unknown selection op does nothing but still records history.
+
+Two rules, in this order:
+
+1. **Give it one typed home in `phototux_engine`.** Prefer a form that cannot diverge over one that is merely checked — `tool_id`'s `tools!` macro declares the constants and the `ALL` table from one list, so the validator has nothing to fall out of step with. Where a boundary forces strings (QML has no enums, the action registry stores opaque args), parse once at the boundary and carry the type inward, so the unknown case stops existing past the parse.
+2. **Assert both directions where a second list is unavoidable.** The registry, the tool rail and the QML shell are genuinely separate lists, so each has a test that every entry resolves *and* that every vocabulary member is reachable. The second half is the one usually missing, and it catches the case where something is added to the engine with no way for a user to invoke it.
+
+Shipped instances to copy from: `command_conformance::every_registered_id_is_known_and_has_meta` (command taxonomy), `selection_modify_actions_carry_a_parsable_argument` (registry args → `SelectionModifyOp`), `the_tool_rail_and_the_tool_vocabulary_describe_the_same_tools` and `every_tool_named_in_the_qml_shell_is_a_tool_the_host_knows` (tool ids). The last reads `qml/` as text, which is the only way to compare against a declarative binding; it asserts the parse found something before asserting anything about it, so a moved file reports the move rather than a false pass.
 
 ## Contributor Onboarding
 
