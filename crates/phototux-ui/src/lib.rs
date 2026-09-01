@@ -757,6 +757,10 @@ impl AppSession {
         }
     }
 
+    /// Surface a device or I/O failure. Takes a `String` because that is what
+    /// the canvas returns; a *command* failure has a typed error and belongs in
+    /// [`Self::report_action_error`], which does not run the device-lost check
+    /// on text that can never name a device.
     fn report_gpu(&mut self, operation: &str, error: &str) {
         let lower = error.to_ascii_lowercase();
         if lower.contains("device lost")
@@ -3753,7 +3757,7 @@ impl AppSession {
             command_id::DOCUMENT_ASSIGN_PROFILE,
             CommandArgs::AssignProfile { profile },
         ) {
-            self.report_gpu("assign profile", &error.to_string());
+            self.report_action_error(&error);
         } else {
             self.status_text = format!(
                 "Assigned profile (pixels not converted): {}",
@@ -3774,7 +3778,7 @@ impl AppSession {
             command_id::DOCUMENT_CONVERT_PROFILE,
             CommandArgs::ConvertProfile { profile },
         ) {
-            self.report_gpu("convert profile", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -5362,7 +5366,7 @@ impl AppSession {
     #[qslot]
     fn add_layer(&mut self) {
         if let Err(error) = self.invoke_command(command_id::LAYER_CREATE, CommandArgs::None) {
-            self.report_gpu("add layer", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -5865,7 +5869,7 @@ impl AppSession {
             .is_some_and(|l| l.mask.is_none());
         if needs_mask {
             if let Err(error) = self.invoke_command(command_id::MASK_CREATE, CommandArgs::None) {
-                self.report_gpu("paste mask create", &error.to_string());
+                self.report_action_error(&error);
                 return;
             }
         }
@@ -6073,7 +6077,7 @@ impl AppSession {
     #[qslot]
     fn add_group_layer(&mut self) {
         if let Err(error) = self.invoke_command(command_id::LAYER_GROUP, CommandArgs::None) {
-            self.report_gpu("add group", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -6086,7 +6090,7 @@ impl AppSession {
                 color_rgba: [color[0], color[1], color[2], 1.0],
             },
         ) {
-            self.report_gpu("add fill", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -6106,7 +6110,7 @@ impl AppSession {
         if let Err(error) =
             self.invoke_command(command_id::TEXT_CREATE, CommandArgs::TextCreate { text })
         {
-            self.report_gpu("add text", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -6139,7 +6143,7 @@ impl AppSession {
             }
         };
         if let Err(error) = self.invoke_command(command_id::TEXT_BAKE, CommandArgs::None) {
-            self.report_gpu("bake text", &error.to_string());
+            self.report_action_error(&error);
             return;
         }
         if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
@@ -6428,7 +6432,7 @@ impl AppSession {
             }
         };
         if let Err(error) = self.invoke_command(command_id::SHAPE_RASTERIZE, CommandArgs::None) {
-            self.report_gpu("rasterize shape", &error.to_string());
+            self.report_action_error(&error);
             return;
         }
         if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
@@ -6629,7 +6633,7 @@ impl AppSession {
             command_id::FILTER_ADD_ADJUSTMENT,
             CommandArgs::FilterAdjustment { kind },
         ) {
-            self.report_gpu("add adjustment", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -6852,7 +6856,7 @@ impl AppSession {
                 return;
             }
             if let Err(error) = self.invoke_command(command_id::MASK_CREATE, CommandArgs::None) {
-                self.report_gpu("selection to mask", &error.to_string());
+                self.report_action_error(&error);
                 return;
             }
         }
@@ -6911,7 +6915,7 @@ impl AppSession {
             return;
         }
         if let Err(error) = self.invoke_command(command_id::MASK_DELETE, CommandArgs::None) {
-            self.report_gpu("apply mask clear", &error.to_string());
+            self.report_action_error(&error);
             return;
         }
         let generation = self.engine.document_generation();
@@ -6980,7 +6984,7 @@ impl AppSession {
             return;
         }
         if let Err(error) = self.invoke_command(command_id::MASK_CREATE, CommandArgs::None) {
-            self.report_gpu("add mask", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
@@ -7003,7 +7007,7 @@ impl AppSession {
             return;
         }
         if let Err(error) = self.invoke_command(command_id::MASK_DELETE, CommandArgs::None) {
-            self.report_gpu("delete mask", &error.to_string());
+            self.report_action_error(&error);
         }
     }
 
