@@ -141,6 +141,52 @@ Rectangle {
                 spacing: Theme.spaceMd
 
                 // ── Brush and eraser ──────────────────────────────────────
+                //
+                // The preset picker leads, the way Photoshop's options bar
+                // opens with the brush preset well. It used to be a wrapped
+                // row of flat buttons in Properties — the only part of that
+                // panel's brush section with no home out here — so the whole
+                // section had to stay for it.
+                Field {
+                    visible: root.isBrushLike
+                    label: qsTr("Preset")
+                    ThemedComboBox {
+                        id: presetCombo
+                        Layout.preferredWidth: 120
+                        model: AppSession.brushPresetNames.length > 0
+                               ? AppSession.brushPresetNames.split("|") : []
+                        enabled: presetCombo.model.length > 0
+                        Accessible.name: qsTr("Brush preset")
+                        // A preset is applied, not held: picking one pushes
+                        // size, hardness and texture into the brush, and the
+                        // user then edits those directly. The combo showing
+                        // the last pick would go stale on the first drag.
+                        displayText: qsTr("Presets")
+                        onActivated: AppSession.applyBrushPreset(currentIndex)
+                    }
+                    ToolButton {
+                        implicitWidth: Theme.controlHeight
+                        implicitHeight: Theme.controlHeight
+                        padding: 0
+                        enabled: AppSession.hasDocument
+                        onClicked: AppSession.saveCurrentBrushPreset("Custom")
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Save the current brush as a preset")
+                        Accessible.name: ToolTip.text
+                        contentItem: ThemedIcon {
+                            anchors.centerIn: parent
+                            source: Theme.iconUrl(AppSession.iconRoot, "plus")
+                            size: Theme.iconMd
+                            color: parent.enabled ? Theme.iconOnSurfaceEffective
+                                                  : Theme.iconDisabledEffective
+                        }
+                        background: Rectangle {
+                            radius: Theme.radiusSm
+                            color: parent.hovered && parent.enabled
+                                   ? Theme.surfaceContainerHigh : "transparent"
+                        }
+                    }
+                }
                 Field {
                     visible: root.isBrushLike
                     label: qsTr("Size")

@@ -70,6 +70,25 @@ impl LayerKind {
         }
     }
 
+    /// Phosphor stem naming the kind in chrome that shows one.
+    ///
+    /// Beside [`Self::badge`] rather than in QML for the same reason: a panel
+    /// that mapped kinds to glyphs itself would be the layer vocabulary
+    /// written a third time, and a seventh kind would arrive as a blank icon.
+    /// Every stem here must be in the qrc's `ICON_NAMES`, which
+    /// `every_icon_key_is_packaged_into_the_qrc` checks.
+    #[must_use]
+    pub fn icon_key(self) -> &'static str {
+        match self {
+            Self::Raster => "image-square",
+            Self::Group => "folder",
+            Self::Text => "text-t",
+            Self::Adjustment => "circle-half",
+            Self::Shape => "shapes",
+            Self::Fill => "paint-bucket",
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Raster => "raster",

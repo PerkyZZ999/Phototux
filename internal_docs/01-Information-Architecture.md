@@ -173,8 +173,18 @@ Select is exactly the cost this rule exists to remove.
 Blend mode, opacity and the lock row live at the **top of the Layers panel**,
 not in Properties. They are the most-used control cluster in the application
 and the one a user reaches for without looking, and Properties is the panel
-with the tightest height budget. Properties holds what is contextual to the
-current tool and layer; Layers holds what every layer always has.
+with the tightest height budget. Layers holds what every layer always has.
+
+Properties holds what is contextual **to the selection**, and only that. Tool
+settings belong to the options bar, which is where Photoshop keeps them: brush
+size, hardness and texture, the brush preset picker, the selection combine
+modes, the zoom controls. The foreground colour belongs to Swatches, which
+already has the wells, the hex field, the palette and the recents. Each of
+these was once a second copy inside Properties, editing the same host state
+through a second set of controls, in the panel that could least afford the
+height. Overlap is permitted where a parameter genuinely qualifies for both
+surfaces — align and distribute are in both, as they are in Photoshop — but a
+duplicate that exists only because it was written twice is a defect.
 
 Depth is reached by progressive disclosure rather than by showing everything.
 A surface opens with the controls most users need and reveals the rest on
@@ -649,18 +659,32 @@ Collapsible inspector sections are named descriptors, not ad-hoc widgets. Each g
 
 The registry order below is also the **layout order**. The Properties panel **MUST** present groups in registration order, and a conformance test **MUST** compare the presented order against the registry rather than relying on review, since the layout is declarative and carries no runtime handle to assert against.
 
-| Group id | Level | Open by default | Collapsed summary |
-| --- | --- | --- | --- |
-| `inspector.selection` | 2 — nearby | yes | combine mode |
-| `inspector.brush` | 2 — nearby | yes | brush size |
-| `inspector.fill` | 2 — nearby | yes | fill colour |
-| `inspector.text` | 2 — nearby | yes | font family |
-| `inspector.path` | 2 — nearby | yes | anchor count and closure |
-| `inspector.transform` | 2 — nearby | yes | pending crop extent or rotation |
-| `inspector.adjustment` | 2 — nearby | yes | primary parameters |
-| `inspector.effects` | 3 — on demand | no | effect count |
-| `inspector.color` | 3 — on demand | no | soft-proof profile |
-| `inspector.diagnostics` | 4 — specialized | no | composite GPU time |
+Each group also declares the **subjects** it describes (see *Inspector
+subjects* below). A group with no subject could never appear; a group whose
+subject list names something that is not a subject would appear for a
+selection nobody can make. Both are compile-time errors of the declaration,
+checked by tests rather than by review.
+
+| Group id | Subjects | Level | Open by default | Collapsed summary |
+| --- | --- | --- | --- | --- |
+| `inspector.document` | document | 2 — nearby | yes | canvas size |
+| `inspector.guides` | document | 2 — nearby | no | guide count |
+| `inspector.color` | document | 3 — on demand | no | soft-proof profile |
+| `inspector.diagnostics` | document | 4 — specialized | no | composite GPU time |
+| `inspector.text` | text | 2 — nearby | yes | font family |
+| `inspector.fill` | fill | 2 — nearby | yes | fill colour |
+| `inspector.adjustment` | adjustment | 2 — nearby | yes | primary parameters |
+| `inspector.path` | shape | 2 — nearby | yes | anchor count and closure |
+| `inspector.transform` | every layer | 2 — nearby | yes | pending crop extent or rotation |
+| `inspector.align` | every layer | 2 — nearby | yes | selected layer count |
+| `inspector.mask` | every layer | 2 — nearby | yes | mask density, or none |
+| `inspector.styles` | every layer | 3 — on demand | no | style count |
+| `inspector.blend-if` | every layer | 3 — on demand | no | active or off |
+| `inspector.effects` | every layer | 3 — on demand | no | effect count |
+
+`inspector.selection` and `inspector.brush` were retired rather than renamed:
+both described the active *tool*, which is the options bar's subject, not the
+inspector's.
 
 Groups at level 3 and above **MUST** default to collapsed; levels 1–2 carry the parameters an active tool or layer kind needs to be usable without further interaction.
 
@@ -687,7 +711,7 @@ Shipped rules:
 | Group | Condition | Severity |
 | --- | --- | --- |
 | `inspector.adjustment` | a stored parameter lies outside the range the editor can represent | warning |
-| `inspector.selection` | an active selection's outline shares no pixel with the canvas | warning |
+| `inspector.document` | an active selection's outline shares no pixel with the canvas | warning |
 | `inspector.text` | the active text layer's font family is absent from the discovered families | warning |
 | `inspector.diagnostics` | the graphics device is lost | error |
 
@@ -700,6 +724,61 @@ A rule **MUST NOT** assert a condition it cannot establish. Font family absence,
 Expansion state is **presentation state**: it persists per user alongside workspace state and **MUST NOT** enter the document, document history, or the saved file. Overrides persist sparsely — a group the user has never toggled continues to follow its descriptor default, so changing a default reaches existing users. Safe start clears all overrides.
 
 ## Properties and Inspector Architecture
+
+### Inspector subjects
+
+The Properties panel is a **contextual** surface: it describes one subject at a
+time and shows nothing else. The subject vocabulary is seven values — the
+document, and one per layer kind (raster, group, text, adjustment, shape,
+fill) — declared once in the engine and derived from the layer kinds, so
+adding a kind adds a subject rather than leaving a hole.
+
+Every disclosure group declares the subjects it belongs to. Presence is then a
+lookup, not a condition written per group: the panel asks the registry whether
+a group describes the subject on screen. This exists because the panel used to
+decide presence by comparing layer-kind strings written into QML — the layer
+vocabulary written a second time, in a language with nothing to check it, where
+renaming or adding a kind silently stops sections appearing. Nothing in the
+shell may name a layer kind to decide what to show.
+
+A group **MAY** narrow presence further with a live condition of its own (a
+styles list with no styles stays away). It **MUST NOT** carry a second subject
+rule.
+
+Which subject is on screen is not always the one the selection reports. The
+panel offers a **scope**: Layer follows the selection, Document pins the
+document subject. Photoshop reaches document properties by having nothing
+selected in the layers panel; PhotoTux always has an active layer, so asking is
+the honest equivalent, and it is reachable rather than a state a user has to
+discover by accident. Selecting a layer returns the panel to the Layer scope,
+because selecting something means you want to see it. Scope is presentation
+state and **MUST NOT** enter the document or its history.
+
+Chrome that shows a subject's name or glyph **MUST** resolve them from the
+subject it is displaying, not from the live selection: in the document scope a
+layer is still active, and reading the selection's title and icon puts the
+layer's glyph on the document.
+
+### The paint target
+
+A stroke lands either on the layer's pixels or on its mask. Photoshop has no
+control for this because it does not need one — the layer and mask thumbnails
+in the layers panel *are* the selector, and the ringed one is the target.
+PhotoTux presents it the same way, in two places that share one state: the
+mask chip on the layer row, and a pair of thumbnail chips at the head of
+Properties.
+
+The chips appear **only when the layer has a mask**. A layer without one
+offers a choice with a single legal answer, and drawing that choice is worse
+than not drawing it: it invites a click that does nothing and implies a mask
+that is not there.
+
+This replaced a block headed "Edit target" carrying a four-part summary line
+above two labelled buttons. It named a concept that existed nowhere else in
+the application, restated facts the layers panel and status bar already show,
+and offered the choice unconditionally.
+
+### Organisation
 
 Properties are organized by target, not by implementation module:
 

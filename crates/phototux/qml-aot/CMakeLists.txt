@@ -74,12 +74,16 @@ set(ICON_NAMES
     eye-slash
     eyedropper
     file-plus
+    flip-horizontal
+    flip-vertical
     flame
     floppy-disk
     folder
     folder-open
+    frame-corners
     gear
     gradient
+    grid-four
     hand
     image-square
     info
@@ -87,6 +91,7 @@ set(ICON_NAMES
     lasso
     magic-wand
     magnifying-glass
+    magnet
     minus
     minus-circle
     minus-square
@@ -98,6 +103,7 @@ set(ICON_NAMES
     polygon
     question
     rectangle-dashed
+    ruler
     scribble
     selection
     selection-background

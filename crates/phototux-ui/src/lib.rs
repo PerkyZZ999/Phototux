@@ -216,6 +216,10 @@ pub struct AppSession {
     edit_target: String,
     edit_target_label: String,
     active_layer_kind: String,
+    active_layer_name: String,
+    selected_layer_count: i32,
+    inspector_subject: String,
+    inspector_subjects_json: String,
     /// The history panel's rows. See `history_model` for why this replaced
     /// three index-aligned strings.
     history_model: std::rc::Rc<std::cell::RefCell<crate::history_model::HistoryListModel>>,
@@ -513,6 +517,10 @@ impl AppSession {
             edit_target: "layer".to_owned(),
             edit_target_label: "Layer pixels".to_owned(),
             active_layer_kind: String::new(),
+            active_layer_name: String::new(),
+            selected_layer_count: 0,
+            inspector_subject: String::new(),
+            inspector_subjects_json: phototux_engine::inspector_subjects_json(),
             history_model: <crate::history_model::HistoryListModel as qtbridge::QObjectHolder>::default_with_attached_qobject(),
             brush_preset_names: String::new(),
             soft_proof_profile: String::new(),
@@ -948,6 +956,28 @@ impl AppSession {
             active_layer_kind,
             self.engine.active_layer_kind(),
             active_layer_kind_changed
+        );
+        publish!(
+            self,
+            active_layer_name,
+            self.engine.active_layer_name(),
+            active_layer_name_changed
+        );
+        publish!(
+            self,
+            selected_layer_count,
+            i32::try_from(self.engine.selected_layer_ids.len()).unwrap_or(i32::MAX),
+            selected_layer_count_changed
+        );
+        // Only the id. The panel resolves the title and glyph through the
+        // subject table, because the subject it is *showing* is not always the
+        // one the selection reports — the document scope stays on the document
+        // while a raster layer is active.
+        publish!(
+            self,
+            inspector_subject,
+            self.engine.inspector_subject().as_str().to_owned(),
+            inspector_subject_changed
         );
         self.publish_history_projection();
         publish!(
@@ -2914,6 +2944,26 @@ impl AppSession {
         Notify = active_layer_kind_changed
     );
     qproperty!(
+        "activeLayerName",
+        Member = active_layer_name,
+        Notify = active_layer_name_changed
+    );
+    qproperty!(
+        "selectedLayerCount",
+        Member = selected_layer_count,
+        Notify = selected_layer_count_changed
+    );
+    qproperty!(
+        "inspectorSubject",
+        Member = inspector_subject,
+        Notify = inspector_subject_changed
+    );
+    qproperty!(
+        "inspectorSubjectsJson",
+        Member = inspector_subjects_json,
+        Notify = inspector_subjects_json_changed
+    );
+    qproperty!(
         "historyModel",
         Member = history_model,
         Notify = history_model_changed
@@ -3610,6 +3660,14 @@ impl AppSession {
     fn edit_target_label_changed(&mut self);
     #[qsignal]
     fn active_layer_kind_changed(&mut self);
+    #[qsignal]
+    fn active_layer_name_changed(&mut self);
+    #[qsignal]
+    fn selected_layer_count_changed(&mut self);
+    #[qsignal]
+    fn inspector_subject_changed(&mut self);
+    #[qsignal]
+    fn inspector_subjects_json_changed(&mut self);
     /// Fires only to satisfy the property declaration; the model's identity
     /// never changes. Row changes reach QML through the model's own signals.
     #[qsignal]

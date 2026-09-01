@@ -26,6 +26,7 @@ mod gradient;
 mod guides;
 mod history;
 mod host_request;
+mod inspector;
 mod layer;
 mod layer_row;
 mod layer_style;
@@ -97,6 +98,7 @@ pub use gradient::{GradientKind, GradientRamp};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryRow, HistoryService};
 pub use host_request::HostRequest;
+pub use inspector::{InspectorSubject, subjects_json as inspector_subjects_json};
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
     LayerKind, LayerMask, LayerTransform, LockFlags, MAX_ADJUSTMENT_SLOTS, MAX_BLUR_RADIUS,
@@ -669,6 +671,27 @@ impl SessionState {
         self.active_layer()
             .map(|l| l.kind.as_str().to_owned())
             .unwrap_or_default()
+    }
+
+    /// Name of the active layer, empty when there is none.
+    #[must_use]
+    pub fn active_layer_name(&self) -> String {
+        self.active_layer()
+            .map(|l| l.name.clone())
+            .unwrap_or_default()
+    }
+
+    /// What the Properties panel is describing (handbook 01).
+    ///
+    /// The document whenever there is no layer to describe — no document, or
+    /// a graph with no active layer — and otherwise the active layer's kind.
+    /// The panel decides its own *scope*: a user may ask for the document
+    /// while a layer is active. This is only what the selection says.
+    #[must_use]
+    pub fn inspector_subject(&self) -> InspectorSubject {
+        self.active_layer().map_or(InspectorSubject::Document, |l| {
+            InspectorSubject::from_kind(l.kind)
+        })
     }
 
     /// The layers panel's rows, top of the stack first.

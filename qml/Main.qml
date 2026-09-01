@@ -36,7 +36,6 @@ ApplicationWindow {
     readonly property bool activeLayerHasMask: activeMaskFlag !== 0
     readonly property bool activeMaskEnabled: activeMaskFlag === 1
     readonly property bool activeLayerClips: AppSession.activeLayerClips
-    readonly property string activeLayerKind: AppSession.activeLayerKind
     readonly property var guidesModel: {
         try {
             return JSON.parse(AppSession.guidesJson || "[]")
@@ -850,16 +849,6 @@ ApplicationWindow {
     function isTransformTool() {
         return AppSession.activeTool === "tool.transform"
     }
-    function selectionCombineLabel(mode) {
-        if (mode === "add")
-            return qsTr("Add")
-        if (mode === "subtract")
-            return qsTr("Subtract")
-        if (mode === "intersect")
-            return qsTr("Intersect")
-        return qsTr("Replace")
-    }
-
     // Resolved expansion per registered group (descriptor default merged with
     // the user's sparse overrides). Drives which way the panel-local toggle goes.
     readonly property var disclosureOpenMap: {
@@ -3096,9 +3085,6 @@ ApplicationWindow {
                         runAction: root.runAction
                         isTransformTool: root.isTransformTool
                         isCropTool: root.isCropTool
-                        isSelectTool: root.isSelectTool
-                        selectionCombineLabel: root.selectionCombineLabel
-                        activeLayerKind: root.activeLayerKind
                         activeLayerHasMask: root.activeLayerHasMask
                         activeMaskEnabled: root.activeMaskEnabled
                         gpuStatus: gpuCanvas.gpuStatus

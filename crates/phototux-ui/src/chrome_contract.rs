@@ -71,6 +71,76 @@ mod tests {
         out
     }
 
+    /// Properties is a contextual panel, and the context table lives in the
+    /// engine. This reads the panel and holds the two in agreement.
+    ///
+    /// Three ways this can rot, all silent in a running application: a section
+    /// declared and never drawn is a subject with a hole in its editor; a
+    /// section drawn but not declared has no subjects, so `sectionApplies`
+    /// answers false and it is never seen; and a section drawn under a title
+    /// the descriptor does not use gives the same control two names depending
+    /// on whether the group is collapsed.
+    #[test]
+    fn properties_panel_draws_the_sections_the_engine_declares() {
+        let text = std::fs::read_to_string(qml_dir().join("PropertiesPanel.qml"))
+            .expect("PropertiesPanel.qml is readable from the ui crate");
+        let drawn: Vec<(String, String)> = text
+            .split("groupId: \"")
+            .skip(1)
+            .map(|chunk| {
+                let id = chunk.split('"').next().unwrap_or_default().to_owned();
+                // The title is the next `title: qsTr("…")` after the id; the
+                // panel writes the two on consecutive lines.
+                let title = chunk
+                    .split("title: qsTr(\"")
+                    .nth(1)
+                    .and_then(|t| t.split('"').next())
+                    .unwrap_or_default()
+                    .to_owned();
+                (id, title)
+            })
+            .collect();
+        assert!(
+            drawn.len() > 8,
+            "found only {} sections — the scan broke, not the panel",
+            drawn.len()
+        );
+
+        let declared = phototux_engine::default_disclosure_groups();
+        let declared_ids: Vec<&str> = declared.iter().map(|g| g.id.as_str()).collect();
+        let drawn_ids: Vec<&str> = drawn.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(
+            drawn_ids, declared_ids,
+            "the panel's sections must be the engine's, in the same order"
+        );
+        for (group, (_, title)) in declared.iter().zip(&drawn) {
+            assert_eq!(
+                title, &group.title,
+                "{} is titled {title:?} in the panel and {:?} in the descriptor",
+                group.id, group.title
+            );
+        }
+    }
+
+    /// The panel pins one subject id by hand — the document scope, which is
+    /// something it offers rather than something the selection reports. A
+    /// typo there would leave the Document tab showing an empty panel.
+    #[test]
+    fn the_properties_panel_pins_a_subject_the_engine_declares() {
+        let text = std::fs::read_to_string(qml_dir().join("PropertiesPanel.qml"))
+            .expect("PropertiesPanel.qml is readable from the ui crate");
+        let pinned = text
+            .split("readonly property string documentSubject: \"")
+            .nth(1)
+            .and_then(|chunk| chunk.split('"').next())
+            .expect("PropertiesPanel declares documentSubject");
+        assert_eq!(
+            phototux_engine::InspectorSubject::parse(pinned),
+            Some(phototux_engine::InspectorSubject::Document),
+            "the panel pins subject {pinned:?}, which is not the document"
+        );
+    }
+
     /// A slider has no text of its own, so without a name it reaches assistive
     /// technology as an anonymous "slider".
     ///
@@ -90,8 +160,13 @@ mod tests {
                 );
             }
         }
+        // A floor, not a count: it catches the scan silently matching nothing.
+        // It came down from 15 when Properties stopped carrying a second copy
+        // of the brush sliders and the foreground channels — those live in the
+        // options bar and the Swatches panel — so the shell has fewer sliders
+        // than it did, not fewer named ones.
         assert!(
-            checked > 15,
+            checked > 10,
             "found {checked} sliders — the scan broke rather than the shell"
         );
     }

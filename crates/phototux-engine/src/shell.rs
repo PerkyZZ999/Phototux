@@ -29,6 +29,18 @@ pub struct DisclosureGroupDescriptor {
     /// appears here.
     pub level: u8,
     pub open_by_default: bool,
+    /// [`InspectorSubject`] ids this section describes.
+    ///
+    /// Presence is *contextual*: Properties is a panel about the selection,
+    /// so a section appears when the thing it edits is what the user has
+    /// selected. Naming the subjects here rather than writing kind
+    /// comparisons into QML is what keeps one copy of the layer vocabulary —
+    /// see [`crate::inspector`].
+    ///
+    /// Never empty. An "applies to everything" section would be back to a
+    /// panel that shows everything at once, and a typo in the list would be
+    /// indistinguishable from meaning it.
+    pub subjects: Vec<String>,
 }
 
 /// Tool strip entry descriptor.
@@ -322,29 +334,45 @@ pub fn tool_slots_json() -> String {
 /// Titles name a coherent concept rather than "More" or "Advanced" so the
 /// collapsed header still carries information scent (handbook 01/28).
 pub fn default_disclosure_groups() -> Vec<DisclosureGroupDescriptor> {
-    let group =
-        |id: &str, title: &str, level: u8, open_by_default: bool| DisclosureGroupDescriptor {
+    use crate::InspectorSubject as S;
+    let group = |id: &str, title: &str, level: u8, open_by_default: bool, subjects: &[S]| {
+        DisclosureGroupDescriptor {
             id: id.into(),
             title: title.into(),
             level,
             open_by_default,
-        };
+            subjects: subjects.iter().map(|s| s.as_str().to_owned()).collect(),
+        }
+    };
+    let doc = &[S::Document][..];
+    let layers = S::LAYERS;
     vec![
-        group("inspector.selection", "Selection", 2, true),
-        group("inspector.brush", "Brush", 2, true),
-        group("inspector.fill", "Fill", 2, true),
-        group("inspector.text", "Character", 2, true),
-        group("inspector.path", "Path", 2, true),
-        group("inspector.transform", "Transform and Crop", 2, true),
-        group("inspector.adjustment", "Adjustment", 2, true),
-        group("inspector.styles", "Layer Styles", 3, false),
+        // Document scope — what Photoshop shows when nothing is selected.
+        group("inspector.document", "Document", 2, true, doc),
+        group("inspector.guides", "Guides and Grid", 2, false, doc),
+        group("inspector.color", "Color Management", 3, false, doc),
+        group("inspector.diagnostics", "Diagnostics", 4, false, doc),
+        // Layer scope, in Photoshop's order: what the layer *is* first, then
+        // where it sits, then what has been laid over it.
+        group("inspector.text", "Character", 2, true, &[S::Text]),
+        group("inspector.fill", "Fill", 2, true, &[S::Fill]),
+        group(
+            "inspector.adjustment",
+            "Adjustment",
+            2,
+            true,
+            &[S::Adjustment],
+        ),
+        group("inspector.path", "Path", 2, true, &[S::Shape]),
+        group("inspector.transform", "Transform and Crop", 2, true, layers),
+        group("inspector.align", "Align and Distribute", 2, true, layers),
+        group("inspector.mask", "Masks", 2, true, layers),
+        group("inspector.styles", "Layer Styles", 3, false, layers),
         // Level 3 and closed: Blend If is powerful and rarely the first thing
         // anyone reaches for, and its eight handles would dominate the panel
         // if they were open by default.
-        group("inspector.blend-if", "Blend If", 3, false),
-        group("inspector.effects", "Effects", 3, false),
-        group("inspector.color", "Color Management", 3, false),
-        group("inspector.diagnostics", "Diagnostics", 4, false),
+        group("inspector.blend-if", "Blend If", 3, false, layers),
+        group("inspector.effects", "Effects", 3, false, layers),
     ]
 }
 
@@ -475,9 +503,13 @@ pub fn inspector_badges(state: &InspectorState<'_>) -> BTreeMap<String, Disclosu
             },
         );
     }
+    // Reported against the document rather than a selection section: the
+    // marquee's combine mode is a tool option and lives in the options bar,
+    // so Properties has no selection section to badge. A marquee dragged off
+    // the canvas is a fact about the canvas, which is what this group is.
     if selection_misses_canvas(state) {
         badges.insert(
-            "inspector.selection".to_owned(),
+            "inspector.document".to_owned(),
             DisclosureBadge {
                 text: "Outside canvas".to_owned(),
                 severity: "warning",
@@ -629,6 +661,25 @@ mod tests {
                 kind.icon_key()
             );
         }
+        // Layer kinds and inspector subjects name a glyph too — the layers
+        // panel and the Properties header both draw one, and neither is a
+        // tool, an action or a QML literal, so the sweeps above miss them.
+        for kind in crate::LayerKind::ALL {
+            assert!(
+                packaged.contains(&kind.icon_key()),
+                "layer kind {:?} names icon {:?}, which the qrc does not carry",
+                kind,
+                kind.icon_key()
+            );
+        }
+        for subject in crate::InspectorSubject::ALL {
+            assert!(
+                packaged.contains(&subject.icon_key()),
+                "inspector subject {:?} names icon {:?}, which the qrc does not carry",
+                subject,
+                subject.icon_key()
+            );
+        }
         for action in crate::default_actions() {
             let Some(icon) = action.icon_key.as_deref() else {
                 continue;
@@ -709,7 +760,8 @@ mod tests {
         let tools = tools_json();
         assert!(tools.contains("tool.brush"));
         let groups = disclosure_groups_json();
-        assert!(groups.contains("inspector.brush"));
+        assert!(groups.contains("inspector.adjustment"));
+        assert!(groups.contains("\"subjects\":[\"adjustment\"]"));
     }
 
     /// The shelf draws a separator wherever the group changes between
@@ -874,6 +926,47 @@ mod tests {
         assert_eq!(ids.len(), count, "disclosure group ids must be unique");
         // Level 1 is immediate content and is never collapsible.
         assert!(groups.iter().all(|g| (2..=4).contains(&g.level)));
+    }
+
+    /// A section that named no subject would never be shown, and one naming a
+    /// subject that does not exist would be shown for a selection nobody can
+    /// make. Both fail silently in QML, so they fail loudly here.
+    #[test]
+    fn every_group_names_subjects_the_inspector_knows() {
+        for group in default_disclosure_groups() {
+            assert!(
+                !group.subjects.is_empty(),
+                "{} names no subject and could never appear",
+                group.id
+            );
+            for subject in &group.subjects {
+                assert!(
+                    crate::InspectorSubject::parse(subject).is_some(),
+                    "{} names subject {subject:?}, which does not exist",
+                    group.id
+                );
+            }
+            let mut sorted = group.subjects.clone();
+            sorted.sort();
+            let count = sorted.len();
+            sorted.dedup();
+            assert_eq!(sorted.len(), count, "{} repeats a subject", group.id);
+        }
+    }
+
+    /// Every subject must have somewhere to put its settings, or selecting
+    /// that kind of layer leaves the panel blank.
+    #[test]
+    fn every_subject_has_at_least_one_section() {
+        let groups = default_disclosure_groups();
+        for subject in crate::InspectorSubject::ALL {
+            assert!(
+                groups
+                    .iter()
+                    .any(|g| g.subjects.iter().any(|s| s == subject.as_str())),
+                "no section describes {subject:?}"
+            );
+        }
     }
 
     #[test]

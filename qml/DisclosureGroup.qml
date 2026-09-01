@@ -56,6 +56,11 @@ ColumnLayout {
 
     spacing: 0
     Layout.fillWidth: true
+    // A ColumnLayout inside a ColumnLayout fills its height by default, which
+    // would let a group stretch to soak up whatever room the dock has spare
+    // and space its own contents out to match. A group is exactly as tall as
+    // what it is showing.
+    Layout.fillHeight: false
 
     Component.onCompleted: if (expanded) everExpanded = true
     onExpandedChanged: if (expanded) everExpanded = true
