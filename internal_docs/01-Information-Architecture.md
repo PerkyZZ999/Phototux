@@ -674,6 +674,7 @@ checked by tests rather than by review.
 | `inspector.text` | text | 2 — nearby | yes | font family |
 | `inspector.fill` | fill | 2 — nearby | yes | fill colour |
 | `inspector.adjustment` | adjustment | 2 — nearby | yes | primary parameters |
+| `inspector.shape` | shape | 2 — nearby | yes | fill colour |
 | `inspector.path` | shape | 2 — nearby | yes | anchor count and closure |
 | `inspector.transform` | every layer | 2 — nearby | yes | pending crop extent or rotation |
 | `inspector.align` | every layer | 2 — nearby | yes | selected layer count |

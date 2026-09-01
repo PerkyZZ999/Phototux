@@ -84,6 +84,8 @@ pub mod command_id {
     pub const SHAPE_CREATE: &str = "shape.create";
     pub const SHAPE_RASTERIZE: &str = "shape.rasterize";
     pub const SHAPE_BOOLEAN: &str = "shape.boolean";
+    /// Recolour a shape layer without touching its geometry.
+    pub const SHAPE_SET_APPEARANCE: &str = "shape.set-appearance";
 
     pub const FILTER_ADD_ADJUSTMENT: &str = "filter.add-adjustment";
     pub const FILTER_SET_PARAMETERS: &str = "filter.set-parameters";
@@ -195,6 +197,7 @@ pub mod command_id {
         SHAPE_CREATE,
         SHAPE_RASTERIZE,
         SHAPE_BOOLEAN,
+        SHAPE_SET_APPEARANCE,
         FILTER_ADD_ADJUSTMENT,
         FILTER_SET_PARAMETERS,
         FILTER_ADD_EFFECT,
@@ -438,6 +441,9 @@ pub enum CommandArgs {
     EffectSetEnabled {
         effect_id: u64,
         enabled: bool,
+    },
+    ShapeSetAppearance {
+        appearance: crate::ShapeAppearance,
     },
     PathSetClosed {
         closed: bool,

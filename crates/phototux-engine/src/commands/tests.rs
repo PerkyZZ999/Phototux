@@ -534,6 +534,112 @@ fn drop_shadow_rejects_shape_layer() {
     );
 }
 
+/// A shape layer with a document open and a rectangle on it.
+fn session_with_a_shape() -> SessionState {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(
+        command_id::SHAPE_CREATE,
+        CommandArgs::ShapeCreate {
+            content: Box::new(ShapeContent {
+                path: crate::paths::rect_path("R", 10.0, 10.0, 40.0, 30.0),
+                ..ShapeContent::default()
+            }),
+        },
+    )
+    .expect("shape");
+    s
+}
+
+fn active_shape(s: &SessionState) -> ShapeContent {
+    let graph = s.graph.as_ref().expect("graph");
+    let id = graph.active_id().expect("active layer");
+    graph
+        .get(id)
+        .and_then(|l| l.shape.clone())
+        .expect("shape payload")
+}
+
+#[test]
+fn recolouring_a_shape_leaves_its_geometry_alone_and_undoes() {
+    let mut s = session_with_a_shape();
+    let before = active_shape(&s);
+    let wanted = crate::ShapeAppearance {
+        fill_rgba: [1.0, 0.0, 0.0, 1.0],
+        stroke_rgba: [0.0, 1.0, 0.0, 1.0],
+        stroke_width: 9.0,
+        filled: true,
+        stroked: false,
+    };
+    s.invoke(
+        command_id::SHAPE_SET_APPEARANCE,
+        CommandArgs::ShapeSetAppearance { appearance: wanted },
+    )
+    .expect("recolour");
+    let after = active_shape(&s);
+    assert_eq!(after.appearance(), wanted);
+    assert_eq!(after.path, before.path, "recolouring moved the geometry");
+
+    // Undo is the history service walking the graph back; `SessionState::undo`
+    // is the accessor that hands it over.
+    let SessionState { graph, history, .. } = &mut s;
+    history.undo_next(graph.as_mut().expect("graph"));
+    assert_eq!(
+        active_shape(&s).appearance(),
+        before.appearance(),
+        "undo did not restore the appearance"
+    );
+}
+
+#[test]
+fn recolouring_a_shape_to_what_it_already_is_is_refused() {
+    // Otherwise every slider release while nothing moves would push a history
+    // entry, and the timeline would fill with edits that changed nothing.
+    let mut s = session_with_a_shape();
+    let same = active_shape(&s).appearance();
+    let error = s
+        .invoke(
+            command_id::SHAPE_SET_APPEARANCE,
+            CommandArgs::ShapeSetAppearance { appearance: same },
+        )
+        .expect_err("no-op recolour");
+    assert!(error.is_user_correctable(), "{error:?}");
+}
+
+#[test]
+fn only_a_shape_layer_can_be_recoloured_this_way() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let error = s
+        .invoke(
+            command_id::SHAPE_SET_APPEARANCE,
+            CommandArgs::ShapeSetAppearance {
+                appearance: ShapeContent::default().appearance(),
+            },
+        )
+        .expect_err("raster layer recolour");
+    assert!(error.is_user_correctable(), "{error:?}");
+}
+
+#[test]
+fn an_out_of_range_appearance_is_clamped_rather_than_refused() {
+    let mut s = session_with_a_shape();
+    s.invoke(
+        command_id::SHAPE_SET_APPEARANCE,
+        CommandArgs::ShapeSetAppearance {
+            appearance: crate::ShapeAppearance {
+                stroke_width: 1e9,
+                ..active_shape(&s).appearance()
+            },
+        },
+    )
+    .expect("clamped recolour");
+    assert!(
+        (active_shape(&s).stroke_width - crate::ShapeAppearance::MAX_STROKE_WIDTH).abs()
+            < f32::EPSILON
+    );
+}
+
 #[test]
 fn path_edit_round_trip_on_shape() {
     let mut s = SessionState::default();

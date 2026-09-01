@@ -12,6 +12,32 @@ Rendering is GPU-first through wgpu, not GPU-only. A CPU geometry/raster path pr
 
 [DR-027](Appendix/Decision-Register.md#dr-027--graph-kind-set-includes-shape): `LayerKind::Shape` with rect / ellipse / line primitives, fill/stroke, create + rasterize commands, CPU/GPU raster contribution. Boolean ops, full parametric sets, and advanced path editing are **Deferred** incremental work.
 
+## Shape appearance
+
+The five values that decide how a shape is *drawn* — fill colour, stroke
+colour, stroke width, and whether each is on — are a `ShapeAppearance`, read
+and written as one thing. `shape.set-appearance` replaces them, leaving the
+geometry alone; undo restores the whole `ShapeContent` in one entry rather
+than five parameter deltas that could be replayed out of order against a path
+edited in between.
+
+They have always been on the layer and until now had no editor, so every shape
+in a document was the preset colour it was created with, for good.
+
+Values are clamped on the way in rather than validated at the edge: colour
+channels to `0..=1`, stroke width to `0..=512`, and a non-finite width to
+zero. A NaN reaching the rasterizer produces a shape with no pixels and no
+explanation. The 512-pixel ceiling is the stroke's own cost — it is drawn by
+walking the path stamping a disc of that diameter — and beyond a few hundred
+pixels the stroke has swallowed the shape anyway.
+
+A shape with neither a fill nor a stroke is **permitted**. Photoshop allows it,
+and refusing it would also refuse the moment between turning one off and the
+other on. The inspector says so instead.
+
+Recolouring to the value already stored is **rejected**. Every slider release
+would otherwise push a history entry that changed nothing.
+
 ## Shape presets
 
 Nine presets on `ShapePreset`, which owns each one's wire key, label, geometry, fill rule and whether it stays live vector: rectangle, rounded rectangle, ellipse, line, polygon, star, arrow, gradient fill and live rectangle. `parse` is derived from the list rather than restated, so a preset cannot be added and remain unparsable — which is exactly what happened when star, arrow and rounded rectangle were first added against a hand-written `match`.

@@ -25,6 +25,27 @@ pub struct VectorPath {
 }
 
 impl VectorPath {
+    /// Axis-aligned bounds of the anchors, or `None` when there are none.
+    ///
+    /// Anchors only: cubic handles can bow a curve outside the hull its
+    /// anchors describe, so this is the box the *editable points* occupy
+    /// rather than the box the ink covers. That is what the inspector wants —
+    /// it is reporting where the shape's geometry sits, and the ink's extent
+    /// also depends on a stroke width the geometry knows nothing about.
+    #[must_use]
+    pub fn bounds(&self) -> Option<crate::Rect> {
+        let first = self.anchors.first()?;
+        let (mut min_x, mut min_y) = (first.x, first.y);
+        let (mut max_x, mut max_y) = (first.x, first.y);
+        for point in &self.anchors {
+            min_x = min_x.min(point.x);
+            min_y = min_y.min(point.y);
+            max_x = max_x.max(point.x);
+            max_y = max_y.max(point.y);
+        }
+        Some(crate::Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
+    }
+
     pub fn polyline(name: impl Into<String>, anchors: Vec<PathPoint>, closed: bool) -> Self {
         Self {
             name: name.into(),
@@ -525,5 +546,43 @@ mod tests {
             rasterize_shape_rgba8(12, 12, &path, Some([255, 0, 0, 255]), None, 0.0).expect("fill");
         let o = (5 * 12 + 5) * 4;
         assert_eq!(rgba[o + 3], 255);
+    }
+    #[test]
+    fn a_paths_bounds_are_the_box_its_anchors_occupy() {
+        let path = rect_path("R", 10.0, 20.0, 40.0, 30.0);
+        let bounds = path.bounds().expect("bounds");
+        assert!((bounds.x - 10.0).abs() < f32::EPSILON, "{bounds:?}");
+        assert!((bounds.y - 20.0).abs() < f32::EPSILON, "{bounds:?}");
+        assert!((bounds.width - 40.0).abs() < f32::EPSILON, "{bounds:?}");
+        assert!((bounds.height - 30.0).abs() < f32::EPSILON, "{bounds:?}");
+    }
+
+    #[test]
+    fn a_path_with_no_anchors_has_no_bounds() {
+        // Rather than a zero rectangle at the origin, which the inspector
+        // would show as a real shape sitting in the top-left corner.
+        assert!(
+            VectorPath::polyline("empty", Vec::new(), true)
+                .bounds()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn bounds_cover_every_anchor_whatever_order_they_arrive_in() {
+        let path = VectorPath::polyline(
+            "zigzag",
+            vec![
+                PathPoint { x: 50.0, y: 5.0 },
+                PathPoint { x: -10.0, y: 80.0 },
+                PathPoint { x: 20.0, y: -30.0 },
+            ],
+            false,
+        );
+        let bounds = path.bounds().expect("bounds");
+        assert!((bounds.x - -10.0).abs() < f32::EPSILON, "{bounds:?}");
+        assert!((bounds.y - -30.0).abs() < f32::EPSILON, "{bounds:?}");
+        assert!((bounds.width - 60.0).abs() < f32::EPSILON, "{bounds:?}");
+        assert!((bounds.height - 110.0).abs() < f32::EPSILON, "{bounds:?}");
     }
 }

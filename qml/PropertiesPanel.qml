@@ -160,6 +160,32 @@ ColumnLayout {
         }
     }
 
+    /// The active shape layer's appearance and geometry, or `{}`.
+    readonly property var shape: {
+        try {
+            return JSON.parse(AppSession.shapeJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+
+    /// Push the shape's appearance, changing one field of it.
+    ///
+    /// Every control edits the whole appearance because the command does: it
+    /// replaces the payload and undoes as one entry, so a partial push would
+    /// have to invent the four values it was not given.
+    function pushShape(overrides) {
+        var a = root.shape
+        var next = {
+            fill: a.fill, stroke: a.stroke, width: a.width,
+            filled: a.filled, stroked: a.stroked
+        }
+        for (var key in overrides)
+            next[key] = overrides[key]
+        AppSession.setShapeAppearance(next.fill, next.stroke,
+                                      next.width, next.filled, next.stroked)
+    }
+
     /// The active layer's blend ranges, on the 0–255 scale the sliders show.
     readonly property var blendIf: {
         try {
@@ -939,6 +965,170 @@ ColumnLayout {
                         onMoved: AppSession.setAdjustmentSlot(slotEditor.index, value)
                     }
                 }
+            }
+        }
+    }
+
+    // Shape appearance.
+    //
+    // The fill and stroke have always been on the layer and have never had an
+    // editor, so a shape was the preset colour it was created with for good.
+    // The geometry readout above them is the box the path's anchors occupy —
+    // arithmetic on data the engine already holds, unlike a raster layer's
+    // extent, which is a GPU readback and cannot be published per sync.
+    DisclosureGroup {
+        groupId: "inspector.shape"
+        title: qsTr("Shape")
+        visible: root.sectionApplies("inspector.shape")
+        summary: root.shape.fill !== undefined ? root.shape.fill : ""
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spaceSm
+
+            /// A colour well and its hex field, for one of the two colours.
+            component ColorRow: RowLayout {
+                id: colorRow
+                required property string caption
+                required property string hex
+                signal committed(string value)
+
+                Layout.fillWidth: true
+                spacing: Theme.spaceSm
+
+                // The field holds its own text once typed in, so a change from
+                // anywhere else — undo, a different shape selected — has to be
+                // pushed back in, and only while nobody is typing. On the row
+                // rather than the field: `hex` belongs to the row, and a
+                // handler for it inside the field binds to nothing.
+                onHexChanged: if (!hexField.activeFocus) hexField.text = colorRow.hex
+
+                Label {
+                    text: colorRow.caption
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                    Layout.preferredWidth: 44
+                }
+                Rectangle {
+                    Layout.preferredWidth: 22
+                    Layout.preferredHeight: 22
+                    radius: Theme.radiusXs
+                    color: colorRow.hex
+                    border.color: Theme.border
+                }
+                TextField {
+                    id: hexField
+                    Layout.fillWidth: true
+                    text: colorRow.hex
+                    font.family: "Noto Sans Mono"
+                    font.pixelSize: Theme.fontMono
+                    Accessible.name: qsTr("%1 colour, hexadecimal").arg(colorRow.caption)
+                    onEditingFinished: colorRow.committed(text)
+                    // A field that has focus keeps whatever was typed into it,
+                    // including a value the document has since undone away
+                    // from — and Ctrl+Z inside a text field is the field's own
+                    // undo, so that is exactly how it happens. Re-read on the
+                    // way out, whether or not `hex` changed meanwhile.
+                    onActiveFocusChanged: if (!hexField.activeFocus)
+                                              hexField.text = colorRow.hex
+                }
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 4
+                columnSpacing: Theme.spaceSm
+                rowSpacing: 2
+
+                component Axis: Label {
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                }
+                component Extent: Label {
+                    Layout.fillWidth: true
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                    font.family: "Noto Sans Mono"
+                }
+
+                Axis { text: qsTr("W") }
+                Extent { text: Math.round(root.shape.w || 0) + " px" }
+                Axis { text: qsTr("H") }
+                Extent { text: Math.round(root.shape.h || 0) + " px" }
+                Axis { text: qsTr("X") }
+                Extent { text: Math.round(root.shape.x || 0) + " px" }
+                Axis { text: qsTr("Y") }
+                Extent { text: Math.round(root.shape.y || 0) + " px" }
+            }
+
+            ThemedCheckBox {
+                text: qsTr("Fill")
+                checked: root.shape.filled === true
+                onToggled: root.pushShape({ filled: checked })
+            }
+            ColorRow {
+                caption: qsTr("Colour")
+                hex: root.shape.fill !== undefined ? root.shape.fill : "#000000"
+                enabled: root.shape.filled === true
+                onCommitted: function (value) { root.pushShape({ fill: value }) }
+            }
+
+            ThemedCheckBox {
+                text: qsTr("Stroke")
+                checked: root.shape.stroked === true
+                onToggled: root.pushShape({ stroked: checked })
+            }
+            ColorRow {
+                caption: qsTr("Colour")
+                hex: root.shape.stroke !== undefined ? root.shape.stroke : "#000000"
+                enabled: root.shape.stroked === true
+                onCommitted: function (value) { root.pushShape({ stroke: value }) }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spaceSm
+                enabled: root.shape.stroked === true
+                Label {
+                    text: qsTr("Width")
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                    Layout.preferredWidth: 44
+                }
+                Slider {
+                    id: strokeWidth
+                    Layout.fillWidth: true
+                    from: 0
+                    to: root.shape.maxWidth !== undefined ? root.shape.maxWidth : 512
+                    value: root.shape.width !== undefined ? root.shape.width : 0
+                    Accessible.name: qsTr("Stroke width, %1 pixels")
+                                     .arg(Math.round(strokeWidth.value))
+                    // On release, not on every motion: each push is a command
+                    // and a history entry, and a drag would write sixty a
+                    // second.
+                    onPressedChanged: if (!pressed) root.pushShape({ width: value })
+                }
+                Label {
+                    text: Math.round(strokeWidth.value) + " px"
+                    color: Theme.primary
+                    font.pixelSize: Theme.fontMono
+                    font.family: "Noto Sans Mono"
+                    Layout.preferredWidth: 44
+                    horizontalAlignment: Text.AlignRight
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: root.shape.invisible === true
+                wrapMode: Text.WordWrap
+                text: qsTr("This shape has neither a fill nor a stroke, so it draws nothing.")
+                color: Theme.warning
+                font.pixelSize: Theme.fontLabelSm
+            }
+            Button {
+                text: qsTr("Rasterize Shape")
+                Accessible.name: qsTr("Convert this shape to pixels")
+                onClicked: root.runAction("action.layer.rasterize-shape")
             }
         }
     }

@@ -93,6 +93,7 @@ impl SessionState {
             command_id::SHAPE_CREATE => self.cmd_shape_create(args),
             command_id::SHAPE_RASTERIZE => self.cmd_shape_rasterize(),
             command_id::SHAPE_BOOLEAN => self.cmd_shape_boolean(args),
+            command_id::SHAPE_SET_APPEARANCE => self.cmd_shape_set_appearance(args),
             command_id::FILTER_ADD_ADJUSTMENT => self.cmd_filter_add_adjustment(args),
             command_id::FILTER_SET_PARAMETERS => self.cmd_filter_set_parameters(args),
             command_id::FILTER_ADD_EFFECT => self.cmd_filter_add_effect(args),
@@ -2102,6 +2103,62 @@ impl SessionState {
             let next = graph.paths.clone();
             Ok((None, crate::GraphCommand::SetPaths { prev, next }))
         }
+    }
+
+    /// Replace a shape layer's fill and stroke, leaving its path alone.
+    ///
+    /// Reuses `SetShape` for undo, so recolouring is one entry that restores
+    /// the whole payload — geometry included — rather than five parameter
+    /// deltas that could be replayed out of order against an edited path.
+    fn cmd_shape_set_appearance(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::ShapeSetAppearance { appearance } = args else {
+            return Err(CommandError::InvalidArgument("expected ShapeSetAppearance"));
+        };
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let active = graph
+            .active_id()
+            .ok_or(CommandError::Rejected("select a layer first"))?;
+        let layer = graph
+            .get(active)
+            .ok_or(CommandError::Rejected("layer missing"))?;
+        if layer.locked || layer.locks.all {
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
+        }
+        if layer.kind != LayerKind::Shape {
+            return Err(CommandError::Rejected("select a shape layer first"));
+        }
+        let prev = layer
+            .shape
+            .clone()
+            .ok_or(CommandError::Rejected("shape missing path"))?;
+        let mut next = prev.clone();
+        next.set_appearance(appearance);
+        if next == prev {
+            return Err(CommandError::Rejected("that is already how it is drawn"));
+        }
+        if let Some(layer) = graph.get_mut(active) {
+            layer.shape = Some(next.clone());
+        }
+        let generation = self.bump_document_generation();
+        self.history.push_graph_applied(
+            crate::GraphCommand::SetShape {
+                id: active,
+                prev: Some(prev),
+                next: Some(next),
+            },
+            "Shape appearance",
+            generation,
+        );
+        let mut effects = CommandEffects::document_edit(generation);
+        effects.host_follow_up = HostFollowUp::RasterizeShape { id: active };
+        Ok(effects)
     }
 
     fn cmd_path_set_closed(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {

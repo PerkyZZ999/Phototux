@@ -149,6 +149,71 @@ pub struct ShapeContent {
     pub boolean_partner: Option<ShapeBooleanPartner>,
 }
 
+/// How a shape layer is drawn, without its geometry.
+///
+/// Split out of [`ShapeContent`] so the five values that decide a shape's
+/// *appearance* can be read, clamped and written as one thing. They had no
+/// editor at all: a shape could be created from the Layer menu and then never
+/// recoloured, so every shape in a document was the preset blue it was born
+/// with, for good.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapeAppearance {
+    pub fill_rgba: [f32; 4],
+    pub stroke_rgba: [f32; 4],
+    pub stroke_width: f32,
+    pub filled: bool,
+    pub stroked: bool,
+}
+
+impl ShapeAppearance {
+    /// Widest stroke the editor offers.
+    ///
+    /// A stroke is drawn by walking the path and stamping a disc of this
+    /// diameter, so the cost is linear in it and a document-sized value is a
+    /// stall rather than a picture. Beyond a few hundred pixels the stroke has
+    /// swallowed the shape anyway.
+    pub const MAX_STROKE_WIDTH: f32 = 512.0;
+
+    /// The same appearance with every value inside what can be drawn.
+    ///
+    /// Colours clamp per channel and a non-finite width falls back to zero:
+    /// a NaN reaching the rasterizer produces a shape with no pixels and no
+    /// explanation.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        let channel = |c: [f32; 4]| {
+            c.map(|v| {
+                if v.is_finite() {
+                    v.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+        };
+        Self {
+            fill_rgba: channel(self.fill_rgba),
+            stroke_rgba: channel(self.stroke_rgba),
+            stroke_width: if self.stroke_width.is_finite() {
+                self.stroke_width.clamp(0.0, Self::MAX_STROKE_WIDTH)
+            } else {
+                0.0
+            },
+            ..self
+        }
+    }
+
+    /// Whether this would draw anything at all.
+    ///
+    /// Not enforced — Photoshop lets a shape carry neither a fill nor a
+    /// stroke, and refusing the state would also refuse the moment between
+    /// turning one off and the other on. It is worth *saying*, which is what
+    /// the panel does with it.
+    #[must_use]
+    pub fn is_invisible(self) -> bool {
+        !(self.filled || (self.stroked && self.stroke_width > 0.0))
+    }
+}
+
 /// Second operand for a vector-preserving boolean on a shape layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeBooleanPartner {
@@ -159,6 +224,33 @@ pub struct ShapeBooleanPartner {
 
 fn default_shape_kind() -> String {
     "rect".into()
+}
+
+impl ShapeContent {
+    /// How this shape is drawn, as one value.
+    #[must_use]
+    pub fn appearance(&self) -> ShapeAppearance {
+        ShapeAppearance {
+            fill_rgba: self.fill_rgba,
+            stroke_rgba: self.stroke_rgba,
+            stroke_width: self.stroke_width,
+            filled: self.filled,
+            stroked: self.stroked,
+        }
+    }
+
+    /// Replace how this shape is drawn, leaving its geometry alone.
+    ///
+    /// Clamps on the way in, so nothing downstream has to ask whether the
+    /// values it is reading are drawable.
+    pub fn set_appearance(&mut self, appearance: ShapeAppearance) {
+        let a = appearance.clamped();
+        self.fill_rgba = a.fill_rgba;
+        self.stroke_rgba = a.stroke_rgba;
+        self.stroke_width = a.stroke_width;
+        self.filled = a.filled;
+        self.stroked = a.stroked;
+    }
 }
 
 impl Default for ShapeContent {
@@ -2001,5 +2093,79 @@ mod tests {
 
         let mut short = vec![255u8; 8];
         assert!(mask.bake_into_rgba8(&mut short, &[255]).is_err());
+    }
+    #[test]
+    fn a_shape_appearance_round_trips_through_its_content() {
+        let mut content = ShapeContent::default();
+        let wanted = ShapeAppearance {
+            fill_rgba: [0.1, 0.2, 0.3, 1.0],
+            stroke_rgba: [0.9, 0.8, 0.7, 0.5],
+            stroke_width: 7.5,
+            filled: false,
+            stroked: true,
+        };
+        content.set_appearance(wanted);
+        assert_eq!(content.appearance(), wanted);
+        // The geometry is untouched: recolouring must not move a point.
+        assert_eq!(content.path, ShapeContent::default().path);
+        assert_eq!(content.kind, ShapeContent::default().kind);
+    }
+
+    #[test]
+    fn appearance_values_are_brought_into_what_can_be_drawn() {
+        let wild = ShapeAppearance {
+            fill_rgba: [-1.0, 2.0, f32::NAN, 0.5],
+            stroke_rgba: [f32::INFINITY, 0.5, 0.5, 1.0],
+            stroke_width: 100_000.0,
+            filled: true,
+            stroked: true,
+        }
+        .clamped();
+        assert_eq!(wild.fill_rgba, [0.0, 1.0, 0.0, 0.5]);
+        assert_eq!(wild.stroke_rgba, [0.0, 0.5, 0.5, 1.0]);
+        assert!((wild.stroke_width - ShapeAppearance::MAX_STROKE_WIDTH).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_negative_stroke_width_becomes_no_stroke_rather_than_a_negative_one() {
+        let clamped = ShapeAppearance {
+            stroke_width: -4.0,
+            ..ShapeContent::default().appearance()
+        }
+        .clamped();
+        assert_eq!(clamped.stroke_width, 0.0);
+    }
+
+    #[test]
+    fn a_shape_with_neither_a_fill_nor_a_stroke_says_so() {
+        let base = ShapeContent::default().appearance();
+        assert!(!base.is_invisible());
+        assert!(
+            ShapeAppearance {
+                filled: false,
+                stroked: false,
+                ..base
+            }
+            .is_invisible()
+        );
+        // A stroke that is on but has no width draws nothing either.
+        assert!(
+            ShapeAppearance {
+                filled: false,
+                stroked: true,
+                stroke_width: 0.0,
+                ..base
+            }
+            .is_invisible()
+        );
+        assert!(
+            !ShapeAppearance {
+                filled: false,
+                stroked: true,
+                stroke_width: 1.0,
+                ..base
+            }
+            .is_invisible()
+        );
     }
 }

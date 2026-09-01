@@ -108,6 +108,37 @@ fn blend_if_state_json(blend_if: phototux_engine::BlendIf) -> String {
     .to_string()
 }
 
+/// The active shape layer's appearance and geometry, or `{}` for anything else.
+///
+/// Hex for the two colours, because that is the form every colour field in the
+/// shell edits. The bounds come from the path's anchors, which is arithmetic
+/// on data the engine already holds — unlike a raster layer's extent, which is
+/// a GPU readback and could not be published on every sync.
+fn shape_state_json(shape: Option<&phototux_engine::ShapeContent>) -> String {
+    let Some(shape) = shape else {
+        return "{}".into();
+    };
+    let appearance = shape.appearance();
+    let bounds = shape.path.bounds();
+    serde_json::json!({
+        "kind": shape.kind,
+        "fill": phototux_engine::ColorState::to_hex(appearance.fill_rgba),
+        "stroke": phototux_engine::ColorState::to_hex(appearance.stroke_rgba),
+        "width": appearance.stroke_width,
+        "maxWidth": phototux_engine::ShapeAppearance::MAX_STROKE_WIDTH,
+        "filled": appearance.filled,
+        "stroked": appearance.stroked,
+        "invisible": appearance.is_invisible(),
+        "anchors": shape.path.anchors.len(),
+        "x": bounds.map_or(0.0, |b| b.x),
+        "y": bounds.map_or(0.0, |b| b.y),
+        "w": bounds.map_or(0.0, |b| b.width),
+        "h": bounds.map_or(0.0, |b| b.height),
+        "hasBounds": bounds.is_some(),
+    })
+    .to_string()
+}
+
 fn local_path(value: &str) -> Result<PathBuf, String> {
     let encoded_path = if let Some(rest) = value.strip_prefix("file://") {
         if rest.starts_with('/') {
@@ -300,6 +331,7 @@ pub struct AppSession {
     /// The active layer's styles and their editor descriptors.
     layer_styles_json: String,
     blend_if_json: String,
+    shape_json: String,
     blend_if_channels_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
@@ -591,6 +623,7 @@ impl AppSession {
             filter_catalog_json: phototux_engine::filter_catalog_json(),
             layer_styles_json: "[]".into(),
             blend_if_json: "{}".into(),
+            shape_json: "{}".into(),
             blend_if_channels_json: phototux_engine::blend_if_channels_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
@@ -1110,6 +1143,8 @@ impl AppSession {
             self.gaussian_radius = 0.0;
             let empty = blend_if_state_json(phototux_engine::BlendIf::default());
             publish!(self, blend_if_json, empty, blend_if_json_changed);
+            let no_shape = shape_state_json(None);
+            publish!(self, shape_json, no_shape, shape_json_changed);
             return;
         };
         // Copied out before publishing: the layer is borrowed from `self`, and
@@ -1123,7 +1158,9 @@ impl AppSession {
         });
         let styles_json = phototux_engine::layer_styles_json(&layer.styles);
         let blend_if = blend_if_state_json(layer.blend_if);
+        let shape = shape_state_json(layer.shape.as_ref());
         publish!(self, blend_if_json, blend_if, blend_if_json_changed);
+        publish!(self, shape_json, shape, shape_json_changed);
         publish!(
             self,
             layer_styles_json,
@@ -3070,6 +3107,11 @@ impl AppSession {
         Notify = blend_if_json_changed
     );
     qproperty!(
+        "shapeJson",
+        Member = shape_json,
+        Notify = shape_json_changed
+    );
+    qproperty!(
         "blendIfChannelsJson",
         Member = blend_if_channels_json,
         Notify = blend_if_channels_json_changed
@@ -3790,6 +3832,8 @@ impl AppSession {
     fn layer_styles_json_changed(&mut self);
     #[qsignal]
     fn blend_if_json_changed(&mut self);
+    #[qsignal]
+    fn shape_json_changed(&mut self);
     #[qsignal]
     fn blend_if_channels_json_changed(&mut self);
     #[qsignal]
@@ -6314,6 +6358,58 @@ impl AppSession {
             command_id::LAYER_SET_FILL_COLOR,
             CommandArgs::FillColor { color_rgba: rgba },
         );
+    }
+
+    /// Recolour the active shape layer.
+    ///
+    /// Colours arrive as hex because that is what the shell's other colour
+    /// fields speak, and refusing an unparseable one is better than defaulting
+    /// it: a typo would otherwise silently repaint the shape black.
+    #[qslot]
+    fn set_shape_appearance(
+        &mut self,
+        fill_hex: String,
+        stroke_hex: String,
+        stroke_width: f32,
+        filled: bool,
+        stroked: bool,
+    ) {
+        let Some(fill_rgba) = phototux_engine::ColorState::from_hex(&fill_hex) else {
+            self.notify(
+                NoticeLevel::Warning,
+                format!("{fill_hex} is not a colour — try #RRGGBB."),
+            );
+            return;
+        };
+        let Some(stroke_rgba) = phototux_engine::ColorState::from_hex(&stroke_hex) else {
+            self.notify(
+                NoticeLevel::Warning,
+                format!("{stroke_hex} is not a colour — try #RRGGBB."),
+            );
+            return;
+        };
+        if let Err(error) = self.invoke_command(
+            command_id::SHAPE_SET_APPEARANCE,
+            CommandArgs::ShapeSetAppearance {
+                appearance: phototux_engine::ShapeAppearance {
+                    fill_rgba,
+                    stroke_rgba,
+                    stroke_width,
+                    filled,
+                    stroked,
+                },
+            },
+        ) {
+            // A recolour to the value it already holds is refused by design —
+            // every slider release would otherwise push a history entry that
+            // changed nothing — and is not worth a toast.
+            if !matches!(
+                error,
+                phototux_engine::CommandError::Rejected("that is already how it is drawn")
+            ) {
+                self.report_action_error(&error);
+            }
+        }
     }
 
     #[qslot]
