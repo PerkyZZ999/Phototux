@@ -595,6 +595,13 @@ impl CommandEffects {
 }
 
 /// Typed command failures.
+///
+/// The two halves are different kinds of event and belong on different paths.
+/// A [`Self::Rejected`] or [`Self::InvalidArgument`] is the command declining
+/// and saying why — something the person at the keyboard can act on, and the
+/// reason strings are written for them. A [`Self::Unknown`] command, or a
+/// document invariant that did not hold, is a wiring fault with nothing useful
+/// to tell a user.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum CommandError {
     #[error("unknown command `{0}`")]
@@ -605,4 +612,48 @@ pub enum CommandError {
     Rejected(&'static str),
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),
+}
+
+impl CommandError {
+    /// Whether this is something the user can do something about.
+    ///
+    /// A *variant* test, not a substring test. The host used to classify these
+    /// by searching the rendered `Display` text for the word "rejected" — after
+    /// calling `to_string()` on the very value that already knew the answer.
+    /// That also mis-routed anything else whose message happened to contain the
+    /// word, and driver messages do use it.
+    #[must_use]
+    pub fn is_user_correctable(&self) -> bool {
+        match self {
+            Self::Rejected(_) | Self::InvalidArgument(_) => true,
+            Self::Document(DocumentError::NoDocument | DocumentError::LayerLimitReached { .. }) => {
+                true
+            }
+            Self::Unknown(_) | Self::Document(DocumentError::LayerMissingAfterAdd) => false,
+        }
+    }
+
+    /// The sentence to put in front of a person.
+    ///
+    /// The reason strings are the message — there is no second table mapping
+    /// internal reasons to friendly ones, because a second table is a second
+    /// vocabulary and it would drift. What this adds is presentation: a capital
+    /// and a full stop, and none of the `command rejected:` scaffolding that
+    /// belongs in a log rather than a status bar.
+    #[must_use]
+    pub fn user_message(&self) -> String {
+        let reason = match self {
+            Self::Rejected(reason) | Self::InvalidArgument(reason) => (*reason).to_owned(),
+            other => other.to_string(),
+        };
+        let mut chars = reason.chars();
+        let mut out = match chars.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            None => return String::new(),
+        };
+        if !out.ends_with(['.', '!', '?']) {
+            out.push('.');
+        }
+        out
+    }
 }

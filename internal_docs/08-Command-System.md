@@ -26,6 +26,33 @@ An ephemeral draft is still edited state and gets the same input discipline as a
 
 Neither case is producible by the shipped gizmo. Both are representable in a `.ptx` layer transform, which is the reason they are handled at all.
 
+## Failure Presentation
+
+`CommandError` has two halves and they belong on different paths. `Rejected`
+and `InvalidArgument` are the command declining and saying why — something the
+person at the keyboard can act on. An `Unknown` command id, or a document
+invariant that did not hold, is a wiring fault with nothing useful to tell a
+user. `CommandError::is_user_correctable` makes that split, and it is a
+**variant** test: the host used to recover the classification by searching the
+rendered `Display` text for the word "rejected", having just called
+`to_string()` on the value that already knew the answer. That also mis-routed
+anything else whose message happened to contain the word, and driver messages
+do use it.
+
+`CommandError::user_message` renders the sentence a person reads. There is no
+table mapping internal reasons to friendly ones — a second table is a second
+vocabulary and it would drift. The reason string *is* the message, written for
+the reader; what `user_message` adds is presentation: an initial capital, a
+full stop, and none of the `command rejected:` scaffolding, which stays on
+`Display` where logs and `Debug` output want it.
+
+Reasons are written as advice wherever the user can actually reach them —
+"select a layer first", "this layer's position is locked — unlock it to move
+it". Many rejections are guards the enablement layer already prevents, and
+those stay terse. A sweep over the shipped command registry asserts every
+reason survives presentation, so one added later gets the same treatment
+without anyone remembering.
+
 ## Responsibilities
 
 The command system **MUST**:

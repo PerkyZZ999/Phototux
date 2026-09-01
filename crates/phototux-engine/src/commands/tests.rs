@@ -960,3 +960,93 @@ fn a_layer_written_before_blend_if_existed_opens_with_no_ranges() {
         "a layer with no blend ranges must open hiding nothing"
     );
 }
+
+// —— Error presentation ——
+
+#[test]
+fn a_rejection_reads_as_a_sentence_not_as_a_log_line() {
+    let err = CommandError::Rejected("select a layer first");
+    assert_eq!(err.user_message(), "Select a layer first.");
+    // `Display` keeps the developer framing for logs and for `Debug` output;
+    // only the user-facing rendering drops it.
+    assert!(err.to_string().starts_with("command rejected:"));
+}
+
+#[test]
+fn user_facing_text_never_leaks_the_internal_framing() {
+    // Every reason the command layer can produce, run through the presentation
+    // it will actually get. A reason written as a log fragment reaches the
+    // status bar verbatim, so this is the only place it can be caught.
+    for reason in [
+        "select a layer first",
+        "those layers are already aligned",
+        "this layer is locked — unlock it to change it",
+    ] {
+        let text = CommandError::Rejected(reason).user_message();
+        let lower = text.to_ascii_lowercase();
+        for banned in ["command rejected", "invalid argument", "failed", "err"] {
+            assert!(
+                !lower.contains(banned),
+                "{text:?} contains developer vocabulary {banned:?}"
+            );
+        }
+        assert!(
+            text.chars().next().is_some_and(char::is_uppercase),
+            "{text:?} does not start with a capital"
+        );
+        assert!(text.ends_with('.'), "{text:?} does not end in a full stop");
+    }
+}
+
+#[test]
+fn a_wiring_fault_is_not_offered_to_the_user_as_advice() {
+    // The split this classification exists for: an unknown command id and a
+    // broken document invariant have nothing to tell the person at the
+    // keyboard, and must not land in the status bar as though they did.
+    assert!(!CommandError::Unknown("layer.nope".into()).is_user_correctable());
+    assert!(
+        !CommandError::Document(crate::DocumentError::LayerMissingAfterAdd).is_user_correctable()
+    );
+    assert!(CommandError::Rejected("select a layer first").is_user_correctable());
+    assert!(CommandError::InvalidArgument("expected opacity").is_user_correctable());
+    // A full document is the user's problem to solve, and the message says how.
+    assert!(CommandError::Document(crate::DocumentError::layer_limit(16)).is_user_correctable());
+    assert!(CommandError::Document(crate::DocumentError::NoDocument).is_user_correctable());
+}
+
+#[test]
+fn a_message_that_already_ends_in_punctuation_is_left_alone() {
+    assert_eq!(
+        CommandError::Rejected("really?").user_message(),
+        "Really?",
+        "a second full stop would be added by a naive append"
+    );
+}
+
+#[test]
+fn every_rejection_the_command_layer_produces_survives_presentation() {
+    // Sweeping the shipped registry rather than a hand-picked list: a reason
+    // added later gets the same treatment without anyone remembering to add it
+    // here. Only the shape is asserted — the wording is a judgement call, but
+    // "starts with a capital and ends in a stop" is not.
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let mut seen = 0;
+    for id in command_id::ALL {
+        // Most commands need arguments; the ones that reject on `None` are
+        // exactly the ones worth checking, and the rest simply do not fire.
+        if let Err(error) = s.invoke(id, CommandArgs::None) {
+            let text = error.user_message();
+            assert!(!text.is_empty(), "{id} produced an empty message");
+            assert!(
+                text.chars().next().is_some_and(char::is_uppercase),
+                "{id}: {text:?} does not start with a capital"
+            );
+            seen += 1;
+        }
+    }
+    assert!(
+        seen > 5,
+        "only {seen} commands rejected — the sweep is not running"
+    );
+}

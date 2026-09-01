@@ -3905,25 +3905,30 @@ impl AppSession {
             match self.command_args_for_action(cid, action.arg.as_deref()) {
                 Ok(args) => {
                     if let Err(error) = self.invoke_command(cid, args) {
-                        self.report_action_error(&error.to_string());
+                        self.report_action_error(&error);
                     }
                 }
-                Err(error) => self.report_action_error(&error.to_string()),
+                Err(error) => self.report_action_error(&error),
             }
         }
     }
 
     /// Surface action/command failures in the status footer and Properties announce.
-    fn report_action_error(&mut self, error: &str) {
-        let lower = error.to_ascii_lowercase();
-        if lower.contains("rejected") || lower.contains("invalid argument") {
-            self.status_text = error.to_owned();
+    ///
+    /// Takes the typed error rather than its rendered text. The classification
+    /// used to be recovered by searching that text for the word "rejected",
+    /// having just thrown away the value that knew the answer — which also
+    /// mis-routed any other failure whose message happened to contain the word.
+    fn report_action_error(&mut self, error: &CommandError) {
+        if error.is_user_correctable() {
+            let message = error.user_message();
+            self.status_text = message.clone();
             self.status_text_changed();
-            self.engine.announce(error);
+            self.engine.announce(message);
             self.publish_announcement();
             return;
         }
-        self.report_gpu("action", error);
+        self.report_gpu("action", &error.to_string());
     }
 
     #[qslot]
@@ -6173,7 +6178,7 @@ impl AppSession {
             command_id::LAYER_ALIGN,
             CommandArgs::AlignLayers { op, targets },
         ) {
-            self.report_action_error(&error.to_string());
+            self.report_action_error(&error);
         }
     }
 

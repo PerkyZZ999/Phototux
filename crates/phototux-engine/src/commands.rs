@@ -184,7 +184,7 @@ impl SessionState {
         self.graph
             .as_ref()
             .and_then(|g| g.active_id())
-            .ok_or(CommandError::Rejected("no active layer"))
+            .ok_or(CommandError::Rejected("select a layer first"))
     }
 
     fn assert_active_paintable(&self) -> Result<LayerId, CommandError> {
@@ -193,9 +193,11 @@ impl SessionState {
             .graph
             .as_ref()
             .and_then(|g| g.get(id))
-            .ok_or(CommandError::Rejected("no active layer"))?;
+            .ok_or(CommandError::Rejected("select a layer first"))?;
         if layer.paint_blocked() {
-            return Err(CommandError::Rejected("layer pixels locked"));
+            return Err(CommandError::Rejected(
+                "this layer's pixels are locked — unlock it to paint on it",
+            ));
         }
         Ok(id)
     }
@@ -206,9 +208,11 @@ impl SessionState {
             .graph
             .as_ref()
             .and_then(|g| g.get(id))
-            .ok_or(CommandError::Rejected("no active layer"))?;
+            .ok_or(CommandError::Rejected("select a layer first"))?;
         if layer.position_blocked() {
-            return Err(CommandError::Rejected("layer position locked"));
+            return Err(CommandError::Rejected(
+                "this layer's position is locked — unlock it to move it",
+            ));
         }
         Ok(id)
     }
@@ -218,7 +222,7 @@ impl SessionState {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
         let Some(kind) = self.history.undo_next(graph) else {
-            return Err(CommandError::Rejected("nothing to undo"));
+            return Err(CommandError::Rejected("there is nothing to undo"));
         };
         let generation = graph.generation;
         let mut effects = CommandEffects::document_edit(generation);
@@ -257,7 +261,7 @@ impl SessionState {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
         let Some(kind) = self.history.redo_next(graph) else {
-            return Err(CommandError::Rejected("nothing to redo"));
+            return Err(CommandError::Rejected("there is nothing to redo"));
         };
         let generation = graph.generation;
         let mut effects = CommandEffects::document_edit(generation);
@@ -342,7 +346,9 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Fill {
-            return Err(CommandError::Rejected("active layer is not a fill"));
+            return Err(CommandError::Rejected(
+                "the active layer is not a fill layer",
+            ));
         }
         let next = FillContent {
             color_rgba: [
@@ -381,14 +387,14 @@ impl SessionState {
         let mut ids = if self.selected_layer_ids.is_empty() {
             match graph.active_id() {
                 Some(id) => vec![id],
-                None => return Err(CommandError::Rejected("no active layer")),
+                None => return Err(CommandError::Rejected("select a layer first")),
             }
         } else {
             self.selected_layer_ids.clone()
         };
         ids.retain(|id| graph.get(*id).is_some());
         if ids.is_empty() {
-            return Err(CommandError::Rejected("no target layers"));
+            return Err(CommandError::Rejected("select a layer first"));
         }
         // Stable stack order (bottom → top).
         ids.sort_by_key(|id| graph.index_of(*id).unwrap_or(usize::MAX));
@@ -424,7 +430,7 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if prev == next {
-            return Err(CommandError::Rejected("blend ranges unchanged"));
+            return Err(CommandError::Rejected("those blend ranges are already set"));
         }
         graph.bump_generation();
         let generation = graph.generation;
@@ -446,7 +452,7 @@ impl SessionState {
             return Err(CommandError::InvalidArgument("expected align targets"));
         };
         if targets.len() < op.min_targets() {
-            return Err(CommandError::Rejected("not enough layers to align"));
+            return Err(CommandError::Rejected("select more layers to align them"));
         }
         let canvas = crate::Rect::new(0.0, 0.0, self.size.width as f32, self.size.height as f32);
         let ids: Vec<LayerId> = targets
@@ -462,7 +468,7 @@ impl SessionState {
         let frame = crate::align_frame(&rects, canvas);
         let batch = align_batch(graph, &targets, &crate::align_offsets(op, &rects, frame));
         if batch.is_empty() {
-            return Err(CommandError::Rejected("layers already aligned"));
+            return Err(CommandError::Rejected("those layers are already aligned"));
         }
         let moved = batch.len();
         graph.bump_generation();
@@ -479,7 +485,9 @@ impl SessionState {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
         if targets.len() >= graph.layer_count() {
-            return Err(CommandError::Rejected("cannot delete all layers"));
+            return Err(CommandError::Rejected(
+                "a document needs at least one layer",
+            ));
         }
         reject_locked_layers(graph, &targets)?;
 
@@ -609,7 +617,9 @@ impl SessionState {
                 return Err(CommandError::Rejected("layer missing"));
             };
             if layer.locks.all || layer.locks.position {
-                return Err(CommandError::Rejected("layer position locked"));
+                return Err(CommandError::Rejected(
+                    "this layer's position is locked — unlock it to move it",
+                ));
             }
         }
         let prev = graph.stack_order();
@@ -623,7 +633,7 @@ impl SessionState {
             }
         }
         if moving.is_empty() {
-            return Err(CommandError::Rejected("no layers to reorder"));
+            return Err(CommandError::Rejected("there are no layers to reorder"));
         }
         let insert_at = (to_index.max(0) as usize).min(rest.len());
         let mut next = rest;
@@ -705,11 +715,13 @@ impl SessionState {
             .filter(|id| graph.get(*id).is_some_and(|l| l.kind == LayerKind::Group))
             .collect();
         if groups.is_empty() {
-            return Err(CommandError::Rejected("no group selected"));
+            return Err(CommandError::Rejected("select a group first"));
         }
         for id in &groups {
             if graph.get(*id).is_some_and(|l| l.locks.all) {
-                return Err(CommandError::Rejected("group is locked"));
+                return Err(CommandError::Rejected(
+                    "this group is locked — unlock it to change it",
+                ));
             }
         }
 
@@ -1157,19 +1169,21 @@ impl SessionState {
         match shape {
             SelectionShape::Rect => {
                 if rect.width == 0 || rect.height == 0 {
-                    return Err(CommandError::Rejected("empty selection"));
+                    return Err(CommandError::Rejected("the selection is empty"));
                 }
                 self.selection.set_rect(rect, combine);
             }
             SelectionShape::Ellipse => {
                 if rect.width == 0 || rect.height == 0 {
-                    return Err(CommandError::Rejected("empty selection"));
+                    return Err(CommandError::Rejected("the selection is empty"));
                 }
                 self.selection.set_ellipse(rect, combine);
             }
             SelectionShape::Mask => {
                 if polygon.len() < 3 {
-                    return Err(CommandError::Rejected("polygon needs 3+ points"));
+                    return Err(CommandError::Rejected(
+                        "a polygon needs at least three points",
+                    ));
                 }
                 let bounds = crate::SelectionState::polygon_bounds(&polygon)
                     .ok_or(CommandError::Rejected("invalid polygon bounds"))?;
@@ -1277,7 +1291,7 @@ impl SessionState {
             return Err(CommandError::Document(DocumentError::NoDocument));
         }
         if !self.selection.active {
-            return Err(CommandError::Rejected("no pixel selection"));
+            return Err(CommandError::Rejected("make a selection first"));
         }
         let _ = self.active_layer_id()?;
         self.announce("Selection → layer mask");
@@ -1313,10 +1327,14 @@ impl SessionState {
             return Err(CommandError::Rejected("no layer mask"));
         }
         if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("apply mask requires raster layer"));
+            return Err(CommandError::Rejected(
+                "applying a mask needs a raster layer",
+            ));
         }
         if layer.paint_blocked() {
-            return Err(CommandError::Rejected("layer is locked"));
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
         }
         self.announce("Apply layer mask");
         let mut effects = CommandEffects::host_chrome(HostFollowUp::ApplyMask);
@@ -1558,7 +1576,7 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Text {
-            return Err(CommandError::Rejected("not a text layer"));
+            return Err(CommandError::Rejected("this is not a text layer"));
         }
         layer.text = Some(content);
         graph.bump_generation();
@@ -1585,7 +1603,7 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Text {
-            return Err(CommandError::Rejected("not a text layer"));
+            return Err(CommandError::Rejected("this is not a text layer"));
         }
         layer.kind = LayerKind::Raster;
         layer.text = None;
@@ -1632,7 +1650,7 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Shape {
-            return Err(CommandError::Rejected("not a shape layer"));
+            return Err(CommandError::Rejected("this is not a shape layer"));
         }
         layer.kind = LayerKind::Raster;
         layer.shape = None;
@@ -1665,7 +1683,7 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if active_layer.kind != LayerKind::Shape || active_layer.shape.is_none() {
-            return Err(CommandError::Rejected("active layer is not a shape"));
+            return Err(CommandError::Rejected("the active layer is not a shape"));
         }
         let idx = graph
             .index_of(active)
@@ -1812,7 +1830,9 @@ impl SessionState {
             .and_then(|g| g.get(id))
             .is_some_and(|l| l.kind == LayerKind::Raster);
         if !is_raster {
-            return Err(CommandError::Rejected("effect requires raster layer"));
+            return Err(CommandError::Rejected(
+                "filter effects apply to raster layers only",
+            ));
         }
         let Some(params) = FilterParams::default_for_kind(&kind) else {
             return Err(CommandError::InvalidArgument("unknown effect kind"));
@@ -1884,7 +1904,9 @@ impl SessionState {
             .and_then(|g| g.get(id))
             .is_some_and(|l| l.kind == LayerKind::Raster);
         if !is_raster {
-            return Err(CommandError::Rejected("effect requires raster layer"));
+            return Err(CommandError::Rejected(
+                "filter effects apply to raster layers only",
+            ));
         }
         let generation = self.document_generation();
         self.filter_preview = Some(crate::FilterPreviewSession::new(id, kind, generation));
@@ -1979,7 +2001,9 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("effect requires raster layer"));
+            return Err(CommandError::Rejected(
+                "filter effects apply to raster layers only",
+            ));
         }
         let prev_effects = layer.effects.clone();
         let prev_plan = layer.filter_plan.clone();
@@ -2040,7 +2064,7 @@ impl SessionState {
         };
         let active = graph
             .active_id()
-            .ok_or(CommandError::Rejected("no active layer"))?;
+            .ok_or(CommandError::Rejected("select a layer first"))?;
         let Some(layer) = graph.get(active) else {
             return Err(CommandError::Rejected("layer missing"));
         };
@@ -2070,9 +2094,9 @@ impl SessionState {
             let idx = graph
                 .paths
                 .active
-                .ok_or(CommandError::Rejected("no active path"))?;
+                .ok_or(CommandError::Rejected("select a path first"))?;
             if idx >= graph.paths.paths.len() {
-                return Err(CommandError::Rejected("no active path"));
+                return Err(CommandError::Rejected("select a path first"));
             }
             f(&mut graph.paths.paths[idx])?;
             let next = graph.paths.clone();
@@ -2168,7 +2192,7 @@ impl SessionState {
                 return Err(CommandError::Rejected("anchor missing"));
             }
             if path.anchors.len() <= 2 {
-                return Err(CommandError::Rejected("need at least two anchors"));
+                return Err(CommandError::Rejected("a path needs at least two anchors"));
             }
             path.anchors.remove(index);
             if index < path.controls.len() {
@@ -2292,7 +2316,9 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected("layer style requires raster"));
+            return Err(CommandError::Rejected(
+                "layer styles apply to raster layers only",
+            ));
         }
         let prev = layer.styles.clone();
         let mut next = prev.clone();
@@ -2433,13 +2459,15 @@ impl SessionState {
 
     fn cmd_raster_transform_commit(&mut self) -> Result<CommandEffects, CommandError> {
         let Some(session) = self.transform_session.take() else {
-            return Err(CommandError::Rejected("no transform session"));
+            return Err(CommandError::Rejected("no transform is in progress"));
         };
         if let Some(graph) = self.graph.as_ref() {
             if let Some(layer) = graph.get(session.layer_id) {
                 if layer.position_blocked() {
                     self.transform_session = Some(session);
-                    return Err(CommandError::Rejected("layer position locked"));
+                    return Err(CommandError::Rejected(
+                        "this layer's position is locked — unlock it to move it",
+                    ));
                 }
             }
         }
@@ -2519,7 +2547,9 @@ fn reject_locked_layers(
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.locks.all {
-            return Err(CommandError::Rejected("layer is locked"));
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
         }
     }
     Ok(())
@@ -2539,7 +2569,9 @@ fn reject_position_locked(
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.position_blocked() {
-            return Err(CommandError::Rejected("layer position locked"));
+            return Err(CommandError::Rejected(
+                "this layer's position is locked — unlock it to move it",
+            ));
         }
     }
     Ok(())
@@ -2661,7 +2693,9 @@ fn reject_group_targets(
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.locks.all {
-            return Err(CommandError::Rejected("layer is locked"));
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
         }
         if layer.kind == LayerKind::Group {
             reject_grouping_group_with_children(graph, *id, targets)?;
