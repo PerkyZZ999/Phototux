@@ -595,38 +595,45 @@ pub fn color_select_mask(
     }
 
     let seed_index = seed_y as usize * w + seed_x as usize;
-    let seed = &pixels[seed_index * 4..seed_index * 4 + 4];
     let limit = tolerance.clamp(0.0, 1.0).powi(2) * MAX_COLOR_DISTANCE_SQ;
-
-    let matches = |index: usize| {
-        let px = &pixels[index * 4..index * 4 + 4];
-        let mut sum = 0.0_f32;
-        for c in 0..4 {
-            let d = f32::from(px[c]) - f32::from(seed[c]);
-            sum += d * d;
-        }
-        sum <= limit
-    };
+    let matches = |index: usize| color_within(pixels, index, seed_index, limit);
 
     let mut out = vec![0_u8; count];
-    if !contiguous {
+    if contiguous {
+        flood_from(&mut out, seed_index, w, h, &matches);
+    } else {
         for (index, slot) in out.iter_mut().enumerate() {
             if matches(index) {
                 *slot = 255;
             }
         }
-        return Ok(out);
     }
+    Ok(out)
+}
 
-    // Explicit stack rather than recursion: a flood over a 4K layer is
-    // sixteen million pixels deep in the worst case, which no call stack
-    // survives.
-    let mut stack = vec![seed_index];
-    out[seed_index] = 255;
+/// Whether pixel `index` is within `limit` squared distance of `seed`.
+fn color_within(pixels: &[u8], index: usize, seed: usize, limit: f32) -> bool {
+    let px = &pixels[index * 4..index * 4 + 4];
+    let sd = &pixels[seed * 4..seed * 4 + 4];
+    let mut sum = 0.0_f32;
+    for c in 0..4 {
+        let d = f32::from(px[c]) - f32::from(sd[c]);
+        sum += d * d;
+    }
+    sum <= limit
+}
+
+/// Four-connected flood from `seed`, marking every matching pixel reached.
+///
+/// An explicit stack rather than recursion: a flood over a 4K layer is sixteen
+/// million pixels deep in the worst case, which no call stack survives.
+fn flood_from(out: &mut [u8], seed: usize, w: usize, h: usize, matches: &impl Fn(usize) -> bool) {
+    let mut stack = vec![seed];
+    out[seed] = 255;
     while let Some(index) = stack.pop() {
         let x = index % w;
         let y = index / w;
-        let push = |nx: usize, ny: usize, out: &mut Vec<u8>, stack: &mut Vec<usize>| {
+        let mut visit = |nx: usize, ny: usize| {
             let n = ny * w + nx;
             if out[n] == 0 && matches(n) {
                 out[n] = 255;
@@ -634,19 +641,18 @@ pub fn color_select_mask(
             }
         };
         if x > 0 {
-            push(x - 1, y, &mut out, &mut stack);
+            visit(x - 1, y);
         }
         if x + 1 < w {
-            push(x + 1, y, &mut out, &mut stack);
+            visit(x + 1, y);
         }
         if y > 0 {
-            push(x, y - 1, &mut out, &mut stack);
+            visit(x, y - 1);
         }
         if y + 1 < h {
-            push(x, y + 1, &mut out, &mut stack);
+            visit(x, y + 1);
         }
     }
-    Ok(out)
 }
 
 fn morph_mask_r8(
