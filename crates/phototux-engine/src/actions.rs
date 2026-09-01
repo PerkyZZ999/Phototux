@@ -403,6 +403,28 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "has_document_io_idle",
         )
         .host("shape.rasterize"),
+        // Layer > Smart Objects, where Photoshop keeps them.
+        act(
+            "action.layer.convert-to-smart",
+            "Convert to Smart &Object",
+            "layer.smart",
+            "has_document_io_idle",
+        )
+        .host("smart.create"),
+        act(
+            "action.layer.reset-smart",
+            "&Reset Placement",
+            "layer.smart",
+            "smart_object",
+        )
+        .host("smart.reset"),
+        act(
+            "action.layer.rasterize-smart",
+            "Rasterize Smart Object",
+            "layer.smart",
+            "smart_object",
+        )
+        .host("smart.rasterize"),
         act(
             "action.layer.stroke-path",
             "Stroke Path to Layer",
@@ -608,7 +630,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.app.recover-gpu",
             "&Recover graphics…",
             "view",
-            "document",
+            "has_document",
         )
         .host("app.recover_gpu")
         .icon("arrows-clockwise"),

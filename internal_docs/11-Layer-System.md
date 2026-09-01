@@ -282,7 +282,7 @@ Changing parent normally preserves either local transform or document-space appe
 
 ### Layer Kind Badge
 
-A layer row carries a one-letter marker for its kind, and *only* when there is a
+A layer row carries a short marker for its kind, and *only* when there is a
 kind worth marking: raster is the default and by far the commonest, so
 `LayerKind::badge` answers with an empty string for it and the panel hides the
 slot. Every row used to carry the square regardless, blank for raster — which
@@ -293,7 +293,32 @@ The letters live on `LayerKind`, not in the panel. They were a nested
 conditional over five kind strings in QML: the layer vocabulary written a second
 time, where a sixth kind would have arrived as a blank badge indistinguishable
 from a raster layer. A test asserts raster is the only unbadged kind and that no
-two kinds share a badge or a label.
+two kinds share a badge or a label. `LayerKind` also owns each kind's display
+name and Phosphor stem, for the same reason and checked the same way.
+
+### Smart objects
+
+A smart object keeps the pixels it was made from and re-applies its `placement`
+to *them*, so a scale to a tenth and back costs nothing where the same on an
+ordinary layer returns a twenty-times upscale of what survived. That is the only
+behaviour that distinguishes the kind, and it is the whole of
+[DR-032](Appendix/Decision-Register.md#dr-032--graph-kind-set-includes-smartobject):
+restore the source, apply the whole placement, never compose one placement with
+the last.
+
+The source pixels are **not** in the graph. The engine describes documents and
+owns no pixel buffers; the host holds the source by layer id and `.ptx` stores
+it in a `SRCE` chunk. `SmartObjectContent` carries what the engine does need —
+the source's name, its asset key, its dimensions, and the placement — so a
+placement can be reasoned about and reported without the pixels being resident.
+
+Only a **pixel** layer can be wrapped. A group, text, shape, adjustment or fill
+layer describes itself rather than owning a buffer, so there is nothing to
+capture; wrapping one would mean flattening it first, which is a separate
+command rather than this one pretending. Wrapping and rasterizing each change
+the kind *and* the payload, and both go into history as one `Batch`: a graph
+where one has been undone and the other has not is a smart object with no
+source, or a raster layer carrying one.
 
 ### Blend If
 

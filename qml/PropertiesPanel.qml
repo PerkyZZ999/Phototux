@@ -160,6 +160,31 @@ ColumnLayout {
         }
     }
 
+    /// The active smart object's source and placement, or `{}`.
+    readonly property var smart: {
+        try {
+            return JSON.parse(AppSession.smartJson || "{}")
+        } catch (e) {
+            return ({})
+        }
+    }
+
+    /// Push the smart object's placement, changing one field of it.
+    ///
+    /// Whole-placement, like the shape appearance and for the same reason: the
+    /// command replaces the payload and undoes as one entry.
+    function pushPlacement(overrides) {
+        var p = root.smart
+        var next = {
+            x: p.x || 0, y: p.y || 0,
+            scale: p.scale === undefined ? 1 : p.scale,
+            rotation: p.rotation || 0
+        }
+        for (var key in overrides)
+            next[key] = overrides[key]
+        AppSession.setSmartPlacement(next.x, next.y, next.scale, next.rotation)
+    }
+
     /// The active shape layer's appearance and geometry, or `{}`.
     readonly property var shape: {
         try {
@@ -964,6 +989,163 @@ ColumnLayout {
                                          .arg(root.adjustmentLabel)
                         onMoved: AppSession.setAdjustmentSlot(slotEditor.index, value)
                     }
+                }
+            }
+        }
+    }
+
+    // Smart object.
+    //
+    // A smart object keeps the pixels it was made from and re-applies its
+    // placement to *them*, so scaling to a tenth and back costs nothing where
+    // the same on an ordinary layer destroys nine tenths of it. The panel is
+    // therefore about the source — what it is, how big it is, and where the
+    // layer currently sits relative to it.
+    DisclosureGroup {
+        groupId: "inspector.smart"
+        title: qsTr("Smart Object")
+        visible: root.sectionApplies("inspector.smart")
+        summary: root.smart.placed === true
+                 ? qsTr("%1%").arg(Math.round((root.smart.scale || 1) * 100))
+                 : qsTr("original size")
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spaceSm
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: Theme.spaceSm
+                rowSpacing: 2
+
+                component FieldName: Label {
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                }
+                component FieldValue: Label {
+                    Layout.fillWidth: true
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                    elide: Text.ElideMiddle
+                }
+
+                FieldName { text: qsTr("Source") }
+                FieldValue {
+                    text: root.smart.sourceName !== undefined
+                          && root.smart.sourceName.length > 0
+                          ? root.smart.sourceName : qsTr("embedded pixels")
+                }
+                FieldName { text: qsTr("Original") }
+                FieldValue {
+                    text: qsTr("%1 × %2 px").arg(root.smart.sourceWidth || 0)
+                                            .arg(root.smart.sourceHeight || 0)
+                    font.family: "Noto Sans Mono"
+                }
+            }
+
+            // Said plainly rather than by disabling the controls silently: a
+            // document from before smart objects existed opens showing the
+            // pixels it already had, and there is nothing to re-place them from.
+            Label {
+                Layout.fillWidth: true
+                visible: root.smart.hasSource === false
+                wrapMode: Text.WordWrap
+                text: qsTr("The original pixels are missing from this document, so this layer can no longer be re-placed. Rasterize it to make it an ordinary layer.")
+                color: Theme.warning
+                font.pixelSize: Theme.fontLabelSm
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spaceXs
+                enabled: root.smart.hasSource !== false
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceSm
+                    Label {
+                        text: qsTr("Scale")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontBodySm
+                        Layout.preferredWidth: 52
+                    }
+                    Slider {
+                        id: smartScale
+                        Layout.fillWidth: true
+                        from: 0.05
+                        to: 4.0
+                        value: root.smart.scale === undefined ? 1 : root.smart.scale
+                        Accessible.name: qsTr("Smart object scale, %1 percent")
+                                         .arg(Math.round(smartScale.value * 100))
+                        // On release: each push is a command, a history entry
+                        // and a re-render from the source.
+                        onPressedChanged: if (!pressed)
+                                              root.pushPlacement({ scale: value })
+                    }
+                    Label {
+                        text: Math.round(smartScale.value * 100) + "%"
+                        color: Theme.primary
+                        font.pixelSize: Theme.fontMono
+                        font.family: "Noto Sans Mono"
+                        Layout.preferredWidth: 44
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceSm
+                    Label {
+                        text: qsTr("Rotate")
+                        color: Theme.colorOnSurface
+                        font.pixelSize: Theme.fontBodySm
+                        Layout.preferredWidth: 52
+                    }
+                    Slider {
+                        id: smartRotation
+                        Layout.fillWidth: true
+                        from: -180
+                        to: 180
+                        value: root.smart.rotation || 0
+                        Accessible.name: qsTr("Smart object rotation, %1 degrees")
+                                         .arg(Math.round(smartRotation.value))
+                        onPressedChanged: if (!pressed)
+                                              root.pushPlacement({ rotation: value })
+                    }
+                    Label {
+                        text: Math.round(smartRotation.value) + "°"
+                        color: Theme.primary
+                        font.pixelSize: Theme.fontMono
+                        font.family: "Noto Sans Mono"
+                        Layout.preferredWidth: 44
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Each change re-applies to the original pixels, so quality never accumulates loss.")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spaceXs
+                ThemedButton {
+                    text: qsTr("Reset")
+                    Layout.fillWidth: true
+                    enabled: root.smart.placed === true
+                             && root.smart.hasSource !== false
+                    Accessible.name: qsTr("Return to the original placement")
+                    onClicked: root.runAction("action.layer.reset-smart")
+                }
+                ThemedButton {
+                    text: qsTr("Rasterize")
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("Convert to an ordinary pixel layer")
+                    onClicked: root.runAction("action.layer.rasterize-smart")
                 }
             }
         }

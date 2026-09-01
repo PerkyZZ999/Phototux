@@ -23,6 +23,7 @@ pub const PTX_FORMAT_VERSION_V1: u32 = 1;
 const CHUNK_MANI: [u8; 4] = *b"MANI";
 const CHUNK_RASL: [u8; 4] = *b"RASL";
 const CHUNK_MASK: [u8; 4] = *b"MASK";
+const CHUNK_SRCE: [u8; 4] = *b"SRCE";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PtxManifest {
@@ -34,6 +35,13 @@ pub struct PtxManifest {
     /// Older manifests omit this field and therefore load without masks.
     #[serde(default)]
     pub mask_asset_ids: HashMap<u64, u64>,
+    /// Layer id → distinct asset id for a smart object's source PNG (DR-032).
+    ///
+    /// Like masks, omitted by older manifests, which then load with their
+    /// smart objects showing the pixels they already had — the placed result,
+    /// which is what was on screen — but unable to be re-placed.
+    #[serde(default)]
+    pub smart_asset_ids: HashMap<u64, u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +54,24 @@ pub struct PtxDocument {
     /// Mask assets use the same PNG path as layer rasters to retain the
     /// existing normalized [`Raster`] representation.
     pub masks: HashMap<u64, Raster>,
+    /// Layer id → a smart object's pristine source pixels (DR-032).
+    ///
+    /// Separate from `rasters`, which hold what is *on screen*: for a smart
+    /// object those are the placed result, and the whole point of the kind is
+    /// that the next placement is computed from the original instead.
+    pub sources: HashMap<u64, Raster>,
+}
+
+/// A decoded document taken apart for installation.
+#[derive(Debug, Clone)]
+pub struct PtxParts {
+    pub graph: DocumentGraph,
+    /// Layer id → the pixels that were on screen.
+    pub rasters: HashMap<u64, Raster>,
+    /// Layer id → its mask.
+    pub masks: HashMap<u64, Raster>,
+    /// Layer id → a smart object's pristine source (DR-032).
+    pub sources: HashMap<u64, Raster>,
 }
 
 #[derive(Debug, Error)]
@@ -75,9 +101,11 @@ impl PtxDocument {
                 graph,
                 active_layer,
                 mask_asset_ids: HashMap::new(),
+                smart_asset_ids: HashMap::new(),
             },
             rasters,
             masks: HashMap::new(),
+            sources: HashMap::new(),
         }
     }
 
@@ -92,12 +120,21 @@ impl PtxDocument {
         (self.manifest.graph, self.rasters)
     }
 
-    /// Consume into graph, layer rasters, and layer masks.
-    pub fn into_parts(mut self) -> (DocumentGraph, HashMap<u64, Raster>, HashMap<u64, Raster>) {
+    /// Consume into the pieces the host installs.
+    ///
+    /// Named rather than a tuple: there are four asset families now and three
+    /// of them are the same type, so a call site unpacking them positionally
+    /// could swap masks for sources and still compile.
+    pub fn into_parts(mut self) -> PtxParts {
         if let Some(id) = self.manifest.active_layer {
             let _ = self.manifest.graph.set_active(LayerId(id));
         }
-        (self.manifest.graph, self.rasters, self.masks)
+        PtxParts {
+            graph: self.manifest.graph,
+            rasters: self.rasters,
+            masks: self.masks,
+            sources: self.sources,
+        }
     }
 }
 
@@ -108,7 +145,9 @@ impl PtxDocument {
 pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
     let mut manifest = doc.manifest.clone();
     manifest.format_version = PTX_FORMAT_VERSION;
-    manifest.mask_asset_ids = allocate_mask_asset_ids(&doc.rasters, &doc.masks)?;
+    let mut used: std::collections::HashSet<u64> = doc.rasters.keys().copied().collect();
+    manifest.mask_asset_ids = allocate_asset_ids(&mut used, &doc.masks)?;
+    manifest.smart_asset_ids = allocate_asset_ids(&mut used, &doc.sources)?;
     let manifest_json = serde_json::to_vec(&manifest)?;
     let mut manifest_z = Vec::new();
     {
@@ -120,13 +159,13 @@ pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
     let mut body = Vec::new();
     write_chunk(&mut body, CHUNK_MANI, &manifest_z)?;
 
-    let mut assets: Vec<(u64, Vec<u8>, bool)> =
-        Vec::with_capacity(doc.rasters.len() + doc.masks.len());
+    let mut assets: Vec<(u64, Vec<u8>, [u8; 4])> =
+        Vec::with_capacity(doc.rasters.len() + doc.masks.len() + doc.sources.len());
     let mut png = Vec::new();
     let mut z = Vec::new();
     for (id, raster) in &doc.rasters {
         encode_png_asset(&mut png, &mut z, raster)?;
-        assets.push((*id, std::mem::take(&mut z), false));
+        assets.push((*id, std::mem::take(&mut z), CHUNK_RASL));
     }
     for (layer_id, mask) in &doc.masks {
         let asset_id = manifest
@@ -135,18 +174,22 @@ pub fn encode_ptx(doc: &PtxDocument) -> Result<Vec<u8>, PtxError> {
             .ok_or_else(|| PtxError::Corrupt("missing mask asset id".into()))?;
         let mask = normalize_mask(mask)?;
         encode_png_asset(&mut png, &mut z, &mask)?;
-        assets.push((*asset_id, std::mem::take(&mut z), true));
+        assets.push((*asset_id, std::mem::take(&mut z), CHUNK_MASK));
+    }
+    for (layer_id, source) in &doc.sources {
+        let asset_id = manifest
+            .smart_asset_ids
+            .get(layer_id)
+            .ok_or_else(|| PtxError::Corrupt("missing smart source asset id".into()))?;
+        encode_png_asset(&mut png, &mut z, source)?;
+        assets.push((*asset_id, std::mem::take(&mut z), CHUNK_SRCE));
     }
     assets.sort_by_key(|(id, _, _)| *id);
-    for (id, blob, is_mask) in assets {
+    for (id, blob, kind) in assets {
         let mut payload = Vec::with_capacity(8 + blob.len());
         payload.extend_from_slice(&id.to_le_bytes());
         payload.extend_from_slice(&blob);
-        write_chunk(
-            &mut body,
-            if is_mask { CHUNK_MASK } else { CHUNK_RASL },
-            &payload,
-        )?;
+        write_chunk(&mut body, kind, &payload)?;
     }
 
     wrap_container(PTX_FORMAT_VERSION, &body)
@@ -260,7 +303,7 @@ fn decode_ptx_v2_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
                 let manifest_json = inflate(payload)?;
                 manifest = Some(serde_json::from_slice(&manifest_json)?);
             }
-            CHUNK_RASL | CHUNK_MASK => {
+            CHUNK_RASL | CHUNK_MASK | CHUNK_SRCE => {
                 if payload.len() < 8 {
                     return Err(PtxError::Corrupt("truncated asset chunk".into()));
                 }
@@ -295,6 +338,13 @@ fn finish_document(
             .ok_or_else(|| PtxError::Corrupt("missing mask asset".into()))?;
         masks.insert(*layer_id, mask);
     }
+    let mut sources = HashMap::with_capacity(manifest.smart_asset_ids.len());
+    for (layer_id, asset_id) in &manifest.smart_asset_ids {
+        let source = assets
+            .remove(asset_id)
+            .ok_or_else(|| PtxError::Corrupt("missing smart source asset".into()))?;
+        sources.insert(*layer_id, source);
+    }
     let rasters = assets;
 
     if let Some(active) = manifest.active_layer {
@@ -305,6 +355,7 @@ fn finish_document(
         manifest,
         rasters,
         masks,
+        sources,
     })
 }
 
@@ -412,29 +463,33 @@ fn inflate(data: &[u8]) -> Result<Vec<u8>, PtxError> {
     Ok(out)
 }
 
-fn allocate_mask_asset_ids(
-    rasters: &HashMap<u64, Raster>,
-    masks: &HashMap<u64, Raster>,
+/// Give every layer in `assets` an asset id no other family has taken.
+///
+/// `used` accumulates across families, so calling this for masks and then for
+/// smart-object sources cannot hand the same id to both — which would make one
+/// of them overwrite the other in the flat asset map on the way back in.
+fn allocate_asset_ids(
+    used: &mut std::collections::HashSet<u64>,
+    assets: &HashMap<u64, Raster>,
 ) -> Result<HashMap<u64, u64>, PtxError> {
-    let mut used_asset_ids: std::collections::HashSet<u64> = rasters.keys().copied().collect();
-    let mut layer_ids: Vec<u64> = masks.keys().copied().collect();
+    let mut layer_ids: Vec<u64> = assets.keys().copied().collect();
     layer_ids.sort_unstable();
 
     let mut asset_id = 0_u64;
-    let mut mask_asset_ids = HashMap::with_capacity(layer_ids.len());
+    let mut out = HashMap::with_capacity(layer_ids.len());
     for layer_id in layer_ids {
-        while used_asset_ids.contains(&asset_id) {
+        while used.contains(&asset_id) {
             asset_id = asset_id
                 .checked_add(1)
-                .ok_or_else(|| PtxError::Corrupt("exhausted mask asset ids".into()))?;
+                .ok_or_else(|| PtxError::Corrupt("exhausted asset ids".into()))?;
         }
-        mask_asset_ids.insert(layer_id, asset_id);
-        used_asset_ids.insert(asset_id);
+        out.insert(layer_id, asset_id);
+        used.insert(asset_id);
         asset_id = asset_id
             .checked_add(1)
-            .ok_or_else(|| PtxError::Corrupt("exhausted mask asset ids".into()))?;
+            .ok_or_else(|| PtxError::Corrupt("exhausted asset ids".into()))?;
     }
-    Ok(mask_asset_ids)
+    Ok(out)
 }
 
 fn encode_png_asset(png: &mut Vec<u8>, z: &mut Vec<u8>, raster: &Raster) -> Result<(), PtxError> {
@@ -619,6 +674,67 @@ mod tests {
         assert_eq!(back.rasters.get(&background_id), Some(&background));
         assert_eq!(back.rasters.get(&id), Some(&layer));
         assert_eq!(back.masks.get(&id), Some(&mask));
+    }
+
+    #[test]
+    fn ptx_smart_source_roundtrip_keeps_the_source_apart_from_the_screen() {
+        // The point of the separation: `rasters` hold what is on screen, which
+        // for a smart object is the *placed* result. Re-placing has to start
+        // from the original, so both have to survive a save and come back
+        // distinguishable.
+        let graph = DocumentGraph::new(DocumentSize::new(2, 1));
+        let id = graph.layers()[1].id.0;
+        let placed = Raster::new(
+            2,
+            1,
+            vec![10, 20, 30, 255, 40, 50, 60, 255].into_boxed_slice(),
+        )
+        .expect("placed raster");
+        let source = Raster::new(
+            2,
+            1,
+            vec![200, 210, 220, 255, 230, 240, 250, 255].into_boxed_slice(),
+        )
+        .expect("source raster");
+        let mut doc = PtxDocument::from_graph(graph, HashMap::from([(id, placed.clone())]));
+        doc.sources.insert(id, source.clone());
+
+        let back = decode_ptx(&encode_ptx(&doc).expect("encode")).expect("decode");
+        assert_eq!(back.rasters.get(&id), Some(&placed));
+        assert_eq!(back.sources.get(&id), Some(&source));
+    }
+
+    /// Masks and sources allocate from the same asset-id space, so one family
+    /// must not be handed an id the other already has — the assets come back
+    /// in one flat map, and a collision means one silently replaces the other.
+    #[test]
+    fn masks_and_smart_sources_never_share_an_asset_id() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(1, 1));
+        let a = graph.layers()[0].id.0;
+        let b = graph.layers()[1].id.0;
+        graph.set_mask(LayerId(b), Some(Default::default()));
+        let px = |v: u8| Raster::new(1, 1, vec![v, v, v, 255].into_boxed_slice()).expect("raster");
+        let mut doc = PtxDocument::from_graph(graph, HashMap::from([(a, px(1)), (b, px(2))]));
+        doc.masks.insert(b, px(3));
+        doc.sources.insert(a, px(4));
+
+        let bytes = encode_ptx(&doc).expect("encode");
+        let back = decode_ptx(&bytes).expect("decode");
+        assert_eq!(back.masks.get(&b), Some(&px(3)));
+        assert_eq!(back.sources.get(&a), Some(&px(4)));
+        assert_eq!(back.rasters.len(), 2, "an asset was overwritten");
+    }
+
+    /// A document saved before smart objects existed carries no `SRCE` chunk
+    /// and no id map, and must still open.
+    #[test]
+    fn a_document_without_sources_still_opens() {
+        let graph = DocumentGraph::new(DocumentSize::new(1, 1));
+        let id = graph.layers()[0].id.0;
+        let raster = Raster::new(1, 1, vec![9, 9, 9, 255].into_boxed_slice()).expect("raster");
+        let doc = PtxDocument::from_graph(graph, HashMap::from([(id, raster)]));
+        let back = decode_ptx(&encode_ptx(&doc).expect("encode")).expect("decode");
+        assert!(back.sources.is_empty());
     }
 
     #[test]

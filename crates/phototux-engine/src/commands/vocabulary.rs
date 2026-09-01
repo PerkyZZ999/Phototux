@@ -87,6 +87,15 @@ pub mod command_id {
     /// Recolour a shape layer without touching its geometry.
     pub const SHAPE_SET_APPEARANCE: &str = "shape.set-appearance";
 
+    /// Wrap the active layer's pixels so a transform can be re-applied to
+    /// them rather than accumulated on them (DR-032).
+    pub const SMART_CREATE: &str = "smartobject.create";
+    /// Replace a smart object's placement. Non-destructive: the source is
+    /// restored and the whole placement re-applied, never composed.
+    pub const SMART_SET_PLACEMENT: &str = "smartobject.set-placement";
+    /// Bake a smart object down to ordinary pixels and drop its source.
+    pub const SMART_RASTERIZE: &str = "smartobject.rasterize";
+
     pub const FILTER_ADD_ADJUSTMENT: &str = "filter.add-adjustment";
     pub const FILTER_SET_PARAMETERS: &str = "filter.set-parameters";
     pub const FILTER_ADD_EFFECT: &str = "filter.add-effect";
@@ -198,6 +207,9 @@ pub mod command_id {
         SHAPE_RASTERIZE,
         SHAPE_BOOLEAN,
         SHAPE_SET_APPEARANCE,
+        SMART_CREATE,
+        SMART_SET_PLACEMENT,
+        SMART_RASTERIZE,
         FILTER_ADD_ADJUSTMENT,
         FILTER_SET_PARAMETERS,
         FILTER_ADD_EFFECT,
@@ -272,6 +284,11 @@ pub enum HostFollowUp {
     },
     /// Re-rasterize a shape layer after path edit (host GPU upload).
     RasterizeShape {
+        id: crate::LayerId,
+    },
+    /// Re-place a smart object: restore its source pixels, then apply the
+    /// whole placement to them. The host owns both, so the engine asks.
+    PlaceSmartObject {
         id: crate::LayerId,
     },
     /// Open the filter gallery dialog (application chrome).
@@ -444,6 +461,12 @@ pub enum CommandArgs {
     },
     ShapeSetAppearance {
         appearance: crate::ShapeAppearance,
+    },
+    SmartCreate {
+        content: Box<crate::SmartObjectContent>,
+    },
+    SmartSetPlacement {
+        placement: crate::LayerTransform,
     },
     PathSetClosed {
         closed: bool,

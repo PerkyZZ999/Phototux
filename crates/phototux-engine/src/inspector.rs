@@ -37,11 +37,12 @@ pub enum InspectorSubject {
     Adjustment,
     Shape,
     Fill,
+    SmartObject,
 }
 
 impl InspectorSubject {
     /// Every subject, so a consumer can be checked for covering all of them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Document,
         Self::Raster,
         Self::Group,
@@ -49,6 +50,7 @@ impl InspectorSubject {
         Self::Adjustment,
         Self::Shape,
         Self::Fill,
+        Self::SmartObject,
     ];
 
     /// Every subject that is a layer — the ones a layer-scoped section shares.
@@ -63,6 +65,7 @@ impl InspectorSubject {
         Self::Adjustment,
         Self::Shape,
         Self::Fill,
+        Self::SmartObject,
     ];
 
     /// The subject a layer of `kind` presents.
@@ -75,6 +78,7 @@ impl InspectorSubject {
             LayerKind::Adjustment => Self::Adjustment,
             LayerKind::Shape => Self::Shape,
             LayerKind::Fill => Self::Fill,
+            LayerKind::SmartObject => Self::SmartObject,
         }
     }
 
@@ -89,6 +93,7 @@ impl InspectorSubject {
             Self::Adjustment => Some(LayerKind::Adjustment),
             Self::Shape => Some(LayerKind::Shape),
             Self::Fill => Some(LayerKind::Fill),
+            Self::SmartObject => Some(LayerKind::SmartObject),
         }
     }
 
@@ -176,7 +181,7 @@ mod tests {
             seen.push(id);
             assert_eq!(InspectorSubject::parse(id), Some(subject));
         }
-        assert_eq!(InspectorSubject::parse("smart-object"), None);
+        assert_eq!(InspectorSubject::parse("linked-file"), None);
     }
 
     /// The layer set must be every subject except the document, or a section

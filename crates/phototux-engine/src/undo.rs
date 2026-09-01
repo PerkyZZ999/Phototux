@@ -105,6 +105,23 @@ pub enum GraphCommand {
         prev: Option<ShapeContent>,
         next: Option<ShapeContent>,
     },
+    /// Smart-object payload. Batched with [`Self::SetKind`] when a layer is
+    /// wrapped or unwrapped, so the two never come apart on undo.
+    SetSmart {
+        id: LayerId,
+        prev: Option<crate::SmartObjectContent>,
+        next: Option<crate::SmartObjectContent>,
+    },
+    /// What kind of layer this is.
+    ///
+    /// Kind changes used to be written straight onto the graph outside the
+    /// history — rasterizing a shape still is — which leaves an edit the user
+    /// cannot take back.
+    SetKind {
+        id: LayerId,
+        prev: crate::LayerKind,
+        next: crate::LayerKind,
+    },
     SetFilterPlan {
         id: LayerId,
         prev: FilterPlan,
@@ -137,6 +154,26 @@ pub enum GraphCommand {
     },
     /// Atomic multi-step graph mutation (one undo entry).
     Batch(Vec<GraphCommand>),
+}
+
+/// Write one layer's fields, reporting whether the layer was there to write.
+///
+/// Seven arms of [`GraphCommand::apply`] were the same nested `match` on
+/// `get_mut` around a single assignment. Each nesting is another branch to
+/// hold in your head while reading the arm beside it, and the arm's actual
+/// content — which field it sets — was the one line buried in the middle.
+fn write_layer(
+    graph: &mut DocumentGraph,
+    id: LayerId,
+    write: impl FnOnce(&mut crate::layer::Layer),
+) -> bool {
+    match graph.get_mut(id) {
+        Some(layer) => {
+            write(layer);
+            true
+        }
+        None => false,
+    }
 }
 
 impl GraphCommand {
@@ -172,14 +209,10 @@ impl GraphCommand {
                 }
             },
             Self::SetMask { id, next, .. } => graph.set_mask(*id, next.clone()).is_some(),
-            Self::SetLocks { id, next, .. } => match graph.get_mut(*id) {
-                Some(layer) => {
-                    layer.locks = *next;
-                    layer.locked = next.all;
-                    true
-                }
-                None => false,
-            },
+            Self::SetLocks { id, next, .. } => write_layer(graph, *id, |layer| {
+                layer.locks = *next;
+                layer.locked = next.all;
+            }),
             Self::SetClipsToBelow { id, next, .. } => {
                 graph.set_clips_to_below(*id, *next).is_some()
             }
@@ -190,38 +223,26 @@ impl GraphCommand {
             }
             Self::SetEffects { id, next, .. } => graph.set_effects(*id, next.clone()).is_some(),
             Self::SetFill { id, next, .. } => graph.set_fill(*id, next.clone()).is_some(),
-            Self::SetShape { id, next, .. } => match graph.get_mut(*id) {
-                Some(layer) => {
-                    layer.shape = next.clone();
-                    true
-                }
-                None => false,
-            },
-            Self::SetFilterPlan { id, next, .. } => match graph.get_mut(*id) {
-                Some(layer) => {
-                    layer.filter_plan = next.clone();
-                    true
-                }
-                None => false,
-            },
+            Self::SetShape { id, next, .. } => {
+                write_layer(graph, *id, |layer| layer.shape = next.clone())
+            }
+            Self::SetSmart { id, next, .. } => {
+                write_layer(graph, *id, |layer| layer.smart = next.clone())
+            }
+            Self::SetKind { id, next, .. } => write_layer(graph, *id, |layer| layer.kind = *next),
+            Self::SetFilterPlan { id, next, .. } => {
+                write_layer(graph, *id, |layer| layer.filter_plan = next.clone())
+            }
             Self::SetPaths { next, .. } => {
                 graph.paths = next.clone();
                 true
             }
-            Self::SetStyles { id, next, .. } => match graph.get_mut(*id) {
-                Some(layer) => {
-                    layer.styles = next.clone();
-                    true
-                }
-                None => false,
-            },
-            Self::SetVectorMask { id, next, .. } => match graph.get_mut(*id) {
-                Some(layer) => {
-                    layer.vector_mask = next.clone();
-                    true
-                }
-                None => false,
-            },
+            Self::SetStyles { id, next, .. } => {
+                write_layer(graph, *id, |layer| layer.styles = next.clone())
+            }
+            Self::SetVectorMask { id, next, .. } => {
+                write_layer(graph, *id, |layer| layer.vector_mask = next.clone())
+            }
             Self::SetParent { id, next, .. } => graph.set_parent(*id, *next).is_some(),
             Self::SetStackOrder { next, .. } => graph.reorder_stack(next),
             Self::Batch(cmds) => {
@@ -395,6 +416,16 @@ impl GraphCommand {
                 id: *id,
                 prev: next.clone(),
                 next: prev.clone(),
+            },
+            Self::SetSmart { id, prev, next } => Self::SetSmart {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetKind { id, prev, next } => Self::SetKind {
+                id: *id,
+                prev: *next,
+                next: *prev,
             },
             Self::SetShape { id, prev, next } => Self::SetShape {
                 id: *id,

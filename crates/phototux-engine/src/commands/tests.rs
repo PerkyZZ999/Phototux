@@ -640,6 +640,166 @@ fn an_out_of_range_appearance_is_clamped_rather_than_refused() {
     );
 }
 
+/// A document whose active layer is a smart object wrapping 64×64 pixels.
+fn session_with_a_smart_object() -> SessionState {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(
+        command_id::SMART_CREATE,
+        CommandArgs::SmartCreate {
+            content: Box::new(crate::SmartObjectContent::embedded(
+                "Layer 1", "smart-1", 64, 64,
+            )),
+        },
+    )
+    .expect("wrap");
+    s
+}
+
+fn active_layer(s: &SessionState) -> crate::Layer {
+    let graph = s.graph.as_ref().expect("graph");
+    let id = graph.active_id().expect("active layer");
+    graph.get(id).cloned().expect("layer")
+}
+
+#[test]
+fn wrapping_a_layer_sets_the_kind_and_the_payload_together() {
+    let s = session_with_a_smart_object();
+    let layer = active_layer(&s);
+    assert_eq!(layer.kind, crate::LayerKind::SmartObject);
+    let smart = layer.smart.as_ref().expect("payload");
+    assert_eq!(smart.source_width, 64);
+    assert!(!smart.is_placed(), "a fresh wrap sits where it already was");
+}
+
+/// The pair must move as one. A graph with the kind undone but the payload
+/// left behind is a raster layer carrying a source; the other way round is a
+/// smart object with none, and every reader of `smart` would have to guess.
+#[test]
+fn undoing_a_wrap_restores_the_kind_and_the_payload_together() {
+    let mut s = session_with_a_smart_object();
+    let SessionState { graph, history, .. } = &mut s;
+    history.undo_next(graph.as_mut().expect("graph"));
+    let layer = active_layer(&s);
+    assert_eq!(layer.kind, crate::LayerKind::Raster);
+    assert!(layer.smart.is_none());
+}
+
+#[test]
+fn a_placement_replaces_the_last_one_rather_than_composing_with_it() {
+    // The whole point of the kind: two scale-downs in a row must leave the
+    // second one's factor, not their product, because the host re-applies the
+    // placement to the pristine source every time.
+    let mut s = session_with_a_smart_object();
+    for scale in [0.5_f32, 0.25] {
+        s.invoke(
+            command_id::SMART_SET_PLACEMENT,
+            CommandArgs::SmartSetPlacement {
+                placement: crate::LayerTransform {
+                    scale_x: scale,
+                    scale_y: scale,
+                    ..Default::default()
+                },
+            },
+        )
+        .expect("place");
+    }
+    let placement = active_layer(&s).smart.expect("payload").placement;
+    assert!(
+        (placement.scale_x - 0.25).abs() < f32::EPSILON,
+        "{placement:?}"
+    );
+}
+
+#[test]
+fn placing_a_smart_object_asks_the_host_to_re_render_it() {
+    let mut s = session_with_a_smart_object();
+    let id = s.graph.as_ref().unwrap().active_id().unwrap();
+    let effects = s
+        .invoke(
+            command_id::SMART_SET_PLACEMENT,
+            CommandArgs::SmartSetPlacement {
+                placement: crate::LayerTransform {
+                    rotation_deg: 30.0,
+                    ..Default::default()
+                },
+            },
+        )
+        .expect("place");
+    assert!(matches!(
+        effects.host_follow_up,
+        crate::HostFollowUp::PlaceSmartObject { id: got } if got == id
+    ));
+}
+
+#[test]
+fn placing_it_where_it_already_is_is_refused() {
+    let mut s = session_with_a_smart_object();
+    let error = s
+        .invoke(
+            command_id::SMART_SET_PLACEMENT,
+            CommandArgs::SmartSetPlacement {
+                placement: crate::LayerTransform::default(),
+            },
+        )
+        .expect_err("no-op placement");
+    assert!(error.is_user_correctable(), "{error:?}");
+}
+
+#[test]
+fn only_a_pixel_layer_can_be_wrapped() {
+    let mut s = session_with_a_smart_object();
+    // Already wrapped.
+    let error = s
+        .invoke(
+            command_id::SMART_CREATE,
+            CommandArgs::SmartCreate {
+                content: Box::new(crate::SmartObjectContent::embedded("x", "k", 8, 8)),
+            },
+        )
+        .expect_err("double wrap");
+    assert!(error.is_user_correctable(), "{error:?}");
+
+    // A shape describes itself rather than owning pixels, so there is nothing
+    // to capture and the command says so instead of wrapping an empty source.
+    let mut s = session_with_a_shape();
+    let error = s
+        .invoke(
+            command_id::SMART_CREATE,
+            CommandArgs::SmartCreate {
+                content: Box::new(crate::SmartObjectContent::embedded("x", "k", 8, 8)),
+            },
+        )
+        .expect_err("wrap a shape");
+    assert!(error.is_user_correctable(), "{error:?}");
+}
+
+#[test]
+fn rasterizing_a_smart_object_drops_the_source_and_undoes() {
+    let mut s = session_with_a_smart_object();
+    s.invoke(command_id::SMART_RASTERIZE, CommandArgs::None)
+        .expect("rasterize");
+    let layer = active_layer(&s);
+    assert_eq!(layer.kind, crate::LayerKind::Raster);
+    assert!(layer.smart.is_none());
+
+    let SessionState { graph, history, .. } = &mut s;
+    history.undo_next(graph.as_mut().expect("graph"));
+    let layer = active_layer(&s);
+    assert_eq!(layer.kind, crate::LayerKind::SmartObject);
+    assert!(layer.smart.is_some(), "undo lost the source");
+}
+
+#[test]
+fn rasterizing_something_that_is_not_a_smart_object_is_refused() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let error = s
+        .invoke(command_id::SMART_RASTERIZE, CommandArgs::None)
+        .expect_err("raster layer");
+    assert!(error.is_user_correctable(), "{error:?}");
+}
+
 #[test]
 fn path_edit_round_trip_on_shape() {
     let mut s = SessionState::default();

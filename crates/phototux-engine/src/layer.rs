@@ -21,20 +21,24 @@ pub enum LayerKind {
     Shape,
     /// Procedural solid fill (handbook 11); not a paintable raster buffer.
     Fill,
+    /// Pixels wrapped so a transform is re-applied to the source rather than
+    /// accumulated on the result (DR-032).
+    SmartObject,
 }
 
 impl LayerKind {
     /// Every kind, so a consumer can be checked for covering all of them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Raster,
         Self::Group,
         Self::Text,
         Self::Adjustment,
         Self::Shape,
         Self::Fill,
+        Self::SmartObject,
     ];
 
-    /// One-letter marker for the layer row, empty for an ordinary raster layer.
+    /// Short marker for the layer row, empty for an ordinary raster layer.
     ///
     /// Empty on purpose: raster is the default and by far the commonest kind,
     /// and a badge every row carries marks nothing. The panel hides the slot
@@ -54,6 +58,7 @@ impl LayerKind {
             Self::Adjustment => "A",
             Self::Shape => "S",
             Self::Fill => "F",
+            Self::SmartObject => "SO",
         }
     }
 
@@ -67,6 +72,7 @@ impl LayerKind {
             Self::Adjustment => "Adjustment layer",
             Self::Shape => "Shape layer",
             Self::Fill => "Fill layer",
+            Self::SmartObject => "Smart object",
         }
     }
 
@@ -86,6 +92,7 @@ impl LayerKind {
             Self::Adjustment => "circle-half",
             Self::Shape => "shapes",
             Self::Fill => "paint-bucket",
+            Self::SmartObject => "package",
         }
     }
 
@@ -97,6 +104,7 @@ impl LayerKind {
             Self::Adjustment => "adjustment",
             Self::Shape => "shape",
             Self::Fill => "fill",
+            Self::SmartObject => "smart-object",
         }
     }
 }
@@ -267,6 +275,56 @@ impl Default for ShapeContent {
             gradient: None,
             boolean_partner: None,
         }
+    }
+}
+
+/// A smart object's source and how it is placed (DR-032).
+///
+/// The point of a smart object is that a transform is **re-applied to the
+/// source**, never accumulated on the result: scaling a layer to a tenth and
+/// back destroys nine tenths of it, and doing the same to a smart object costs
+/// nothing, because the second placement is computed from the original pixels
+/// rather than from the shrunken ones.
+///
+/// The source pixels are not here. The engine describes documents; pixel
+/// buffers live on the GPU and in `.ptx` assets, which is what `source_key`
+/// names — the same arrangement as [`Layer::asset_key`]. What the engine does
+/// need is the source's *size*, so a placement can be reasoned about (and
+/// reported) without the pixels being resident.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SmartObjectContent {
+    /// What the source was, for the panel to name. Not an identifier.
+    pub source_name: String,
+    /// Asset key for the source pixels, as `.ptx` and the host store them.
+    pub source_key: String,
+    pub source_width: u32,
+    pub source_height: u32,
+    /// Applied to the source on every change. Never composed with itself.
+    pub placement: LayerTransform,
+}
+
+impl SmartObjectContent {
+    /// Wrap a source of `width`×`height`, placed exactly where it already is.
+    #[must_use]
+    pub fn embedded(
+        name: impl Into<String>,
+        key: impl Into<String>,
+        width: u32,
+        height: u32,
+    ) -> Self {
+        Self {
+            source_name: name.into(),
+            source_key: key.into(),
+            source_width: width,
+            source_height: height,
+            placement: LayerTransform::default(),
+        }
+    }
+
+    /// Whether the placement currently does nothing.
+    #[must_use]
+    pub fn is_placed(&self) -> bool {
+        !self.placement.is_identity()
     }
 }
 
@@ -1622,6 +1680,9 @@ pub struct Layer {
     pub shape: Option<ShapeContent>,
     #[serde(default)]
     pub fill: Option<FillContent>,
+    /// Smart-object payload, present exactly when the kind is `SmartObject`.
+    #[serde(default)]
+    pub smart: Option<SmartObjectContent>,
     pub effects: Vec<FilterEffect>,
     /// Nondestructive layer styles (shadow / stroke v1).
     #[serde(default)]
@@ -1655,6 +1716,7 @@ impl Layer {
             adjustment: None,
             shape: None,
             fill: None,
+            smart: None,
             effects: Vec::new(),
             styles: Vec::new(),
             filter_plan: crate::filter_plan::FilterPlan::new(),

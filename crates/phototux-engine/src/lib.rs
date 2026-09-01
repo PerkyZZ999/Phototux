@@ -102,8 +102,8 @@ pub use inspector::{InspectorSubject, subjects_json as inspector_subjects_json};
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
     LayerKind, LayerMask, LayerTransform, LockFlags, MAX_ADJUSTMENT_SLOTS, MAX_BLUR_RADIUS,
-    PaintTarget, ShapeAppearance, ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent,
-    VectorMask, blend_modes_json,
+    PaintTarget, ShapeAppearance, ShapeBooleanPartner, ShapeContent, ShapeGradient,
+    SmartObjectContent, TextContent, VectorMask, blend_modes_json,
 };
 pub use layer_row::{LayerRow, layer_rows};
 pub use layer_style::{LayerStyle, StrokePosition, apply_styles_rgba8, layer_styles_json};

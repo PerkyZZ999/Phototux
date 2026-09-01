@@ -94,6 +94,9 @@ impl SessionState {
             command_id::SHAPE_RASTERIZE => self.cmd_shape_rasterize(),
             command_id::SHAPE_BOOLEAN => self.cmd_shape_boolean(args),
             command_id::SHAPE_SET_APPEARANCE => self.cmd_shape_set_appearance(args),
+            command_id::SMART_CREATE => self.cmd_smart_create(args),
+            command_id::SMART_SET_PLACEMENT => self.cmd_smart_set_placement(args),
+            command_id::SMART_RASTERIZE => self.cmd_smart_rasterize(),
             command_id::FILTER_ADD_ADJUSTMENT => self.cmd_filter_add_adjustment(args),
             command_id::FILTER_SET_PARAMETERS => self.cmd_filter_set_parameters(args),
             command_id::FILTER_ADD_EFFECT => self.cmd_filter_add_effect(args),
@@ -2159,6 +2162,160 @@ impl SessionState {
         let mut effects = CommandEffects::document_edit(generation);
         effects.host_follow_up = HostFollowUp::RasterizeShape { id: active };
         Ok(effects)
+    }
+
+    /// The active layer, if it is a smart object and is editable.
+    fn active_smart_layer(&self) -> Result<(LayerId, crate::SmartObjectContent), CommandError> {
+        let Some(graph) = self.graph.as_ref() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let id = graph
+            .active_id()
+            .ok_or(CommandError::Rejected("select a layer first"))?;
+        let layer = graph
+            .get(id)
+            .ok_or(CommandError::Rejected("layer missing"))?;
+        if layer.kind != LayerKind::SmartObject {
+            return Err(CommandError::Rejected("select a smart object first"));
+        }
+        if layer.locked || layer.locks.all {
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
+        }
+        let content = layer
+            .smart
+            .clone()
+            .ok_or(CommandError::Rejected("smart object has no source"))?;
+        Ok((id, content))
+    }
+
+    /// Wrap the active layer's pixels as a smart object.
+    ///
+    /// The kind and the payload move together as one history entry: a graph
+    /// where one has been undone and the other has not is a smart object with
+    /// no source, or a raster layer carrying one.
+    fn cmd_smart_create(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SmartCreate { content } = args else {
+            return Err(CommandError::InvalidArgument("expected SmartCreate"));
+        };
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let id = graph
+            .active_id()
+            .ok_or(CommandError::Rejected("select a layer first"))?;
+        let layer = graph
+            .get(id)
+            .ok_or(CommandError::Rejected("layer missing"))?;
+        if layer.locked || layer.locks.all {
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
+        }
+        match layer.kind {
+            LayerKind::Raster => {}
+            LayerKind::SmartObject => {
+                return Err(CommandError::Rejected("this is already a smart object"));
+            }
+            // Group, text, shape, adjustment and fill layers all describe
+            // themselves rather than owning a pixel buffer, so there is
+            // nothing to capture. Photoshop wraps them by flattening first;
+            // that is a separate command and not this one pretending.
+            other => {
+                let _ = other;
+                return Err(CommandError::Rejected(
+                    "only a pixel layer can become a smart object — rasterize it first",
+                ));
+            }
+        }
+        let prev_kind = layer.kind;
+        let prev_smart = layer.smart.clone();
+        let next = (*content).clone();
+        let command = crate::GraphCommand::Batch(vec![
+            crate::GraphCommand::SetKind {
+                id,
+                prev: prev_kind,
+                next: LayerKind::SmartObject,
+            },
+            crate::GraphCommand::SetSmart {
+                id,
+                prev: prev_smart,
+                next: Some(next),
+            },
+        ]);
+        if !command.apply(graph) {
+            return Err(CommandError::Rejected("layer missing"));
+        }
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(command, "Convert to smart object", generation);
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    /// Replace a smart object's placement.
+    fn cmd_smart_set_placement(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SmartSetPlacement { placement } = args else {
+            return Err(CommandError::InvalidArgument("expected SmartSetPlacement"));
+        };
+        let (id, prev) = self.active_smart_layer()?;
+        let mut next = prev.clone();
+        next.placement = placement.with_usable_scale(false);
+        if next == prev {
+            return Err(CommandError::Rejected("that is already where it sits"));
+        }
+        let command = crate::GraphCommand::SetSmart {
+            id,
+            prev: Some(prev),
+            next: Some(next),
+        };
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        if !command.apply(graph) {
+            return Err(CommandError::Rejected("layer missing"));
+        }
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(command, "Place smart object", generation);
+        let mut effects = CommandEffects::document_edit(generation);
+        effects.host_follow_up = HostFollowUp::PlaceSmartObject { id };
+        Ok(effects)
+    }
+
+    /// Bake a smart object to pixels, dropping its source.
+    ///
+    /// The pixels on screen are already the placed result, so this is a
+    /// bookkeeping change: what it costs is the ability to re-place from the
+    /// original, which is the whole point of the kind — hence a history entry
+    /// rather than a silent kind flip.
+    fn cmd_smart_rasterize(&mut self) -> Result<CommandEffects, CommandError> {
+        let (id, prev) = self.active_smart_layer()?;
+        let command = crate::GraphCommand::Batch(vec![
+            crate::GraphCommand::SetKind {
+                id,
+                prev: LayerKind::SmartObject,
+                next: LayerKind::Raster,
+            },
+            crate::GraphCommand::SetSmart {
+                id,
+                prev: Some(prev),
+                next: None,
+            },
+        ]);
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        if !command.apply(graph) {
+            return Err(CommandError::Rejected("layer missing"));
+        }
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(command, "Rasterize smart object", generation);
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_path_set_closed(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {

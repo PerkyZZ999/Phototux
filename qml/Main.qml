@@ -1085,7 +1085,7 @@ ApplicationWindow {
                 onObjectAdded: (index, object) => layerMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => layerMenu.removeItem(object)
             }
-            // Eight submenus, because the flat Layer menu carried thirty-one
+            // Nine submenus, because the flat Layer menu carried thirty-one
             // entries and ran past the bottom of a 1080p window — the last of
             // them unreachable however correctly they rendered. Each is
             // declared here and populated from the engine; a submenu the
@@ -1108,6 +1108,16 @@ ApplicationWindow {
                     delegate: actionMenuItem
                     onObjectAdded: (index, object) => shapeMenu.insertItem(index, object)
                     onObjectRemoved: (index, object) => shapeMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: smartMenu
+                title: qsTr("Smart &Objects")
+                Instantiator {
+                    model: root.actionsForMenu("layer.smart")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => smartMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => smartMenu.removeItem(object)
                 }
             }
             Menu {

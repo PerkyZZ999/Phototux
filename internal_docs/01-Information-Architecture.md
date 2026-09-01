@@ -674,6 +674,7 @@ checked by tests rather than by review.
 | `inspector.text` | text | 2 — nearby | yes | font family |
 | `inspector.fill` | fill | 2 — nearby | yes | fill colour |
 | `inspector.adjustment` | adjustment | 2 — nearby | yes | primary parameters |
+| `inspector.smart` | smart object | 2 — nearby | yes | placement scale |
 | `inspector.shape` | shape | 2 — nearby | yes | fill colour |
 | `inspector.path` | shape | 2 — nearby | yes | anchor count and closure |
 | `inspector.transform` | every layer | 2 — nearby | yes | pending crop extent or rotation |
@@ -729,10 +730,10 @@ Expansion state is **presentation state**: it persists per user alongside worksp
 ### Inspector subjects
 
 The Properties panel is a **contextual** surface: it describes one subject at a
-time and shows nothing else. The subject vocabulary is seven values — the
-document, and one per layer kind (raster, group, text, adjustment, shape,
-fill) — declared once in the engine and derived from the layer kinds, so
-adding a kind adds a subject rather than leaving a hole.
+time and shows nothing else. The subject vocabulary is eight values — the
+document, and one per layer kind (raster, group, text, adjustment, shape, fill,
+smart object) — declared once in the engine and derived from the layer kinds,
+so adding a kind adds a subject rather than leaving a hole.
 
 Every disclosure group declares the subjects it belongs to. Presence is then a
 lookup, not a condition written per group: the panel asks the registry whether

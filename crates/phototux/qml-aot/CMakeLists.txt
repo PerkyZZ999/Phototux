@@ -98,6 +98,7 @@ set(ICON_NAMES
     monitor
     paint-brush
     paint-bucket
+    package
     pen-nib
     plus
     polygon

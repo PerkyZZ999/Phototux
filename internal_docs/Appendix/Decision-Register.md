@@ -361,6 +361,20 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | Consequences | `compositeMs` is real GPU time. Timestamp support is optional, so a device without it reports 0 (surfaced as "no GPU timing") and benchmarks fall back to host wall time, which overstates GPU cost. Stroke latency now reports input→submit; end-to-end input→present needs present-side instrumentation and remains unmeasured. |
 | Revisit | When present-side instrumentation exists, or if a target adapter lacks timestamp queries. |
 
+## DR-032 — Graph kind set includes SmartObject
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** (v1 embedded sources; linked files and sub-document editing Deferred) |
+| Date | 2026-09-01 |
+| Docs | [10](../10-Document-Model.md), [11](../11-Layer-System.md), [27](../27-File-Formats.md), [DR-026](#dr-026--native-ptx-container-v1), [DR-027](#dr-027--graph-kind-set-includes-shape) |
+| Context | Transforming a raster layer bakes: scaling to a tenth and back returns a twenty-times upscale of what survived. Photoshop's answer is the smart object, and it is the one non-destructive primitive PhotoTux had no form of. DR-027 already established that extending the kind set is the way a new layer behaviour arrives. |
+| Decision | Extend the kind set with **`SmartObject`**. The layer keeps its `SmartObjectContent` — a source name, an asset key, the source's dimensions, and a `placement` transform. A placement change **restores the source and re-applies the whole transform**, never composing one placement with the last. Commands: `smartobject.create` (wrap a pixel layer), `smartobject.set-placement`, `smartobject.rasterize`. Kind and payload move as one `Batch` history entry so undo cannot separate them. |
+| Where the pixels live | The engine describes documents and owns no pixel buffers, so the source is **not** in the graph. The host holds it keyed by layer id, and `.ptx` stores it in a new optional `SRCE` chunk with a `smart_asset_ids` map, mirroring how masks were added. Older readers skip the chunk (DR-026 evolve-in-place) and older documents load without one. |
+| Consequences | One document-sized RGBA buffer per smart object in host memory and in the file, which is what "embedded" means and what Photoshop also pays. A document whose source is missing — opened from a build that predates this, or a converter that dropped the chunk — shows the pixels it already had and says in the inspector that it can no longer be re-placed. Only a **pixel** layer can be wrapped: a group, text, shape, adjustment or fill layer describes itself rather than owning a buffer, and wrapping one would need a flatten first, which is a separate command rather than this one pretending. |
+| Deferred | Linked sources (a smart object pointing at a file on disk), editing contents as a sub-document, smart filters, and per-instance sources shared between layers. Each is additive: `SmartObjectContent` gains fields with `#[serde(default)]`. |
+| Revisit | When linked sources or sub-document editing is scheduled, or when the memory cost of embedded sources needs a residency strategy. |
+
 ## Open Deferred Cluster
 
 | Topic | Related DR | Blocking evidence |

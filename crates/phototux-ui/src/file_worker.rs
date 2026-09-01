@@ -18,6 +18,12 @@ pub(crate) enum FileCommand {
     SavePtx {
         path: PathBuf,
         graph: DocumentGraph,
+        /// Smart-object source pixels, by layer id (DR-032).
+        ///
+        /// Passed in rather than read from the canvas like the layer rasters
+        /// and masks: a source is not a GPU texture, it is the host's copy of
+        /// the pixels a placement is recomputed from.
+        sources: HashMap<u64, Raster>,
     },
     Export {
         path: PathBuf,
@@ -32,6 +38,7 @@ pub(crate) enum FileCommand {
     Autosave {
         graph: DocumentGraph,
         original: Option<PathBuf>,
+        sources: HashMap<u64, Raster>,
     },
     /// Persist a completed stroke for crash recovery.
     ///
@@ -175,10 +182,16 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
                     message: error.to_string(),
                 },
             },
-            FileCommand::SavePtx { path, graph } => save_document(path, graph, &cancel),
-            FileCommand::Autosave { graph, original } => {
-                autosave_document(graph, original, &cancel)
-            }
+            FileCommand::SavePtx {
+                path,
+                graph,
+                sources,
+            } => save_document(path, graph, sources, &cancel),
+            FileCommand::Autosave {
+                graph,
+                original,
+                sources,
+            } => autosave_document(graph, original, sources, &cancel),
             FileCommand::JournalStroke(stroke) => {
                 // Recovery bookkeeping: a failure here must not interrupt
                 // painting, and there is nothing for the user to act on.
@@ -199,7 +212,12 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
     }
 }
 
-fn save_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken) -> FileEvent {
+fn save_document(
+    path: PathBuf,
+    graph: DocumentGraph,
+    sources: HashMap<u64, Raster>,
+    cancel: &CancelToken,
+) -> FileEvent {
     if cancel.is_cancelled() {
         return FileEvent::Cancelled { operation: "Save" };
     }
@@ -217,6 +235,7 @@ fn save_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken) -> F
         let (mw, mh) = (graph.size.width, graph.size.height);
         let mut doc = PtxDocument::from_graph(graph, rasters);
         doc.masks = collect_mask_rasters(mw, mh)?;
+        doc.sources = sources;
         save_ptx_atomic(&path, &doc).map_err(|e| e.to_string())
     })();
     match result {
@@ -234,6 +253,7 @@ fn save_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken) -> F
 fn autosave_document(
     graph: DocumentGraph,
     original: Option<PathBuf>,
+    sources: HashMap<u64, Raster>,
     cancel: &CancelToken,
 ) -> FileEvent {
     if cancel.is_cancelled() {
@@ -252,6 +272,7 @@ fn autosave_document(
         let (mw, mh) = (graph.size.width, graph.size.height);
         let mut doc = PtxDocument::from_graph(graph, rasters);
         doc.masks = collect_mask_rasters(mw, mh)?;
+        doc.sources = sources;
         write_autosave(&doc, original.as_deref()).map_err(|e| e.to_string())
     })();
     match result {

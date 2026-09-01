@@ -363,6 +363,13 @@ pub fn default_disclosure_groups() -> Vec<DisclosureGroupDescriptor> {
             true,
             &[S::Adjustment],
         ),
+        group(
+            "inspector.smart",
+            "Smart Object",
+            2,
+            true,
+            &[S::SmartObject],
+        ),
         group("inspector.shape", "Shape", 2, true, &[S::Shape]),
         group("inspector.path", "Path", 2, true, &[S::Shape]),
         group("inspector.transform", "Transform and Crop", 2, true, layers),

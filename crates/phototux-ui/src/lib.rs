@@ -139,6 +139,35 @@ fn shape_state_json(shape: Option<&phototux_engine::ShapeContent>) -> String {
     .to_string()
 }
 
+/// The active smart object as the panel needs it, or `{}` for anything else.
+///
+/// `hasSource` is the honest half: a document saved by a build that predates
+/// smart objects, or one whose `SRCE` chunk something dropped, still opens —
+/// showing the pixels it already had, which are the placed result — but cannot
+/// be re-placed, and the panel has to say so rather than offering a control
+/// that would fail.
+fn smart_state_json(
+    smart: Option<&phototux_engine::SmartObjectContent>,
+    has_source: bool,
+) -> String {
+    let Some(smart) = smart else {
+        return "{}".into();
+    };
+    let placement = smart.placement;
+    serde_json::json!({
+        "sourceName": smart.source_name,
+        "sourceWidth": smart.source_width,
+        "sourceHeight": smart.source_height,
+        "hasSource": has_source,
+        "placed": smart.is_placed(),
+        "x": placement.translate_x,
+        "y": placement.translate_y,
+        "scale": placement.scale_x,
+        "rotation": placement.rotation_deg,
+    })
+    .to_string()
+}
+
 fn local_path(value: &str) -> Result<PathBuf, String> {
     let encoded_path = if let Some(rest) = value.strip_prefix("file://") {
         if rest.starts_with('/') {
@@ -332,6 +361,7 @@ pub struct AppSession {
     layer_styles_json: String,
     blend_if_json: String,
     shape_json: String,
+    smart_json: String,
     blend_if_channels_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
@@ -361,6 +391,15 @@ pub struct AppSession {
     io_error: String,
     startup_ms: f32,
     engine: SessionState,
+    /// Layer id → a smart object's pristine source pixels (DR-032).
+    ///
+    /// Held here rather than in the engine, which describes documents and owns
+    /// no pixel buffers, and rather than on the GPU, which would mean a second
+    /// texture per layer and a new canvas API. A placement restores this and
+    /// re-applies the whole transform, so nothing is ever composed twice —
+    /// which is the entire behaviour that separates a smart object from a
+    /// layer someone transformed.
+    smart_sources: HashMap<LayerId, (u32, u32, Vec<u8>)>,
     /// Inactive open documents (active session is [`Self::engine`]).
     doc_registry: DocumentRegistry,
     active_doc_id: Option<OpenDocumentId>,
@@ -624,6 +663,7 @@ impl AppSession {
             layer_styles_json: "[]".into(),
             blend_if_json: "{}".into(),
             shape_json: "{}".into(),
+            smart_json: "{}".into(),
             blend_if_channels_json: phototux_engine::blend_if_channels_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
@@ -647,6 +687,7 @@ impl AppSession {
             io_error: String::new(),
             startup_ms: 0.0,
             engine,
+            smart_sources: HashMap::new(),
             doc_registry: DocumentRegistry::new(),
             active_doc_id: None,
             document_tabs_json: "[]".into(),
@@ -744,11 +785,23 @@ impl AppSession {
             self.fail_io("Open", &error);
             return;
         }
-        let (graph, rasters, masks) = document.into_parts();
+        let parts = document.into_parts();
+        let graph = parts.graph;
         self.clear_selection_stacks();
         self.clear_transform_stacks();
+        // Smart-object sources belong to the document being opened, so the
+        // ones from whatever was open before must not survive into it.
+        self.smart_sources.clear();
+        for (id, source) in parts.sources {
+            self.smart_sources.insert(
+                LayerId(id),
+                (source.width(), source.height(), source.pixels().to_vec()),
+            );
+        }
         match phototux_canvas::open_document(graph.size, graph.layers()) {
-            Ok(ms) => self.finish_opened_ptx(path, title, graph, rasters, masks, ms),
+            Ok(ms) => {
+                self.finish_opened_ptx(path, title, graph, parts.rasters, parts.masks, ms);
+            }
             Err(error) => self.fail_io("Open", &error),
         }
     }
@@ -1145,6 +1198,8 @@ impl AppSession {
             publish!(self, blend_if_json, empty, blend_if_json_changed);
             let no_shape = shape_state_json(None);
             publish!(self, shape_json, no_shape, shape_json_changed);
+            let no_smart = smart_state_json(None, false);
+            publish!(self, smart_json, no_smart, smart_json_changed);
             return;
         };
         // Copied out before publishing: the layer is borrowed from `self`, and
@@ -1159,8 +1214,13 @@ impl AppSession {
         let styles_json = phototux_engine::layer_styles_json(&layer.styles);
         let blend_if = blend_if_state_json(layer.blend_if);
         let shape = shape_state_json(layer.shape.as_ref());
+        let smart = smart_state_json(
+            layer.smart.as_ref(),
+            self.smart_sources.contains_key(&layer.id),
+        );
         publish!(self, blend_if_json, blend_if, blend_if_json_changed);
         publish!(self, shape_json, shape, shape_json_changed);
+        publish!(self, smart_json, smart, smart_json_changed);
         publish!(
             self,
             layer_styles_json,
@@ -2017,6 +2077,9 @@ impl AppSession {
             "has_mask" => self.has_document && self.active_layer_has_mask() && !busy,
             "no_mask" => self.has_document && !self.active_layer_has_mask() && !busy,
             "has_multiple_layers" => self.has_document && self.layer_count > 1 && !busy,
+            "smart_object" => {
+                self.has_document && self.active_layer_kind == "smart-object" && !busy
+            }
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
@@ -2221,6 +2284,9 @@ impl AppSession {
             "layer.align" => self.align_layers(arg.unwrap_or_default().to_owned()),
             "shape.create" => self.add_shape_layer(arg.unwrap_or("rect").to_owned()),
             "shape.rasterize" => self.rasterize_shape_layer(),
+            "smart.create" => self.convert_to_smart_object(),
+            "smart.reset" => self.reset_smart_placement(),
+            "smart.rasterize" => self.rasterize_smart_object(),
             "path.stroke" => self.stroke_active_path_to_layer(),
             "mask.create" => self.add_mask_to_active(),
             "mask.delete" => self.delete_mask_on_active(),
@@ -2312,6 +2378,9 @@ impl AppSession {
             }
             HostFollowUp::RasterizeShape { id } => {
                 self.rasterize_shape_layer_id(id);
+            }
+            HostFollowUp::PlaceSmartObject { id } => {
+                self.place_smart_object(id);
             }
             HostFollowUp::ShowFilterGallery => self.open_filter_gallery(),
         }
@@ -2719,6 +2788,45 @@ mod tests {
     /// Reading the QML is what makes the two orders comparable at all — the
     /// layout is declarative and has no runtime handle to assert against.
     ///
+    /// Every enablement tag an action declares must be one the host answers.
+    ///
+    /// `action_enablement` ends in a catch-all that falls back to
+    /// `has_document`, so a tag the host does not know is not an error — it is
+    /// an action that quietly becomes enabled whenever a document is open.
+    /// That is exactly wrong for the ones that guard a kind or a mask, and
+    /// nothing said so. The arms are read out of this file as text, because
+    /// the alternative is a third list of tag names for someone to forget.
+    #[test]
+    fn every_enablement_tag_an_action_declares_is_one_the_host_answers() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the ui crate can read its own source");
+        let body = source
+            .split("fn action_enablement(&self, tag: &str) -> bool {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    }").next())
+            .expect("action_enablement is where this test thinks it is");
+        let answered: Vec<&str> = body
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|tag| !tag.is_empty())
+            .collect();
+        assert!(
+            answered.len() > 8,
+            "found {} arms — the scan broke rather than the host",
+            answered.len()
+        );
+        for action in phototux_engine::default_actions() {
+            assert!(
+                answered.contains(&action.enablement.as_str()),
+                "{} declares enablement {:?}, which no arm answers — it would \
+                 silently fall through to has_document",
+                action.id,
+                action.enablement
+            );
+        }
+    }
+
     /// Which file that is, is part of what this test pins. The groups lived in
     /// `Main.qml` until the Properties body was extracted, and reading a file
     /// that no longer declares any leaves an empty list — which compares
@@ -3110,6 +3218,11 @@ impl AppSession {
         "shapeJson",
         Member = shape_json,
         Notify = shape_json_changed
+    );
+    qproperty!(
+        "smartJson",
+        Member = smart_json,
+        Notify = smart_json_changed
     );
     qproperty!(
         "blendIfChannelsJson",
@@ -3834,6 +3947,8 @@ impl AppSession {
     fn blend_if_json_changed(&mut self);
     #[qsignal]
     fn shape_json_changed(&mut self);
+    #[qsignal]
+    fn smart_json_changed(&mut self);
     #[qsignal]
     fn blend_if_channels_json_changed(&mut self);
     #[qsignal]
@@ -5341,10 +5456,36 @@ impl AppSession {
         self.notify(NoticeLevel::Info, format!("Saving {}…", path.display()));
         self.io_busy_changed();
         self.status_text_changed();
-        if let Err(error) = self.file_worker.send(FileCommand::SavePtx { path, graph }) {
+        let sources = self.smart_source_rasters();
+        if let Err(error) = self.file_worker.send(FileCommand::SavePtx {
+            path,
+            graph,
+            sources,
+        }) {
             self.pending_save_generation = None;
             self.fail_io("Save", &error);
         }
+    }
+
+    /// Smart-object sources as `.ptx` assets.
+    ///
+    /// Sources for layers that are no longer smart objects are skipped rather
+    /// than written: undoing a rasterize puts the payload back and the host
+    /// still holds the pixels, but a source with no layer to belong to would
+    /// be dead weight in every later save.
+    fn smart_source_rasters(&self) -> HashMap<u64, Raster> {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return HashMap::new();
+        };
+        self.smart_sources
+            .iter()
+            .filter(|(id, _)| graph.get(**id).is_some_and(|l| l.smart.is_some()))
+            .filter_map(|(id, (width, height, pixels))| {
+                Raster::new(*width, *height, pixels.clone().into_boxed_slice())
+                    .ok()
+                    .map(|raster| (id.0, raster))
+            })
+            .collect()
     }
 
     #[qslot]
@@ -5362,9 +5503,12 @@ impl AppSession {
             return;
         };
         let original = self.engine.document_path.as_ref().map(PathBuf::from);
-        let _ = self
-            .file_worker
-            .send(FileCommand::Autosave { graph, original });
+        let sources = self.smart_source_rasters();
+        let _ = self.file_worker.send(FileCommand::Autosave {
+            graph,
+            original,
+            sources,
+        });
     }
 
     #[qslot]
@@ -6562,6 +6706,170 @@ impl AppSession {
             }
         }
         (!boxes.is_empty()).then(|| phototux_engine::align_frame(&boxes, boxes[0]))
+    }
+
+    /// Wrap the active layer's pixels as a smart object.
+    ///
+    /// The capture happens here because the pixels are on the GPU: the engine
+    /// records that a source of this size exists and where it is placed, and
+    /// the buffer itself stays host-side under the layer's id.
+    #[qslot]
+    fn convert_to_smart_object(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        let name = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .map(|l| l.name.clone())
+            .unwrap_or_default();
+        let Ok((width, height, pixels)) = phototux_canvas::read_layer_rgba(id) else {
+            self.notify(
+                NoticeLevel::Warning,
+                "That layer has no pixels to wrap — only a pixel layer can become a smart object.",
+            );
+            return;
+        };
+        let content = phototux_engine::SmartObjectContent::embedded(
+            name,
+            format!("smart-{}", id.0),
+            width,
+            height,
+        );
+        // Stored before the command, not after: invoking it republishes the
+        // inspector projection, which asks whether this layer's source is
+        // held. Inserting afterwards meant the panel's first look at a brand
+        // new smart object reported its original pixels missing.
+        self.smart_sources.insert(id, (width, height, pixels));
+        match self.invoke_command(
+            command_id::SMART_CREATE,
+            CommandArgs::SmartCreate {
+                content: Box::new(content),
+            },
+        ) {
+            Ok(()) => self.notify(
+                NoticeLevel::Info,
+                "Wrapped as a smart object — transforms now re-apply to the original.",
+            ),
+            Err(error) => {
+                self.smart_sources.remove(&id);
+                self.report_action_error(&error);
+            }
+        }
+    }
+
+    /// Move, scale or rotate the active smart object, non-destructively.
+    #[qslot]
+    fn set_smart_placement(
+        &mut self,
+        translate_x: f32,
+        translate_y: f32,
+        scale: f32,
+        rotation_deg: f32,
+    ) {
+        if let Err(error) = self.invoke_command(
+            command_id::SMART_SET_PLACEMENT,
+            CommandArgs::SmartSetPlacement {
+                placement: phototux_engine::LayerTransform {
+                    translate_x,
+                    translate_y,
+                    scale_x: scale,
+                    scale_y: scale,
+                    rotation_deg,
+                },
+            },
+        ) {
+            // Placing it where it already is is refused by design, so that the
+            // slider settling back on its own value does not push history.
+            if !matches!(
+                error,
+                phototux_engine::CommandError::Rejected("that is already where it sits")
+            ) {
+                self.report_action_error(&error);
+            }
+        }
+    }
+
+    /// Return the active smart object to where its source sits.
+    #[qslot]
+    fn reset_smart_placement(&mut self) {
+        self.set_smart_placement(0.0, 0.0, 1.0, 0.0);
+    }
+
+    /// Bake the active smart object to ordinary pixels.
+    #[qslot]
+    fn rasterize_smart_object(&mut self) {
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        match self.invoke_command(command_id::SMART_RASTERIZE, CommandArgs::None) {
+            Ok(()) => {
+                // The source is dropped only once the command has landed. An
+                // undo puts the kind and the payload back, and the panel would
+                // then describe a source the host had already thrown away.
+                self.smart_sources.remove(&id);
+                self.notify(
+                    NoticeLevel::Info,
+                    "Rasterized — the original pixels are no longer kept.",
+                );
+            }
+            Err(error) => self.report_action_error(&error),
+        }
+    }
+
+    /// Re-render a smart object from its source at its current placement.
+    ///
+    /// Restore, then transform. Baking the *displayed* pixels again would
+    /// compose this placement with the last one, which is what an ordinary
+    /// layer does and what a smart object exists not to do.
+    fn place_smart_object(&mut self, id: LayerId) {
+        let Some((_, _, pixels)) = self.smart_sources.get(&id).cloned() else {
+            self.notify(
+                NoticeLevel::Warning,
+                "This smart object's original pixels are missing, so it cannot be re-placed.",
+            );
+            return;
+        };
+        let Some(placement) = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .and_then(|l| l.smart.as_ref())
+            .map(|smart| smart.placement)
+        else {
+            return;
+        };
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+            self.report_gpu("smart object restore", &error);
+            return;
+        }
+        if !placement.is_identity()
+            && let Some(error) = self.bake_smart_placement(id, placement)
+        {
+            self.report_gpu("smart object placement", &error);
+            return;
+        }
+        self.recomposite();
+    }
+
+    /// Apply `placement` to the layer's current pixels, reporting any failure.
+    fn bake_smart_placement(
+        &mut self,
+        id: LayerId,
+        placement: phototux_engine::LayerTransform,
+    ) -> Option<String> {
+        let layers = self
+            .engine
+            .graph
+            .as_ref()
+            .map(|g| g.layers().to_vec())
+            .unwrap_or_default();
+        phototux_canvas::bake_layer_transform(id, placement, &layers)
+            .err()
+            .map(|error| error.to_string())
     }
 
     /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
