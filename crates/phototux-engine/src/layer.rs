@@ -1003,7 +1003,7 @@ pub struct FilterEffect {
     pub params: FilterParams,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FilterParams {
     GaussianBlur {
@@ -1032,6 +1032,29 @@ pub enum FilterParams {
     },
     /// Monochrome/noise grain (DR-028).
     Noise {
+        amount: f32,
+    },
+    /// Radial streaking outward from the centre.
+    ZoomBlur {
+        amount: f32,
+    },
+    /// The classic controllable sharpener: blur, then add back the difference.
+    UnsharpMask {
+        radius: f32,
+        amount: f32,
+    },
+    /// Edge isolation — the image minus its own blur, recentred on grey.
+    HighPass {
+        radius: f32,
+    },
+    /// Local midtone contrast.
+    Clarity {
+        radius: f32,
+        amount: f32,
+    },
+    /// Edge-preserving noise reduction (bilateral).
+    Denoise {
+        radius: f32,
         amount: f32,
     },
 }
@@ -1071,6 +1094,261 @@ impl FilterParams {
             Self::Noise { amount } => Self::Noise {
                 amount: amount.clamp(0.0, 1.0),
             },
+            Self::ZoomBlur { amount } => Self::ZoomBlur {
+                amount: amount.clamp(0.0, 1.0),
+            },
+            Self::UnsharpMask { radius, amount } => Self::UnsharpMask {
+                radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
+                amount: amount.clamp(0.0, 4.0),
+            },
+            Self::HighPass { radius } => Self::HighPass {
+                radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
+            },
+            Self::Clarity { radius, amount } => Self::Clarity {
+                radius: radius.clamp(0.0, MAX_BLUR_RADIUS),
+                amount: amount.clamp(-1.0, 1.0),
+            },
+            Self::Denoise { radius, amount } => Self::Denoise {
+                radius: radius.clamp(0.0, 16.0),
+                amount: amount.clamp(0.0, 1.0),
+            },
+        }
+    }
+
+    /// Short kind key for the registry, the gallery and `.ptx`.
+    #[must_use]
+    pub fn kind_key(&self) -> &'static str {
+        match self {
+            Self::GaussianBlur { .. } => "gaussian",
+            Self::BoxBlur { .. } => "box",
+            Self::Sharpen { .. } => "sharpen",
+            Self::Invert => "invert",
+            Self::Offset { .. } => "offset",
+            Self::MotionBlur { .. } => "motion",
+            Self::Emboss { .. } => "emboss",
+            Self::Noise { .. } => "noise",
+            Self::ZoomBlur { .. } => "zoom",
+            Self::UnsharpMask { .. } => "unsharp",
+            Self::HighPass { .. } => "high-pass",
+            Self::Clarity { .. } => "clarity",
+            Self::Denoise { .. } => "denoise",
+        }
+    }
+
+    /// Display name for the effect stack and menus.
+    #[must_use]
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::GaussianBlur { .. } => "Gaussian Blur",
+            Self::BoxBlur { .. } => "Box Blur",
+            Self::Sharpen { .. } => "Sharpen",
+            Self::Invert => "Invert",
+            Self::Offset { .. } => "Offset",
+            Self::MotionBlur { .. } => "Motion Blur",
+            Self::Emboss { .. } => "Emboss",
+            Self::Noise { .. } => "Add Noise",
+            Self::ZoomBlur { .. } => "Zoom Blur",
+            Self::UnsharpMask { .. } => "Unsharp Mask",
+            Self::HighPass { .. } => "High Pass",
+            Self::Clarity { .. } => "Clarity",
+            Self::Denoise { .. } => "Denoise",
+        }
+    }
+
+    /// The effect shader's mode for this kind.
+    ///
+    /// `0` is the shader's copy-through, so a kind that reaches it renders as
+    /// no filter at all — the failure that hid four adjustment kinds. Modes
+    /// 3–6 and 8 belong to layer styles and compositing, not to filters.
+    #[must_use]
+    pub fn shader_mode(&self) -> u32 {
+        match self {
+            // Gaussian and box run through `SeparableBlur`, not this shader.
+            Self::GaussianBlur { .. } | Self::BoxBlur { .. } => 0,
+            Self::MotionBlur { .. } => 1,
+            Self::Emboss { .. } => 2,
+            Self::Sharpen { .. } => 7,
+            Self::Noise { .. } => 9,
+            Self::Invert => 10,
+            Self::Offset { .. } => 11,
+            Self::ZoomBlur { .. } => 12,
+            // Unsharp, high pass, clarity and denoise all read a blurred copy
+            // alongside the source, so they share the two-input path.
+            Self::UnsharpMask { .. } => 13,
+            Self::HighPass { .. } => 14,
+            Self::Clarity { .. } => 15,
+            Self::Denoise { .. } => 16,
+        }
+    }
+
+    /// Whether this kind needs a blurred copy of the source alongside it.
+    ///
+    /// The blur radius is the kind's first slot. Grouping the four here rather
+    /// than at each call site is what keeps the executor from having to know
+    /// which filters happen to be built on a blur.
+    #[must_use]
+    pub fn blur_radius_input(&self) -> Option<f32> {
+        match *self {
+            Self::UnsharpMask { radius, .. }
+            | Self::HighPass { radius }
+            | Self::Clarity { radius, .. } => Some(radius.max(0.5)),
+            Self::Denoise { radius, .. } => Some(radius.max(0.5)),
+            _ => None,
+        }
+    }
+
+    /// One default instance of every kind, in menu order.
+    pub const ALL_KINDS: &'static [Self] = &[
+        Self::GaussianBlur { radius: 4.0 },
+        Self::BoxBlur { radius: 4.0 },
+        Self::MotionBlur {
+            distance: 8.0,
+            angle_deg: 0.0,
+        },
+        Self::ZoomBlur { amount: 0.25 },
+        Self::Sharpen { amount: 1.0 },
+        Self::UnsharpMask {
+            radius: 2.0,
+            amount: 1.0,
+        },
+        Self::HighPass { radius: 3.0 },
+        Self::Clarity {
+            radius: 6.0,
+            amount: 0.4,
+        },
+        Self::Denoise {
+            radius: 3.0,
+            amount: 0.5,
+        },
+        Self::Noise { amount: 0.35 },
+        Self::Emboss {
+            strength: 1.0,
+            angle_deg: 135.0,
+        },
+        Self::Invert,
+        Self::Offset { x: 0, y: 0 },
+    ];
+
+    /// The default parameters for a kind key; `None` for an unknown key.
+    #[must_use]
+    pub fn default_for_kind(kind: &str) -> Option<Self> {
+        Self::ALL_KINDS
+            .iter()
+            .find(|p| p.kind_key() == kind)
+            .copied()
+    }
+
+    /// Parameters projected onto the editor slots.
+    #[must_use]
+    pub fn slots(&self) -> [f32; MAX_ADJUSTMENT_SLOTS] {
+        match *self {
+            Self::GaussianBlur { radius }
+            | Self::BoxBlur { radius }
+            | Self::HighPass { radius } => pad([radius]),
+            Self::Sharpen { amount } | Self::Noise { amount } | Self::ZoomBlur { amount } => {
+                pad([amount])
+            }
+            Self::Invert => [0.0; MAX_ADJUSTMENT_SLOTS],
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "offsets are document pixels and fit f32 well below the mantissa limit"
+            )]
+            Self::Offset { x, y } => pad([x as f32, y as f32]),
+            Self::MotionBlur {
+                distance,
+                angle_deg,
+            } => pad([distance, angle_deg]),
+            Self::Emboss {
+                strength,
+                angle_deg,
+            } => pad([strength, angle_deg]),
+            Self::UnsharpMask { radius, amount }
+            | Self::Clarity { radius, amount }
+            | Self::Denoise { radius, amount } => pad([radius, amount]),
+        }
+    }
+
+    /// Rebuild this kind from editor slot values.
+    #[must_use]
+    pub fn with_slots(&self, p: [f32; MAX_ADJUSTMENT_SLOTS]) -> Self {
+        match self {
+            Self::GaussianBlur { .. } => Self::GaussianBlur { radius: p[0] },
+            Self::BoxBlur { .. } => Self::BoxBlur { radius: p[0] },
+            Self::Sharpen { .. } => Self::Sharpen { amount: p[0] },
+            Self::Invert => Self::Invert,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "offsets are clamped to the document by the executor"
+            )]
+            Self::Offset { .. } => Self::Offset {
+                x: p[0] as i32,
+                y: p[1] as i32,
+            },
+            Self::MotionBlur { .. } => Self::MotionBlur {
+                distance: p[0],
+                angle_deg: p[1],
+            },
+            Self::Emboss { .. } => Self::Emboss {
+                strength: p[0],
+                angle_deg: p[1],
+            },
+            Self::Noise { .. } => Self::Noise { amount: p[0] },
+            Self::ZoomBlur { .. } => Self::ZoomBlur { amount: p[0] },
+            Self::UnsharpMask { .. } => Self::UnsharpMask {
+                radius: p[0],
+                amount: p[1],
+            },
+            Self::HighPass { .. } => Self::HighPass { radius: p[0] },
+            Self::Clarity { .. } => Self::Clarity {
+                radius: p[0],
+                amount: p[1],
+            },
+            Self::Denoise { .. } => Self::Denoise {
+                radius: p[0],
+                amount: p[1],
+            },
+        }
+    }
+
+    /// Editor slots this kind exposes, as `(label, min, max)`; position is the
+    /// slot index.
+    #[must_use]
+    pub fn editor_slots(&self) -> &'static [(&'static str, f32, f32)] {
+        match self {
+            Self::GaussianBlur { .. } | Self::BoxBlur { .. } => &[("Radius", 0.0, MAX_BLUR_RADIUS)],
+            Self::Sharpen { .. } => &[("Amount", 0.0, 4.0)],
+            Self::Invert => &[],
+            Self::Offset { .. } => &[("X", -512.0, 512.0), ("Y", -512.0, 512.0)],
+            Self::MotionBlur { .. } => &[("Distance", 0.0, MAX_BLUR_RADIUS), ("Angle", 0.0, 360.0)],
+            Self::Emboss { .. } => &[("Strength", 0.0, 4.0), ("Angle", 0.0, 360.0)],
+            Self::Noise { .. } => &[("Amount", 0.0, 1.0)],
+            Self::ZoomBlur { .. } => &[("Amount", 0.0, 1.0)],
+            Self::UnsharpMask { .. } => &[("Radius", 0.0, MAX_BLUR_RADIUS), ("Amount", 0.0, 4.0)],
+            Self::HighPass { .. } => &[("Radius", 0.0, MAX_BLUR_RADIUS)],
+            Self::Clarity { .. } => &[("Radius", 0.0, MAX_BLUR_RADIUS), ("Amount", -1.0, 1.0)],
+            Self::Denoise { .. } => &[("Radius", 0.0, 16.0), ("Amount", 0.0, 1.0)],
+        }
+    }
+
+    /// Whether this kind is worth an effect pass at these parameters.
+    ///
+    /// A blur of 0.001 px is not worth a render target; nor is a sharpen of
+    /// zero. Kinds with no threshold — Invert — always contribute.
+    #[must_use]
+    pub fn is_significant(&self) -> bool {
+        match *self {
+            Self::GaussianBlur { radius }
+            | Self::BoxBlur { radius }
+            | Self::HighPass { radius } => radius > 0.01,
+            Self::MotionBlur { distance, .. } => distance > 0.01,
+            Self::Emboss { strength, .. } => strength > 0.01,
+            Self::Sharpen { amount } | Self::Noise { amount } | Self::ZoomBlur { amount } => {
+                amount > 0.001
+            }
+            Self::UnsharpMask { amount, .. } | Self::Denoise { amount, .. } => amount > 0.001,
+            Self::Clarity { amount, .. } => amount.abs() > 0.001,
+            Self::Offset { x, y } => x != 0 || y != 0,
+            Self::Invert => true,
         }
     }
 }

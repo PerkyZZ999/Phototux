@@ -74,6 +74,11 @@ fn adjustment_action_id(kind: &str) -> String {
     format!("action.layer.adj-{kind}")
 }
 
+/// Action id for the "add filter effect" entry of one filter kind.
+fn filter_action_id(kind: &str) -> String {
+    format!("action.filter.{kind}")
+}
+
 fn set_contexts(actions: &mut [ActionDescriptor], id: &str, contexts: &[&str]) {
     if let Some(action) = actions.iter_mut().find(|a| a.id == id) {
         action.contexts = contexts.iter().map(|s| (*s).to_owned()).collect();
@@ -826,61 +831,6 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             None,
         ),
-        act(
-            "action.filter.gaussian",
-            "Gaussian &Blur",
-            "filter",
-            "has_document",
-            Some(command_id::FILTER_ADD_EFFECT),
-            None,
-            Some("gaussian"),
-            None,
-            None,
-        ),
-        act(
-            "action.filter.motion",
-            "&Motion Blur",
-            "filter",
-            "has_document",
-            Some(command_id::FILTER_ADD_EFFECT),
-            None,
-            Some("motion"),
-            None,
-            None,
-        ),
-        act(
-            "action.filter.emboss",
-            "&Emboss",
-            "filter",
-            "has_document",
-            Some(command_id::FILTER_ADD_EFFECT),
-            None,
-            Some("emboss"),
-            None,
-            None,
-        ),
-        act(
-            "action.filter.sharpen",
-            "&Sharpen",
-            "filter",
-            "has_document",
-            Some(command_id::FILTER_ADD_EFFECT),
-            None,
-            Some("sharpen"),
-            None,
-            None,
-        ),
-        act(
-            "action.filter.noise",
-            "&Noise",
-            "filter",
-            "has_document",
-            Some(command_id::FILTER_ADD_EFFECT),
-            None,
-            Some("noise"),
-            None,
-            None,
-        ),
         // Tools — letter keys follow the conventional raster-editor
         // assignments so muscle memory transfers. `tools` is a search-only
         // menu: these belong on the tool shelf and in action search, not in
@@ -1371,6 +1321,22 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     // Hue/Saturation, Invert, Threshold and Posterize had no way into the
     // document from the chrome at all — the same four the composite shader
     // was ignoring. Two independent lists, one silence.
+    // One Filter-menu entry per filter kind, generated the same way and for
+    // the same reason: five hand-written entries against a thirteen-kind
+    // vocabulary left Box Blur, Invert and Offset with no way in.
+    actions.extend(crate::FilterParams::ALL_KINDS.iter().map(|params| {
+        act(
+            &filter_action_id(params.kind_key()),
+            params.label(),
+            "filter",
+            "has_document",
+            Some(command_id::FILTER_ADD_EFFECT),
+            None,
+            Some(params.kind_key()),
+            None,
+            None,
+        )
+    }));
     actions.extend(crate::AdjustmentParams::ALL_KINDS.iter().map(|params| {
         act(
             &adjustment_action_id(params.kind_key()),
@@ -1607,6 +1573,42 @@ pub fn effective_shortcuts_json(overrides: &BTreeMap<String, String>) -> (String
 
 #[cfg(test)]
 mod tests {
+    /// Every filter kind needs a Filter-menu entry, or nothing the user can
+    /// reach creates it. Three kinds shipped that way.
+    #[test]
+    fn every_filter_kind_has_a_filter_menu_action() {
+        let actions = default_actions();
+        for params in crate::FilterParams::ALL_KINDS {
+            let id = filter_action_id(params.kind_key());
+            let action = actions
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{} has no action", params.kind_key()));
+            assert_eq!(
+                action.command_id.as_deref(),
+                Some(command_id::FILTER_ADD_EFFECT)
+            );
+            assert_eq!(action.arg.as_deref(), Some(params.kind_key()));
+        }
+    }
+
+    /// The other direction: an effect action naming a kind the engine cannot
+    /// parse would report success and create nothing.
+    #[test]
+    fn every_filter_action_names_a_known_kind() {
+        for action in default_actions() {
+            if action.command_id.as_deref() != Some(command_id::FILTER_ADD_EFFECT) {
+                continue;
+            }
+            let arg = action.arg.as_deref().unwrap_or_default();
+            assert!(
+                crate::FilterParams::default_for_kind(arg).is_some(),
+                "{} names unknown filter kind {arg:?}",
+                action.id
+            );
+        }
+    }
+
     /// Every adjustment kind needs a Layer-menu entry, or it can be created
     /// by nothing the user can reach. Four kinds shipped that way.
     #[test]

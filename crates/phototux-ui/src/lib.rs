@@ -229,6 +229,8 @@ pub struct AppSession {
     adjustment_ranges_json: String,
     /// `{kind: label}` for the adjustment editor heading.
     adjustment_labels_json: String,
+    /// Filter kinds, labels and editor slots for the gallery chrome.
+    filter_catalog_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
@@ -481,6 +483,7 @@ impl AppSession {
             inspector_badges_json: "{}".to_owned(),
             adjustment_ranges_json: phototux_engine::adjustment_editor_ranges_json(),
             adjustment_labels_json: phototux_engine::adjustment_labels_json(),
+            filter_catalog_json: phototux_engine::filter_catalog_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
             pref_history_retention: 128,
@@ -2944,6 +2947,11 @@ impl AppSession {
         Notify = adjustment_labels_json_changed
     );
     qproperty!(
+        "filterCatalogJson",
+        Member = filter_catalog_json,
+        Notify = filter_catalog_json_changed
+    );
+    qproperty!(
         "prefEffectiveJson",
         Member = pref_effective_json,
         Notify = pref_effective_json_changed
@@ -3441,6 +3449,8 @@ impl AppSession {
     fn adjustment_ranges_json_changed(&mut self);
     #[qsignal]
     fn adjustment_labels_json_changed(&mut self);
+    #[qsignal]
+    fn filter_catalog_json_changed(&mut self);
     #[qsignal]
     fn pref_effective_json_changed(&mut self);
     #[qsignal]
@@ -6343,33 +6353,6 @@ impl AppSession {
             command_id::FILTER_SET_PARAMETERS,
             CommandArgs::FilterParameters { slots },
         );
-    }
-
-    #[qslot]
-    fn add_gaussian_blur(&mut self) {
-        self.add_named_filter("gaussian");
-    }
-
-    #[qslot]
-    fn add_motion_blur(&mut self) {
-        self.add_named_filter("motion");
-    }
-
-    #[qslot]
-    fn add_emboss_filter(&mut self) {
-        self.add_named_filter("emboss");
-    }
-
-    fn add_named_filter(&mut self, kind: &str) {
-        if let Err(error) = self.invoke_command(
-            command_id::FILTER_ADD_EFFECT,
-            CommandArgs::FilterEffect {
-                kind: kind.to_owned(),
-            },
-        ) {
-            self.status_text = error.to_string();
-            self.status_text_changed();
-        }
     }
 
     #[qslot]

@@ -564,6 +564,27 @@ impl DocumentGraph {
         self.add_filter_effect(id, |effect_id| FilterEffect::noise(effect_id, amount))
     }
 
+    /// Append an effect of `params` to a raster layer, named for its kind.
+    ///
+    /// One entry point rather than a wrapper per kind: those wrappers were a
+    /// second list of the filter vocabulary, and the command layer had a third
+    /// mapping kind keys onto them, so a kind added to `FilterParams` reached
+    /// neither.
+    pub fn add_effect(
+        &mut self,
+        id: LayerId,
+        params: FilterParams,
+    ) -> Option<(Vec<FilterEffect>, u64)> {
+        self.add_filter_effect(id, |effect_id| FilterEffect {
+            id: effect_id,
+            name: params.label().to_owned(),
+            enabled: true,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            params: params.clamped(),
+        })
+    }
+
     fn add_filter_effect(
         &mut self,
         id: LayerId,

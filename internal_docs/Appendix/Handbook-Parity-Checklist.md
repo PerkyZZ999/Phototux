@@ -201,7 +201,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 - [x] Declarative filter / effect plan graph (`FilterPlan` on `Layer`)
 - [x] Filter gallery UX (browse + preview + commit) — `filter.preview` / `filter.commit` / dialog
-- [x] Additional GPU executors — sharpen + noise CPU/GPU pack + menu/gallery
+- [x] Additional GPU executors — thirteen filter kinds (blurs incl. box/zoom, sharpen, unsharp, high pass, clarity, denoise, noise, emboss, invert, offset), ordered stack, device fixtures for coverage and order
 - [x] Cancel / stale-result policy for long filters — `CancelToken` + generation reject; `filter.cancel-preview`
 - [x] Adjustment kinds — ten live on GPU (brightness, levels + output, exposure, hue/sat, invert, threshold, posterize, vibrance, black & white, white balance) with a device parity fixture and a self-building editor; curves / channel mixer / gradient map residual `[P]` (want a LUT texture, not more slots)
 

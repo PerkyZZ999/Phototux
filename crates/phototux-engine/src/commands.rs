@@ -10,8 +10,8 @@ use crate::document::MAX_LAYERS;
 use crate::error::DocumentError;
 use crate::history::HistoryKind;
 use crate::layer::{
-    AdjustmentParams, BlendMode, FillContent, LayerId, LayerKind, LayerMask, LayerTransform,
-    PaintTarget, TextContent,
+    AdjustmentParams, BlendMode, FillContent, FilterParams, LayerId, LayerKind, LayerMask,
+    LayerTransform, PaintTarget, TextContent,
 };
 use crate::layer_style::LayerStyle;
 use crate::selection::{SelectionModifyOp, SelectionShape};
@@ -1691,24 +1691,12 @@ impl SessionState {
         if !is_raster {
             return Err(CommandError::Rejected("effect requires raster layer"));
         }
-        let Some((prev, _)) = (match kind.as_str() {
-            "gaussian" => self
-                .graph
-                .as_mut()
-                .and_then(|g| g.add_gaussian_blur(id, 4.0)),
-            "motion" => self
-                .graph
-                .as_mut()
-                .and_then(|g| g.add_motion_blur(id, 8.0, 0.0)),
-            "emboss" => self
-                .graph
-                .as_mut()
-                .and_then(|g| g.add_emboss(id, 1.0, 135.0)),
-            "sharpen" => self.graph.as_mut().and_then(|g| g.add_sharpen(id, 1.0)),
-            "noise" => self.graph.as_mut().and_then(|g| g.add_noise(id, 0.35)),
-            _ => None,
-        }) else {
+        let Some(params) = FilterParams::default_for_kind(&kind) else {
             return Err(CommandError::InvalidArgument("unknown effect kind"));
+        };
+        let label = params.label();
+        let Some((prev, _)) = self.graph.as_mut().and_then(|g| g.add_effect(id, params)) else {
+            return Err(CommandError::Rejected("add effect failed"));
         };
         let next = self
             .graph
@@ -1716,14 +1704,6 @@ impl SessionState {
             .and_then(|g| g.get(id))
             .map(|l| l.effects.clone())
             .unwrap_or_default();
-        let label = match kind.as_str() {
-            "gaussian" => "Gaussian Blur",
-            "motion" => "Motion Blur",
-            "emboss" => "Emboss",
-            "sharpen" => "Sharpen",
-            "noise" => "Noise",
-            other => other,
-        };
         let generation = self.bump_document_generation();
         self.history.push_graph_applied(
             crate::GraphCommand::SetEffects { id, prev, next },

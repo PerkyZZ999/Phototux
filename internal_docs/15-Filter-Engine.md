@@ -208,6 +208,36 @@ Three rules hold the vocabulary together, each pinned by test:
 
 Adding a kind is a variant plus one arm in each method, an arm in the shader, and **nothing in the chrome**: the Properties editor builds itself from `editor_slots`, and the Layer-menu entry is generated from `ALL_KINDS`. Vibrance, Black & White and White Balance were added this way and reached the menu and the inspector with no QML edit at all.
 
+## Shipped filter kinds
+
+`phototux_engine::FilterParams` carries the filter vocabulary the same way `AdjustmentParams` carries the adjustment one: wire key, label, shader mode, defaults, editor slots and a significance threshold, all on the variant.
+
+| Kind | Key | Editor slots |
+| --- | --- | --- |
+| Gaussian Blur | `gaussian` | Radius |
+| Box Blur | `box` | Radius |
+| Motion Blur | `motion` | Distance, Angle |
+| Zoom Blur | `zoom` | Amount |
+| Sharpen | `sharpen` | Amount |
+| Unsharp Mask | `unsharp` | Radius, Amount |
+| High Pass | `high-pass` | Radius |
+| Clarity | `clarity` | Radius, Amount |
+| Denoise | `denoise` | Radius, Amount |
+| Add Noise | `noise` | Amount |
+| Emboss | `emboss` | Strength, Angle |
+| Invert | `invert` | *(none)* |
+| Offset | `offset` | X, Y |
+
+### The stack is a stack
+
+`LayerRenderPlan.filters` is an ordered list of what the layer asks for, not one slot per kind. The slot form discarded three things at once, all of them silently:
+
+- **Ordering.** A sharpen stacked before a blur ran after it, because the executor called its fixed helpers in a fixed sequence. Sharpening a blur and blurring a sharpen are different pictures.
+- **Repeats.** Two Gaussian blurs merged into the larger radius. That is not what two blurs look like, and it is not what the effect stack in the Properties panel says is there.
+- **Kinds with no slot.** A `_ => {}` arm absorbed Box Blur, Invert and Offset, so three kinds in the vocabulary could not render — and the gallery's own five-kind list refused them a preview as well.
+
+Three executor shapes cover every kind, chosen by the kind rather than the call site: a separable blur (`gaussian`, `box`), a pass reading a blurred copy alongside the source (`unsharp`, `high-pass`, `clarity`, `denoise` — see `blur_radius_input`), and a plain one-input pass. Adding a kind is a variant, one shader mode, and nothing else: the Filter menu entry comes from `ALL_KINDS` and the gallery builds its sliders from `editor_slots`.
+
 ## Nondestructive Nodes
 
 A nondestructive filter node preserves source and parameters. It may be an adjustment layer, ordered layer effect, fill/effect node, or another declared graph object. Its scope is explicit: one layer source, subtree result, clipped base, or bounded composite input.

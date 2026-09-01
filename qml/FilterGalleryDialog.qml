@@ -64,59 +64,76 @@ Dialog {
         ThemedComboBox {
             id: filterKindCombo
             Layout.fillWidth: true
-            property var kinds: ["gaussian", "motion", "emboss", "sharpen", "noise"]
-            model: [qsTr("Gaussian Blur"), qsTr("Motion Blur"), qsTr("Emboss"), qsTr("Sharpen"), qsTr("Noise")]
+            model: dialog.catalog
+            textRole: "label"
+            valueRole: "id"
             function currentKind() {
-                return kinds[currentIndex] || "gaussian"
+                var row = dialog.catalog[currentIndex]
+                return row ? row.id : "gaussian"
             }
-            onActivated: {
-                AppSession.filterGalleryPreview(currentKind())
-                filterP0Slider.value = AppSession.filterPreviewP0
-                filterP1Slider.value = AppSession.filterPreviewP1
+            // No slider push-back needed: each slider binds to the host's
+            // preview parameter and never assigns its own `value`, so starting
+            // a new preview re-evaluates them.
+            onActivated: AppSession.filterGalleryPreview(currentKind())
+        }
+
+        // One slider per slot the kind declares. The dialog used to name five
+        // kinds explicitly, with the parameter labels and ranges written as
+        // nested conditionals on the combo index — so the eight other kinds in
+        // the vocabulary had no gallery entry, and adding one meant editing a
+        // chain of ternaries.
+        Repeater {
+            model: dialog.currentSlots
+            delegate: ColumnLayout {
+                id: slotRow
+                required property var modelData
+                required property int index
+
+                Layout.fillWidth: true
+                spacing: 2
+
+                Label {
+                    text: slotRow.modelData.label
+                    color: Theme.colorOnSurface
+                    font.pixelSize: Theme.fontBodySm
+                }
+                Slider {
+                    Layout.fillWidth: true
+                    from: slotRow.modelData.min
+                    to: slotRow.modelData.max
+                    value: slotRow.index === 1 ? AppSession.filterPreviewP1
+                                               : AppSession.filterPreviewP0
+                    Accessible.name: qsTr("%1 for %2")
+                                     .arg(slotRow.modelData.label)
+                                     .arg(filterKindCombo.currentText)
+                    onMoved: {
+                        if (slotRow.index === 1)
+                            AppSession.filterGallerySetParams(
+                                AppSession.filterPreviewP0, value, 0)
+                        else
+                            AppSession.filterGallerySetParams(
+                                value, AppSession.filterPreviewP1, 0)
+                    }
+                }
             }
         }
-        Label {
-            text: filterKindCombo.currentIndex === 0
-                  ? qsTr("Radius")
-                  : (filterKindCombo.currentIndex === 1
-                     ? qsTr("Distance")
-                     : (filterKindCombo.currentIndex === 2
-                        ? qsTr("Strength")
-                        : (filterKindCombo.currentIndex === 4
-                           ? qsTr("Amount") : qsTr("Amount"))))
-            color: Theme.colorOnSurface
-            font.pixelSize: Theme.fontBodySm
-        }
-        Slider {
-            id: filterP0Slider
-            Layout.fillWidth: true
-            from: 0
-            to: filterKindCombo.currentIndex === 0
-                ? 64
-                : (filterKindCombo.currentIndex === 4 ? 1 : 32)
-            value: AppSession.filterPreviewP0
-            onMoved: AppSession.filterGallerySetParams(
-                         value, filterP1Slider.value, 0)
-        }
-        Label {
-            visible: filterKindCombo.currentIndex === 1
-                     || filterKindCombo.currentIndex === 2
-            text: qsTr("Angle")
-            color: Theme.colorOnSurface
-            font.pixelSize: Theme.fontBodySm
-        }
-        Slider {
-            id: filterP1Slider
-            Layout.fillWidth: true
-            visible: filterKindCombo.currentIndex === 1
-                     || filterKindCombo.currentIndex === 2
-            from: 0
-            to: 360
-            value: AppSession.filterPreviewP1
-            onMoved: AppSession.filterGallerySetParams(
-                         filterP0Slider.value, value, 0)
-        }
+
         Item { Layout.fillHeight: true }
+    }
+
+    /// Filter kinds and their editor slots, as the engine declares them.
+    readonly property var catalog: {
+        try {
+            return JSON.parse(AppSession.filterCatalogJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
+    /// Editor slots of the kind currently selected in the combo.
+    readonly property var currentSlots: {
+        var row = dialog.catalog[filterKindCombo ? filterKindCombo.currentIndex : 0]
+        return row ? row.slots : []
     }
 
     footer: DialogButtonBox {
@@ -145,9 +162,7 @@ Dialog {
     function primeDefaultPreview() {
         if (!AppSession.filterGalleryOpen)
             return
-        AppSession.filterGalleryPreview("gaussian")
-        filterP0Slider.value = AppSession.filterPreviewP0
-        filterP1Slider.value = AppSession.filterPreviewP1
+        AppSession.filterGalleryPreview(filterKindCombo.currentKind())
     }
 
     Connections {

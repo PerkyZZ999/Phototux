@@ -80,7 +80,9 @@ pub use document_registry::{
 pub use effective_pref::{PrefSource, resolve_layered, values_are_mixed};
 pub use error::DocumentError;
 pub use filter_plan::{FilterPlan, FilterPlanNode};
-pub use filter_preview::{FilterPreviewSession, GALLERY_EFFECT_KINDS, kind_is_supported};
+pub use filter_preview::{
+    FilterPreviewSession, filter_catalog_json, gallery_effect_kinds, kind_is_supported,
+};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryRow, HistoryService};
 pub use host_request::HostRequest;

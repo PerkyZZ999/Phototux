@@ -392,6 +392,111 @@ mod gpu_tests {
         }
     }
 
+    /// Composite a checkerboard through one filter effect and hand back
+    /// (before, after).
+    fn gpu_filter_effect(
+        params: phototux_engine::FilterParams,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new_flattened(size, "base");
+        let id = graph.layers()[0].id;
+        let pixels = checker_rgba(W, H, 4, [230, 40, 40, 255], [20, 60, 200, 255]);
+
+        let mut plain = LayerCompositeEngine::new(&ctx, size);
+        plain.sync_layers_from_graph(&ctx, graph.layers())?;
+        plain
+            .write_layer_rgba(&ctx, id, &pixels)
+            .map_err(|e| e.to_string())?;
+        plain.composite(&ctx, graph.layers())?;
+        let before = plain.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+
+        graph
+            .add_effect(id, params)
+            .ok_or_else(|| "add_effect refused the layer".to_owned())?;
+        let mut filtered = LayerCompositeEngine::new(&ctx, size);
+        filtered.sync_layers_from_graph(&ctx, graph.layers())?;
+        filtered
+            .write_layer_rgba(&ctx, id, &pixels)
+            .map_err(|e| e.to_string())?;
+        filtered.composite(&ctx, graph.layers())?;
+        let after = filtered.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+        Ok((before, after))
+    }
+
+    /// Every filter kind must change the picture on the device.
+    ///
+    /// The plan used to resolve effects into one slot per kind behind a
+    /// `_ => {}` arm, so Box Blur, Invert and Offset composited as nothing
+    /// while serializing perfectly — the same silence as the adjustment ops.
+    #[test]
+    fn every_filter_kind_changes_the_picture_on_device() {
+        use phototux_engine::FilterParams;
+        for &params in FilterParams::ALL_KINDS {
+            // Offset's default is a no-op by design; move it so it counts.
+            let params = if matches!(params, FilterParams::Offset { .. }) {
+                FilterParams::Offset { x: 3, y: 2 }
+            } else {
+                params
+            };
+            let (before, after) = match gpu_filter_effect(params) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("skipping {}: {e}", params.kind_key());
+                    return;
+                }
+            };
+            assert_ne!(
+                before,
+                after,
+                "{} left the picture untouched",
+                params.kind_key()
+            );
+        }
+    }
+
+    /// Order is part of the picture: sharpening a blur is not blurring a
+    /// sharpen. The plan collapsed both into fixed slots and always ran the
+    /// blur first, so the two stacks rendered identically.
+    #[test]
+    fn filter_stack_order_reaches_the_device() {
+        use phototux_engine::FilterParams;
+        let blur = FilterParams::GaussianBlur { radius: 3.0 };
+        let sharpen = FilterParams::Sharpen { amount: 1.5 };
+        let ctx = match GpuContext::new() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                eprintln!("skipping: {e}");
+                return;
+            }
+        };
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let pixels = checker_rgba(W, H, 4, [230, 40, 40, 255], [20, 60, 200, 255]);
+
+        let render = |first, second| -> Vec<u8> {
+            let mut graph = DocumentGraph::new_flattened(size, "base");
+            let id = graph.layers()[0].id;
+            graph.add_effect(id, first).expect("first");
+            graph.add_effect(id, second).expect("second");
+            let mut eng = LayerCompositeEngine::new(&ctx, size);
+            eng.sync_layers_from_graph(&ctx, graph.layers())
+                .expect("sync");
+            eng.write_layer_rgba(&ctx, id, &pixels).expect("write");
+            eng.composite(&ctx, graph.layers()).expect("composite");
+            eng.read_result_rgba(&ctx).expect("read")
+        };
+
+        assert_ne!(
+            render(blur, sharpen),
+            render(sharpen, blur),
+            "the stack renders the same whichever order it is in"
+        );
+    }
+
     /// Composite one masked layer and hand back (expected, actual) alpha.
     ///
     /// `LayerMask::coverage` is the single definition of mask semantics; the

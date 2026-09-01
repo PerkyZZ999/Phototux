@@ -42,11 +42,15 @@ pub struct StrokePlan {
 /// Everything a layer's effects and styles ask the renderer to do.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayerRenderPlan {
-    pub gaussian: f32,
-    pub motion: Option<(f32, f32)>,
-    pub emboss: Option<(f32, f32)>,
-    pub sharpen: Option<f32>,
-    pub noise: Option<f32>,
+    /// Filters to run, in stack order.
+    ///
+    /// A list rather than one slot per kind. The slots discarded the user's
+    /// ordering — a sharpen before a blur is not the same picture as after —
+    /// merged repeated effects by taking the larger parameter, and swallowed
+    /// every kind with no slot of its own through a `_ => {}` arm, which is
+    /// how Box Blur, Invert and Offset came to be unrunnable while sitting in
+    /// the vocabulary.
+    pub filters: Vec<FilterParams>,
     pub drop_shadow: Option<ShadowPlan>,
     /// Outer glow, kept separate from the drop shadow so a layer carrying both
     /// renders both. A glow is a shadow at zero offset, which is why they share
@@ -67,11 +71,7 @@ impl LayerRenderPlan {
     #[must_use]
     pub fn identity() -> Self {
         Self {
-            gaussian: 0.0,
-            motion: None,
-            emboss: None,
-            sharpen: None,
-            noise: None,
+            filters: Vec::new(),
             drop_shadow: None,
             outer_glow: None,
             color_overlay: None,
@@ -81,16 +81,12 @@ impl LayerRenderPlan {
 
     /// Whether this plan needs an effect pass at all.
     ///
-    /// The thresholds are the point: a blur of 0.001 px is not worth an
-    /// offscreen target and two passes, so it is treated as absent. They match
-    /// the guards in [`Self::from_layer`], and both must move together.
+    /// Insignificant filters are dropped when the plan is built — a blur of
+    /// 0.001 px is not worth an offscreen target and two passes — so a
+    /// non-empty list is by construction a list worth running.
     #[must_use]
     pub fn needs_effects(&self) -> bool {
-        self.gaussian > 0.01
-            || self.motion.is_some()
-            || self.emboss.is_some()
-            || self.sharpen.is_some_and(|a| a > 0.001)
-            || self.noise.is_some_and(|a| a > 0.001)
+        !self.filters.is_empty()
             || self.drop_shadow.is_some()
             || self.outer_glow.is_some()
             || self.color_overlay.is_some()
@@ -99,9 +95,10 @@ impl LayerRenderPlan {
 
     /// Resolve a layer's enabled effects and styles into a plan.
     ///
-    /// Repeated effects of the same kind combine rather than replace: two
-    /// Gaussian blurs take the larger radius, because the second is a stronger
-    /// request for the same thing, not a second blur to run.
+    /// Filters keep the order the user stacked them in, and repeated kinds
+    /// stay repeated: two Gaussian blurs are two blurs. The plan used to merge
+    /// them by taking the larger radius, which is a different picture and one
+    /// the effect stack in the panel did not describe.
     ///
     /// A drop shadow and an outer glow occupy separate slots. They share a
     /// shape — a glow is a shadow at zero offset — and for a while shared one
@@ -109,35 +106,13 @@ impl LayerRenderPlan {
     #[must_use]
     pub fn from_layer(layer: &Layer) -> Self {
         let mut plan = Self::identity();
-        for effect in &layer.effects {
-            if !effect.enabled {
-                continue;
-            }
-            match effect.params {
-                FilterParams::GaussianBlur { radius } if radius > 0.01 => {
-                    plan.gaussian = plan.gaussian.max(radius);
-                }
-                FilterParams::MotionBlur {
-                    distance,
-                    angle_deg,
-                } if distance > 0.01 => {
-                    plan.motion = Some((distance, angle_deg));
-                }
-                FilterParams::Emboss {
-                    strength,
-                    angle_deg,
-                } if strength > 0.01 => {
-                    plan.emboss = Some((strength, angle_deg));
-                }
-                FilterParams::Sharpen { amount } if amount > 0.001 => {
-                    plan.sharpen = Some(plan.sharpen.map_or(amount, |a| a.max(amount)));
-                }
-                FilterParams::Noise { amount } if amount > 0.001 => {
-                    plan.noise = Some(plan.noise.map_or(amount, |a| a.max(amount)));
-                }
-                _ => {}
-            }
-        }
+        plan.filters = layer
+            .effects
+            .iter()
+            .filter(|effect| effect.enabled)
+            .map(|effect| effect.params)
+            .filter(FilterParams::is_significant)
+            .collect();
         for style in &layer.styles {
             match style {
                 LayerStyle::DropShadow {
@@ -249,9 +224,14 @@ mod tests {
         assert!(!LayerRenderPlan::from_layer(&layer).needs_effects());
     }
 
-    /// Two blurs are a stronger request for one blur, not two blurs to run.
+    /// Two blurs are two blurs, in the order the user stacked them.
+    ///
+    /// This test used to assert the opposite — that repeats merged by taking
+    /// the larger parameter — which is a different picture from the one the
+    /// effect stack in the panel describes, and threw away the ordering with
+    /// it.
     #[test]
-    fn repeated_effects_take_the_stronger_request() {
+    fn repeated_effects_stay_repeated_and_ordered() {
         let mut layer = raster();
         layer
             .effects
@@ -266,8 +246,51 @@ mod tests {
             .effects
             .push(effect(FilterParams::Sharpen { amount: 0.7 }, true));
         let plan = LayerRenderPlan::from_layer(&layer);
-        assert!((plan.gaussian - 9.0).abs() < 1e-6);
-        assert!((plan.sharpen.expect("sharpen") - 0.7).abs() < 1e-6);
+        assert_eq!(
+            plan.filters,
+            vec![
+                FilterParams::GaussianBlur { radius: 4.0 },
+                FilterParams::GaussianBlur { radius: 9.0 },
+                FilterParams::Sharpen { amount: 0.2 },
+                FilterParams::Sharpen { amount: 0.7 },
+            ]
+        );
+    }
+
+    /// Every kind in the vocabulary must survive the plan. Three did not: the
+    /// resolver matched on the kinds it had a slot for and dropped the rest
+    /// through a `_ => {}` arm, so Box Blur, Invert and Offset were unrunnable
+    /// while remaining perfectly serializable.
+    #[test]
+    fn every_filter_kind_reaches_the_plan() {
+        for &params in FilterParams::ALL_KINDS {
+            let mut layer = raster();
+            // Offset's default is a no-op by design; move it so it counts.
+            let params = if matches!(params, FilterParams::Offset { .. }) {
+                FilterParams::Offset { x: 4, y: 4 }
+            } else {
+                params
+            };
+            layer.effects.push(effect(params, true));
+            let plan = LayerRenderPlan::from_layer(&layer);
+            assert_eq!(
+                plan.filters,
+                vec![params],
+                "{} was dropped by the plan",
+                params.kind_key()
+            );
+            assert!(plan.needs_effects());
+        }
+    }
+
+    /// A disabled effect contributes nothing, whatever its parameters.
+    #[test]
+    fn disabled_effects_stay_out_of_the_plan() {
+        let mut layer = raster();
+        layer
+            .effects
+            .push(effect(FilterParams::GaussianBlur { radius: 9.0 }, false));
+        assert!(LayerRenderPlan::from_layer(&layer).filters.is_empty());
     }
 
     #[test]
@@ -359,6 +382,9 @@ mod tests {
         assert!(plan.needs_effects());
         assert!(plan.stroke.is_some());
         assert!(plan.color_overlay.is_some());
-        assert!((plan.gaussian - 3.0).abs() < 1e-6);
+        assert_eq!(
+            plan.filters,
+            vec![FilterParams::GaussianBlur { radius: 3.0 }]
+        );
     }
 }

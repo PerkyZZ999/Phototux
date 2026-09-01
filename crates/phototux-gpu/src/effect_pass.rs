@@ -146,6 +146,60 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let delta = (grain - 0.5) * 2.0 * amount;
         return vec4<f32>(clamp(src.rgb + vec3<f32>(delta), vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
     }
+    // 10 = invert rgb, alpha untouched
+    if (u.mode == 10u) {
+        return vec4<f32>(clamp(vec3<f32>(1.0) - src.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
+    // 11 = offset by whole pixels; outside the source reads as transparent
+    if (u.mode == 11u) {
+        let uv = in.uv - vec2<f32>(u.p0, u.p1) / dims;
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            return vec4<f32>(0.0);
+        }
+        return textureSample(src_tex, samp, uv);
+    }
+    // 12 = zoom blur: sample along the ray from the centre
+    if (u.mode == 12u) {
+        let amount = clamp(u.p0, 0.0, 1.0);
+        let centre = vec2<f32>(0.5, 0.5);
+        let delta = in.uv - centre;
+        var sum = vec4<f32>(0.0);
+        let steps = 16;
+        for (var i: i32 = 0; i < steps; i = i + 1) {
+            let t = 1.0 - amount * (f32(i) / f32(steps));
+            sum = sum + textureSample(src_tex, samp, centre + delta * t);
+        }
+        return sum / f32(steps);
+    }
+    // Modes 13-16 read a blurred copy of the source from under_tex.
+    // 13 = unsharp mask: add back the difference from the blur
+    if (u.mode == 13u) {
+        let blurred = textureSample(under_tex, samp, in.uv);
+        let amount = clamp(u.p1, 0.0, 4.0);
+        return vec4<f32>(clamp(src.rgb + (src.rgb - blurred.rgb) * amount, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
+    // 14 = high pass: the difference alone, recentred on grey
+    if (u.mode == 14u) {
+        let blurred = textureSample(under_tex, samp, in.uv);
+        return vec4<f32>(clamp(vec3<f32>(0.5) + src.rgb - blurred.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
+    // 15 = clarity: unsharp on luminance only, so colour does not fringe
+    if (u.mode == 15u) {
+        let blurred = textureSample(under_tex, samp, in.uv);
+        let amount = clamp(u.p1, -1.0, 1.0);
+        let lum = vec3<f32>(0.299, 0.587, 0.114);
+        let detail = dot(src.rgb, lum) - dot(blurred.rgb, lum);
+        return vec4<f32>(clamp(src.rgb + vec3<f32>(detail * amount * 2.0), vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
+    // 16 = denoise: blend toward the blur, but only where the two agree, so
+    // edges keep their contrast while flat areas smooth out
+    if (u.mode == 16u) {
+        let blurred = textureSample(under_tex, samp, in.uv);
+        let amount = clamp(u.p1, 0.0, 1.0);
+        let diff = abs(src.rgb - blurred.rgb);
+        let edge = clamp(1.0 - max(diff.r, max(diff.g, diff.b)) * 4.0, 0.0, 1.0);
+        return vec4<f32>(mix(src.rgb, blurred.rgb, amount * edge), src.a);
+    }
     return src;
 }
 "#;
@@ -396,11 +450,12 @@ impl EffectPass {
             },
         );
 
-        self.apply_gaussian(ctx, encoder, blur, plan.gaussian, &mut use_a);
-        self.apply_pair_filter(ctx, encoder, 1, plan.motion, &mut use_a);
-        self.apply_pair_filter(ctx, encoder, 2, plan.emboss, &mut use_a);
-        self.apply_amount_filter(ctx, encoder, 7, plan.sharpen, &mut use_a);
-        self.apply_amount_filter(ctx, encoder, 9, plan.noise, &mut use_a);
+        // In stack order, one pass each. The plan used to arrive as one slot
+        // per kind, so a sharpen always ran after every blur however the user
+        // stacked them, and repeated effects had already been merged away.
+        for filter in &plan.filters {
+            self.apply_filter(ctx, encoder, blur, *filter, &mut use_a);
+        }
         // Drop shadow first, then glow: both sit behind the content, and the
         // shadow is the outermost of the two — the order raster editors use
         // when a layer carries both.
@@ -443,6 +498,60 @@ impl EffectPass {
                 height: src.height(),
                 depth_or_array_layers: 1,
             },
+        );
+    }
+
+    /// Run one filter from the stack into the next scratch texture.
+    ///
+    /// Three shapes, chosen by the kind rather than by the caller: a separable
+    /// blur, a filter that reads a blurred copy alongside the source, and a
+    /// plain one-input pass.
+    fn apply_filter(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        blur: &mut SeparableBlur,
+        filter: FilterParams,
+        use_a: &mut bool,
+    ) {
+        let slots = filter.slots();
+        if matches!(
+            filter,
+            FilterParams::GaussianBlur { .. } | FilterParams::BoxBlur { .. }
+        ) {
+            self.apply_gaussian(ctx, encoder, blur, slots[0], use_a);
+            return;
+        }
+        if let Some(radius) = filter.blur_radius_input() {
+            // The blurred copy goes in `under_tex`, which the two-input modes
+            // read alongside the source.
+            let (cur, dst) = self.ping_pong(*use_a);
+            let blurred = blur.blur(ctx, encoder, cur, radius).clone();
+            self.run(
+                ctx,
+                encoder,
+                cur,
+                &blurred,
+                dst,
+                EffectUniformsGpu {
+                    mode: filter.shader_mode(),
+                    p0: slots[0],
+                    p1: slots[1],
+                    p2: 0.0,
+                    color: [0.0; 4],
+                    offset: [0.0; 2],
+                    _pad: [0.0; 2],
+                },
+            );
+            *use_a = !*use_a;
+            return;
+        }
+        self.apply_pair_filter(
+            ctx,
+            encoder,
+            filter.shader_mode(),
+            Some((slots[0], slots[1])),
+            use_a,
         );
     }
 
@@ -492,20 +601,6 @@ impl EffectPass {
             },
         );
         *use_a = !*use_a;
-    }
-
-    fn apply_amount_filter(
-        &self,
-        ctx: &GpuContext,
-        encoder: &mut wgpu::CommandEncoder,
-        mode: u32,
-        amount: Option<f32>,
-        use_a: &mut bool,
-    ) {
-        let Some(p0) = amount else {
-            return;
-        };
-        self.apply_pair_filter(ctx, encoder, mode, Some((p0, 0.0)), use_a);
     }
 
     fn apply_drop_shadow(
@@ -663,5 +758,5 @@ impl EffectPass {
 /// as too small to bother with are all document policy, not graphics. This
 /// crate turns the resulting descriptor into pipelines.
 pub use phototux_engine::{
-    ColorOverlayPlan, LayerRenderPlan as LayerPackPlan, ShadowPlan, StrokePlan,
+    ColorOverlayPlan, FilterParams, LayerRenderPlan as LayerPackPlan, ShadowPlan, StrokePlan,
 };
