@@ -715,29 +715,11 @@ fn decode_packbits(input: &[u8], expected_len: usize) -> Result<Vec<u8>, PsdErro
     Ok(out)
 }
 
-fn blend_from_key(key: &[u8; 4]) -> Option<BlendMode> {
-    match key {
-        b"norm" => Some(BlendMode::Normal),
-        b"mul " => Some(BlendMode::Multiply),
-        b"scrn" => Some(BlendMode::Screen),
-        b"over" => Some(BlendMode::Overlay),
-        b"dark" => Some(BlendMode::Darken),
-        b"lite" => Some(BlendMode::Lighten),
-        b"hLit" => Some(BlendMode::HardLight),
-        b"sLit" => Some(BlendMode::SoftLight),
-        b"pass" => Some(BlendMode::PassThrough),
-        b"diff" => Some(BlendMode::Difference),
-        b"smud" => Some(BlendMode::Exclusion),
-        b"div " => Some(BlendMode::ColorDodge),
-        b"idiv" => Some(BlendMode::ColorBurn),
-        b"hue " => Some(BlendMode::Hue),
-        b"sat " => Some(BlendMode::Saturation),
-        b"colr" => Some(BlendMode::Color),
-        b"lum " => Some(BlendMode::Luminosity),
-        _ => None,
-    }
-}
-
+/// The PSD four-character key for a blend mode.
+///
+/// Authored as a `match` so the compiler refuses a new blend mode that has no
+/// key — which is how the completed blend set was caught here rather than by
+/// silently writing every new mode as Normal.
 fn blend_to_key(mode: BlendMode) -> [u8; 4] {
     match mode {
         BlendMode::Normal => *b"norm",
@@ -757,7 +739,28 @@ fn blend_to_key(mode: BlendMode) -> [u8; 4] {
         BlendMode::Saturation => *b"sat ",
         BlendMode::Color => *b"colr",
         BlendMode::Luminosity => *b"lum ",
+        BlendMode::LinearBurn => *b"lbrn",
+        BlendMode::DarkerColor => *b"dkCl",
+        BlendMode::LinearDodge => *b"lddg",
+        BlendMode::LighterColor => *b"lgCl",
+        BlendMode::VividLight => *b"vLit",
+        BlendMode::LinearLight => *b"lLit",
+        BlendMode::PinLight => *b"pLit",
+        BlendMode::HardMix => *b"hMix",
+        BlendMode::Subtract => *b"fsub",
+        BlendMode::Divide => *b"fdiv",
     }
+}
+
+/// The blend mode a PSD key names, `None` for a key this build does not ship.
+///
+/// Derived from [`blend_to_key`] rather than restated, so the two directions
+/// cannot disagree about a mode.
+fn blend_from_key(key: &[u8; 4]) -> Option<BlendMode> {
+    BlendMode::ALL
+        .iter()
+        .copied()
+        .find(|&mode| blend_to_key(mode) == *key)
 }
 
 fn write_header(out: &mut Vec<u8>, width: u32, height: u32, channels: u16) -> Result<(), PsdError> {
@@ -1002,6 +1005,25 @@ pub fn format_report(issues: &[CompatibilityIssue]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use phototux_engine::BlendMode;
+
+    /// Every mode must survive a PSD write→read cycle, and no two may share a
+    /// key — a collision silently rewrites one mode as another on open.
+    #[test]
+    fn every_blend_mode_has_its_own_psd_key() {
+        let mut seen: Vec<[u8; 4]> = Vec::new();
+        for &mode in BlendMode::ALL {
+            let key = blend_to_key(mode);
+            assert!(
+                !seen.contains(&key),
+                "{mode:?} reuses PSD key {}",
+                String::from_utf8_lossy(&key)
+            );
+            seen.push(key);
+            assert_eq!(blend_from_key(&key), Some(mode));
+        }
+    }
+
     use super::*;
 
     #[test]

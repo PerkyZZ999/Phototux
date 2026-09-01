@@ -275,118 +275,141 @@ impl Default for VectorMask {
     }
 }
 
-/// Blend modes for GPU composite (expanded set; unknown modes reject at IO).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BlendMode {
+/// Blend modes for GPU composite (unknown modes reject at IO).
+///
+/// Declares the wire name, the GPU code, the menu family and the display
+/// label together. Those four facts used to live in four parallel `match`
+/// arms plus `ALL` plus a `rename_all` serde attribute, and the QML combo
+/// listed a sixth copy that had drifted to eight of the seventeen modes — so
+/// half the set was unreachable from the Properties panel. One list makes a
+/// new mode reachable everywhere or nowhere.
+///
+/// GPU codes are explicit rather than positional because the shader switches
+/// on them and `.ptx` documents do not record them: reordering the list for
+/// the menu must not silently repaint saved work.
+macro_rules! blend_modes {
+    ($($(#[$vattr:meta])* $variant:ident => $wire:literal, $code:literal, $family:literal, $label:literal);+ $(;)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+        pub enum BlendMode {
+            $($(#[$vattr])* #[serde(rename = $wire)] $variant),+
+        }
+
+        impl BlendMode {
+            /// Every mode, in menu order.
+            pub const ALL: &'static [BlendMode] = &[$(BlendMode::$variant),+];
+
+            /// Stable wire name used by `.ptx`, the command layer and QML.
+            #[must_use]
+            pub fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $wire),+ }
+            }
+
+            /// Parse a wire name; `None` when it names no mode this build ships.
+            #[must_use]
+            pub fn from_str_label(s: &str) -> Option<Self> {
+                match s.to_ascii_lowercase().replace('-', "_").as_str() {
+                    $($wire => Some(Self::$variant),)+
+                    "passthrough" => Some(Self::PassThrough),
+                    _ => None,
+                }
+            }
+
+            /// Integer code for GPU uniform packing.
+            #[must_use]
+            pub fn as_u32(self) -> u32 {
+                match self { $(Self::$variant => $code),+ }
+            }
+
+            /// Menu family, so the combo can band the modes the way the
+            /// darken/lighten/contrast grouping teaches them.
+            #[must_use]
+            pub fn family(self) -> &'static str {
+                match self { $(Self::$variant => $family),+ }
+            }
+
+            /// Display label for chrome.
+            #[must_use]
+            pub fn label(self) -> &'static str {
+                match self { $(Self::$variant => $label),+ }
+            }
+        }
+    };
+}
+
+blend_modes! {
     #[default]
-    Normal,
-    Multiply,
-    Screen,
-    Overlay,
-    Darken,
-    Lighten,
-    ColorDodge,
-    ColorBurn,
-    HardLight,
-    SoftLight,
-    Difference,
-    Exclusion,
-    Hue,
-    Saturation,
-    Color,
-    Luminosity,
-    PassThrough,
+    Normal       => "normal",        0, "normal",   "Normal";
+    PassThrough  => "pass_through", 16, "normal",   "Pass Through";
+
+    Darken       => "darken",        4, "darken",   "Darken";
+    Multiply     => "multiply",      1, "darken",   "Multiply";
+    ColorBurn    => "color_burn",    7, "darken",   "Color Burn";
+    LinearBurn   => "linear_burn",  17, "darken",   "Linear Burn";
+    DarkerColor  => "darker_color", 18, "darken",   "Darker Color";
+
+    Lighten      => "lighten",       5, "lighten",  "Lighten";
+    Screen       => "screen",        2, "lighten",  "Screen";
+    ColorDodge   => "color_dodge",   6, "lighten",  "Color Dodge";
+    LinearDodge  => "linear_dodge", 19, "lighten",  "Linear Dodge (Add)";
+    LighterColor => "lighter_color",20, "lighten",  "Lighter Color";
+
+    Overlay      => "overlay",       3, "contrast", "Overlay";
+    SoftLight    => "soft_light",    9, "contrast", "Soft Light";
+    HardLight    => "hard_light",    8, "contrast", "Hard Light";
+    VividLight   => "vivid_light",  21, "contrast", "Vivid Light";
+    LinearLight  => "linear_light", 22, "contrast", "Linear Light";
+    PinLight     => "pin_light",    23, "contrast", "Pin Light";
+    HardMix      => "hard_mix",     24, "contrast", "Hard Mix";
+
+    Difference   => "difference",   10, "compare",  "Difference";
+    Exclusion    => "exclusion",    11, "compare",  "Exclusion";
+    Subtract     => "subtract",     25, "compare",  "Subtract";
+    Divide       => "divide",       26, "compare",  "Divide";
+
+    Hue          => "hue",          12, "component","Hue";
+    Saturation   => "saturation",   13, "component","Saturation";
+    Color        => "color",        14, "component","Color";
+    Luminosity   => "luminosity",   15, "component","Luminosity";
 }
 
 impl BlendMode {
-    pub const ALL: [BlendMode; 17] = [
-        BlendMode::Normal,
-        BlendMode::Multiply,
-        BlendMode::Screen,
-        BlendMode::Overlay,
-        BlendMode::Darken,
-        BlendMode::Lighten,
-        BlendMode::ColorDodge,
-        BlendMode::ColorBurn,
-        BlendMode::HardLight,
-        BlendMode::SoftLight,
-        BlendMode::Difference,
-        BlendMode::Exclusion,
-        BlendMode::Hue,
-        BlendMode::Saturation,
-        BlendMode::Color,
-        BlendMode::Luminosity,
-        BlendMode::PassThrough,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::Multiply => "multiply",
-            Self::Screen => "screen",
-            Self::Overlay => "overlay",
-            Self::Darken => "darken",
-            Self::Lighten => "lighten",
-            Self::ColorDodge => "color_dodge",
-            Self::ColorBurn => "color_burn",
-            Self::HardLight => "hard_light",
-            Self::SoftLight => "soft_light",
-            Self::Difference => "difference",
-            Self::Exclusion => "exclusion",
-            Self::Hue => "hue",
-            Self::Saturation => "saturation",
-            Self::Color => "color",
-            Self::Luminosity => "luminosity",
-            Self::PassThrough => "pass_through",
-        }
+    /// Whether the mode is defined one channel at a time.
+    ///
+    /// The component modes mix a channel of the backdrop with two of the
+    /// source, and the two whole-colour modes pick a pixel by its luminosity,
+    /// so neither has a per-channel form at all. Asking for one is the mistake
+    /// that used to leave the component modes rendering as plain Normal.
+    #[must_use]
+    pub fn is_separable(self) -> bool {
+        !matches!(
+            self,
+            Self::Hue
+                | Self::Saturation
+                | Self::Color
+                | Self::Luminosity
+                | Self::DarkerColor
+                | Self::LighterColor
+        )
     }
+}
 
-    pub fn from_str_label(s: &str) -> Option<Self> {
-        match s.to_ascii_lowercase().replace('-', "_").as_str() {
-            "normal" => Some(Self::Normal),
-            "multiply" => Some(Self::Multiply),
-            "screen" => Some(Self::Screen),
-            "overlay" => Some(Self::Overlay),
-            "darken" => Some(Self::Darken),
-            "lighten" => Some(Self::Lighten),
-            "color_dodge" => Some(Self::ColorDodge),
-            "color_burn" => Some(Self::ColorBurn),
-            "hard_light" => Some(Self::HardLight),
-            "soft_light" => Some(Self::SoftLight),
-            "difference" => Some(Self::Difference),
-            "exclusion" => Some(Self::Exclusion),
-            "hue" => Some(Self::Hue),
-            "saturation" => Some(Self::Saturation),
-            "color" => Some(Self::Color),
-            "luminosity" => Some(Self::Luminosity),
-            "pass_through" | "passthrough" => Some(Self::PassThrough),
-            _ => None,
-        }
-    }
-
-    /// Integer code for GPU uniform packing.
-    pub fn as_u32(self) -> u32 {
-        match self {
-            Self::Normal => 0,
-            Self::Multiply => 1,
-            Self::Screen => 2,
-            Self::Overlay => 3,
-            Self::Darken => 4,
-            Self::Lighten => 5,
-            Self::ColorDodge => 6,
-            Self::ColorBurn => 7,
-            Self::HardLight => 8,
-            Self::SoftLight => 9,
-            Self::Difference => 10,
-            Self::Exclusion => 11,
-            Self::Hue => 12,
-            Self::Saturation => 13,
-            Self::Color => 14,
-            Self::Luminosity => 15,
-            Self::PassThrough => 16,
-        }
-    }
+/// Every blend mode as JSON for the chrome, in menu order.
+///
+/// Each entry carries `id`, `label` and `family`; the combo draws a separator
+/// wherever the family changes.
+#[must_use]
+pub fn blend_modes_json() -> String {
+    let entries: Vec<serde_json::Value> = BlendMode::ALL
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "id": m.as_str(),
+                "label": m.label(),
+                "family": m.family(),
+            })
+        })
+        .collect();
+    serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into())
 }
 
 /// Text layer payload (shaped by Qt; rasterized/cached for composite).
@@ -900,8 +923,72 @@ mod tests {
 
     #[test]
     fn blend_roundtrip() {
-        for b in BlendMode::ALL {
+        for &b in BlendMode::ALL {
             assert_eq!(BlendMode::from_str_label(b.as_str()), Some(b));
+        }
+    }
+
+    /// The shader switches on these codes and `.ptx` does not record them, so
+    /// a collision repaints one mode as another and a change repaints saved
+    /// documents. Both are silent.
+    #[test]
+    fn blend_gpu_codes_are_unique_and_pinned() {
+        let mut seen = Vec::new();
+        for &b in BlendMode::ALL {
+            let code = b.as_u32();
+            assert!(!seen.contains(&code), "{b:?} reuses GPU code {code}");
+            seen.push(code);
+        }
+        // The codes that shipped before the set was completed.
+        for (mode, code) in [
+            (BlendMode::Normal, 0),
+            (BlendMode::Multiply, 1),
+            (BlendMode::Screen, 2),
+            (BlendMode::Overlay, 3),
+            (BlendMode::Darken, 4),
+            (BlendMode::Lighten, 5),
+            (BlendMode::ColorDodge, 6),
+            (BlendMode::ColorBurn, 7),
+            (BlendMode::HardLight, 8),
+            (BlendMode::SoftLight, 9),
+            (BlendMode::Difference, 10),
+            (BlendMode::Exclusion, 11),
+            (BlendMode::Hue, 12),
+            (BlendMode::Saturation, 13),
+            (BlendMode::Color, 14),
+            (BlendMode::Luminosity, 15),
+            (BlendMode::PassThrough, 16),
+        ] {
+            assert_eq!(mode.as_u32(), code, "{mode:?} changed GPU code");
+        }
+    }
+
+    /// The combo bands the list by family, so a family that resumes after
+    /// another draws a separator through the middle of itself.
+    #[test]
+    fn blend_families_are_contiguous() {
+        let mut seen: Vec<&str> = Vec::new();
+        let mut previous = "";
+        for &b in BlendMode::ALL {
+            if b.family() != previous {
+                assert!(
+                    !seen.contains(&b.family()),
+                    "family {} resumes after {previous}",
+                    b.family()
+                );
+                seen.push(b.family());
+                previous = b.family();
+            }
+        }
+    }
+
+    /// The chrome reads this JSON instead of restating the list, which is how
+    /// the combo came to offer eight of the seventeen modes.
+    #[test]
+    fn blend_modes_json_lists_every_mode() {
+        let json = blend_modes_json();
+        for &b in BlendMode::ALL {
+            assert!(json.contains(b.as_str()), "{b:?} missing from chrome JSON");
         }
     }
 

@@ -47,6 +47,19 @@ ColumnLayout {
     /// belongs to the shell, so the panel asks rather than opens.
     signal embedIccRequested
 
+    /// The blend-mode vocabulary, as the engine declares it.
+    ///
+    /// The combo used to carry its own list of eight, so the other nineteen
+    /// modes — every component mode among them — were unreachable from the
+    /// Properties panel however well the compositor drew them.
+    readonly property var blendModes: {
+        try {
+            return JSON.parse(AppSession.blendModesJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
     /// Point the blend combo at the active layer's blend mode.
     ///
     /// A combo box holds its own selection, so host state has to be pushed into
@@ -1546,18 +1559,10 @@ ColumnLayout {
         ThemedComboBox {
             id: blendCombo
             Layout.fillWidth: true
-            model: [
-                { label: qsTr("Normal"), id: "normal" },
-                { label: qsTr("Multiply"), id: "multiply" },
-                { label: qsTr("Screen"), id: "screen" },
-                { label: qsTr("Overlay"), id: "overlay" },
-                { label: qsTr("Soft Light"), id: "soft_light" },
-                { label: qsTr("Hard Light"), id: "hard_light" },
-                { label: qsTr("Darken"), id: "darken" },
-                { label: qsTr("Lighten"), id: "lighten" }
-            ]
+            model: root.blendModes
             textRole: "label"
             valueRole: "id"
+            familyRole: "family"
             enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
             opacity: AppSession.inspectorBlendMixed ? 0.85 : 1.0
             Component.onCompleted: root.syncBlendCombo()

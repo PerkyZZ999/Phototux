@@ -11,6 +11,13 @@ import phototux_ui
 ComboBox {
     id: control
 
+    /// Row key whose changes band the popup, or "" for an unbanded list.
+    ///
+    /// A list long enough to need banding (the blend modes are twenty-seven)
+    /// reads as a wall of words without one; the separator is drawn above the
+    /// first row of each run.
+    property string familyRole: ""
+
     implicitHeight: Theme.controlHeight
     font.pixelSize: Theme.fontBodySm
 
@@ -69,9 +76,28 @@ ComboBox {
                 required property var modelData
                 required property int index
 
+                /// This row opens a new band, so it wears the divider.
+                readonly property bool bandStart: {
+                    if (control.familyRole.length === 0 || index <= 0)
+                        return false
+                    var rows = optionList.model
+                    if (!rows || !rows[index - 1] || !option.modelData)
+                        return false
+                    return rows[index - 1][control.familyRole]
+                            !== option.modelData[control.familyRole]
+                }
+
                 width: optionList.width
-                implicitHeight: Theme.controlHeight
+                implicitHeight: Theme.controlHeight + (bandStart ? 1 : 0)
+                topPadding: bandStart ? 1 : 0
                 highlighted: index === control.currentIndex
+
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: Theme.borderEffective
+                    visible: option.bandStart
+                }
 
                 // Opaque: the Basic style paints a light plate behind a
                 // delegate, and a transparent background let it through under

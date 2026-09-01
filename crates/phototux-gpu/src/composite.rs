@@ -60,37 +60,107 @@ struct Uniforms {
 @group(0) @binding(3) var<uniform> u: Uniforms;
 
 
+fn bl_hard_light(b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
+    let low = 2.0 * b * o;
+    let high = 1.0 - 2.0 * (1.0 - b) * (1.0 - o);
+    return select(high, low, o < vec3<f32>(0.5));
+}
+
+fn bl_color_dodge(b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
+    // select(f, t, cond) returns t when cond holds: saturate only where the
+    // source is already 1.0, and divide everywhere else.
+    return select(min(vec3<f32>(1.0), b / max(vec3<f32>(1.0) - o, vec3<f32>(1e-5))), vec3<f32>(1.0), o >= vec3<f32>(1.0));
+}
+
+fn bl_color_burn(b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
+    return select(vec3<f32>(1.0) - min(vec3<f32>(1.0), (vec3<f32>(1.0) - b) / max(o, vec3<f32>(1e-5))), vec3<f32>(0.0), o <= vec3<f32>(0.0));
+}
+
+fn bl_vivid_light(b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
+    return select(bl_color_dodge(b, 2.0 * (o - 0.5)), bl_color_burn(b, 2.0 * o), o <= vec3<f32>(0.5));
+}
+
+// Rec.601 luma, the weighting the component blend modes are defined against.
+fn bl_lum(c: vec3<f32>) -> f32 {
+    return 0.3 * c.r + 0.59 * c.g + 0.11 * c.b;
+}
+
+fn bl_sat(c: vec3<f32>) -> f32 {
+    return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+}
+
+// Pull c back inside the unit cube without moving its luminosity: clipping
+// each channel on its own would change the luminosity just set, so the colour
+// is scaled toward its own luma instead.
+fn bl_clip_color(c: vec3<f32>) -> vec3<f32> {
+    var out = c;
+    let l = bl_lum(out);
+    let n = min(out.r, min(out.g, out.b));
+    let x = max(out.r, max(out.g, out.b));
+    if (n < 0.0) {
+        let d = l - n;
+        out = select(vec3<f32>(l), l + (out - l) * l / max(d, 1e-5), d > 1e-5);
+    }
+    let l2 = bl_lum(out);
+    let x2 = max(out.r, max(out.g, out.b));
+    if (x2 > 1.0) {
+        let d = x2 - l2;
+        out = select(vec3<f32>(l2), l2 + (out - l2) * (1.0 - l2) / max(d, 1e-5), d > 1e-5);
+    }
+    return out;
+}
+
+fn bl_set_lum(c: vec3<f32>, l: f32) -> vec3<f32> {
+    return bl_clip_color(c + vec3<f32>(l - bl_lum(c)));
+}
+
+// Rescale c to span s between its darkest and lightest channel.
+fn bl_set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
+    let mx = max(c.r, max(c.g, c.b));
+    let mn = min(c.r, min(c.g, c.b));
+    let span = mx - mn;
+    if (span <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    return (c - vec3<f32>(mn)) * s / span;
+}
+
 fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
     switch mode {
         case 1u: { return b * o; } // multiply
         case 2u: { return 1.0 - (1.0 - b) * (1.0 - o); } // screen
-        case 3u: { // overlay
-            let low = 2.0 * b * o;
-            let high = 1.0 - 2.0 * (1.0 - b) * (1.0 - o);
-            return select(high, low, b < vec3<f32>(0.5));
-        }
+        case 3u: { return bl_hard_light(o, b); } // overlay
         case 4u: { return min(b, o); } // darken
         case 5u: { return max(b, o); } // lighten
-        case 6u: { // color dodge
-            // select(f, t, cond) returns t when cond holds: saturate only where
-            // the source is already 1.0, and divide everywhere else.
-            return select(min(vec3<f32>(1.0), b / max(vec3<f32>(1.0) - o, vec3<f32>(1e-5))), vec3<f32>(1.0), o >= vec3<f32>(1.0));
-        }
-        case 7u: { // color burn
-            return select(vec3<f32>(1.0) - min(vec3<f32>(1.0), (vec3<f32>(1.0) - b) / max(o, vec3<f32>(1e-5))), vec3<f32>(0.0), o <= vec3<f32>(0.0));
-        }
-        case 8u: { // hard light
-            let low = 2.0 * b * o;
-            let high = 1.0 - 2.0 * (1.0 - b) * (1.0 - o);
-            return select(high, low, o < vec3<f32>(0.5));
-        }
-        case 9u: { // soft light (approx)
+        case 6u: { return bl_color_dodge(b, o); }
+        case 7u: { return bl_color_burn(b, o); }
+        case 8u: { return bl_hard_light(b, o); }
+        case 9u: { // soft light (approx; the CPU reference matches this form)
             return (vec3<f32>(1.0) - 2.0 * o) * b * b + 2.0 * o * b;
         }
         case 10u: { return abs(b - o); } // difference
         case 11u: { return b + o - 2.0 * b * o; } // exclusion
-        case 12u, 13u, 14u, 15u: { return o; } // hue/sat/color/lum: RGB fallback
+        case 12u: { return bl_set_lum(bl_set_sat(o, bl_sat(b)), bl_lum(b)); } // hue
+        case 13u: { return bl_set_lum(bl_set_sat(b, bl_sat(o)), bl_lum(b)); } // saturation
+        case 14u: { return bl_set_lum(o, bl_lum(b)); } // color
+        case 15u: { return bl_set_lum(b, bl_lum(o)); } // luminosity
         case 16u: { return o; } // pass-through treated as normal in flat stack
+        case 17u: { return clamp(b + o - 1.0, vec3<f32>(0.0), vec3<f32>(1.0)); } // linear burn
+        case 18u: { return select(b, o, bl_lum(o) < bl_lum(b)); } // darker color
+        case 19u: { return clamp(b + o, vec3<f32>(0.0), vec3<f32>(1.0)); } // linear dodge (add)
+        case 20u: { return select(b, o, bl_lum(o) > bl_lum(b)); } // lighter color
+        case 21u: { return bl_vivid_light(b, o); }
+        case 22u: { return clamp(b + 2.0 * o - 1.0, vec3<f32>(0.0), vec3<f32>(1.0)); } // linear light
+        case 23u: { // pin light
+            return select(max(b, 2.0 * o - 1.0), min(b, 2.0 * o), o <= vec3<f32>(0.5));
+        }
+        case 24u: { // hard mix: vivid light pushed to the cube corners
+            return select(vec3<f32>(1.0), vec3<f32>(0.0), bl_vivid_light(b, o) < vec3<f32>(0.5));
+        }
+        case 25u: { return clamp(b - o, vec3<f32>(0.0), vec3<f32>(1.0)); } // subtract
+        case 26u: { // divide
+            return select(min(b / max(o, vec3<f32>(1e-5)), vec3<f32>(1.0)), vec3<f32>(1.0), o <= vec3<f32>(0.0));
+        }
         default: { return o; }
     }
 }

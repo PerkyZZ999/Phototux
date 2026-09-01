@@ -177,6 +177,7 @@ Chapters: [11](../11-Layer-System.md), [13](../13-Mask-System.md)
 - [x] Multi-select layer ops (delete/reorder/group/ungroup) atomic + Ctrl/Shift Layers panel
 - [x] Fill / solid-color layer — `LayerKind::Fill` + `layer.create-fill` / `layer.set-fill-color`
 - [x] Layer styles beyond Drop Shadow + Stroke — OuterGlow + ColorOverlay (further styles `[P]`)
+- [x] Full blend-mode set (27) generated from one vocabulary; component + whole-colour modes genuinely computed on GPU and CPU
 - [x] Clipping groups UX — clip toggle + break-on-delete-base + Layers ↳ tooltip
 - [x] Nondestructive effect stack ordering UI — `effect.reorder` / `effect.set-enabled` + Properties
 

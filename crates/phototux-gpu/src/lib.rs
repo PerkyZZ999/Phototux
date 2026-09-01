@@ -28,7 +28,8 @@ pub use layer_mask::LayerMaskChannel;
 pub use mask_stamp::MaskStamper;
 pub use parity::{
     ChannelError, PARITY_BLEND_MODES, assert_rgba8_within, checker_rgba, cpu_blend_fixture,
-    cpu_gaussian_fixture, cpu_sharpen_fixture, rgba8_channel_errors, solid_rgba,
+    cpu_blend_fixture_varied, cpu_gaussian_fixture, cpu_sharpen_fixture, rgba8_channel_errors,
+    solid_rgba,
 };
 pub use phototux_engine::MAX_LAYERS;
 pub use selection::SelectionMask;

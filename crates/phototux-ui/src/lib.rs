@@ -286,6 +286,9 @@ pub struct AppSession {
     pending_host_request: String,
     panel_visibility_json: String,
     tool_descriptors_json: String,
+    /// Blend-mode vocabulary for the Properties combo; see
+    /// [`phototux_engine::blend_modes_json`].
+    blend_modes_json: String,
     actions_json: String,
     shortcuts_json: String,
     action_shortcuts_json: String,
@@ -507,6 +510,7 @@ impl AppSession {
             pending_host_request: String::new(),
             panel_visibility_json: WorkspaceState::essentials().visibility_json(),
             tool_descriptors_json: phototux_engine::tools_json(),
+            blend_modes_json: phototux_engine::blend_modes_json(),
             actions_json: phototux_engine::actions_json(),
             shortcuts_json: phototux_engine::shortcuts_json(),
             action_shortcuts_json: phototux_engine::action_shortcuts_json(),
@@ -3086,6 +3090,11 @@ impl AppSession {
         Notify = tool_descriptors_json_changed
     );
     qproperty!(
+        "blendModesJson",
+        Member = blend_modes_json,
+        Notify = blend_modes_json_changed
+    );
+    qproperty!(
         "actionsJson",
         Member = actions_json,
         Notify = actions_json_changed
@@ -3506,6 +3515,8 @@ impl AppSession {
     fn panel_visibility_json_changed(&mut self);
     #[qsignal]
     fn tool_descriptors_json_changed(&mut self);
+    #[qsignal]
+    fn blend_modes_json_changed(&mut self);
     #[qsignal]
     fn actions_json_changed(&mut self);
     #[qsignal]

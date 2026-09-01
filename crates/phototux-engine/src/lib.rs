@@ -71,7 +71,7 @@ pub use command_meta::{
 pub use commands::{
     CommandArgs, CommandEffects, CommandError, HostFollowUp, HostHistoryAction, command_id,
 };
-pub use cpu_composite::{CpuLayerRef, composite_rgba8};
+pub use cpu_composite::{CpuLayerRef, blend_rgb, composite_rgba8};
 pub use dock::{DockTopology, FloatingPanelPlacement, ScreenRect};
 pub use document::{DocumentGraph, ExtensionBlob, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use document_registry::{
@@ -87,7 +87,7 @@ pub use host_request::HostRequest;
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
     LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget,
-    ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent, VectorMask,
+    ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent, VectorMask, blend_modes_json,
 };
 pub use layer_row::{LayerRow, layer_rows};
 pub use layer_style::{LayerStyle, apply_styles_rgba8};

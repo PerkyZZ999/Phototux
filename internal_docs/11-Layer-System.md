@@ -213,6 +213,29 @@ Opacity is a finite normalized scalar with defined clamping at command validatio
 
 Blend mode descriptors define source/destination input spaces, premultiplication expectations, channel function, alpha equation, range behavior, NaN handling, precision floor, and fallback. IDs are stable semantic identifiers, not UI labels or shader function names. Unknown modes preserve the layer but render a disclosed fallback or unavailable state; they are never silently replaced in authoritative data.
 
+### Shipped blend set
+
+Twenty-seven modes, declared once by the `blend_modes!` macro in `phototux_engine::layer` and read from there by the compositor, the CPU reference, the PSD codec and the Properties combo. Each entry fixes four facts together: the wire id, the GPU code, the menu family and the display label.
+
+| Family | Modes |
+| --- | --- |
+| Normal | Normal, Pass Through |
+| Darken | Darken, Multiply, Color Burn, Linear Burn, Darker Color |
+| Lighten | Lighten, Screen, Color Dodge, Linear Dodge (Add), Lighter Color |
+| Contrast | Overlay, Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix |
+| Comparative | Difference, Exclusion, Subtract, Divide |
+| Component | Hue, Saturation, Color, Luminosity |
+
+Most modes are **separable** — defined one channel at a time. Six are not, and they are the ones a per-channel implementation gets wrong rather than merely approximates:
+
+- **Hue / Saturation / Color / Luminosity** mix one attribute of the source with two of the backdrop, using the Rec.601 luma weighting and the `SetLum` / `SetSat` / `ClipColor` construction. `ClipColor` scales a colour toward its own luma rather than clamping each channel, because clamping would move the luminosity that was just set.
+- **Darker Color / Lighter Color** compare whole pixels by luminosity and select one; they never mix.
+
+`BlendMode::is_separable` marks the six, and `phototux_engine::blend_rgb` — not a per-channel helper — is the compositor's entry point, so the non-separable modes cannot be reached through a path that has no answer for them.
+
+GPU codes are explicit in the declaration rather than positional. The shader switches on them and `.ptx` does not record them, so reordering the list for the menu must not repaint saved documents; a test pins the seventeen codes that shipped before the set was completed.
+
+
 ```mermaid
 flowchart LR
     Source[Layer source] --> LocalEffects[Local effects]

@@ -11,7 +11,6 @@
 //! - Sharpen: max abs ≤ 4/255.
 //!
 //! ## Skip matrix
-//! - Hue / Saturation / Color / Luminosity: GPU RGB fallback; CPU falls back to Normal — not compared.
 //! - Motion / emboss: covered by unit refs only; full GPU↔CPU deferred with handbook filter catalog.
 
 use phototux_engine::{BlendMode, CpuLayerRef, composite_rgba8};
@@ -100,26 +99,13 @@ pub fn checker_rgba(width: u32, height: u32, cell: u32, a: [u8; 4], b: [u8; 4]) 
     out
 }
 
-/// Blend modes covered by CPU reference + GPU shader (parity set).
-/// Every mode both the CPU reference and the shader genuinely implement.
+/// Blend modes compared CPU↔GPU.
 ///
-/// Hue/Saturation/Color/Luminosity are excluded because neither side computes
-/// them — both fall back to the source — so listing them would assert agreement
-/// on a shared shortcut rather than on a blend.
-pub const PARITY_BLEND_MODES: &[BlendMode] = &[
-    BlendMode::Normal,
-    BlendMode::Multiply,
-    BlendMode::Screen,
-    BlendMode::Overlay,
-    BlendMode::Darken,
-    BlendMode::Lighten,
-    BlendMode::ColorDodge,
-    BlendMode::ColorBurn,
-    BlendMode::HardLight,
-    BlendMode::SoftLight,
-    BlendMode::Difference,
-    BlendMode::Exclusion,
-];
+/// Every mode, because both sides now compute every mode. This used to exclude
+/// Hue/Saturation/Color/Luminosity, which neither side computed — both
+/// returned the source — so the exclusion was hiding four modes that rendered
+/// as Normal rather than describing a tolerance problem.
+pub const PARITY_BLEND_MODES: &[BlendMode] = BlendMode::ALL;
 
 /// CPU blend fixture: bottom solid + top solid with `mode`.
 ///
@@ -130,6 +116,43 @@ pub fn cpu_blend_fixture(mode: BlendMode) -> Result<Vec<u8>, String> {
     const H: u32 = 8;
     let bottom = solid_rgba(W, H, [200, 80, 40, 255]);
     let top = solid_rgba(W, H, [60, 140, 220, 255]);
+    composite_rgba8(
+        W,
+        H,
+        &[
+            CpuLayerRef {
+                visible: true,
+                opacity: 1.0,
+                blend: BlendMode::Normal,
+                rgba: &bottom,
+            },
+            CpuLayerRef {
+                visible: true,
+                opacity: 1.0,
+                blend: mode,
+                rgba: &top,
+            },
+        ],
+    )
+}
+
+/// CPU blend fixture whose two inputs both vary per pixel.
+///
+/// [`cpu_blend_fixture`] composites two solids, where `DarkerColor` and
+/// `LighterColor` necessarily equal one of their inputs — they pick a pixel
+/// rather than mixing one. Alternating both inputs lets every mode produce a
+/// buffer of its own.
+///
+/// # Errors
+/// Composite failure.
+pub fn cpu_blend_fixture_varied(mode: BlendMode) -> Result<Vec<u8>, String> {
+    const W: u32 = 8;
+    const H: u32 = 8;
+    // The backdrop straddles the source in luminosity — one cell brighter than
+    // both source cells, one darker — so `LighterColor` and `DarkerColor` each
+    // pick the backdrop somewhere and cannot coincide with Normal.
+    let bottom = checker_rgba(W, H, 2, [230, 220, 200, 255], [30, 60, 90, 255]);
+    let top = checker_rgba(W, H, 3, [60, 140, 220, 255], [180, 190, 70, 255]);
     composite_rgba8(
         W,
         H,
@@ -179,6 +202,38 @@ mod tests {
             let b = cpu_blend_fixture(mode).expect("cpu b");
             assert_eq!(a, b, "mode={mode:?}");
             assert_rgba8_within(&a, &b, 0.0, 0.0).expect("identical");
+        }
+    }
+
+    /// A parity set that silently skipped a mode was how four modes shipped
+    /// rendering as Normal. The set is the whole vocabulary or the omission is
+    /// a decision someone has to write down here.
+    #[test]
+    fn the_parity_set_covers_every_blend_mode() {
+        for &mode in BlendMode::ALL {
+            assert!(
+                PARITY_BLEND_MODES.contains(&mode),
+                "{mode:?} is not compared against the shader"
+            );
+        }
+    }
+
+    /// Distinct modes must produce distinct output — the cheapest check that a
+    /// new arm was wired to its own formula rather than falling through to the
+    /// default, which is exactly how the component modes shipped as Normal.
+    #[test]
+    fn distinct_modes_produce_distinct_output() {
+        let mut seen: Vec<(BlendMode, Vec<u8>)> = Vec::new();
+        for &mode in BlendMode::ALL {
+            // Pass-through is Normal in a flat stack by definition.
+            if mode == BlendMode::PassThrough {
+                continue;
+            }
+            let px = cpu_blend_fixture_varied(mode).expect("fixture");
+            if let Some((other, _)) = seen.iter().find(|(_, p)| *p == px) {
+                panic!("{mode:?} and {other:?} composite identically");
+            }
+            seen.push((mode, px));
         }
     }
 
