@@ -3246,6 +3246,29 @@ ApplicationWindow {
                         border.color: Theme.border
                         border.width: 1
                         opacity: AppSession.hasDocument ? 1 : 0.35
+
+                        // The document itself. Without it the Navigator drew a
+                        // flat rectangle, so it told the user where they were
+                        // relative to nothing — which is the one question the
+                        // panel exists to answer. The host rebuilds this on a
+                        // throttle; the fill above shows through until the
+                        // first one arrives.
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            source: AppSession.navigatorThumbnail
+                            // Tested on the string, not on `source`: assigning
+                            // to a `url` property normalises the value, so
+                            // comparing the result against "" says nothing
+                            // useful about whether the host has published one.
+                            visible: AppSession.navigatorThumbnail.length > 0
+                            fillMode: Image.Stretch
+                            // Already downsampled to panel size by the host, so
+                            // smoothing here would only soften it again.
+                            smooth: false
+                            asynchronous: true
+                            cache: false
+                        }
                     }
 
                     Rectangle {

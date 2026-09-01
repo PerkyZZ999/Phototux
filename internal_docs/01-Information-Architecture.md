@@ -10,6 +10,36 @@ The central rule is:
 
 > Users manipulate document objects through semantic actions presented in context. Views reveal state; they do not become state owners.
 
+## Navigator Thumbnail
+
+The Navigator draws the composite, not a flat rectangle. Its whole purpose is to
+say *where in the image* the viewport is, and without the picture it was telling
+the user where they were relative to nothing.
+
+The path is: read the composite back from the GPU, downsample it in
+`phototux_engine::thumbnail` (a box filter, so a thumbnail does not flicker as
+the stride lands on different pixels), encode a PNG through `phototux_io`, and
+hand QML a `data:` URL. That URL is the only route from Rust-held pixels into a
+QML `Image` here — the canvas is a native wgpu item, and a `QQuickImageProvider`
+would mean hand-written C++, which the crate boundaries keep out of everything
+but `phototux_canvas`. Base64 is written out rather than depended on: twenty
+lines, a fixed standard, held to the RFC 4648 vectors.
+
+Two guards, both required. The rebuild happens only when the composite
+generation has changed **and** at least 600 ms have passed: the generation alone
+would rebuild on every dab of a stroke, and the clock alone would rebuild a
+document nobody is editing. It runs from the engine poll tick, not from the
+composite, because a full readback is thirty-odd megabytes at 4K and does not
+belong on the path DR-017 budgets.
+
+Two things worth knowing if this is touched again. The readiness test asks
+`phototux_canvas::has_document()` rather than the host's own `has_document`
+field: that field is synced *after* the composite a new document triggers, so on
+the first pass it still says there is nothing to draw. And the QML side tests
+`AppSession.navigatorThumbnail.length > 0` rather than `source != ""` —
+assigning to a `url` property normalises the value, so comparing the result
+against the empty string says nothing useful.
+
 ## Resizable Dock Panels
 
 The seam between two stacked dock panels is draggable, and the height is

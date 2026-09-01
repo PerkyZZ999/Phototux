@@ -2,6 +2,7 @@
 
 mod chrome_contract;
 mod clipboard;
+mod data_url;
 mod display_icc;
 mod file_worker;
 mod fonts;
@@ -179,6 +180,9 @@ pub struct AppSession {
     status_text: String,
     notices_json: String,
     notices: phototux_engine::NoticeQueue,
+    navigator_thumbnail: String,
+    navigator_thumbnail_at: Option<Instant>,
+    navigator_thumbnail_generation: u64,
     active_tool: String,
     has_document: bool,
     layer_count: i32,
@@ -482,6 +486,9 @@ impl AppSession {
             status_text: engine.status_summary(),
             notices_json: "[]".into(),
             notices: phototux_engine::NoticeQueue::default(),
+            navigator_thumbnail: String::new(),
+            navigator_thumbnail_at: None,
+            navigator_thumbnail_generation: u64::MAX,
             active_tool: engine.active_tool.clone(),
             has_document: engine.has_document,
             layer_count: 0,
@@ -1735,6 +1742,75 @@ impl AppSession {
         self.composite_generation_changed();
     }
 
+    /// How often the Navigator's picture may be rebuilt.
+    ///
+    /// Rebuilding costs a full composite readback — thirty-odd megabytes at 4K
+    /// — so it is deliberately slower than the eye. The Navigator answers
+    /// "where am I in the image", a question whose answer does not change
+    /// meaningfully between two frames of a brush stroke, and DR-017's budget
+    /// protects the path this would otherwise sit on.
+    const NAVIGATOR_THUMBNAIL_INTERVAL_MS: u128 = 600;
+    /// Longest edge of the Navigator's picture, in pixels.
+    ///
+    /// The panel is under three hundred wide; more detail than this is paid for
+    /// in readback and thrown away by the scaler.
+    const NAVIGATOR_THUMBNAIL_EDGE: u32 = 200;
+
+    /// Rebuild the Navigator's picture if enough has changed and enough time
+    /// has passed.
+    ///
+    /// Both conditions, not either: the generation alone would rebuild on every
+    /// dab of a stroke, and the clock alone would rebuild a document nobody is
+    /// editing.
+    fn refresh_navigator_thumbnail(&mut self) {
+        // The canvas is asked, not `self.has_document`: that field is synced
+        // *after* the composite that a new document triggers, so on the first
+        // pass it still says there is nothing to draw.
+        if !phototux_canvas::has_document() {
+            if !self.navigator_thumbnail.is_empty() {
+                self.navigator_thumbnail.clear();
+                self.navigator_thumbnail_generation = u64::MAX;
+                self.navigator_thumbnail_changed();
+            }
+            return;
+        }
+        let generation = u64::from(self.composite_generation.max(0).unsigned_abs());
+        if generation == self.navigator_thumbnail_generation {
+            return;
+        }
+        if let Some(last) = self.navigator_thumbnail_at
+            && last.elapsed().as_millis() < Self::NAVIGATOR_THUMBNAIL_INTERVAL_MS
+        {
+            return;
+        }
+        self.navigator_thumbnail_at = Some(Instant::now());
+        self.navigator_thumbnail_generation = generation;
+        let Some(url) = Self::render_navigator_thumbnail() else {
+            return;
+        };
+        publish!(self, navigator_thumbnail, url, navigator_thumbnail_changed);
+    }
+
+    /// Read the composite back, shrink it, and encode it as a `data:` URL.
+    ///
+    /// `None` on any failure: a Navigator that keeps its previous picture for a
+    /// moment is better than one that blanks because a readback lost a race.
+    fn render_navigator_thumbnail() -> Option<String> {
+        let (width, height, pixels) = phototux_canvas::read_composite_rgba().ok()?;
+        let thumb = phototux_engine::downsample_rgba8(
+            &pixels,
+            width,
+            height,
+            Self::NAVIGATOR_THUMBNAIL_EDGE,
+        )?;
+        let raster =
+            phototux_io::Raster::new(thumb.width, thumb.height, thumb.pixels.into_boxed_slice())
+                .ok()?;
+        let mut png = Vec::new();
+        phototux_io::encode(&mut png, &raster, phototux_io::RasterFormat::Png).ok()?;
+        Some(crate::data_url::png_data_url(&png))
+    }
+
     /// Recompute the header badges a collapsed inspector group would hide.
     ///
     /// Handbook 28 requires the badge to be available while the group's body
@@ -2949,6 +3025,11 @@ impl AppSession {
         Notify = blend_if_channels_json_changed
     );
     qproperty!(
+        "navigatorThumbnail",
+        Member = navigator_thumbnail,
+        Notify = navigator_thumbnail_changed
+    );
+    qproperty!(
         "noticesJson",
         Member = notices_json,
         Notify = notices_json_changed
@@ -3579,6 +3660,8 @@ impl AppSession {
     fn tool_slots_json_changed(&mut self);
     #[qsignal]
     fn notices_json_changed(&mut self);
+    #[qsignal]
+    fn navigator_thumbnail_changed(&mut self);
     #[qsignal]
     fn selection_preview_active_changed(&mut self);
     #[qsignal]
@@ -4698,6 +4781,12 @@ impl AppSession {
         if dirty {
             self.emit_poll_dirty_changes();
         }
+        // Here rather than in `emit_poll_dirty_changes`, which only runs when a
+        // worker event marked something dirty, and rather than in the composite
+        // itself, where a readback would sit on the path DR-017 budgets. This
+        // runs every tick; the interval and generation guards inside do the
+        // throttling.
+        self.refresh_navigator_thumbnail();
     }
 
     fn handle_engine_event(&mut self, ev: EngineEvent) -> bool {

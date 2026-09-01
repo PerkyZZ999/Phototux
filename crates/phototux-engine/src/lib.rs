@@ -41,6 +41,7 @@ mod snapshot_publish;
 mod stroke;
 mod stroke_journal;
 mod text_bake;
+mod thumbnail;
 mod transform;
 mod undo;
 mod workspace;
@@ -138,6 +139,7 @@ pub use stroke_journal::{
     BrushParamsSnapshot, DabSnapshot, JournalStroke, StrokeJournal, StrokeSample,
 };
 pub use text_bake::bake_text_rgba8;
+pub use thumbnail::{Thumbnail, downsample_rgba8};
 pub use transform::{Affine2, CropRect, ResizeRequest, TransformPreview, TransformSession};
 pub use undo::{GraphCommand, UndoStack, actions as undo_actions};
 pub use workspace::{WorkspaceFocus, WorkspaceState};
