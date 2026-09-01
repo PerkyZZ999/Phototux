@@ -20,6 +20,7 @@ mod effective_pref;
 mod error;
 mod filter_plan;
 mod filter_preview;
+mod gradient;
 mod guides;
 mod history;
 mod host_request;
@@ -83,6 +84,7 @@ pub use filter_plan::{FilterPlan, FilterPlanNode};
 pub use filter_preview::{
     FilterPreviewSession, filter_catalog_json, gallery_effect_kinds, kind_is_supported,
 };
+pub use gradient::{GradientKind, GradientRamp};
 pub use guides::{Guide, GuideOrientation, ViewGuides};
 pub use history::{HistoryEntry, HistoryKind, HistoryRow, HistoryService};
 pub use host_request::HostRequest;

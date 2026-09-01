@@ -92,6 +92,20 @@ ColumnLayout {
         }
     }
 
+    /// Display name of the gradient shape the tool will sweep.
+    readonly property string gradientKindLabel: {
+        try {
+            var kinds = JSON.parse(AppSession.gradientKindsJson || "[]")
+            for (var i = 0; i < kinds.length; ++i) {
+                if (kinds[i].id === AppSession.gradientKind)
+                    return kinds[i].label
+            }
+        } catch (e) {
+            // fall through
+        }
+        return qsTr("Linear")
+    }
+
     /// The blend-mode vocabulary, as the engine declares it.
     ///
     /// The combo used to carry its own list of eight, so the other nineteen
@@ -1582,8 +1596,11 @@ ColumnLayout {
                  || AppSession.activeTool === "tool.gradient"
                  || AppSession.activeTool === "tool.eyedropper"
         Label {
+            // Names the shape actually selected. It said "Linear"
+            // unconditionally, which was true only while linear was the only
+            // shape there was.
             text: AppSession.activeTool === "tool.gradient"
-                  ? qsTr("Gradient (Linear)")
+                  ? qsTr("Gradient (%1)").arg(root.gradientKindLabel)
                   : (AppSession.activeTool === "tool.eyedropper"
                      ? qsTr("Eyedropper")
                      : qsTr("Paint Bucket"))

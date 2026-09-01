@@ -18,7 +18,7 @@ pub use brush::{BrushStamper, PixelRect, StampRequest, dab_scissor};
 pub use composite::LayerCompositeEngine;
 pub use composite::benchmark_10x4k_ms;
 pub use effect_pass::LayerPackPlan;
-pub use fill::{fill_rgba, linear_gradient_rgba, mask_has_selection, sample_rgba_at};
+pub use fill::{fill_rgba, gradient_rgba, mask_has_selection, sample_rgba_at};
 pub use filters::{
     FilterPass, adjustment_pass, cpu_brightness_rgba, cpu_emboss_rgba, cpu_exposure_rgba,
     cpu_gaussian_rgba, cpu_invert_rgba, cpu_levels_rgba, cpu_motion_blur_rgba, cpu_noise_rgba,

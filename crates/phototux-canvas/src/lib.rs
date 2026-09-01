@@ -4,7 +4,7 @@ mod document_gpu;
 mod paint_worker;
 
 pub use document_gpu::{
-    LayerMaskR8, apply_linear_gradient, bake_layer_transform, begin_stroke, can_redo_stroke,
+    LayerMaskR8, apply_gradient, bake_layer_transform, begin_stroke, can_redo_stroke,
     can_undo_stroke, close_document, crop_document, end_stroke, ensure_mask, fill_layer,
     flip_layer, last_composite_ms, last_stroke_latency_ms, open_document, open_raster_document,
     read_all_layer_rgba, read_all_mask_r8, read_composite_rgba, read_layer_rgba, read_mask_r8,

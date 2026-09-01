@@ -10,8 +10,8 @@ use phototux_engine::{
 };
 use phototux_gpu::{
     BrushStamper, GpuContext, LayerCompositeEngine, MaskStamper, PixelRect, SelectionMask,
-    StampRequest, bake_affine_rgba, crop_rgba, dab_scissor, fill_rgba, flip_rgba,
-    linear_gradient_rgba, mask_has_selection, rotate_rgba_90_cw, sample_rgba_at,
+    StampRequest, bake_affine_rgba, crop_rgba, dab_scissor, fill_rgba, flip_rgba, gradient_rgba,
+    mask_has_selection, rotate_rgba_90_cw, sample_rgba_at,
 };
 
 /// Union of the regions a dab batch can touch, or `None` when no dab lands on
@@ -651,16 +651,13 @@ pub fn fill_layer(
     })
 }
 
-/// Apply a linear gradient to a layer (document-space endpoints).
+/// Apply a gradient to a layer (document-space endpoints).
 ///
 /// # Errors
 /// Returns an error when readback, writeback, or composite fails.
-pub fn apply_linear_gradient(
+pub fn apply_gradient(
+    ramp: phototux_engine::GradientRamp,
     id: LayerId,
-    p0: [f32; 2],
-    p1: [f32; 2],
-    c0: [f32; 4],
-    c1: [f32; 4],
     layers: &[Layer],
     use_selection: bool,
 ) -> Result<f32, String> {
@@ -680,7 +677,7 @@ pub fn apply_linear_gradient(
         } else {
             None
         };
-        linear_gradient_rgba(&mut pixels, width, height, p0, p1, c0, c1, mask.as_deref());
+        gradient_rgba(ramp, &mut pixels, width, height, mask.as_deref());
         doc.engine
             .write_layer_rgba(&doc.ctx, id, &pixels)
             .map_err(|e| e.to_string())?;

@@ -18,12 +18,12 @@ use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph, DocumentRegistry,
-    DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation, HistoryKind,
-    HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind, LayerTransform, OpenDocumentId,
-    PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect, SelectionShape, SelectionState,
-    SessionState, ShapeBooleanPartner, ShapePreset, TextContent, TransformSession, VectorPath,
-    WorkspaceState, bake_text_rgba8, command_id, parse_selection_modify_arg, stroke_path_rgba8,
-    tool_id,
+    DocumentSize, EngineCommand, EngineEvent, FilterParams, GradientKind, GradientRamp, Guide,
+    GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
+    LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect,
+    SelectionShape, SelectionState, SessionState, ShapeBooleanPartner, ShapePreset, TextContent,
+    TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
+    parse_selection_modify_arg, stroke_path_rgba8, tool_id,
 };
 use prefs::Preferences;
 use selection_path::PathVerdict;
@@ -189,6 +189,10 @@ pub struct AppSession {
     selection_combine: String,
     /// Magic wand / colour range tolerance, 0..=1.
     selection_tolerance: f32,
+    /// Wire name of the gradient shape the tool sweeps.
+    gradient_kind: String,
+    /// The gradient shapes, for the tool options.
+    gradient_kinds_json: String,
     selection_preview_active: bool,
     selection_preview_x: i32,
     selection_preview_y: i32,
@@ -465,6 +469,20 @@ impl AppSession {
             selection_shape: "rect".to_owned(),
             selection_combine: SelectionCombine::Replace.as_str().to_owned(),
             selection_tolerance: 0.15,
+            gradient_kind: GradientKind::default().as_str().to_owned(),
+            gradient_kinds_json: serde_json::to_string(
+                &GradientKind::ALL
+                    .iter()
+                    .map(|k| {
+                        serde_json::json!({
+                            "id": k.as_str(),
+                            "label": k.label(),
+                            "icon": k.icon_key(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|_| "[]".into()),
             selection_preview_active: false,
             selection_preview_x: 0,
             selection_preview_y: 0,
@@ -2813,6 +2831,16 @@ impl AppSession {
         Notify = selection_tolerance_changed
     );
     qproperty!(
+        "gradientKind",
+        Member = gradient_kind,
+        Notify = gradient_kind_changed
+    );
+    qproperty!(
+        "gradientKindsJson",
+        Member = gradient_kinds_json,
+        Notify = gradient_kinds_json_changed
+    );
+    qproperty!(
         "selectionPreviewActive",
         Member = selection_preview_active,
         Notify = selection_preview_active_changed
@@ -3418,6 +3446,10 @@ impl AppSession {
     fn selection_combine_changed(&mut self);
     #[qsignal]
     fn selection_tolerance_changed(&mut self);
+    #[qsignal]
+    fn gradient_kind_changed(&mut self);
+    #[qsignal]
+    fn gradient_kinds_json_changed(&mut self);
     #[qsignal]
     fn selection_preview_active_changed(&mut self);
     #[qsignal]
@@ -6218,6 +6250,21 @@ impl AppSession {
     /// Separate from the slot so the action registry path can reach it with
     /// the op it parsed, rather than rendering the op back to a string for the
     /// slot to parse a second time.
+    /// Choose the gradient shape; an unknown name is ignored rather than
+    /// falling back, since sweeping a shape nobody asked for is an edit the
+    /// user has to notice and undo.
+    #[qslot]
+    fn set_gradient_kind(&mut self, name: String) {
+        let Some(kind) = GradientKind::parse(&name) else {
+            return;
+        };
+        if self.gradient_kind == kind.as_str() {
+            return;
+        }
+        self.gradient_kind = kind.as_str().to_owned();
+        self.gradient_kind_changed();
+    }
+
     #[qslot]
     fn set_selection_tolerance(&mut self, value: f32) {
         let value = value.clamp(0.0, 1.0);
@@ -7228,14 +7275,18 @@ impl AppSession {
         let c0 = self.engine.colors.foreground;
         let c1 = self.engine.colors.background;
         let use_selection = self.engine.selection.active;
+        let kind = GradientKind::parse(&self.gradient_kind).unwrap_or_default();
         if self
             .commit_layer_edit("gradient", |layers| {
-                phototux_canvas::apply_linear_gradient(
+                phototux_canvas::apply_gradient(
+                    GradientRamp {
+                        kind,
+                        start: [x0, y0],
+                        end: [x1, y1],
+                        start_rgba: c0,
+                        end_rgba: c1,
+                    },
                     id,
-                    [x0, y0],
-                    [x1, y1],
-                    c0,
-                    c1,
                     layers,
                     use_selection,
                 )

@@ -1,4 +1,6 @@
-//! One-shot fill and linear gradient into layer RGBA (commit path; ADR-005).
+//! One-shot fill and gradient into layer RGBA (commit path; ADR-005).
+
+use phototux_engine::GradientRamp;
 
 /// Solid fill. When `mask` is present (R8, same pixel count), blend by mask coverage.
 pub fn fill_rgba(pixels: &mut [u8], color: [f32; 4], mask: Option<&[u8]>) {
@@ -35,14 +37,11 @@ pub fn fill_rgba(pixels: &mut [u8], color: [f32; 4], mask: Option<&[u8]>) {
 }
 
 /// Linear gradient from `p0`→`p1` in document pixels, colors `c0`→`c1` (RGBA 0..1).
-pub fn linear_gradient_rgba(
+pub fn gradient_rgba(
+    ramp: GradientRamp,
     pixels: &mut [u8],
     width: u32,
     height: u32,
-    p0: [f32; 2],
-    p1: [f32; 2],
-    c0: [f32; 4],
-    c1: [f32; 4],
     mask: Option<&[u8]>,
 ) {
     let w = width as usize;
@@ -50,11 +49,8 @@ pub fn linear_gradient_rgba(
     if w == 0 || h == 0 || pixels.len() < w * h * 4 {
         return;
     }
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let len2 = dx * dx + dy * dy;
-    if len2 < 1e-6 {
-        fill_rgba(pixels, c0, mask);
+    if !ramp.has_direction() {
+        fill_rgba(pixels, ramp.start_rgba, mask);
         return;
     }
     for y in 0..h {
@@ -66,14 +62,10 @@ pub fn linear_gradient_rgba(
             if m < 1e-4 {
                 continue;
             }
-            let t = ((x as f32 + 0.5 - p0[0]) * dx + (y as f32 + 0.5 - p0[1]) * dy) / len2;
-            let t = t.clamp(0.0, 1.0);
-            let color = [
-                c0[0] + (c1[0] - c0[0]) * t,
-                c0[1] + (c1[1] - c0[1]) * t,
-                c0[2] + (c1[2] - c0[2]) * t,
-                c0[3] + (c1[3] - c0[3]) * t,
-            ];
+            // Which shape the drag sweeps, and what colour that means, are
+            // document policy and live on `GradientRamp`; this walk only
+            // blends the answer into the buffer.
+            let color = ramp.color_at(x as f32 + 0.5, y as f32 + 0.5);
             let rgba = color_to_u8(color);
             let base = idx * 4;
             for c in 0..4 {
@@ -135,6 +127,7 @@ fn color_to_u8(color: [f32; 4]) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use phototux_engine::GradientKind;
 
     #[test]
     fn fill_solid_overwrites() {
@@ -155,14 +148,17 @@ mod tests {
     #[test]
     fn gradient_midpoint_mixes() {
         let mut px = vec![0_u8; 3 * 4];
-        linear_gradient_rgba(
+        gradient_rgba(
+            GradientRamp {
+                kind: GradientKind::Linear,
+                start: [0.0, 0.0],
+                end: [2.0, 0.0],
+                start_rgba: [0.0, 0.0, 0.0, 1.0],
+                end_rgba: [1.0, 0.0, 0.0, 1.0],
+            },
             &mut px,
             3,
             1,
-            [0.0, 0.0],
-            [2.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0, 1.0],
             None,
         );
         assert!(px[4] > 50 && px[4] < 200);

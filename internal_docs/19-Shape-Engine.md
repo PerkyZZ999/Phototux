@@ -12,6 +12,22 @@ Rendering is GPU-first through wgpu, not GPU-only. A CPU geometry/raster path pr
 
 [DR-027](Appendix/Decision-Register.md#dr-027--graph-kind-set-includes-shape): `LayerKind::Shape` with rect / ellipse / line primitives, fill/stroke, create + rasterize commands, CPU/GPU raster contribution. Boolean ops, full parametric sets, and advanced path editing are **Deferred** incremental work.
 
+## Gradient shapes
+
+Five shapes, declared by `phototux_engine::GradientKind`:
+
+| Kind | What the drag means |
+| --- | --- |
+| Linear | Along the drag, perpendicular bands |
+| Radial | Outward from the start, circular bands |
+| Angle | A sweep of angle around the start; the drag sets where zero points rather than how far the ramp reaches |
+| Reflected | Along the drag and mirrored back, so the start is the centre of the band |
+| Diamond | Outward from the start in a rotated square (Chebyshev distance in the drag's frame) |
+
+What varies between them is only *where a point sits on the ramp* — `parameter_at`, which decides what the user's drag means and is therefore document policy. Interpolating the colour and walking the buffer stay with the fill code in `phototux_gpu`. `GradientRamp` carries the shape, both endpoints and both colours as one value, because they are five halves of one answer: a caller holding the endpoints but not the shape cannot paint.
+
+Every kind reads `0` at the drag's start, so the first colour always appears where the user pressed, and every kind clamps to `0..=1` however far the point lies from the drag. A click with no drag names no gradient and fills flat rather than dividing by zero. Tests assert all three, plus that no two kinds map the same probe identically — a shape the chrome offers and the maths does not distinguish is a shape that does not exist.
+
 ## Responsibilities
 
 The shape engine **MUST**:

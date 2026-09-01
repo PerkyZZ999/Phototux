@@ -535,6 +535,14 @@ mod tests {
                 tool.icon_key
             );
         }
+        for kind in crate::GradientKind::ALL {
+            assert!(
+                packaged.contains(&kind.icon_key()),
+                "gradient {:?} names icon {:?}, which the qrc does not carry",
+                kind,
+                kind.icon_key()
+            );
+        }
         for action in crate::default_actions() {
             let Some(icon) = action.icon_key.as_deref() else {
                 continue;

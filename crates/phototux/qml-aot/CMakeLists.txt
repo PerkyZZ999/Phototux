@@ -56,6 +56,7 @@ set(ICON_NAMES
     circle-notch
     corners-in
     crop
+    diamond
     dots-three
     eraser
     export

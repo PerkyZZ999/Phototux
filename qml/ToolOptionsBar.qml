@@ -32,6 +32,16 @@ Rectangle {
     // contiguous, so they share every option including the combine mode.
     readonly property bool isColorSelect: tool === "tool.select.wand"
                                           || tool === "tool.select.color-range"
+    readonly property bool isGradient: tool === "tool.gradient"
+
+    /// Gradient shapes, as the engine declares them.
+    readonly property var gradientKinds: {
+        try {
+            return JSON.parse(AppSession.gradientKindsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
     readonly property bool isSelectLike: isMarquee || isLasso || isColorSelect
 
     readonly property string toolTitle: {
@@ -158,6 +168,46 @@ Rectangle {
                         to: 1
                         value: AppSession.brushTextureStrength
                         onMoved: AppSession.setBrushTextureStrength(value)
+                    }
+                }
+
+                // ── Gradient ──────────────────────────────────────────────
+                Field {
+                    visible: root.isGradient
+                    label: qsTr("Shape")
+                    Repeater {
+                        model: root.gradientKinds
+                        delegate: ToolButton {
+                            id: gradButton
+                            required property var modelData
+                            implicitWidth: Theme.controlHeight
+                            implicitHeight: Theme.controlHeight
+                            padding: 0
+                            checkable: true
+                            checked: AppSession.gradientKind === gradButton.modelData.id
+                            enabled: AppSession.hasDocument
+                            onClicked: AppSession.setGradientKind(gradButton.modelData.id)
+                            ToolTip.visible: hovered
+                            ToolTip.text: gradButton.modelData.label
+                            Accessible.name: gradButton.modelData.label
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: Theme.iconUrl(AppSession.iconRoot,
+                                                      gradButton.modelData.icon)
+                                size: Theme.iconMd
+                                color: gradButton.enabled ? Theme.iconOnSurfaceEffective
+                                                          : Theme.iconDisabledEffective
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: gradButton.checked
+                                       ? Theme.toolActiveBg
+                                       : (gradButton.hovered ? Theme.surfaceContainerHigh
+                                                             : "transparent")
+                                border.color: gradButton.checked ? Theme.primary : "transparent"
+                                border.width: 1
+                            }
+                        }
                     }
                 }
 
