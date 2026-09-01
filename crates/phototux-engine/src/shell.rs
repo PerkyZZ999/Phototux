@@ -217,6 +217,7 @@ pub fn default_disclosure_groups() -> Vec<DisclosureGroupDescriptor> {
         group("inspector.path", "Path", 2, true),
         group("inspector.transform", "Transform and Crop", 2, true),
         group("inspector.adjustment", "Adjustment", 2, true),
+        group("inspector.styles", "Layer Styles", 3, false),
         group("inspector.effects", "Effects", 3, false),
         group("inspector.color", "Color Management", 3, false),
         group("inspector.diagnostics", "Diagnostics", 4, false),

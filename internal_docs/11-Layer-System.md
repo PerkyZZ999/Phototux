@@ -230,6 +230,10 @@ Eight styles, declared by `phototux_engine::LayerStyle`, which answers for its o
 
 Unlike the filter stack, styles reach the renderer through **named plan slots in a canonical order** — shadows and glows behind, overlays on the coverage, the bevel's relief, the outline last. That order is a property of what each style *is* rather than of how the user stacked them, and one of each kind applies per layer. The kind keys are chosen so `action.layer.{kind}` reproduces the action ids that shipped before these menu entries were generated: a renamed action id silently drops a user's custom shortcut for it.
 
+Each style declares its own **editor slots** (scalars, positional like the adjustment and filter vocabularies) and **colour labels**, and `layer_styles_json` projects the active layer's styles through both. The Properties panel builds one control per declared slot and colour and names no style kind, so a new style gets an editor on arrival — before this the styles could be added from the menu and never edited, rendering at their defaults for good.
+
+`style.set-params` is declared `UndoPolicy::Mergeable` and implemented as such: dragging a style slider is one gesture, so it coalesces into one history entry rather than one per step. The other three editing commands (`style.set-color`, `style.set-enabled`, `style.remove`) are discrete transactions. All four share a body, because they differ only in how they transform the style list before writing it back through the same undo record.
+
 Stroke position (`outside` / `inside` / `centre`) is a `StrokePosition` on the style, defaulting to `outside` so documents written before the field keep the outline they were drawn with. The GPU pass computes a dilation and an erosion of the layer's alpha and takes the band each position names.
 
 ### Shipped blend set

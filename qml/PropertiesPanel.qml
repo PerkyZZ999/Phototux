@@ -83,6 +83,15 @@ ColumnLayout {
         return v === undefined ? 0 : v
     }
 
+    /// The active layer's styles, with the descriptors to edit them.
+    readonly property var layerStyles: {
+        try {
+            return JSON.parse(AppSession.layerStylesJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
     /// The blend-mode vocabulary, as the engine declares it.
     ///
     /// The combo used to carry its own list of eight, so the other nineteen
@@ -1040,6 +1049,157 @@ ColumnLayout {
         }
     }
 
+
+    // Layer styles
+    //
+    // Built from the engine's descriptors: each style declares its own scalar
+    // slots and colours, so the panel names no style kind and a new one gets
+    // an editor on arrival. Before this the styles could be added from the
+    // menu and never edited — they rendered at their defaults for good.
+    DisclosureGroup {
+        groupId: "inspector.styles"
+        title: qsTr("Layer Styles")
+        visible: root.layerStyles.length > 0
+        summary: root.layerStyles.length === 1
+                 ? qsTr("1 style")
+                 : qsTr("%1 styles").arg(root.layerStyles.length)
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spaceSm
+
+            Repeater {
+                model: root.layerStyles
+                delegate: ColumnLayout {
+                    id: styleEditor
+                    required property var modelData
+
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spaceXs
+                        ThemedCheckBox {
+                            checked: styleEditor.modelData.enabled
+                            text: styleEditor.modelData.label
+                            Layout.fillWidth: true
+                            onToggled: AppSession.setLayerStyleEnabled(
+                                           styleEditor.modelData.index, checked)
+                        }
+                        ChromeIconToolButton {
+                            icon.source: root.iconUrl("trash")
+                            Accessible.name: qsTr("Remove %1")
+                                             .arg(styleEditor.modelData.label)
+                            onClicked: AppSession.removeLayerStyle(
+                                           styleEditor.modelData.index)
+                        }
+                    }
+
+                    Repeater {
+                        model: styleEditor.modelData.editor.slots
+                        delegate: RowLayout {
+                            id: styleSlot
+                            required property var modelData
+                            required property int index
+
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            Label {
+                                text: styleSlot.modelData.label
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                Layout.preferredWidth: 64
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: styleSlot.modelData.min
+                                to: styleSlot.modelData.max
+                                value: styleEditor.modelData.slots[styleSlot.index]
+                                enabled: styleEditor.modelData.enabled
+                                Accessible.name: qsTr("%1 for %2")
+                                                 .arg(styleSlot.modelData.label)
+                                                 .arg(styleEditor.modelData.label)
+                                onMoved: AppSession.setLayerStyleSlot(
+                                             styleEditor.modelData.index,
+                                             styleSlot.index, value)
+                            }
+                            Label {
+                                text: styleEditor.modelData.slots[styleSlot.index].toFixed(1)
+                                color: Theme.primary
+                                font.pixelSize: Theme.fontMono
+                                font.family: "Noto Sans Mono"
+                                Layout.preferredWidth: 34
+                                horizontalAlignment: Text.AlignRight
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: styleEditor.modelData.editor.colors
+                        delegate: RowLayout {
+                            id: styleColor
+                            required property var modelData
+                            required property int index
+
+                            readonly property var rgba:
+                                styleEditor.modelData.colors[styleColor.index]
+
+                            Layout.fillWidth: true
+                            spacing: Theme.spaceXs
+                            Label {
+                                text: styleColor.modelData
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                                Layout.preferredWidth: 64
+                            }
+                            Rectangle {
+                                implicitWidth: 22
+                                implicitHeight: 22
+                                radius: Theme.radiusSm
+                                border.color: Theme.border
+                                color: Qt.rgba(styleColor.rgba[0],
+                                               styleColor.rgba[1],
+                                               styleColor.rgba[2], 1)
+                                Accessible.role: Accessible.ColorChooser
+                                Accessible.name: qsTr("%1 colour for %2")
+                                                 .arg(styleColor.modelData)
+                                                 .arg(styleEditor.modelData.label)
+                            }
+                            // Three channels rather than a picker dialog: the
+                            // panel is dense and the shell has no colour dialog
+                            // of its own, so this matches the Foreground swatch
+                            // a few groups down.
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Repeater {
+                                    model: 3
+                                    delegate: Slider {
+                                        required property int index
+                                        Layout.fillWidth: true
+                                        implicitHeight: 16
+                                        from: 0
+                                        to: 1
+                                        value: styleColor.rgba[index]
+                                        enabled: styleEditor.modelData.enabled
+                                        Accessible.name: ["Red", "Green", "Blue"][index]
+                                        onMoved: {
+                                            var c = styleColor.rgba.slice()
+                                            c[index] = value
+                                            AppSession.setLayerStyleColor(
+                                                styleEditor.modelData.index,
+                                                styleColor.index, c[0], c[1], c[2])
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Gaussian blur effect
     DisclosureGroup {

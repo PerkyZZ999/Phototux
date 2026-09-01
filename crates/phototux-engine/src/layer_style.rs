@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::layer::MAX_ADJUSTMENT_SLOTS;
+
 /// One style effect on a layer.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -268,6 +270,296 @@ impl LayerStyle {
             .find(|s| s.kind_key() == kind)
             .copied()
     }
+
+    /// Turn this style on or off, leaving its parameters alone.
+    pub fn set_enabled(&mut self, on: bool) {
+        match self {
+            Self::DropShadow { enabled, .. }
+            | Self::Stroke { enabled, .. }
+            | Self::OuterGlow { enabled, .. }
+            | Self::ColorOverlay { enabled, .. }
+            | Self::InnerShadow { enabled, .. }
+            | Self::InnerGlow { enabled, .. }
+            | Self::GradientOverlay { enabled, .. }
+            | Self::Bevel { enabled, .. } => *enabled = on,
+        }
+    }
+
+    /// Scalar editor slots, as `(label, min, max)`; position is the slot index.
+    ///
+    /// Same contract as the adjustment and filter vocabularies: the chrome
+    /// builds one control per entry rather than naming the styles it knows.
+    #[must_use]
+    pub fn editor_slots(&self) -> &'static [(&'static str, f32, f32)] {
+        match self {
+            Self::DropShadow { .. } | Self::InnerShadow { .. } => &[
+                ("Offset X", -64.0, 64.0),
+                ("Offset Y", -64.0, 64.0),
+                ("Blur", 0.0, 64.0),
+                ("Opacity", 0.0, 1.0),
+            ],
+            Self::OuterGlow { .. } | Self::InnerGlow { .. } => {
+                &[("Radius", 0.0, 64.0), ("Opacity", 0.0, 1.0)]
+            }
+            Self::Bevel { .. } => &[
+                ("Size", 1.0, 32.0),
+                ("Depth", 0.0, 4.0),
+                ("Angle", 0.0, 360.0),
+                ("Opacity", 0.0, 1.0),
+            ],
+            Self::ColorOverlay { .. } => &[("Opacity", 0.0, 1.0)],
+            Self::GradientOverlay { .. } => &[("Opacity", 0.0, 1.0), ("Angle", 0.0, 360.0)],
+            Self::Stroke { .. } => &[
+                ("Width", 0.0, 32.0),
+                ("Opacity", 0.0, 1.0),
+                ("Position", 0.0, 2.0),
+            ],
+        }
+    }
+
+    /// Parameters projected onto the scalar slots.
+    #[must_use]
+    pub fn slots(&self) -> [f32; MAX_ADJUSTMENT_SLOTS] {
+        let mut out = [0.0; MAX_ADJUSTMENT_SLOTS];
+        let values: &[f32] = &match *self {
+            Self::DropShadow {
+                offset_x,
+                offset_y,
+                blur,
+                opacity,
+                ..
+            }
+            | Self::InnerShadow {
+                offset_x,
+                offset_y,
+                blur,
+                opacity,
+                ..
+            } => vec![offset_x, offset_y, blur, opacity],
+            Self::OuterGlow {
+                radius, opacity, ..
+            }
+            | Self::InnerGlow {
+                radius, opacity, ..
+            } => vec![radius, opacity],
+            Self::Bevel {
+                size,
+                depth,
+                angle_deg,
+                opacity,
+                ..
+            } => vec![size, depth, angle_deg, opacity],
+            Self::ColorOverlay { opacity, .. } => vec![opacity],
+            Self::GradientOverlay {
+                opacity, angle_deg, ..
+            } => vec![opacity, angle_deg],
+            Self::Stroke {
+                width,
+                opacity,
+                position,
+                ..
+            } => {
+                #[expect(clippy::cast_precision_loss, reason = "three position codes")]
+                let code = position.as_u32() as f32;
+                vec![width, opacity, code]
+            }
+        };
+        out[..values.len()].copy_from_slice(values);
+        out
+    }
+
+    /// Rebuild this style from scalar slot values, keeping its colours.
+    #[must_use]
+    pub fn with_slots(&self, p: [f32; MAX_ADJUSTMENT_SLOTS]) -> Self {
+        match *self {
+            Self::DropShadow {
+                enabled,
+                color_rgba,
+                ..
+            } => Self::DropShadow {
+                enabled,
+                offset_x: p[0],
+                offset_y: p[1],
+                blur: p[2],
+                opacity: p[3],
+                color_rgba,
+            },
+            Self::InnerShadow {
+                enabled,
+                color_rgba,
+                ..
+            } => Self::InnerShadow {
+                enabled,
+                offset_x: p[0],
+                offset_y: p[1],
+                blur: p[2],
+                opacity: p[3],
+                color_rgba,
+            },
+            Self::OuterGlow {
+                enabled,
+                color_rgba,
+                ..
+            } => Self::OuterGlow {
+                enabled,
+                radius: p[0],
+                opacity: p[1],
+                color_rgba,
+            },
+            Self::InnerGlow {
+                enabled,
+                color_rgba,
+                ..
+            } => Self::InnerGlow {
+                enabled,
+                radius: p[0],
+                opacity: p[1],
+                color_rgba,
+            },
+            Self::Bevel { enabled, .. } => Self::Bevel {
+                enabled,
+                size: p[0],
+                depth: p[1],
+                angle_deg: p[2],
+                opacity: p[3],
+            },
+            Self::ColorOverlay {
+                enabled,
+                color_rgba,
+                ..
+            } => Self::ColorOverlay {
+                enabled,
+                opacity: p[0],
+                color_rgba,
+            },
+            Self::GradientOverlay {
+                enabled,
+                start_rgba,
+                end_rgba,
+                ..
+            } => Self::GradientOverlay {
+                enabled,
+                opacity: p[0],
+                angle_deg: p[1],
+                start_rgba,
+                end_rgba,
+            },
+            Self::Stroke {
+                enabled,
+                color_rgba,
+                ..
+            } => Self::Stroke {
+                enabled,
+                width: p[0],
+                opacity: p[1],
+                color_rgba,
+                // A slider carries a float; anything between codes rounds to
+                // the nearest position rather than silently reverting.
+                position: match p[2].round() {
+                    v if v <= 0.0 => StrokePosition::Outside,
+                    v if v <= 1.0 => StrokePosition::Inside,
+                    _ => StrokePosition::Center,
+                },
+            },
+        }
+    }
+
+    /// Labels of the colours this style carries; position is the colour index.
+    #[must_use]
+    pub fn color_labels(&self) -> &'static [&'static str] {
+        match self {
+            Self::Bevel { .. } => &[],
+            Self::GradientOverlay { .. } => &["Start", "End"],
+            _ => &["Color"],
+        }
+    }
+
+    /// The colours this style carries, index-aligned with [`Self::color_labels`].
+    #[must_use]
+    pub fn colors(&self) -> Vec<[f32; 4]> {
+        match *self {
+            Self::DropShadow { color_rgba, .. }
+            | Self::InnerShadow { color_rgba, .. }
+            | Self::OuterGlow { color_rgba, .. }
+            | Self::InnerGlow { color_rgba, .. }
+            | Self::ColorOverlay { color_rgba, .. }
+            | Self::Stroke { color_rgba, .. } => vec![color_rgba],
+            Self::GradientOverlay {
+                start_rgba,
+                end_rgba,
+                ..
+            } => vec![start_rgba, end_rgba],
+            Self::Bevel { .. } => Vec::new(),
+        }
+    }
+
+    /// Replace one colour, leaving everything else alone.
+    ///
+    /// An index past [`Self::color_labels`] is ignored rather than clamped
+    /// onto colour zero: the caller named a colour this style does not have,
+    /// and repainting a different one is worse than doing nothing.
+    #[must_use]
+    pub fn with_color(&self, index: usize, rgba: [f32; 4]) -> Self {
+        let mut out = *self;
+        if index >= self.color_labels().len() {
+            return out;
+        }
+        match &mut out {
+            Self::DropShadow { color_rgba, .. }
+            | Self::InnerShadow { color_rgba, .. }
+            | Self::OuterGlow { color_rgba, .. }
+            | Self::InnerGlow { color_rgba, .. }
+            | Self::ColorOverlay { color_rgba, .. }
+            | Self::Stroke { color_rgba, .. } => *color_rgba = rgba,
+            Self::GradientOverlay {
+                start_rgba,
+                end_rgba,
+                ..
+            } => {
+                if index == 0 {
+                    *start_rgba = rgba;
+                } else {
+                    *end_rgba = rgba;
+                }
+            }
+            Self::Bevel { .. } => {}
+        }
+        out
+    }
+}
+
+/// `[{index, kind, label, enabled, slots, colors, editor}]` for the chrome.
+///
+/// Everything the Properties panel needs to draw an editor for a layer's
+/// styles without naming a single style kind.
+#[must_use]
+pub fn layer_styles_json(styles: &[LayerStyle]) -> String {
+    let entries: Vec<serde_json::Value> = styles
+        .iter()
+        .enumerate()
+        .map(|(index, style)| {
+            let slot_count = style.editor_slots().len();
+            serde_json::json!({
+                "index": index,
+                "kind": style.kind_key(),
+                "label": style.label(),
+                "enabled": style.enabled(),
+                "slots": &style.slots()[..slot_count],
+                "colors": style.colors(),
+                "editor": {
+                    "slots": style
+                        .editor_slots()
+                        .iter()
+                        .map(|&(label, min, max)| {
+                            serde_json::json!({ "label": label, "min": min, "max": max })
+                        })
+                        .collect::<Vec<_>>(),
+                    "colors": style.color_labels(),
+                },
+            })
+        })
+        .collect();
+    serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into())
 }
 
 /// Apply enabled styles under/over `src` into a new buffer (CPU reference).
@@ -534,6 +826,115 @@ fn mix_u8(dst: u8, src: u8, cover: f32) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    /// The chrome edits a style only through its slots and colours, so a
+    /// parameter the projection drops is a control that silently does nothing.
+    #[test]
+    fn style_slots_and_colors_round_trip() {
+        for style in LayerStyle::ALL_KINDS {
+            let slots = style.slots();
+            assert_eq!(
+                &style.with_slots(slots),
+                style,
+                "{} does not survive its own slot projection",
+                style.kind_key()
+            );
+            assert!(
+                style.editor_slots().len() <= crate::MAX_ADJUSTMENT_SLOTS,
+                "{} declares more slots than the projection carries",
+                style.kind_key()
+            );
+            for (index, (label, min, max)) in style.editor_slots().iter().enumerate() {
+                assert!(!label.is_empty());
+                assert!(min < max, "{} slot {index}: {min}..{max}", style.kind_key());
+            }
+
+            let colors = style.colors();
+            assert_eq!(
+                colors.len(),
+                style.color_labels().len(),
+                "{} describes a different number of colours than it carries",
+                style.kind_key()
+            );
+            for index in 0..colors.len() {
+                let painted = style.with_color(index, [0.1, 0.2, 0.3, 1.0]);
+                assert_eq!(
+                    painted.colors()[index],
+                    [0.1, 0.2, 0.3, 1.0],
+                    "{} colour {index} did not take",
+                    style.kind_key()
+                );
+                // Every other colour must be untouched.
+                for other in (0..colors.len()).filter(|o| *o != index) {
+                    assert_eq!(painted.colors()[other], colors[other]);
+                }
+            }
+        }
+    }
+
+    /// A colour index the style does not have must change nothing, rather than
+    /// repainting colour zero — the caller named something that is not there.
+    #[test]
+    fn an_out_of_range_color_index_changes_nothing() {
+        for style in LayerStyle::ALL_KINDS {
+            let past_end = style.color_labels().len();
+            assert_eq!(&style.with_color(past_end, [1.0; 4]), style);
+        }
+    }
+
+    /// Every style must be switchable without disturbing its parameters.
+    #[test]
+    fn enabling_a_style_leaves_its_parameters_alone() {
+        for style in LayerStyle::ALL_KINDS {
+            let mut off = *style;
+            off.set_enabled(false);
+            assert!(!off.enabled(), "{} ignored set_enabled", style.kind_key());
+            assert_eq!(off.slots(), style.slots());
+            assert_eq!(off.colors(), style.colors());
+            off.set_enabled(true);
+            assert_eq!(&off, style);
+        }
+    }
+
+    /// The chrome sends a float for a discrete position; it must land on a
+    /// real one rather than silently reverting to the default.
+    #[test]
+    fn a_fractional_stroke_position_rounds_to_a_real_one() {
+        let stroke = LayerStyle::default_for_kind("stroke-style").expect("stroke");
+        for (value, expected) in [
+            (0.0, StrokePosition::Outside),
+            (0.4, StrokePosition::Outside),
+            (0.6, StrokePosition::Inside),
+            (1.4, StrokePosition::Inside),
+            (1.6, StrokePosition::Center),
+            (2.0, StrokePosition::Center),
+        ] {
+            let mut slots = stroke.slots();
+            slots[2] = value;
+            let LayerStyle::Stroke { position, .. } = stroke.with_slots(slots) else {
+                panic!("with_slots changed the kind");
+            };
+            assert_eq!(position, expected, "at {value}");
+        }
+    }
+
+    /// The panel reads this JSON instead of naming style kinds, so a style
+    /// missing from it has no editor.
+    #[test]
+    fn styles_json_describes_every_style_it_is_given() {
+        let json = layer_styles_json(LayerStyle::ALL_KINDS);
+        for style in LayerStyle::ALL_KINDS {
+            assert!(
+                json.contains(style.kind_key()),
+                "{} missing from the chrome JSON",
+                style.kind_key()
+            );
+            for (label, _, _) in style.editor_slots() {
+                assert!(json.contains(label), "{label} missing from chrome JSON");
+            }
+        }
+        assert_eq!(layer_styles_json(&[]), "[]");
+    }
+
     /// A style kind that cannot be looked up by its key is a style nothing can
     /// create, and a duplicate key silently shadows another style.
     #[test]

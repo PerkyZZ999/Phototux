@@ -93,7 +93,7 @@ pub use layer::{
     blend_modes_json,
 };
 pub use layer_row::{LayerRow, layer_rows};
-pub use layer_style::{LayerStyle, StrokePosition, apply_styles_rgba8};
+pub use layer_style::{LayerStyle, StrokePosition, apply_styles_rgba8, layer_styles_json};
 pub use paths::{
     PathDocument, PathPoint, VectorPath, ellipse_path, fill_gradient_even_odd, polygon_path,
     rasterize_shape_rgba8, rect_path, stroke_path_rgba8,

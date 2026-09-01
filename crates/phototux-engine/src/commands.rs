@@ -105,6 +105,10 @@ impl SessionState {
             command_id::PATH_ADD_ANCHOR => self.cmd_path_add_anchor(args),
             command_id::PATH_DELETE_ANCHOR => self.cmd_path_delete_anchor(args),
             command_id::STYLE_ADD => self.cmd_style_add(args),
+            command_id::STYLE_SET_PARAMS
+            | command_id::STYLE_SET_COLOR
+            | command_id::STYLE_SET_ENABLED
+            | command_id::STYLE_REMOVE => self.cmd_style_edit(args),
             command_id::CLIPBOARD_PASTE_LAYER => self.cmd_clipboard_paste_layer(args),
             command_id::PATH_STROKE_TO_LAYER => self.cmd_path_stroke_to_layer(args),
             command_id::RASTER_TRANSFORM_COMMIT => self.cmd_raster_transform_commit(),
@@ -2176,6 +2180,87 @@ impl SessionState {
             crate::GraphCommand::SetStyles { id, prev, next },
             style.label(),
         )
+    }
+
+    /// Edit or remove one style on the active layer.
+    ///
+    /// The four editing commands share a body because they differ only in how
+    /// they transform the style list: read it, change one entry (or drop it),
+    /// write it back through the same undo record. Splitting them would mean
+    /// four copies of the lookup and the history push.
+    fn cmd_style_edit(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let id = self.active_layer_id()?;
+        let prev = self
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(id))
+            .map(|l| l.styles.clone())
+            .ok_or(CommandError::Rejected("layer missing"))?;
+
+        let index = match &args {
+            CommandArgs::LayerStyleParams { index, .. }
+            | CommandArgs::LayerStyleColor { index, .. }
+            | CommandArgs::LayerStyleEnabled { index, .. }
+            | CommandArgs::LayerStyleIndex { index } => *index,
+            _ => return Err(CommandError::InvalidArgument("expected layer style args")),
+        };
+        if index >= prev.len() {
+            return Err(CommandError::Rejected("no style at that index"));
+        }
+
+        let mut next = prev.clone();
+        // A slider drag coalesces; the discrete edits do not.
+        let mut mergeable = false;
+        let label = match args {
+            CommandArgs::LayerStyleParams { slots, .. } => {
+                next[index] = next[index].with_slots(slots);
+                mergeable = true;
+                "Style parameters"
+            }
+            CommandArgs::LayerStyleColor {
+                color_index, rgba, ..
+            } => {
+                next[index] = next[index].with_color(color_index, rgba);
+                "Style color"
+            }
+            CommandArgs::LayerStyleEnabled { enabled, .. } => {
+                next[index].set_enabled(enabled);
+                if enabled {
+                    "Enable style"
+                } else {
+                    "Disable style"
+                }
+            }
+            CommandArgs::LayerStyleIndex { .. } => {
+                next.remove(index);
+                "Remove style"
+            }
+            _ => return Err(CommandError::InvalidArgument("expected layer style args")),
+        };
+        if next == prev {
+            return Err(CommandError::Rejected("style unchanged"));
+        }
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(layer) = graph.get_mut(id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        layer.styles = next.clone();
+        let command = crate::GraphCommand::SetStyles { id, prev, next };
+        if mergeable {
+            // Declared `UndoPolicy::Mergeable`: dragging a style slider is one
+            // gesture, not one history entry per step.
+            let Some(graph) = self.graph.as_mut() else {
+                return Err(CommandError::Document(DocumentError::NoDocument));
+            };
+            graph.bump_generation();
+            let generation = graph.generation;
+            self.history
+                .push_graph_mergeable(command, label, generation);
+            return Ok(CommandEffects::document_edit(generation));
+        }
+        self.record_graph_edit(command, label)
     }
 
     fn cmd_style_add(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {

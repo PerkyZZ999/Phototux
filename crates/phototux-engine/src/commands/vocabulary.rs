@@ -102,6 +102,14 @@ pub mod command_id {
     /// and a taxonomy row before it could exist at all, which is why the set
     /// stood at four.
     pub const STYLE_ADD: &str = "style.add";
+    /// Edit one layer style's scalar parameters.
+    pub const STYLE_SET_PARAMS: &str = "style.set-params";
+    /// Replace one colour on one layer style.
+    pub const STYLE_SET_COLOR: &str = "style.set-color";
+    /// Enable or disable one layer style.
+    pub const STYLE_SET_ENABLED: &str = "style.set-enabled";
+    /// Remove one layer style.
+    pub const STYLE_REMOVE: &str = "style.remove";
 
     pub const CLIPBOARD_PASTE_LAYER: &str = "clipboard.paste-layer";
     pub const PATH_STROKE_TO_LAYER: &str = "path.stroke-to-layer";
@@ -189,6 +197,10 @@ pub mod command_id {
         PATH_ADD_ANCHOR,
         PATH_DELETE_ANCHOR,
         STYLE_ADD,
+        STYLE_SET_PARAMS,
+        STYLE_SET_COLOR,
+        STYLE_SET_ENABLED,
+        STYLE_REMOVE,
         CLIPBOARD_PASTE_LAYER,
         PATH_STROKE_TO_LAYER,
         RASTER_TRANSFORM_COMMIT,
@@ -346,6 +358,26 @@ pub enum CommandArgs {
     /// Layer-style kind key; see [`crate::LayerStyle::kind_key`].
     LayerStyleKind {
         kind: String,
+    },
+    /// Scalar parameters for the style at `index` on the active layer.
+    LayerStyleParams {
+        index: usize,
+        slots: [f32; crate::MAX_ADJUSTMENT_SLOTS],
+    },
+    /// One colour of the style at `index` on the active layer.
+    LayerStyleColor {
+        index: usize,
+        color_index: usize,
+        rgba: [f32; 4],
+    },
+    /// Enable flag for the style at `index` on the active layer.
+    LayerStyleEnabled {
+        index: usize,
+        enabled: bool,
+    },
+    /// The style at `index` on the active layer.
+    LayerStyleIndex {
+        index: usize,
     },
     FilterEffect {
         kind: String,

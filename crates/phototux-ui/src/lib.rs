@@ -231,6 +231,8 @@ pub struct AppSession {
     adjustment_labels_json: String,
     /// Filter kinds, labels and editor slots for the gallery chrome.
     filter_catalog_json: String,
+    /// The active layer's styles and their editor descriptors.
+    layer_styles_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
@@ -376,6 +378,15 @@ impl Default for AppSession {
 }
 
 impl AppSession {
+    /// The active layer's style at `index`, if there is one.
+    fn active_layer_style(&self, index: usize) -> Option<phototux_engine::LayerStyle> {
+        self.engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .and_then(|layer| layer.styles.get(index).copied())
+    }
+
     /// Store the active adjustment's slot values and publish them.
     ///
     /// The vector feeds the inspector badge rules and the JSON feeds QML; they
@@ -484,6 +495,7 @@ impl AppSession {
             adjustment_ranges_json: phototux_engine::adjustment_editor_ranges_json(),
             adjustment_labels_json: phototux_engine::adjustment_labels_json(),
             filter_catalog_json: phototux_engine::filter_catalog_json(),
+            layer_styles_json: "[]".into(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
             pref_history_retention: 128,
@@ -967,6 +979,13 @@ impl AppSession {
                 params.editor_slots().len(),
             )
         });
+        let styles_json = phototux_engine::layer_styles_json(&layer.styles);
+        publish!(
+            self,
+            layer_styles_json,
+            styles_json,
+            layer_styles_json_changed
+        );
         match adjustment {
             Some((kind, slots, used)) => {
                 self.adjustment_kind = kind.to_owned();
@@ -2951,6 +2970,11 @@ impl AppSession {
         Notify = filter_catalog_json_changed
     );
     qproperty!(
+        "layerStylesJson",
+        Member = layer_styles_json,
+        Notify = layer_styles_json_changed
+    );
+    qproperty!(
         "prefEffectiveJson",
         Member = pref_effective_json,
         Notify = pref_effective_json_changed
@@ -3450,6 +3474,8 @@ impl AppSession {
     fn adjustment_labels_json_changed(&mut self);
     #[qsignal]
     fn filter_catalog_json_changed(&mut self);
+    #[qsignal]
+    fn layer_styles_json_changed(&mut self);
     #[qsignal]
     fn pref_effective_json_changed(&mut self);
     #[qsignal]
@@ -6302,6 +6328,64 @@ impl AppSession {
         let _ = self.invoke_command(
             command_id::FILTER_SET_PARAMETERS,
             CommandArgs::FilterParameters { slots },
+        );
+    }
+
+    /// Write one scalar slot of one layer style, leaving the rest alone.
+    #[qslot]
+    fn set_layer_style_slot(&mut self, index: i32, slot: i32, value: f32) {
+        let (Ok(index), Ok(slot)) = (usize::try_from(index), usize::try_from(slot)) else {
+            return;
+        };
+        let Some(style) = self.active_layer_style(index) else {
+            return;
+        };
+        if slot >= style.editor_slots().len() {
+            return;
+        }
+        let mut slots = style.slots();
+        slots[slot] = value;
+        let _ = self.invoke_command(
+            command_id::STYLE_SET_PARAMS,
+            CommandArgs::LayerStyleParams { index, slots },
+        );
+    }
+
+    /// Replace one colour of one layer style.
+    #[qslot]
+    fn set_layer_style_color(&mut self, index: i32, color: i32, r: f32, g: f32, b: f32) {
+        let (Ok(index), Ok(color_index)) = (usize::try_from(index), usize::try_from(color)) else {
+            return;
+        };
+        let _ = self.invoke_command(
+            command_id::STYLE_SET_COLOR,
+            CommandArgs::LayerStyleColor {
+                index,
+                color_index,
+                rgba: [r, g, b, 1.0],
+            },
+        );
+    }
+
+    #[qslot]
+    fn set_layer_style_enabled(&mut self, index: i32, enabled: bool) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        let _ = self.invoke_command(
+            command_id::STYLE_SET_ENABLED,
+            CommandArgs::LayerStyleEnabled { index, enabled },
+        );
+    }
+
+    #[qslot]
+    fn remove_layer_style(&mut self, index: i32) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        let _ = self.invoke_command(
+            command_id::STYLE_REMOVE,
+            CommandArgs::LayerStyleIndex { index },
         );
     }
 
