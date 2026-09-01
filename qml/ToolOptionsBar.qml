@@ -149,6 +149,7 @@ Rectangle {
                         from: 1
                         to: 500
                         value: AppSession.brushSize
+                        Accessible.name: qsTr("Brush size, %1 pixels").arg(Math.round(AppSession.brushSize))
                         onMoved: AppSession.setBrushSize(value)
                     }
                     ValueText {
@@ -164,6 +165,7 @@ Rectangle {
                         from: 0
                         to: 1
                         value: AppSession.brushHardness
+                        Accessible.name: qsTr("Brush hardness, %1 percent").arg(Math.round(AppSession.brushHardness * 100))
                         onMoved: AppSession.setBrushHardness(value)
                     }
                     ValueText {
@@ -179,6 +181,7 @@ Rectangle {
                         from: 0
                         to: 1
                         value: AppSession.brushTextureStrength
+                        Accessible.name: qsTr("Brush texture, %1 percent").arg(Math.round(AppSession.brushTextureStrength * 100))
                         onMoved: AppSession.setBrushTextureStrength(value)
                     }
                 }

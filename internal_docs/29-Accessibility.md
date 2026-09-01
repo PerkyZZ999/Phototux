@@ -10,6 +10,30 @@ Accessibility preserves the architectural spine. Assistive actions invoke the sa
 
 Normative language follows [Requirement Keywords](Appendix/Requirement-Keywords.md); canonical terms follow the [Glossary](Appendix/Glossary.md).
 
+## Naming Controls That Have No Text
+
+Qt derives a control's accessible name from its visible text, so a `Button` or
+a `ThemedCheckBox` is named already. Two kinds of control are not:
+
+- **Sliders.** A slider has no text of its own; its label sits in a separate
+  `Label` beside it and nothing connects the two. Without `Accessible.name` it
+  reaches assistive technology as an anonymous "slider", and a panel of eight of
+  them is unusable. Fourteen of the shell's twenty-one sliders were in that
+  state.
+- **Icon-only buttons.** Same problem, no text to fall back on.
+
+Names include the current value where the value is the point — "Brush size, 12
+pixels", "Foreground red, 40 percent" — because a screen-reader user adjusting a
+slider needs the reading, not just the name.
+
+`qml/` has no test runner, so these are checked from Rust:
+`crates/phototux-ui/src/chrome_contract.rs` reads the shell as text and fails
+when a `Slider` or `ChromeIconToolButton` block carries no name. It is the same
+approach the engine uses for icon packaging and menu structure, and for the same
+reason — the alternative is a list someone has to remember to update. Both
+checks were verified by removing a name and watching them fail, not by trusting
+a green run.
+
 ## Responsibilities
 
 PhotoTux accessibility **MUST**:

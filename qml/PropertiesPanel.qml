@@ -345,6 +345,7 @@ ColumnLayout {
                     }
                 }
                 Slider {
+                    Accessible.name: qsTr("Brush size, %1 pixels").arg(Math.round(brushSlider.value))
                     id: brushSlider
                     Layout.fillWidth: true
                     from: 1
@@ -382,6 +383,7 @@ ColumnLayout {
                     }
                 }
                 Slider {
+                    Accessible.name: qsTr("Brush hardness, %1 percent").arg(Math.round(hardnessSlider.value * 100))
                     id: hardnessSlider
                     Layout.fillWidth: true
                     from: 0
@@ -884,6 +886,7 @@ ColumnLayout {
                     font.pixelSize: Theme.fontBodySm
                 }
                 Slider {
+                    Accessible.name: qsTr("Rotate, %1 degrees").arg(Math.round(AppSession.transformRot))
                     Layout.fillWidth: true
                     from: -180
                     to: 180
@@ -1344,6 +1347,7 @@ ColumnLayout {
                 }
             }
             Slider {
+                Accessible.name: qsTr("Gaussian blur radius, %1 pixels").arg(AppSession.gaussianRadius.toFixed(1))
                 visible: AppSession.hasGaussianBlur
                 Layout.fillWidth: true
                 from: 0
@@ -1548,6 +1552,7 @@ ColumnLayout {
             from: 0
             to: 1
             value: AppSession.maskDensity
+            Accessible.name: qsTr("Mask density, %1 percent").arg(Math.round(AppSession.maskDensity * 100))
             onMoved: AppSession.setMaskAttributesOnActive(
                          value, AppSession.maskFeather,
                          AppSession.maskInverted, AppSession.maskLinked,
@@ -1568,6 +1573,7 @@ ColumnLayout {
             from: 0
             to: 64
             value: AppSession.maskFeather
+            Accessible.name: qsTr("Mask feather, %1 pixels").arg(AppSession.maskFeather.toFixed(1))
             onMoved: AppSession.setMaskAttributesOnActive(
                          AppSession.maskDensity, value,
                          AppSession.maskInverted, AppSession.maskLinked,
@@ -1583,6 +1589,7 @@ ColumnLayout {
             from: -1
             to: 1
             value: AppSession.maskContrast
+            Accessible.name: qsTr("Mask contrast, %1").arg(AppSession.maskContrast.toFixed(2))
             onMoved: AppSession.setMaskAttributesOnActive(
                          AppSession.maskDensity, AppSession.maskFeather,
                          AppSession.maskInverted, AppSession.maskLinked,
@@ -1598,6 +1605,7 @@ ColumnLayout {
             from: -1
             to: 1
             value: AppSession.maskShift
+            Accessible.name: qsTr("Mask shift, %1").arg(AppSession.maskShift.toFixed(2))
             onMoved: AppSession.setMaskAttributesOnActive(
                          AppSession.maskDensity, AppSession.maskFeather,
                          AppSession.maskInverted, AppSession.maskLinked,
@@ -1668,6 +1676,8 @@ ColumnLayout {
                 spacing: 2
                 Slider {
                     id: colorR
+                    Accessible.name: qsTr("Foreground red, %1 percent")
+                                     .arg(Math.round(colorR.value * 100))
                     Layout.fillWidth: true
                     from: 0; to: 1
                     value: AppSession.brushR
@@ -1676,6 +1686,8 @@ ColumnLayout {
                 }
                 Slider {
                     id: colorG
+                    Accessible.name: qsTr("Foreground green, %1 percent")
+                                     .arg(Math.round(colorG.value * 100))
                     Layout.fillWidth: true
                     from: 0; to: 1
                     value: AppSession.brushG
@@ -1684,6 +1696,8 @@ ColumnLayout {
                 }
                 Slider {
                     id: colorB
+                    Accessible.name: qsTr("Foreground blue, %1 percent")
+                                     .arg(Math.round(colorB.value * 100))
                     Layout.fillWidth: true
                     from: 0; to: 1
                     value: AppSession.brushB
