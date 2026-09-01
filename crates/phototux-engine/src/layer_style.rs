@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// One style effect on a layer.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LayerStyle {
     DropShadow {
@@ -22,6 +22,9 @@ pub enum LayerStyle {
         width: f32,
         opacity: f32,
         color_rgba: [f32; 4],
+        /// Where the outline sits relative to the layer's own alpha.
+        #[serde(default)]
+        position: StrokePosition,
     },
     OuterGlow {
         enabled: bool,
@@ -34,6 +37,81 @@ pub enum LayerStyle {
         opacity: f32,
         color_rgba: [f32; 4],
     },
+    /// Shadow cast inward from the layer's edges.
+    InnerShadow {
+        enabled: bool,
+        offset_x: f32,
+        offset_y: f32,
+        blur: f32,
+        opacity: f32,
+        color_rgba: [f32; 4],
+    },
+    /// Glow radiating inward from the layer's edges.
+    InnerGlow {
+        enabled: bool,
+        radius: f32,
+        opacity: f32,
+        color_rgba: [f32; 4],
+    },
+    /// Linear gradient clipped to the layer's coverage.
+    GradientOverlay {
+        enabled: bool,
+        opacity: f32,
+        angle_deg: f32,
+        start_rgba: [f32; 4],
+        end_rgba: [f32; 4],
+    },
+    /// Lit edge relief from the layer's own alpha slope.
+    Bevel {
+        enabled: bool,
+        size: f32,
+        depth: f32,
+        angle_deg: f32,
+        opacity: f32,
+    },
+}
+
+/// Where a stroke sits relative to the layer's alpha.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StrokePosition {
+    /// Entirely outside the coverage — the shipped behaviour, and the default
+    /// so documents written before the field keep the outline they had.
+    #[default]
+    Outside,
+    /// Entirely inside the coverage.
+    Inside,
+    /// Straddling the edge.
+    Center,
+}
+
+impl StrokePosition {
+    pub const ALL: &'static [Self] = &[Self::Outside, Self::Inside, Self::Center];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Outside => "outside",
+            Self::Inside => "inside",
+            Self::Center => "center",
+        }
+    }
+
+    /// Parse a chrome label; `None` names no position.
+    #[must_use]
+    pub fn parse(label: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|p| p.as_str() == label)
+    }
+
+    /// Integer code for the GPU stroke pass.
+    #[must_use]
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Outside => 0,
+            Self::Inside => 1,
+            Self::Center => 2,
+        }
+    }
 }
 
 impl LayerStyle {
@@ -54,6 +132,7 @@ impl LayerStyle {
             width: 2.0,
             opacity: 1.0,
             color_rgba: [0.0, 0.0, 0.0, 1.0],
+            position: StrokePosition::Outside,
         }
     }
 
@@ -72,6 +151,122 @@ impl LayerStyle {
             opacity: 0.45,
             color_rgba: [0.2, 0.45, 0.9, 1.0],
         }
+    }
+
+    /// Short kind key for the registry, the chrome and `.ptx`.
+    ///
+    /// Chosen so `action.layer.{kind}` reproduces the action ids that shipped
+    /// before these entries were generated — a renamed action id would drop a
+    /// user's custom shortcut without saying so.
+    #[must_use]
+    pub fn kind_key(&self) -> &'static str {
+        match self {
+            Self::DropShadow { .. } => "drop-shadow",
+            Self::Stroke { .. } => "stroke-style",
+            Self::OuterGlow { .. } => "outer-glow",
+            Self::ColorOverlay { .. } => "color-overlay",
+            Self::InnerShadow { .. } => "inner-shadow",
+            Self::InnerGlow { .. } => "inner-glow",
+            Self::GradientOverlay { .. } => "gradient-overlay",
+            Self::Bevel { .. } => "bevel",
+        }
+    }
+
+    /// Display name for menus and the effect list.
+    #[must_use]
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::DropShadow { .. } => "Drop Shadow",
+            Self::Stroke { .. } => "Stroke",
+            Self::OuterGlow { .. } => "Outer Glow",
+            Self::ColorOverlay { .. } => "Color Overlay",
+            Self::InnerShadow { .. } => "Inner Shadow",
+            Self::InnerGlow { .. } => "Inner Glow",
+            Self::GradientOverlay { .. } => "Gradient Overlay",
+            Self::Bevel { .. } => "Bevel",
+        }
+    }
+
+    /// Whether this style contributes to the render.
+    #[must_use]
+    pub fn enabled(&self) -> bool {
+        match *self {
+            Self::DropShadow { enabled, .. }
+            | Self::Stroke { enabled, .. }
+            | Self::OuterGlow { enabled, .. }
+            | Self::ColorOverlay { enabled, .. }
+            | Self::InnerShadow { enabled, .. }
+            | Self::InnerGlow { enabled, .. }
+            | Self::GradientOverlay { enabled, .. }
+            | Self::Bevel { enabled, .. } => enabled,
+        }
+    }
+
+    /// One default instance of every style, in the order they render.
+    pub const ALL_KINDS: &'static [Self] = &[
+        Self::DropShadow {
+            enabled: true,
+            offset_x: 4.0,
+            offset_y: 4.0,
+            blur: 4.0,
+            opacity: 0.55,
+            color_rgba: [0.0, 0.0, 0.0, 1.0],
+        },
+        Self::OuterGlow {
+            enabled: true,
+            radius: 6.0,
+            opacity: 0.65,
+            color_rgba: [1.0, 0.85, 0.2, 1.0],
+        },
+        Self::InnerShadow {
+            enabled: true,
+            offset_x: 3.0,
+            offset_y: 3.0,
+            blur: 4.0,
+            opacity: 0.5,
+            color_rgba: [0.0, 0.0, 0.0, 1.0],
+        },
+        Self::InnerGlow {
+            enabled: true,
+            radius: 5.0,
+            opacity: 0.5,
+            color_rgba: [1.0, 0.95, 0.7, 1.0],
+        },
+        Self::Bevel {
+            enabled: true,
+            size: 4.0,
+            depth: 1.0,
+            angle_deg: 135.0,
+            opacity: 0.7,
+        },
+        Self::ColorOverlay {
+            enabled: true,
+            opacity: 0.45,
+            color_rgba: [0.2, 0.45, 0.9, 1.0],
+        },
+        Self::GradientOverlay {
+            enabled: true,
+            opacity: 0.8,
+            angle_deg: 90.0,
+            start_rgba: [0.95, 0.35, 0.2, 1.0],
+            end_rgba: [0.2, 0.35, 0.95, 1.0],
+        },
+        Self::Stroke {
+            enabled: true,
+            width: 2.0,
+            opacity: 1.0,
+            color_rgba: [0.0, 0.0, 0.0, 1.0],
+            position: StrokePosition::Outside,
+        },
+    ];
+
+    /// The default style for a kind key; `None` for an unknown key.
+    #[must_use]
+    pub fn default_for_kind(kind: &str) -> Option<Self> {
+        Self::ALL_KINDS
+            .iter()
+            .find(|s| s.kind_key() == kind)
+            .copied()
     }
 }
 
@@ -152,6 +347,7 @@ pub fn apply_styles_rgba8(
             width: sw,
             opacity,
             color_rgba,
+            ..
         } = style
         {
             stroke_outline(&mut base, src, width, height, *sw, color_rgba, *opacity);
@@ -338,6 +534,37 @@ fn mix_u8(dst: u8, src: u8, cover: f32) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    /// A style kind that cannot be looked up by its key is a style nothing can
+    /// create, and a duplicate key silently shadows another style.
+    #[test]
+    fn every_style_kind_round_trips_by_key() {
+        let mut seen: Vec<&str> = Vec::new();
+        for style in LayerStyle::ALL_KINDS {
+            let key = style.kind_key();
+            assert!(!seen.contains(&key), "{key} is used twice");
+            seen.push(key);
+            assert_eq!(LayerStyle::default_for_kind(key).as_ref(), Some(style));
+            assert!(!style.label().is_empty());
+            assert!(style.enabled(), "{key} defaults to disabled");
+        }
+        assert_eq!(LayerStyle::default_for_kind("nonsense"), None);
+    }
+
+    /// The GPU pass switches on these codes.
+    #[test]
+    fn stroke_positions_round_trip_and_have_distinct_codes() {
+        let mut codes = Vec::new();
+        for &p in StrokePosition::ALL {
+            assert_eq!(StrokePosition::parse(p.as_str()), Some(p));
+            assert!(!codes.contains(&p.as_u32()), "{p:?} reuses a code");
+            codes.push(p.as_u32());
+        }
+        assert_eq!(StrokePosition::parse("nonsense"), None);
+        // Documents written before the field have no position; they must keep
+        // the outline they were drawn with.
+        assert_eq!(StrokePosition::default(), StrokePosition::Outside);
+    }
+
     use super::*;
 
     #[test]

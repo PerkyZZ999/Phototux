@@ -6,7 +6,7 @@ mod tests {
     use crate::command_meta;
     use crate::command_meta::{CommandScope, MutationClass};
     use crate::layer_style::LayerStyle;
-    use crate::{CommandArgs, SessionState, SizePreset};
+    use crate::{CommandArgs, CommandError, SessionState, SizePreset};
 
     /// Styles of the layer the commands actually target.
     fn active_styles(session: &SessionState) -> Vec<LayerStyle> {
@@ -177,30 +177,52 @@ mod tests {
 
     /// Layer styles declare `UndoPolicy::Transaction` in `command_meta`. They
     /// bumped the generation and recorded nothing, so Ctrl+Z left the style in
-    /// place. This drives each of the four through the real router and asserts
-    /// undo puts the graph back exactly as it was.
+    /// place. This drives every style kind through the real router and asserts
+    /// undo puts the graph back exactly as it was — iterating the vocabulary
+    /// rather than four command ids, so a new style is covered on arrival.
     #[test]
-    fn every_style_command_round_trips_through_undo() {
-        for id in [
-            command_id::STYLE_ADD_DROP_SHADOW,
-            command_id::STYLE_ADD_STROKE,
-            command_id::STYLE_ADD_OUTER_GLOW,
-            command_id::STYLE_ADD_COLOR_OVERLAY,
-        ] {
+    fn every_style_kind_round_trips_through_undo() {
+        for style in crate::LayerStyle::ALL_KINDS {
+            let kind = style.kind_key();
             let mut session = SessionState::default();
             session.apply_preset(SizePreset::P720);
             let before = active_styles(&session);
 
-            session.invoke(id, CommandArgs::None).expect(id);
+            session
+                .invoke(
+                    command_id::STYLE_ADD,
+                    CommandArgs::LayerStyleKind {
+                        kind: kind.to_owned(),
+                    },
+                )
+                .expect(kind);
             let after = active_styles(&session);
-            assert_eq!(after.len(), before.len() + 1, "{id} did not add a style");
+            assert_eq!(after.len(), before.len() + 1, "{kind} did not add a style");
+            assert_eq!(after.last().map(LayerStyle::kind_key), Some(kind));
 
             session
                 .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
                 .expect("undo");
             let undone = active_styles(&session);
-            assert_eq!(undone, before, "{id} was not undoable");
+            assert_eq!(undone, before, "{kind} was not undoable");
         }
+    }
+
+    /// A style kind the vocabulary does not name must be refused, not silently
+    /// turned into a drop shadow.
+    #[test]
+    fn an_unknown_style_kind_is_refused() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let err = session
+            .invoke(
+                command_id::STYLE_ADD,
+                CommandArgs::LayerStyleKind {
+                    kind: "nonsense".into(),
+                },
+            )
+            .expect_err("unknown style kind");
+        assert!(matches!(err, CommandError::InvalidArgument(_)), "{err}");
     }
 
     /// `mask.create-vector` recorded a `Transform` entry, which `undo_next`
@@ -240,19 +262,27 @@ mod tests {
     /// rather than one command at a time.
     #[test]
     fn document_edits_leave_an_undo_entry() {
-        for id in [
-            command_id::STYLE_ADD_DROP_SHADOW,
-            command_id::STYLE_ADD_STROKE,
-            command_id::STYLE_ADD_OUTER_GLOW,
-            command_id::STYLE_ADD_COLOR_OVERLAY,
-            command_id::MASK_CREATE_VECTOR,
-        ] {
+        // Every layer style, plus a representative of the styles' neighbours.
+        let mut cases: Vec<(&str, CommandArgs)> = crate::LayerStyle::ALL_KINDS
+            .iter()
+            .map(|style| {
+                (
+                    command_id::STYLE_ADD,
+                    CommandArgs::LayerStyleKind {
+                        kind: style.kind_key().to_owned(),
+                    },
+                )
+            })
+            .collect();
+        cases.push((command_id::MASK_CREATE_VECTOR, CommandArgs::None));
+
+        for (id, args) in cases {
             let mut session = SessionState::default();
             session.apply_preset(SizePreset::P720);
             let generation_before = session.document_generation();
             let undo_before = session.history.entries_undo().len();
 
-            session.invoke(id, CommandArgs::None).expect(id);
+            session.invoke(id, args).expect(id);
 
             assert!(
                 session.document_generation() > generation_before,

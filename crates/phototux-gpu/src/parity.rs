@@ -497,6 +497,107 @@ mod gpu_tests {
         );
     }
 
+    /// Every layer style must change the picture on the device.
+    ///
+    /// Styles reach the renderer through named plan slots rather than the
+    /// filter stack's ordered list, so a style with no slot — or a slot no
+    /// executor reads — renders as nothing while round-tripping perfectly.
+    #[test]
+    fn every_layer_style_changes_the_picture_on_device() {
+        use phototux_engine::LayerStyle;
+        let ctx = match GpuContext::new() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                eprintln!("skipping: {e}");
+                return;
+            }
+        };
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        // A shape with real edges, not a full-bleed fill: every style but the
+        // overlays works on the boundary between covered and uncovered.
+        let mut pixels = solid_rgba(W, H, [0, 0, 0, 0]);
+        for y in 4..12 {
+            for x in 4..12 {
+                let o = ((y * W + x) * 4) as usize;
+                pixels[o..o + 4].copy_from_slice(&[200, 120, 60, 255]);
+            }
+        }
+
+        let render = |styles: &[LayerStyle]| -> Vec<u8> {
+            let mut graph = DocumentGraph::new_flattened(size, "base");
+            let id = graph.layers()[0].id;
+            if let Some(layer) = graph.get_mut(id) {
+                layer.styles = styles.to_vec();
+            }
+            let mut eng = LayerCompositeEngine::new(&ctx, size);
+            eng.sync_layers_from_graph(&ctx, graph.layers())
+                .expect("sync");
+            eng.write_layer_rgba(&ctx, id, &pixels).expect("write");
+            eng.composite(&ctx, graph.layers()).expect("composite");
+            eng.read_result_rgba(&ctx).expect("read")
+        };
+
+        let plain = render(&[]);
+        for &style in LayerStyle::ALL_KINDS {
+            assert_ne!(
+                plain,
+                render(&[style]),
+                "{} left the picture untouched",
+                style.kind_key()
+            );
+        }
+    }
+
+    /// The three stroke positions must draw three different outlines.
+    #[test]
+    fn stroke_positions_draw_differently_on_device() {
+        use phototux_engine::{LayerStyle, StrokePosition};
+        let ctx = match GpuContext::new() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                eprintln!("skipping: {e}");
+                return;
+            }
+        };
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let mut pixels = solid_rgba(W, H, [0, 0, 0, 0]);
+        for y in 4..12 {
+            for x in 4..12 {
+                let o = ((y * W + x) * 4) as usize;
+                pixels[o..o + 4].copy_from_slice(&[200, 120, 60, 255]);
+            }
+        }
+
+        let mut seen: Vec<(StrokePosition, Vec<u8>)> = Vec::new();
+        for &position in StrokePosition::ALL {
+            let mut graph = DocumentGraph::new_flattened(size, "base");
+            let id = graph.layers()[0].id;
+            if let Some(layer) = graph.get_mut(id) {
+                layer.styles = vec![LayerStyle::Stroke {
+                    enabled: true,
+                    width: 3.0,
+                    opacity: 1.0,
+                    color_rgba: [0.0, 1.0, 0.0, 1.0],
+                    position,
+                }];
+            }
+            let mut eng = LayerCompositeEngine::new(&ctx, size);
+            eng.sync_layers_from_graph(&ctx, graph.layers())
+                .expect("sync");
+            eng.write_layer_rgba(&ctx, id, &pixels).expect("write");
+            eng.composite(&ctx, graph.layers()).expect("composite");
+            let out = eng.read_result_rgba(&ctx).expect("read");
+            if let Some((other, _)) = seen.iter().find(|(_, p)| *p == out) {
+                panic!("{position:?} and {other:?} draw the same outline");
+            }
+            seen.push((position, out));
+        }
+    }
+
     /// Composite one masked layer and hand back (expected, actual) alpha.
     ///
     /// `LayerMask::coverage` is the single definition of mask semantics; the

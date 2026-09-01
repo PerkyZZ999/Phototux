@@ -213,6 +213,25 @@ Opacity is a finite normalized scalar with defined clamping at command validatio
 
 Blend mode descriptors define source/destination input spaces, premultiplication expectations, channel function, alpha equation, range behavior, NaN handling, precision floor, and fallback. IDs are stable semantic identifiers, not UI labels or shader function names. Unknown modes preserve the layer but render a disclosed fallback or unavailable state; they are never silently replaced in authoritative data.
 
+### Shipped layer styles
+
+Eight styles, declared by `phototux_engine::LayerStyle`, which answers for its own kind key, label, enabled flag and defaults.
+
+| Style | Key | Parameters |
+| --- | --- | --- |
+| Drop Shadow | `drop-shadow` | offset x/y, blur, opacity, colour |
+| Outer Glow | `outer-glow` | radius, opacity, colour |
+| Inner Shadow | `inner-shadow` | offset x/y, blur, opacity, colour |
+| Inner Glow | `inner-glow` | radius, opacity, colour |
+| Bevel | `bevel` | size, depth, light angle, opacity |
+| Color Overlay | `color-overlay` | opacity, colour |
+| Gradient Overlay | `gradient-overlay` | opacity, angle, start/end colour |
+| Stroke | `stroke-style` | width, opacity, colour, position |
+
+Unlike the filter stack, styles reach the renderer through **named plan slots in a canonical order** — shadows and glows behind, overlays on the coverage, the bevel's relief, the outline last. That order is a property of what each style *is* rather than of how the user stacked them, and one of each kind applies per layer. The kind keys are chosen so `action.layer.{kind}` reproduces the action ids that shipped before these menu entries were generated: a renamed action id silently drops a user's custom shortcut for it.
+
+Stroke position (`outside` / `inside` / `centre`) is a `StrokePosition` on the style, defaulting to `outside` so documents written before the field keep the outline they were drawn with. The GPU pass computes a dilation and an erosion of the layer's alpha and takes the band each position names.
+
 ### Shipped blend set
 
 Twenty-seven modes, declared once by the `blend_modes!` macro in `phototux_engine::layer` and read from there by the compositor, the CPU reference, the PSD codec and the Properties combo. Each entry fixes four facts together: the wire id, the GPU code, the menu family and the display label.

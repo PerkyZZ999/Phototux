@@ -79,6 +79,11 @@ fn filter_action_id(kind: &str) -> String {
     format!("action.filter.{kind}")
 }
 
+/// Action id for the "add layer style" entry of one style kind.
+fn style_action_id(kind: &str) -> String {
+    format!("action.layer.{kind}")
+}
+
 fn set_contexts(actions: &mut [ActionDescriptor], id: &str, contexts: &[&str]) {
     if let Some(action) = actions.iter_mut().find(|a| a.id == id) {
         action.contexts = contexts.iter().map(|s| (*s).to_owned()).collect();
@@ -662,50 +667,6 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             Some(command_id::SHAPE_BOOLEAN),
             None,
             Some("exclusion"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.drop-shadow",
-            "Drop &Shadow",
-            "layer.style",
-            "has_document",
-            Some(command_id::STYLE_ADD_DROP_SHADOW),
-            None,
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.stroke-style",
-            "Layer Stroke Style",
-            "layer.style",
-            "has_document",
-            Some(command_id::STYLE_ADD_STROKE),
-            None,
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.outer-glow",
-            "Outer &Glow",
-            "layer.style",
-            "has_document",
-            Some(command_id::STYLE_ADD_OUTER_GLOW),
-            None,
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.color-overlay",
-            "Color &Overlay",
-            "layer.style",
-            "has_document",
-            Some(command_id::STYLE_ADD_COLOR_OVERLAY),
-            None,
-            None,
             None,
             None,
         ),
@@ -1321,6 +1282,23 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     // Hue/Saturation, Invert, Threshold and Posterize had no way into the
     // document from the chrome at all — the same four the composite shader
     // was ignoring. Two independent lists, one silence.
+    // One Layer Style submenu entry per style kind. Four hand-written entries
+    // against a four-variant enum was not yet drift, but each also needed its
+    // own command id, router arm and handler — which is why the set stood at
+    // four. The kind keys are chosen so these ids match the ones that shipped.
+    actions.extend(crate::LayerStyle::ALL_KINDS.iter().map(|style| {
+        act(
+            &style_action_id(style.kind_key()),
+            style.label(),
+            "layer.style",
+            "has_document",
+            Some(command_id::STYLE_ADD),
+            None,
+            Some(style.kind_key()),
+            None,
+            None,
+        )
+    }));
     // One Filter-menu entry per filter kind, generated the same way and for
     // the same reason: five hand-written entries against a thirteen-kind
     // vocabulary left Box Blur, Invert and Offset with no way in.
@@ -1573,6 +1551,37 @@ pub fn effective_shortcuts_json(overrides: &BTreeMap<String, String>) -> (String
 
 #[cfg(test)]
 mod tests {
+    /// Every layer style needs a menu entry naming a kind the engine knows.
+    /// The ids are asserted literally because a renamed action id drops a
+    /// user's custom shortcut for it without saying so.
+    #[test]
+    fn every_layer_style_has_a_menu_action() {
+        let actions = default_actions();
+        for style in crate::LayerStyle::ALL_KINDS {
+            let id = style_action_id(style.kind_key());
+            let action = actions
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{} has no action", style.kind_key()));
+            assert_eq!(action.command_id.as_deref(), Some(command_id::STYLE_ADD));
+            assert_eq!(action.arg.as_deref(), Some(style.kind_key()));
+            assert_eq!(action.menu, "layer.style");
+            assert!(crate::LayerStyle::default_for_kind(style.kind_key()).is_some());
+        }
+        // The four ids that shipped before these entries were generated.
+        for id in [
+            "action.layer.drop-shadow",
+            "action.layer.stroke-style",
+            "action.layer.outer-glow",
+            "action.layer.color-overlay",
+        ] {
+            assert!(
+                actions.iter().any(|a| a.id == id),
+                "{id} disappeared; a user shortcut bound to it would be dropped"
+            );
+        }
+    }
+
     /// Every filter kind needs a Filter-menu entry, or nothing the user can
     /// reach creates it. Three kinds shipped that way.
     #[test]

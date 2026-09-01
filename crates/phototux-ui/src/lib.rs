@@ -1771,10 +1771,6 @@ impl AppSession {
             | cid::LAYER_GROUP
             | cid::LAYER_UNGROUP
             | cid::VIEW_ZOOM_TO_FIT
-            | cid::STYLE_ADD_DROP_SHADOW
-            | cid::STYLE_ADD_STROKE
-            | cid::STYLE_ADD_OUTER_GLOW
-            | cid::STYLE_ADD_COLOR_OVERLAY
             | cid::MASK_APPLY
             | cid::DOCUMENT_ROTATE_90
             | cid::APP_SHOW_PREFERENCES
@@ -1785,6 +1781,9 @@ impl AppSession {
             | cid::MASK_CREATE_VECTOR
             | cid::SELECTION_TO_MASK
             | cid::MASK_TO_SELECTION => Ok(CommandArgs::None),
+            cid::STYLE_ADD => Ok(CommandArgs::LayerStyleKind {
+                kind: arg.unwrap_or("drop-shadow").to_owned(),
+            }),
             cid::LAYER_CREATE_FILL => Ok(CommandArgs::FillCreate {
                 color_rgba: [
                     self.engine.colors.foreground[0],
@@ -6207,55 +6206,6 @@ impl AppSession {
             }
             Err(error) => self.report_gpu("modify selection", &error),
         }
-    }
-
-    #[qslot]
-    fn add_drop_shadow_style(&mut self) {
-        if let Err(error) =
-            self.invoke_command(command_id::STYLE_ADD_DROP_SHADOW, CommandArgs::None)
-        {
-            self.status_text = error.to_string();
-            self.status_text_changed();
-            return;
-        }
-        self.status_text = "Drop Shadow style added".to_owned();
-        self.status_text_changed();
-    }
-
-    #[qslot]
-    fn add_stroke_style(&mut self) {
-        if let Err(error) = self.invoke_command(command_id::STYLE_ADD_STROKE, CommandArgs::None) {
-            self.status_text = error.to_string();
-            self.status_text_changed();
-            return;
-        }
-        self.status_text = "Stroke style added".to_owned();
-        self.status_text_changed();
-    }
-
-    #[qslot]
-    fn add_outer_glow_style(&mut self) {
-        if let Err(error) = self.invoke_command(command_id::STYLE_ADD_OUTER_GLOW, CommandArgs::None)
-        {
-            self.status_text = error.to_string();
-            self.status_text_changed();
-            return;
-        }
-        self.status_text = "Outer Glow style added".to_owned();
-        self.status_text_changed();
-    }
-
-    #[qslot]
-    fn add_color_overlay_style(&mut self) {
-        if let Err(error) =
-            self.invoke_command(command_id::STYLE_ADD_COLOR_OVERLAY, CommandArgs::None)
-        {
-            self.status_text = error.to_string();
-            self.status_text_changed();
-            return;
-        }
-        self.status_text = "Color Overlay style added".to_owned();
-        self.status_text_changed();
     }
 
     #[qslot]

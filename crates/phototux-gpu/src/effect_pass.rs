@@ -9,13 +9,15 @@ use crate::blur::SeparableBlur;
 /// Fragment stage only; the shared vertex stage is prepended at build time.
 const EFFECT_WGSL_FS: &str = r#"
 struct EffectUniforms {
-    mode: u32,
+    color: vec4<f32>,
+    color2: vec4<f32>,
+    offset: vec2<f32>,
     p0: f32,
     p1: f32,
     p2: f32,
-    color: vec4<f32>,
-    offset: vec2<f32>,
-    _pad: vec2<f32>,
+    p3: f32,
+    mode: u32,
+    _pad: f32,
 };
 
 @group(0) @binding(0) var samp: sampler;
@@ -91,21 +93,40 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let a = textureSample(src_tex, samp, uv).a * clamp(u.p0, 0.0, 1.0);
         return vec4<f32>(u.color.rgb, a * u.color.a);
     }
-    // 4 = stroke dilate of alpha, tinted
+    // 4 = stroke: a ring around the layer's alpha, positioned by p2
+    // (0 outside, 1 inside, 2 centre)
     if (u.mode == 4u) {
-        let radius = i32(clamp(ceil(u.p0), 1.0, 16.0));
-        var best = 0.0;
+        // Centre splits the width across the edge, so each side is half.
+        var width = clamp(u.p0, 1.0, 16.0);
+        if (u.p2 > 1.5) {
+            width = max(width * 0.5, 1.0);
+        }
+        let radius = i32(ceil(width));
+        var dilated = 0.0;
+        var eroded = 1.0;
         for (var oy: i32 = -radius; oy <= radius; oy = oy + 1) {
             for (var ox: i32 = -radius; ox <= radius; ox = ox + 1) {
                 if (ox * ox + oy * oy > radius * radius) {
                     continue;
                 }
                 let uv = in.uv + vec2<f32>(f32(ox), f32(oy)) / dims;
-                best = max(best, textureSample(src_tex, samp, uv).a);
+                var a = 0.0;
+                if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
+                    a = textureSample(src_tex, samp, uv).a;
+                }
+                dilated = max(dilated, a);
+                eroded = min(eroded, a);
             }
         }
-        // Keep only the ring (dilated minus original).
-        let ring = clamp(best - src.a, 0.0, 1.0) * clamp(u.p1, 0.0, 1.0);
+        var ring = 0.0;
+        if (u.p2 < 0.5) {
+            ring = dilated - src.a;          // outside: grown minus original
+        } else if (u.p2 < 1.5) {
+            ring = src.a - eroded;           // inside: original minus shrunk
+        } else {
+            ring = dilated - eroded;         // centre: the band across the edge
+        }
+        ring = clamp(ring, 0.0, 1.0) * clamp(u.p1, 0.0, 1.0);
         return vec4<f32>(u.color.rgb, ring * u.color.a);
     }
     // 5 = under over src (under_tex below, src on top)
@@ -191,6 +212,48 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let detail = dot(src.rgb, lum) - dot(blurred.rgb, lum);
         return vec4<f32>(clamp(src.rgb + vec3<f32>(detail * amount * 2.0), vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
     }
+    // 17 = inner mask: the layer's *un*covered area, offset, ready to blur.
+    // Outside the layer counts as uncovered, so the shadow hugs the edge.
+    if (u.mode == 17u) {
+        let uv = in.uv - u.offset / dims;
+        var a = 1.0;
+        if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
+            a = 1.0 - textureSample(src_tex, samp, uv).a;
+        }
+        return vec4<f32>(u.color.rgb, a);
+    }
+    // 18 = inner composite: the blurred mask from under_tex, clipped to the
+    // layer's own coverage and drawn on top of it
+    if (u.mode == 18u) {
+        let mask = textureSample(under_tex, samp, in.uv);
+        let a = mask.a * clamp(u.p0, 0.0, 1.0) * src.a * u.color.a;
+        return over(src, vec4<f32>(u.color.rgb, a));
+    }
+    // 19 = gradient overlay, clipped to coverage
+    if (u.mode == 19u) {
+        let angle = u.p1 * 0.017453292519943295;
+        let dir = vec2<f32>(cos(angle), sin(angle));
+        // Projected onto the direction and remapped so the full diagonal of
+        // the layer spans 0..1 whatever the angle.
+        let t = clamp(dot(in.uv - vec2<f32>(0.5), dir) + 0.5, 0.0, 1.0);
+        let g = mix(u.color.rgb, u.color2.rgb, t);
+        let cover = clamp(u.p0, 0.0, 1.0) * src.a;
+        return vec4<f32>(mix(src.rgb, g, cover), src.a);
+    }
+    // 20 = bevel: light the slope of the layer's own alpha
+    if (u.mode == 20u) {
+        let step = (1.0 / dims) * max(clamp(u.p0, 1.0, 32.0), 1.0);
+        let l = textureSample(src_tex, samp, in.uv - vec2<f32>(step.x, 0.0)).a;
+        let r = textureSample(src_tex, samp, in.uv + vec2<f32>(step.x, 0.0)).a;
+        let t = textureSample(src_tex, samp, in.uv - vec2<f32>(0.0, step.y)).a;
+        let b = textureSample(src_tex, samp, in.uv + vec2<f32>(0.0, step.y)).a;
+        let slope = vec2<f32>(r - l, b - t);
+        let angle = u.p2 * 0.017453292519943295;
+        let light = vec2<f32>(cos(angle), sin(angle));
+        // Negated so a slope facing the light reads as a highlight.
+        let lit = -dot(slope, light) * clamp(u.p1, 0.0, 4.0) * clamp(u.p3, 0.0, 1.0);
+        return vec4<f32>(clamp(src.rgb + vec3<f32>(lit), vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
     // 16 = denoise: blend toward the blur, but only where the two agree, so
     // edges keep their contrast while flat areas smooth out
     if (u.mode == 16u) {
@@ -204,16 +267,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Vectors lead so every `vec4` lands on its 16-byte alignment without the
+/// shader needing explicit padding between them.
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 struct EffectUniformsGpu {
-    mode: u32,
+    color: [f32; 4],
+    color2: [f32; 4],
+    offset: [f32; 2],
     p0: f32,
     p1: f32,
     p2: f32,
-    color: [f32; 4],
-    offset: [f32; 2],
-    _pad: [f32; 2],
+    p3: f32,
+    mode: u32,
+    _pad: f32,
 }
 
 /// Scratch-chain effect applicator used while packing layer array slices.
@@ -221,7 +288,6 @@ pub struct EffectPass {
     pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    uniform_buf: wgpu::Buffer,
     scratch_a: wgpu::Texture,
     scratch_b: wgpu::Texture,
     scratch_c: wgpu::Texture,
@@ -324,17 +390,10 @@ impl EffectPass {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
-        let uniform_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("effect-ubo"),
-            size: std::mem::size_of::<EffectUniformsGpu>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         Self {
             pipeline,
             bind_layout,
             sampler,
-            uniform_buf,
             scratch_a: make_render_target(
                 ctx,
                 width,
@@ -369,8 +428,24 @@ impl EffectPass {
         dst: &wgpu::Texture,
         uniforms: EffectUniformsGpu,
     ) {
-        ctx.queue
-            .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniforms));
+        // One buffer per pass, mapped in at creation — the same fix
+        // `SeparableBlur` needed and for the same reason. A shared buffer
+        // written through `Queue::write_buffer` stages its writes until the
+        // encoder is submitted, so every pass recorded into one encoder reads
+        // whichever uniform was written last. Both of the drop shadow's passes
+        // and both of the stroke's therefore ran with the *second* one's
+        // parameters, and two styles on one layer overwrote each other
+        // outright.
+        let uniform_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("effect-ubo"),
+            size: std::mem::size_of::<EffectUniformsGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: true,
+        });
+        if let Ok(mut mapped) = uniform_buf.slice(..).get_mapped_range_mut() {
+            mapped.copy_from_slice(bytemuck::bytes_of(&uniforms));
+        }
+        uniform_buf.unmap();
         let src_view = src.create_view(&wgpu::TextureViewDescriptor::default());
         let under_view = under.create_view(&wgpu::TextureViewDescriptor::default());
         let dst_view = dst.create_view(&wgpu::TextureViewDescriptor::default());
@@ -392,7 +467,7 @@ impl EffectPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: self.uniform_buf.as_entire_binding(),
+                    resource: uniform_buf.as_entire_binding(),
                 },
             ],
         });
@@ -461,7 +536,14 @@ impl EffectPass {
         // when a layer carries both.
         self.apply_drop_shadow(ctx, encoder, blur, plan.drop_shadow, &mut use_a);
         self.apply_drop_shadow(ctx, encoder, blur, plan.outer_glow, &mut use_a);
+        // Inner shadow then inner glow, over the content; then the overlays,
+        // then the bevel's relief, then the outline. That order is what each
+        // style *is*, not the order the user added them in.
+        self.apply_inner_shadow(ctx, encoder, blur, plan.inner_shadow, &mut use_a);
+        self.apply_inner_shadow(ctx, encoder, blur, plan.inner_glow, &mut use_a);
         self.apply_color_overlay(ctx, encoder, plan.color_overlay, &mut use_a);
+        self.apply_gradient_overlay(ctx, encoder, plan.gradient_overlay, &mut use_a);
+        self.apply_bevel(ctx, encoder, plan.bevel, &mut use_a);
         self.apply_stroke_style(ctx, encoder, plan.stroke, &mut use_a);
 
         if use_a {
@@ -540,7 +622,7 @@ impl EffectPass {
                     p2: 0.0,
                     color: [0.0; 4],
                     offset: [0.0; 2],
-                    _pad: [0.0; 2],
+                    ..EffectUniformsGpu::default()
                 },
             );
             *use_a = !*use_a;
@@ -597,7 +679,7 @@ impl EffectPass {
                 p2: 0.0,
                 color: [0.0; 4],
                 offset: [0.0; 2],
-                _pad: [0.0; 2],
+                ..EffectUniformsGpu::default()
             },
         );
         *use_a = !*use_a;
@@ -634,7 +716,7 @@ impl EffectPass {
                 p2: 0.0,
                 color: shadow.color_rgba,
                 offset: [shadow.offset_x, shadow.offset_y],
-                _pad: [0.0; 2],
+                ..EffectUniformsGpu::default()
             },
         );
         self.run(
@@ -650,10 +732,144 @@ impl EffectPass {
                 p2: 0.0,
                 color: [0.0; 4],
                 offset: [0.0; 2],
-                _pad: [0.0; 2],
+                ..EffectUniformsGpu::default()
             },
         );
         *use_a = true;
+    }
+
+    /// Inner shadow and inner glow: the same three passes, differing only in
+    /// whether the mask is offset. A glow is a shadow at zero offset here just
+    /// as it is on the outside.
+    fn apply_inner_shadow(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        blur: &mut SeparableBlur,
+        shadow: Option<ShadowPlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(shadow) = shadow else {
+            return;
+        };
+        let content = if *use_a {
+            self.scratch_a.clone()
+        } else {
+            self.scratch_b.clone()
+        };
+        // The mask is the layer's *un*covered area, so blurring it and
+        // clipping to coverage leaves darkness hugging the inside of the edge.
+        self.run(
+            ctx,
+            encoder,
+            &content,
+            &self.black,
+            &self.scratch_c,
+            EffectUniformsGpu {
+                mode: 17,
+                color: shadow.color_rgba,
+                offset: [shadow.offset_x, shadow.offset_y],
+                ..EffectUniformsGpu::default()
+            },
+        );
+        let blurred = blur
+            .blur(ctx, encoder, &self.scratch_c, shadow.blur.max(0.5))
+            .clone();
+        let dst = if *use_a {
+            &self.scratch_b
+        } else {
+            &self.scratch_a
+        };
+        self.run(
+            ctx,
+            encoder,
+            &content,
+            &blurred,
+            dst,
+            EffectUniformsGpu {
+                mode: 18,
+                p0: shadow.opacity,
+                color: shadow.color_rgba,
+                ..EffectUniformsGpu::default()
+            },
+        );
+        *use_a = !*use_a;
+    }
+
+    fn apply_gradient_overlay(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        overlay: Option<GradientOverlayPlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(overlay) = overlay else {
+            return;
+        };
+        let src = if *use_a {
+            self.scratch_a.clone()
+        } else {
+            self.scratch_b.clone()
+        };
+        let dst = if *use_a {
+            &self.scratch_b
+        } else {
+            &self.scratch_a
+        };
+        self.run(
+            ctx,
+            encoder,
+            &src,
+            &self.black,
+            dst,
+            EffectUniformsGpu {
+                mode: 19,
+                p0: overlay.opacity,
+                p1: overlay.angle_deg,
+                color: overlay.start_rgba,
+                color2: overlay.end_rgba,
+                ..EffectUniformsGpu::default()
+            },
+        );
+        *use_a = !*use_a;
+    }
+
+    fn apply_bevel(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        bevel: Option<BevelPlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(bevel) = bevel else {
+            return;
+        };
+        let src = if *use_a {
+            self.scratch_a.clone()
+        } else {
+            self.scratch_b.clone()
+        };
+        let dst = if *use_a {
+            &self.scratch_b
+        } else {
+            &self.scratch_a
+        };
+        self.run(
+            ctx,
+            encoder,
+            &src,
+            &self.black,
+            dst,
+            EffectUniformsGpu {
+                mode: 20,
+                p0: bevel.size,
+                p1: bevel.depth,
+                p2: bevel.angle_deg,
+                p3: bevel.opacity,
+                ..EffectUniformsGpu::default()
+            },
+        );
+        *use_a = !*use_a;
     }
 
     fn apply_color_overlay(
@@ -689,7 +905,7 @@ impl EffectPass {
                 p2: 0.0,
                 color: overlay.color_rgba,
                 offset: [0.0; 2],
-                _pad: [0.0; 2],
+                ..EffectUniformsGpu::default()
             },
         );
         *use_a = !*use_a;
@@ -720,10 +936,13 @@ impl EffectPass {
                 mode: 4,
                 p0: stroke.width,
                 p1: stroke.opacity,
-                p2: 0.0,
+                p2: {
+                    #[expect(clippy::cast_precision_loss, reason = "three position codes")]
+                    let code = stroke.position.as_u32() as f32;
+                    code
+                },
                 color: stroke.color_rgba,
-                offset: [0.0; 2],
-                _pad: [0.0; 2],
+                ..EffectUniformsGpu::default()
             },
         );
         let dst = if *use_a {
@@ -744,7 +963,7 @@ impl EffectPass {
                 p2: 0.0,
                 color: [0.0; 4],
                 offset: [0.0; 2],
-                _pad: [0.0; 2],
+                ..EffectUniformsGpu::default()
             },
         );
         *use_a = !*use_a;
@@ -758,5 +977,6 @@ impl EffectPass {
 /// as too small to bother with are all document policy, not graphics. This
 /// crate turns the resulting descriptor into pipelines.
 pub use phototux_engine::{
-    ColorOverlayPlan, FilterParams, LayerRenderPlan as LayerPackPlan, ShadowPlan, StrokePlan,
+    BevelPlan, ColorOverlayPlan, FilterParams, GradientOverlayPlan,
+    LayerRenderPlan as LayerPackPlan, ShadowPlan, StrokePlan,
 };

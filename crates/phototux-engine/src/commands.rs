@@ -104,10 +104,7 @@ impl SessionState {
             command_id::PATH_MOVE_ANCHOR => self.cmd_path_move_anchor(args),
             command_id::PATH_ADD_ANCHOR => self.cmd_path_add_anchor(args),
             command_id::PATH_DELETE_ANCHOR => self.cmd_path_delete_anchor(args),
-            command_id::STYLE_ADD_DROP_SHADOW => self.cmd_style_add_drop_shadow(),
-            command_id::STYLE_ADD_STROKE => self.cmd_style_add_stroke(),
-            command_id::STYLE_ADD_OUTER_GLOW => self.cmd_style_add_outer_glow(),
-            command_id::STYLE_ADD_COLOR_OVERLAY => self.cmd_style_add_color_overlay(),
+            command_id::STYLE_ADD => self.cmd_style_add(args),
             command_id::CLIPBOARD_PASTE_LAYER => self.cmd_clipboard_paste_layer(args),
             command_id::PATH_STROKE_TO_LAYER => self.cmd_path_stroke_to_layer(args),
             command_id::RASTER_TRANSFORM_COMMIT => self.cmd_raster_transform_commit(),
@@ -2160,12 +2157,7 @@ impl SessionState {
     }
 
     /// Append a layer effect style, recording prev/next so undo can restore it.
-    fn add_layer_style(
-        &mut self,
-        style: LayerStyle,
-        requires_raster: &'static str,
-        label: &'static str,
-    ) -> Result<CommandEffects, CommandError> {
+    fn add_layer_style(&mut self, style: LayerStyle) -> Result<CommandEffects, CommandError> {
         let id = self.active_layer_id()?;
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
@@ -2174,45 +2166,26 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         };
         if layer.kind != LayerKind::Raster {
-            return Err(CommandError::Rejected(requires_raster));
+            return Err(CommandError::Rejected("layer style requires raster"));
         }
         let prev = layer.styles.clone();
         let mut next = prev.clone();
         next.push(style);
         layer.styles = next.clone();
-        self.record_graph_edit(crate::GraphCommand::SetStyles { id, prev, next }, label)
-    }
-
-    fn cmd_style_add_drop_shadow(&mut self) -> Result<CommandEffects, CommandError> {
-        self.add_layer_style(
-            LayerStyle::drop_shadow_default(),
-            "drop shadow requires raster",
-            "Add drop shadow",
+        self.record_graph_edit(
+            crate::GraphCommand::SetStyles { id, prev, next },
+            style.label(),
         )
     }
 
-    fn cmd_style_add_stroke(&mut self) -> Result<CommandEffects, CommandError> {
-        self.add_layer_style(
-            LayerStyle::stroke_default(),
-            "stroke style requires raster",
-            "Add stroke style",
-        )
-    }
-
-    fn cmd_style_add_outer_glow(&mut self) -> Result<CommandEffects, CommandError> {
-        self.add_layer_style(
-            LayerStyle::outer_glow_default(),
-            "outer glow requires raster",
-            "Add outer glow",
-        )
-    }
-
-    fn cmd_style_add_color_overlay(&mut self) -> Result<CommandEffects, CommandError> {
-        self.add_layer_style(
-            LayerStyle::color_overlay_default(),
-            "color overlay requires raster",
-            "Add color overlay",
-        )
+    fn cmd_style_add(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::LayerStyleKind { kind } = args else {
+            return Err(CommandError::InvalidArgument("expected layer style kind"));
+        };
+        let Some(style) = LayerStyle::default_for_kind(&kind) else {
+            return Err(CommandError::InvalidArgument("unknown layer style kind"));
+        };
+        self.add_layer_style(style)
     }
 
     fn cmd_clipboard_paste_layer(

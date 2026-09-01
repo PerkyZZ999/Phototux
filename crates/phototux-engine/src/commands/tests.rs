@@ -521,7 +521,12 @@ fn drop_shadow_rejects_shape_layer() {
     )
     .expect("shape");
     let err = s
-        .invoke(command_id::STYLE_ADD_DROP_SHADOW, CommandArgs::None)
+        .invoke(
+            command_id::STYLE_ADD,
+            CommandArgs::LayerStyleKind {
+                kind: "drop-shadow".into(),
+            },
+        )
         .expect_err("shape drop shadow");
     assert!(
         matches!(err, CommandError::Rejected(msg) if msg.contains("raster")),

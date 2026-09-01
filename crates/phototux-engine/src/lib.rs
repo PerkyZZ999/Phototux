@@ -93,12 +93,14 @@ pub use layer::{
     blend_modes_json,
 };
 pub use layer_row::{LayerRow, layer_rows};
-pub use layer_style::{LayerStyle, apply_styles_rgba8};
+pub use layer_style::{LayerStyle, StrokePosition, apply_styles_rgba8};
 pub use paths::{
     PathDocument, PathPoint, VectorPath, ellipse_path, fill_gradient_even_odd, polygon_path,
     rasterize_shape_rgba8, rect_path, stroke_path_rgba8,
 };
-pub use render_plan::{ColorOverlayPlan, LayerRenderPlan, ShadowPlan, StrokePlan};
+pub use render_plan::{
+    BevelPlan, ColorOverlayPlan, GradientOverlayPlan, LayerRenderPlan, ShadowPlan, StrokePlan,
+};
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionModifyOp, SelectionRect, SelectionShape,
     SelectionState, contract_mask_r8, expand_mask_r8, feather_mask_r8, parse_selection_modify_arg,

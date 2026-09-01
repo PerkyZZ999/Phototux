@@ -95,10 +95,13 @@ pub mod command_id {
     pub const PATH_ADD_ANCHOR: &str = "path.add-anchor";
     pub const PATH_DELETE_ANCHOR: &str = "path.delete-anchor";
 
-    pub const STYLE_ADD_DROP_SHADOW: &str = "style.add-drop-shadow";
-    pub const STYLE_ADD_STROKE: &str = "style.add-stroke";
-    pub const STYLE_ADD_OUTER_GLOW: &str = "style.add-outer-glow";
-    pub const STYLE_ADD_COLOR_OVERLAY: &str = "style.add-color-overlay";
+    /// Add a layer style, named by kind.
+    ///
+    /// Replaces `style.add-drop-shadow` and its three siblings: one command
+    /// per style meant a new style needed a constant, a router arm, a handler
+    /// and a taxonomy row before it could exist at all, which is why the set
+    /// stood at four.
+    pub const STYLE_ADD: &str = "style.add";
 
     pub const CLIPBOARD_PASTE_LAYER: &str = "clipboard.paste-layer";
     pub const PATH_STROKE_TO_LAYER: &str = "path.stroke-to-layer";
@@ -185,10 +188,7 @@ pub mod command_id {
         PATH_MOVE_ANCHOR,
         PATH_ADD_ANCHOR,
         PATH_DELETE_ANCHOR,
-        STYLE_ADD_DROP_SHADOW,
-        STYLE_ADD_STROKE,
-        STYLE_ADD_OUTER_GLOW,
-        STYLE_ADD_COLOR_OVERLAY,
+        STYLE_ADD,
         CLIPBOARD_PASTE_LAYER,
         PATH_STROKE_TO_LAYER,
         RASTER_TRANSFORM_COMMIT,
@@ -342,6 +342,10 @@ pub enum CommandArgs {
     /// [`crate::AdjustmentParams::editor_slots`].
     FilterParameters {
         slots: [f32; crate::MAX_ADJUSTMENT_SLOTS],
+    },
+    /// Layer-style kind key; see [`crate::LayerStyle::kind_key`].
+    LayerStyleKind {
+        kind: String,
     },
     FilterEffect {
         kind: String,

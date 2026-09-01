@@ -12,7 +12,7 @@
 //! colours. Turning a descriptor into a pipeline stays in `phototux_gpu`.
 
 use crate::layer::{FilterParams, Layer};
-use crate::layer_style::LayerStyle;
+use crate::layer_style::{LayerStyle, StrokePosition};
 
 /// A drop shadow or outer glow, resolved to offsets and blur.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -37,6 +37,25 @@ pub struct StrokePlan {
     pub width: f32,
     pub opacity: f32,
     pub color_rgba: [f32; 4],
+    pub position: StrokePosition,
+}
+
+/// A linear gradient laid over the layer's coverage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GradientOverlayPlan {
+    pub opacity: f32,
+    pub angle_deg: f32,
+    pub start_rgba: [f32; 4],
+    pub end_rgba: [f32; 4],
+}
+
+/// Lit edge relief driven by the layer's own alpha slope.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BevelPlan {
+    pub size: f32,
+    pub depth: f32,
+    pub angle_deg: f32,
+    pub opacity: f32,
 }
 
 /// Everything a layer's effects and styles ask the renderer to do.
@@ -52,6 +71,10 @@ pub struct LayerRenderPlan {
     /// the vocabulary.
     pub filters: Vec<FilterParams>,
     pub drop_shadow: Option<ShadowPlan>,
+    pub inner_shadow: Option<ShadowPlan>,
+    pub inner_glow: Option<ShadowPlan>,
+    pub bevel: Option<BevelPlan>,
+    pub gradient_overlay: Option<GradientOverlayPlan>,
     /// Outer glow, kept separate from the drop shadow so a layer carrying both
     /// renders both. A glow is a shadow at zero offset, which is why they share
     /// a shape — but not a slot.
@@ -73,6 +96,10 @@ impl LayerRenderPlan {
         Self {
             filters: Vec::new(),
             drop_shadow: None,
+            inner_shadow: None,
+            inner_glow: None,
+            bevel: None,
+            gradient_overlay: None,
             outer_glow: None,
             color_overlay: None,
             stroke: None,
@@ -89,7 +116,11 @@ impl LayerRenderPlan {
         !self.filters.is_empty()
             || self.drop_shadow.is_some()
             || self.outer_glow.is_some()
+            || self.inner_shadow.is_some()
+            || self.inner_glow.is_some()
+            || self.bevel.is_some()
             || self.color_overlay.is_some()
+            || self.gradient_overlay.is_some()
             || self.stroke.is_some()
     }
 
@@ -113,61 +144,128 @@ impl LayerRenderPlan {
             .map(|effect| effect.params)
             .filter(FilterParams::is_significant)
             .collect();
+        // Styles render in a canonical order, not in list order: shadows and
+        // glows behind, overlays on the coverage, the outline last. That order
+        // is a property of what each style *is*, which is why these are named
+        // slots rather than the ordered list the filter stack uses. One of each
+        // per layer; a second of a kind replaces the first.
         for style in &layer.styles {
-            match style {
+            if !style.enabled() {
+                continue;
+            }
+            match *style {
                 LayerStyle::DropShadow {
-                    enabled: true,
                     offset_x,
                     offset_y,
                     blur,
                     opacity,
                     color_rgba,
+                    ..
                 } => {
                     plan.drop_shadow = Some(ShadowPlan {
-                        offset_x: *offset_x,
-                        offset_y: *offset_y,
-                        blur: *blur,
-                        opacity: *opacity,
-                        color_rgba: *color_rgba,
-                    });
-                }
-                LayerStyle::Stroke {
-                    enabled: true,
-                    width,
-                    opacity,
-                    color_rgba,
-                } => {
-                    plan.stroke = Some(StrokePlan {
-                        width: *width,
-                        opacity: *opacity,
-                        color_rgba: *color_rgba,
+                        offset_x,
+                        offset_y,
+                        blur,
+                        opacity,
+                        color_rgba,
                     });
                 }
                 LayerStyle::OuterGlow {
-                    enabled: true,
                     radius,
                     opacity,
                     color_rgba,
+                    ..
                 } => {
                     plan.outer_glow = Some(ShadowPlan {
                         offset_x: 0.0,
                         offset_y: 0.0,
-                        blur: *radius,
-                        opacity: *opacity,
-                        color_rgba: *color_rgba,
+                        blur: radius,
+                        opacity,
+                        color_rgba,
+                    });
+                }
+                LayerStyle::InnerShadow {
+                    offset_x,
+                    offset_y,
+                    blur,
+                    opacity,
+                    color_rgba,
+                    ..
+                } => {
+                    plan.inner_shadow = Some(ShadowPlan {
+                        offset_x,
+                        offset_y,
+                        blur,
+                        opacity,
+                        color_rgba,
+                    });
+                }
+                LayerStyle::InnerGlow {
+                    radius,
+                    opacity,
+                    color_rgba,
+                    ..
+                } => {
+                    plan.inner_glow = Some(ShadowPlan {
+                        offset_x: 0.0,
+                        offset_y: 0.0,
+                        blur: radius,
+                        opacity,
+                        color_rgba,
+                    });
+                }
+                LayerStyle::Bevel {
+                    size,
+                    depth,
+                    angle_deg,
+                    opacity,
+                    ..
+                } => {
+                    plan.bevel = Some(BevelPlan {
+                        size,
+                        depth,
+                        angle_deg,
+                        opacity,
                     });
                 }
                 LayerStyle::ColorOverlay {
-                    enabled: true,
                     opacity,
                     color_rgba,
+                    ..
                 } => {
                     plan.color_overlay = Some(ColorOverlayPlan {
-                        opacity: *opacity,
-                        color_rgba: *color_rgba,
+                        opacity,
+                        color_rgba,
                     });
                 }
-                _ => {}
+                LayerStyle::GradientOverlay {
+                    opacity,
+                    angle_deg,
+                    start_rgba,
+                    end_rgba,
+                    ..
+                } => {
+                    plan.gradient_overlay = Some(GradientOverlayPlan {
+                        opacity,
+                        angle_deg,
+                        start_rgba,
+                        end_rgba,
+                    });
+                }
+                LayerStyle::Stroke {
+                    width,
+                    opacity,
+                    color_rgba,
+                    position,
+                    ..
+                } => {
+                    plan.stroke = Some(StrokePlan {
+                        width,
+                        opacity,
+                        color_rgba,
+                        position,
+                    });
+                }
             }
         }
         plan
@@ -368,6 +466,7 @@ mod tests {
             .effects
             .push(effect(FilterParams::GaussianBlur { radius: 3.0 }, true));
         layer.styles.push(LayerStyle::Stroke {
+            position: StrokePosition::Outside,
             enabled: true,
             width: 2.0,
             opacity: 1.0,
