@@ -38,6 +38,13 @@ pub struct ToolDescriptor {
     pub title: String,
     pub icon_key: String,
     pub group: String,
+    /// Default accelerator, following the conventional raster-editor letters.
+    ///
+    /// Here rather than on the action registry because the registry's tool
+    /// entries are *generated* from these descriptors: title, icon and key are
+    /// three facts about one tool, and keeping them together is what stops the
+    /// registry becoming a second list of the tool vocabulary.
+    pub shortcut: String,
 }
 
 /// Built-in panel set shipped with the desktop shell.
@@ -96,102 +103,119 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             id: tool_id::MOVE.into(),
             title: "Move".into(),
             icon_key: "arrows-out-cardinal".into(),
+            shortcut: "V".into(),
             group: "move".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_RECT.into(),
             title: "Rectangular Marquee".into(),
             icon_key: "selection".into(),
+            shortcut: "M".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_ELLIPSE.into(),
             title: "Elliptical Marquee".into(),
             icon_key: "circle-dashed".into(),
+            shortcut: "Shift+M".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_LASSO.into(),
             title: "Lasso".into(),
             icon_key: "lasso".into(),
+            shortcut: "L".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::SELECT_POLYGON.into(),
             title: "Polygonal Lasso".into(),
             icon_key: "polygon".into(),
+            shortcut: "Shift+L".into(),
             group: "select".into(),
         },
         ToolDescriptor {
             id: tool_id::CROP.into(),
             title: "Crop".into(),
             icon_key: "crop".into(),
+            shortcut: "C".into(),
             group: "transform".into(),
         },
         ToolDescriptor {
             id: tool_id::TRANSFORM.into(),
             title: "Free Transform".into(),
             icon_key: "arrows-out".into(),
+            shortcut: "Ctrl+T".into(),
             group: "transform".into(),
         },
         ToolDescriptor {
             id: tool_id::EYEDROPPER.into(),
             title: "Eyedropper".into(),
             icon_key: "eyedropper".into(),
+            shortcut: "I".into(),
             group: "sample".into(),
         },
         ToolDescriptor {
             id: tool_id::BRUSH.into(),
             title: "Brush".into(),
             icon_key: "paint-brush".into(),
+            shortcut: "B".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::ERASER.into(),
             title: "Eraser".into(),
             icon_key: "eraser".into(),
+            shortcut: "E".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::GRADIENT.into(),
             title: "Gradient".into(),
             icon_key: "gradient".into(),
+            shortcut: "Shift+G".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::FILL.into(),
             title: "Paint Bucket".into(),
             icon_key: "paint-bucket".into(),
+            shortcut: "G".into(),
             group: "paint".into(),
         },
         ToolDescriptor {
             id: tool_id::TEXT.into(),
             title: "Text".into(),
             icon_key: "text-t".into(),
+            shortcut: "T".into(),
             group: "type".into(),
         },
         ToolDescriptor {
             id: tool_id::PATH_EDIT.into(),
             title: "Path Edit".into(),
             icon_key: "pen-nib".into(),
+            shortcut: "A".into(),
             group: "vector".into(),
         },
         ToolDescriptor {
             id: tool_id::SHAPE.into(),
             title: "Shape".into(),
             icon_key: "shapes".into(),
+            shortcut: "U".into(),
             group: "vector".into(),
         },
         ToolDescriptor {
             id: tool_id::PAN.into(),
             title: "Hand".into(),
             icon_key: "hand".into(),
+            shortcut: "H".into(),
             group: "navigate".into(),
         },
         ToolDescriptor {
             id: tool_id::ZOOM.into(),
             title: "Zoom".into(),
             icon_key: "magnifying-glass".into(),
+            shortcut: "Z".into(),
             group: "navigate".into(),
         },
     ]

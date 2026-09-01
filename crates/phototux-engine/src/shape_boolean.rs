@@ -22,6 +22,25 @@ impl BooleanOp {
         }
     }
 
+    /// Every op, so menus and tests can iterate rather than restate them.
+    pub const ALL: [Self; 4] = [
+        Self::Union,
+        Self::Intersect,
+        Self::Difference,
+        Self::Exclusion,
+    ];
+
+    /// Display name for menus.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Union => "Boolean Union",
+            Self::Intersect => "Boolean Intersect",
+            Self::Difference => "Boolean Difference",
+            Self::Exclusion => "Boolean Exclusion",
+        }
+    }
+
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "union" => Some(Self::Union),

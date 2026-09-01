@@ -72,6 +72,19 @@ impl ShapePreset {
         }
     }
 
+    /// Display name for menus.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rect => "Rectangle",
+            Self::Ellipse => "Ellipse",
+            Self::Line => "Line",
+            Self::Polygon => "Polygon",
+            Self::Gradient => "Gradient Fill",
+            Self::LiveRect => "Live Vector Shape",
+        }
+    }
+
     /// The `kind` key recorded on the layer.
     ///
     /// Not the same as [`Self::as_str`]: a gradient and a live rectangle are

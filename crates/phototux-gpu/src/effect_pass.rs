@@ -796,16 +796,18 @@ impl EffectPass {
         *use_a = !*use_a;
     }
 
-    fn apply_gradient_overlay(
+    /// Run one single-input pass over the working texture and flip the buffer.
+    ///
+    /// Colour overlay, gradient overlay and the bevel differ only in their
+    /// uniforms; writing the ping-pong out once each made three copies of the
+    /// same six lines.
+    fn apply_simple_pass(
         &self,
         ctx: &GpuContext,
         encoder: &mut wgpu::CommandEncoder,
-        overlay: Option<GradientOverlayPlan>,
+        uniforms: EffectUniformsGpu,
         use_a: &mut bool,
     ) {
-        let Some(overlay) = overlay else {
-            return;
-        };
         let src = if *use_a {
             self.scratch_a.clone()
         } else {
@@ -816,12 +818,23 @@ impl EffectPass {
         } else {
             &self.scratch_a
         };
-        self.run(
+        self.run(ctx, encoder, &src, &self.black, dst, uniforms);
+        *use_a = !*use_a;
+    }
+
+    fn apply_gradient_overlay(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        overlay: Option<GradientOverlayPlan>,
+        use_a: &mut bool,
+    ) {
+        let Some(overlay) = overlay else {
+            return;
+        };
+        self.apply_simple_pass(
             ctx,
             encoder,
-            &src,
-            &self.black,
-            dst,
             EffectUniformsGpu {
                 mode: 19,
                 p0: overlay.opacity,
@@ -830,8 +843,8 @@ impl EffectPass {
                 color2: overlay.end_rgba,
                 ..EffectUniformsGpu::default()
             },
+            use_a,
         );
-        *use_a = !*use_a;
     }
 
     fn apply_bevel(
@@ -844,22 +857,9 @@ impl EffectPass {
         let Some(bevel) = bevel else {
             return;
         };
-        let src = if *use_a {
-            self.scratch_a.clone()
-        } else {
-            self.scratch_b.clone()
-        };
-        let dst = if *use_a {
-            &self.scratch_b
-        } else {
-            &self.scratch_a
-        };
-        self.run(
+        self.apply_simple_pass(
             ctx,
             encoder,
-            &src,
-            &self.black,
-            dst,
             EffectUniformsGpu {
                 mode: 20,
                 p0: bevel.size,
@@ -868,8 +868,8 @@ impl EffectPass {
                 p3: bevel.opacity,
                 ..EffectUniformsGpu::default()
             },
+            use_a,
         );
-        *use_a = !*use_a;
     }
 
     fn apply_color_overlay(
@@ -882,33 +882,17 @@ impl EffectPass {
         let Some(overlay) = overlay else {
             return;
         };
-        let src = if *use_a {
-            self.scratch_a.clone()
-        } else {
-            self.scratch_b.clone()
-        };
-        let dst = if *use_a {
-            &self.scratch_b
-        } else {
-            &self.scratch_a
-        };
-        self.run(
+        self.apply_simple_pass(
             ctx,
             encoder,
-            &src,
-            &self.black,
-            dst,
             EffectUniformsGpu {
                 mode: 8,
                 p0: overlay.opacity,
-                p1: 0.0,
-                p2: 0.0,
                 color: overlay.color_rgba,
-                offset: [0.0; 2],
                 ..EffectUniformsGpu::default()
             },
+            use_a,
         );
-        *use_a = !*use_a;
     }
 
     fn apply_stroke_style(

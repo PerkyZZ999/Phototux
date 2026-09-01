@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{command_id, tool_id};
+use crate::command_id;
 
 /// Menu / toolbar / shortcut / context-menu contribution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,32 +32,57 @@ pub struct ActionDescriptor {
     pub contexts: Vec<String>,
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "row constructor for the default action table"
-)]
-fn act(
-    id: &str,
-    label: &str,
-    menu: &str,
-    enablement: &str,
-    command_id: Option<&str>,
-    host_op: Option<&str>,
-    arg: Option<&str>,
-    shortcut: Option<&str>,
-    icon_key: Option<&str>,
-) -> ActionDescriptor {
+/// Start an action descriptor; optional fields are added by the builder.
+///
+/// This used to be a nine-argument function, so every entry carried a run of
+/// `None`s for the fields it did not use — `None, None, Some("gaussian"),
+/// None, None` at the call site says nothing about which field is which, and
+/// the runs made most of this file duplicate text. Naming only what an action
+/// actually has is both readable and unique.
+fn act(id: &str, label: &str, menu: &str, enablement: &str) -> ActionDescriptor {
     ActionDescriptor {
         id: id.into(),
         label: label.into(),
         menu: menu.into(),
-        command_id: command_id.map(str::to_owned),
-        host_op: host_op.map(str::to_owned),
-        arg: arg.map(str::to_owned),
-        shortcut: shortcut.map(str::to_owned),
-        icon_key: icon_key.map(str::to_owned),
+        command_id: None,
+        host_op: None,
+        arg: None,
+        shortcut: None,
+        icon_key: None,
         enablement: enablement.into(),
         contexts: Vec::new(),
+    }
+}
+
+impl ActionDescriptor {
+    /// The document command this action invokes.
+    fn command(mut self, id: &str) -> Self {
+        self.command_id = Some(id.to_owned());
+        self
+    }
+
+    /// A host-only operation, for actions with no document command.
+    fn host(mut self, op: &str) -> Self {
+        self.host_op = Some(op.to_owned());
+        self
+    }
+
+    /// The opaque argument carried to the command or host op.
+    fn arg(mut self, arg: &str) -> Self {
+        self.arg = Some(arg.to_owned());
+        self
+    }
+
+    /// Default accelerator.
+    fn key(mut self, shortcut: &str) -> Self {
+        self.shortcut = Some(shortcut.to_owned());
+        self
+    }
+
+    /// Icon key from `assets/icons/ICON_MAP.md`.
+    fn icon(mut self, icon_key: &str) -> Self {
+        self.icon_key = Some(icon_key.to_owned());
+        self
     }
 }
 
@@ -65,8 +90,8 @@ fn act(
 ///
 /// A `parent.child` menu name is a submenu of `parent`. The Layer menu already
 /// carried thirty entries and overflowed the window on a 1080p display, so the
-/// seven adjustment kinds go one level down rather than off the bottom edge —
-/// which is also where every editor of this kind files them.
+/// adjustment kinds go one level down rather than off the bottom edge — which
+/// is also where every editor of this kind files them.
 pub const ADJUSTMENT_SUBMENU: &str = "layer.adjustment";
 
 /// Action id for the "add adjustment layer" entry of one adjustment kind.
@@ -84,6 +109,16 @@ fn style_action_id(kind: &str) -> String {
     format!("action.layer.{kind}")
 }
 
+/// Action id for activating one tool: `tool.select.rect` → `action.tool.select-rect`.
+///
+/// Only the dots *within* a tool family become dashes, which is the shape the
+/// eighteen hand-written ids already had — a renamed action id drops a user's
+/// custom shortcut for it without saying so.
+fn tool_action_id(tool_id: &str) -> String {
+    let rest = tool_id.strip_prefix("tool.").unwrap_or(tool_id);
+    format!("action.tool.{}", rest.replace('.', "-"))
+}
+
 fn set_contexts(actions: &mut [ActionDescriptor], id: &str, contexts: &[&str]) {
     if let Some(action) = actions.iter_mut().find(|a| a.id == id) {
         action.contexts = contexts.iter().map(|s| (*s).to_owned()).collect();
@@ -94,984 +129,421 @@ fn set_contexts(actions: &mut [ActionDescriptor], id: &str, contexts: &[&str]) {
 pub fn default_actions() -> Vec<ActionDescriptor> {
     let mut actions = vec![
         // File
-        act(
-            "action.file.new",
-            "&New…",
-            "file",
-            "io_idle",
-            None,
-            Some("document.new"),
-            None,
-            Some("Ctrl+N"),
-            Some("file-plus"),
-        ),
-        act(
-            "action.file.open",
-            "&Open…",
-            "file",
-            "io_idle",
-            None,
-            Some("document.open"),
-            None,
-            Some("Ctrl+O"),
-            Some("folder-open"),
-        ),
-        act(
-            "action.file.save",
-            "&Save",
-            "file",
-            "has_document_io_idle",
-            None,
-            Some("document.save"),
-            None,
-            Some("Ctrl+S"),
-            Some("floppy-disk"),
-        ),
+        act("action.file.new", "&New…", "file", "io_idle")
+            .host("document.new")
+            .key("Ctrl+N")
+            .icon("file-plus"),
+        act("action.file.open", "&Open…", "file", "io_idle")
+            .host("document.open")
+            .key("Ctrl+O")
+            .icon("folder-open"),
+        act("action.file.save", "&Save", "file", "has_document_io_idle")
+            .host("document.save")
+            .key("Ctrl+S")
+            .icon("floppy-disk"),
         act(
             "action.file.save-as",
             "Save &As…",
             "file",
             "has_document_io_idle",
-            None,
-            Some("document.save_as"),
-            None,
-            Some("Ctrl+Shift+S"),
-            None,
-        ),
+        )
+        .host("document.save_as")
+        .key("Ctrl+Shift+S"),
         act(
             "action.file.export",
             "&Export…",
             "file",
             "has_document_io_idle",
-            None,
-            Some("document.export"),
-            None,
-            Some("Ctrl+Shift+E"),
-            Some("export"),
-        ),
+        )
+        .host("document.export")
+        .key("Ctrl+Shift+E")
+        .icon("export"),
         act(
             "action.file.close",
             "&Close",
             "file",
             "has_document_io_idle",
-            None,
-            Some("document.close"),
-            None,
-            Some("Ctrl+W"),
-            Some("x"),
-        ),
-        act(
-            "action.file.quit",
-            "&Quit",
-            "file",
-            "always",
-            None,
-            Some("app.quit"),
-            None,
-            Some("Ctrl+Q"),
-            None,
-        ),
+        )
+        .host("document.close")
+        .key("Ctrl+W")
+        .icon("x"),
+        act("action.file.quit", "&Quit", "file", "always")
+            .host("app.quit")
+            .key("Ctrl+Q"),
         // Edit
-        act(
-            "action.edit.undo",
-            "&Undo",
-            "edit",
-            "can_undo",
-            Some(command_id::HISTORY_UNDO),
-            None,
-            None,
-            Some("Ctrl+Z"),
-            Some("arrow-counter-clockwise"),
-        ),
-        act(
-            "action.edit.redo",
-            "&Redo",
-            "edit",
-            "can_redo",
-            Some(command_id::HISTORY_REDO),
-            None,
-            None,
-            Some("Ctrl+Shift+Z"),
-            Some("arrow-clockwise"),
-        ),
-        act(
-            "action.edit.preferences",
-            "&Preferences…",
-            "edit",
-            "always",
-            Some(command_id::APP_SHOW_PREFERENCES),
-            None,
-            None,
-            Some("Ctrl+,"),
-            None,
-        ),
+        act("action.edit.undo", "&Undo", "edit", "can_undo")
+            .command(command_id::HISTORY_UNDO)
+            .key("Ctrl+Z")
+            .icon("arrow-counter-clockwise"),
+        act("action.edit.redo", "&Redo", "edit", "can_redo")
+            .command(command_id::HISTORY_REDO)
+            .key("Ctrl+Shift+Z")
+            .icon("arrow-clockwise"),
+        act("action.edit.preferences", "&Preferences…", "edit", "always")
+            .command(command_id::APP_SHOW_PREFERENCES)
+            .key("Ctrl+,"),
         // Select (presented under Edit or Select menu)
-        act(
-            "action.select.all",
-            "Select &All",
-            "select",
-            "has_document",
-            None,
-            Some("selection.select_all"),
-            None,
-            Some("Ctrl+A"),
-            None,
-        ),
+        act("action.select.all", "Select &All", "select", "has_document")
+            .host("selection.select_all")
+            .key("Ctrl+A"),
         act(
             "action.select.deselect",
             "Deselect",
             "select",
             "selection_active",
-            None,
-            Some("selection.deselect"),
-            None,
-            Some("Ctrl+D"),
-            None,
-        ),
+        )
+        .host("selection.deselect")
+        .key("Ctrl+D"),
         act(
             "action.select.invert",
             "&Invert Selection",
             "select",
             "has_document",
-            None,
-            Some("selection.invert"),
-            None,
-            Some("Ctrl+Shift+I"),
-            None,
-        ),
+        )
+        .host("selection.invert")
+        .key("Ctrl+Shift+I"),
         act(
             "action.select.feather",
             "&Feather…",
             "select",
             "selection_active",
-            None,
-            Some("selection.modify"),
-            Some("feather:4"),
-            None,
-            None,
-        ),
+        )
+        .host("selection.modify")
+        .arg("feather:4"),
         act(
             "action.select.expand",
             "Expand",
             "select",
             "selection_active",
-            None,
-            Some("selection.modify"),
-            Some("expand:2"),
-            None,
-            None,
-        ),
+        )
+        .host("selection.modify")
+        .arg("expand:2"),
         act(
             "action.select.contract",
             "Contract",
             "select",
             "selection_active",
-            None,
-            Some("selection.modify"),
-            Some("contract:2"),
-            None,
-            None,
-        ),
+        )
+        .host("selection.modify")
+        .arg("contract:2"),
         act(
             "action.select.selection-to-mask",
             "Selection to &Mask",
             "select",
             "selection_active",
-            Some(command_id::SELECTION_TO_MASK),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::SELECTION_TO_MASK),
         act(
             "action.select.mask-to-selection",
             "Mask to Se&lection",
             "select",
             "has_document",
-            Some(command_id::MASK_TO_SELECTION),
-            None,
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.edit.copy",
-            "&Copy",
-            "edit",
-            "selection_active",
-            None,
-            Some("clipboard.copy"),
-            None,
-            Some("Ctrl+C"),
-            None,
-        ),
+        )
+        .command(command_id::MASK_TO_SELECTION),
+        act("action.edit.copy", "&Copy", "edit", "selection_active")
+            .host("clipboard.copy")
+            .key("Ctrl+C"),
         act(
             "action.edit.copy-selection-mask",
             "Copy &Selection Mask",
             "edit",
             "selection_active",
-            None,
-            Some("clipboard.copy_selection_mask"),
-            None,
-            None,
-            Some("selection-background"),
-        ),
+        )
+        .host("clipboard.copy_selection_mask")
+        .icon("selection-background"),
         act(
             "action.edit.copy-layer-mask",
             "Copy Layer &Mask",
             "edit",
             "has_document",
-            None,
-            Some("clipboard.copy_layer_mask"),
-            None,
-            None,
-            Some("circle-half"),
-        ),
+        )
+        .host("clipboard.copy_layer_mask")
+        .icon("circle-half"),
         act(
             "action.edit.paste-layer",
             "Paste as New Layer",
             "edit",
             "has_document",
-            None,
-            Some("clipboard.paste_layer"),
-            None,
-            Some("Ctrl+V"),
-            None,
-        ),
+        )
+        .host("clipboard.paste_layer")
+        .key("Ctrl+V"),
         act(
             "action.edit.paste-selection",
             "Paste as &Selection",
             "edit",
             "has_document",
-            None,
-            Some("clipboard.paste_selection"),
-            None,
-            None,
-            Some("selection-foreground"),
-        ),
+        )
+        .host("clipboard.paste_selection")
+        .icon("selection-foreground"),
         act(
             "action.edit.paste-mask",
             "Paste as Layer M&ask",
             "edit",
             "has_document",
-            None,
-            Some("clipboard.paste_mask"),
-            None,
-            None,
-            Some("circle-half-tilt"),
-        ),
+        )
+        .host("clipboard.paste_mask")
+        .icon("circle-half-tilt"),
         // Image
         act(
             "action.image.flip-h",
             "Flip &Horizontal",
             "image",
             "has_document_io_idle",
-            None,
-            Some("raster.flip"),
-            Some("h"),
-            None,
-            None,
-        ),
+        )
+        .host("raster.flip")
+        .arg("h"),
         act(
             "action.image.flip-v",
             "Flip &Vertical",
             "image",
             "has_document_io_idle",
-            None,
-            Some("raster.flip"),
-            Some("v"),
-            None,
-            None,
-        ),
+        )
+        .host("raster.flip")
+        .arg("v"),
         act(
             "action.image.rotate-90",
             "Rotate 90° &Clockwise",
             "image",
             "has_document_io_idle",
-            None,
-            Some("document.rotate_90"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("document.rotate_90"),
         act(
             "action.image.assign-srgb",
             "Assign Profile: sRGB",
             "image",
             "has_document",
-            Some(command_id::DOCUMENT_ASSIGN_PROFILE),
-            None,
-            Some("sRGB"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_ASSIGN_PROFILE)
+        .arg("sRGB"),
         act(
             "action.image.assign-p3",
             "Assign Profile: Display-P3",
             "image",
             "has_document",
-            Some(command_id::DOCUMENT_ASSIGN_PROFILE),
-            None,
-            Some("Display-P3"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_ASSIGN_PROFILE)
+        .arg("Display-P3"),
         act(
             "action.image.convert-srgb",
             "Convert to sRGB",
             "image",
             "has_document_io_idle",
-            Some(command_id::DOCUMENT_CONVERT_PROFILE),
-            None,
-            Some("sRGB"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_CONVERT_PROFILE)
+        .arg("sRGB"),
         act(
             "action.image.convert-p3",
             "Convert to Display-P3",
             "image",
             "has_document_io_idle",
-            Some(command_id::DOCUMENT_CONVERT_PROFILE),
-            None,
-            Some("Display-P3"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_CONVERT_PROFILE)
+        .arg("Display-P3"),
         act(
             "action.image.soft-proof-p3",
             "Soft-Proof: Display-P3",
             "image",
             "has_document",
-            Some(command_id::DOCUMENT_SET_SOFT_PROOF),
-            None,
-            Some("Display-P3:relative"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_SET_SOFT_PROOF)
+        .arg("Display-P3:relative"),
         act(
             "action.image.soft-proof-off",
             "Soft-Proof: Off",
             "image",
             "has_document",
-            Some(command_id::DOCUMENT_SET_SOFT_PROOF),
-            None,
-            Some(":relative"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_SET_SOFT_PROOF)
+        .arg(":relative"),
         act(
             "action.image.embed-icc",
             "Embed &ICC Profile…",
             "image",
             "has_document_io_idle",
-            None,
-            Some("document.embed_icc"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("document.embed_icc"),
         act(
             "action.image.clear-icc",
             "Clear Embedded ICC",
             "image",
             "has_document",
-            Some(command_id::DOCUMENT_SET_ICC),
-            None,
-            Some("clear"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::DOCUMENT_SET_ICC)
+        .arg("clear"),
         // Layer
         act(
             "action.layer.new-raster",
             "New &Layer",
             "layer",
             "has_document",
-            Some(command_id::LAYER_CREATE),
-            None,
-            None,
-            Some("Ctrl+Shift+N"),
-            None,
-        ),
+        )
+        .command(command_id::LAYER_CREATE)
+        .key("Ctrl+Shift+N"),
         act(
             "action.layer.new-fill",
             "New &Fill Layer",
             "layer",
             "has_document",
-            Some(command_id::LAYER_CREATE_FILL),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::LAYER_CREATE_FILL),
         act(
             "action.layer.delete",
             "&Delete Layer",
             "layer",
             "has_multiple_layers",
-            Some(command_id::LAYER_DELETE),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::LAYER_DELETE),
         act(
             "action.layer.new-group",
             "New &Group",
             "layer",
             "has_document",
-            Some(command_id::LAYER_GROUP),
-            None,
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.ungroup",
-            "&Ungroup",
-            "layer",
-            "has_document",
-            Some(command_id::LAYER_UNGROUP),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::LAYER_GROUP),
+        act("action.layer.ungroup", "&Ungroup", "layer", "has_document")
+            .command(command_id::LAYER_UNGROUP),
         act(
             "action.layer.bake-text",
             "Bake &Text",
             "layer",
             "has_document_io_idle",
-            None,
-            Some("text.bake"),
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-rect",
-            "Rectangle",
-            "layer.shape",
-            "has_document",
-            None,
-            Some("shape.create"),
-            Some("rect"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-ellipse",
-            "Ellipse",
-            "layer.shape",
-            "has_document",
-            None,
-            Some("shape.create"),
-            Some("ellipse"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-line",
-            "Line",
-            "layer.shape",
-            "has_document",
-            None,
-            Some("shape.create"),
-            Some("line"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-polygon",
-            "Polygon",
-            "layer.shape",
-            "has_document",
-            None,
-            Some("shape.create"),
-            Some("polygon"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-gradient",
-            "Gradient Fill",
-            "layer.shape",
-            "has_document",
-            None,
-            Some("shape.create"),
-            Some("gradient"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-live",
-            "Live Vector Shape",
-            "layer.shape",
-            "has_document",
-            None,
-            Some("shape.create"),
-            Some("live"),
-            None,
-            None,
-        ),
+        )
+        .host("text.bake"),
         act(
             "action.layer.rasterize-shape",
             "Rasterize Shape",
             "layer.shape",
             "has_document_io_idle",
-            None,
-            Some("shape.rasterize"),
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-union",
-            "Boolean Union",
-            "layer.boolean",
-            "has_document_io_idle",
-            Some(command_id::SHAPE_BOOLEAN),
-            None,
-            Some("union"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-intersect",
-            "Boolean Intersect",
-            "layer.boolean",
-            "has_document_io_idle",
-            Some(command_id::SHAPE_BOOLEAN),
-            None,
-            Some("intersect"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-difference",
-            "Boolean Difference",
-            "layer.boolean",
-            "has_document_io_idle",
-            Some(command_id::SHAPE_BOOLEAN),
-            None,
-            Some("difference"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.shape-exclusion",
-            "Boolean Exclusion",
-            "layer.boolean",
-            "has_document_io_idle",
-            Some(command_id::SHAPE_BOOLEAN),
-            None,
-            Some("exclusion"),
-            None,
-            None,
-        ),
+        )
+        .host("shape.rasterize"),
         act(
             "action.layer.stroke-path",
             "Stroke Path to Layer",
             "layer.shape",
             "has_document_io_idle",
-            None,
-            Some("path.stroke"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("path.stroke"),
         act(
             "action.layer.apply-mask",
             "&Apply Mask",
             "layer.mask",
             "has_document",
-            Some(command_id::MASK_APPLY),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::MASK_APPLY),
         act(
             "action.layer.add-mask",
             "Add &Mask",
             "layer.mask",
             "no_mask",
-            None,
-            Some("mask.create"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("mask.create"),
         act(
             "action.layer.delete-mask",
             "Delete Mask",
             "layer.mask",
             "has_mask",
-            None,
-            Some("mask.delete"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("mask.delete"),
         act(
             "action.layer.toggle-mask",
             "Toggle Mask Enabled",
             "layer.mask",
             "has_mask",
-            None,
-            Some("mask.toggle_enabled"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("mask.toggle_enabled"),
         act(
             "action.layer.add-vector-mask",
             "Add Vector Mask",
             "layer.mask",
             "has_document",
-            Some(command_id::MASK_CREATE_VECTOR),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::MASK_CREATE_VECTOR),
         act(
             "action.layer.lock-pixels",
             "Lock Pixels",
             "layer.lock",
             "has_document",
-            Some(command_id::LAYER_SET_LOCKS),
-            None,
-            Some("pixels"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::LAYER_SET_LOCKS)
+        .arg("pixels"),
         act(
             "action.layer.lock-position",
             "Lock Position",
             "layer.lock",
             "has_document",
-            Some(command_id::LAYER_SET_LOCKS),
-            None,
-            Some("position"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::LAYER_SET_LOCKS)
+        .arg("position"),
         act(
             "action.layer.lock-all",
             "Lock All",
             "layer.lock",
             "has_document",
-            Some(command_id::LAYER_SET_LOCKS),
-            None,
-            Some("all"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::LAYER_SET_LOCKS)
+        .arg("all"),
         act(
             "action.layer.toggle-clip",
             "Create Clipping Mask",
             "layer",
             "has_document",
-            None,
-            Some("layer.toggle_clip"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("layer.toggle_clip"),
         // Filter
         act(
             "action.filter.gallery",
             "Filter &Gallery…",
             "filter",
             "has_document",
-            Some(command_id::APP_SHOW_FILTER_GALLERY),
-            None,
-            None,
-            None,
-            None,
-        ),
-        // Tools — letter keys follow the conventional raster-editor
-        // assignments so muscle memory transfers. `tools` is a search-only
-        // menu: these belong on the tool shelf and in action search, not in
-        // the menu bar, which is where every editor of this kind puts them.
-        act(
-            "action.tool.move",
-            "&Move",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::MOVE),
-            Some("V"),
-            Some("arrows-out-cardinal"),
-        ),
-        act(
-            "action.tool.select-rect",
-            "&Rectangular Marquee",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::SELECT_RECT),
-            Some("M"),
-            Some("selection"),
-        ),
-        act(
-            "action.tool.select-ellipse",
-            "&Elliptical Marquee",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::SELECT_ELLIPSE),
-            Some("Shift+M"),
-            Some("circle-dashed"),
-        ),
-        act(
-            "action.tool.select-lasso",
-            "&Lasso",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::SELECT_LASSO),
-            Some("L"),
-            Some("lasso"),
-        ),
-        act(
-            "action.tool.select-polygon",
-            "&Polygonal Lasso",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::SELECT_POLYGON),
-            Some("Shift+L"),
-            Some("polygon"),
-        ),
-        act(
-            "action.tool.crop",
-            "&Crop",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::CROP),
-            Some("C"),
-            Some("crop"),
-        ),
-        act(
-            "action.tool.eyedropper",
-            "Eye&dropper",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::EYEDROPPER),
-            Some("I"),
-            Some("eyedropper"),
-        ),
-        act(
-            "action.tool.brush",
-            "&Brush",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::BRUSH),
-            Some("B"),
-            Some("paint-brush"),
-        ),
-        act(
-            "action.tool.eraser",
-            "&Eraser",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::ERASER),
-            Some("E"),
-            Some("eraser"),
-        ),
-        act(
-            "action.tool.gradient",
-            "&Gradient",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::GRADIENT),
-            Some("G"),
-            Some("gradient"),
-        ),
-        act(
-            "action.tool.fill",
-            "Paint Buc&ket",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::FILL),
-            Some("Shift+G"),
-            Some("paint-bucket"),
-        ),
-        act(
-            "action.tool.text",
-            "&Text",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::TEXT),
-            Some("T"),
-            Some("text-t"),
-        ),
-        act(
-            "action.tool.path-edit",
-            "&Path Edit",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::PATH_EDIT),
-            Some("P"),
-            Some("pen-nib"),
-        ),
-        act(
-            "action.tool.shape",
-            "Shape",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::SHAPE),
-            Some("U"),
-            Some("shapes"),
-        ),
-        act(
-            "action.tool.pan",
-            "&Hand",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::PAN),
-            Some("H"),
-            Some("hand"),
-        ),
-        act(
-            "action.tool.zoom",
-            "&Zoom",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::ZOOM),
-            Some("Z"),
-            Some("magnifying-glass"),
-        ),
-        act(
-            "action.tool.transform",
-            "&Free Transform",
-            "tools",
-            "has_document",
-            None,
-            Some("tool.activate"),
-            Some(tool_id::TRANSFORM),
-            Some("Ctrl+T"),
-            Some("arrows-out"),
-        ),
+        )
+        .command(command_id::APP_SHOW_FILTER_GALLERY),
         // View
         act(
             "action.view.zoom-fit",
             "Zoom to &Fit",
             "view",
             "has_document",
-            Some(command_id::VIEW_ZOOM_TO_FIT),
-            None,
-            None,
-            Some("Ctrl+Shift+J"),
-            Some("corners-in"),
-        ),
+        )
+        .command(command_id::VIEW_ZOOM_TO_FIT)
+        .key("Ctrl+Shift+J")
+        .icon("corners-in"),
         act(
             "action.view.toggle-guides",
             "Show &Guides",
             "view",
             "always",
-            None,
-            Some("view.toggle_guides"),
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.view.toggle-grid",
-            "Show G&rid",
-            "view",
-            "always",
-            None,
-            Some("view.toggle_grid"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("view.toggle_guides"),
+        act("action.view.toggle-grid", "Show G&rid", "view", "always").host("view.toggle_grid"),
         act(
             "action.view.toggle-rulers",
             "Show &Rulers",
             "view",
             "always",
-            None,
-            Some("view.toggle_rulers"),
-            None,
-            None,
-            None,
-        ),
-        act(
-            "action.view.toggle-snap",
-            "Sna&p",
-            "view",
-            "always",
-            None,
-            Some("view.toggle_snap"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("view.toggle_rulers"),
+        act("action.view.toggle-snap", "Sna&p", "view", "always").host("view.toggle_snap"),
         act(
             "action.view.guide-v",
             "New Vertical Guide",
             "view",
             "has_document",
-            None,
-            Some("view.guide_v"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("view.guide_v"),
         act(
             "action.view.guide-h",
             "New Horizontal Guide",
             "view",
             "has_document",
-            None,
-            Some("view.guide_h"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("view.guide_h"),
         act(
             "action.view.clear-guides",
             "Clear Guides",
             "view",
             "has_document",
-            None,
-            Some("view.clear_guides"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("view.clear_guides"),
         // Panel-local view actions (handbook 05): workspace scope, no document
         // mutation, so they stay available with no document open.
         act(
@@ -1079,209 +551,166 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "E&xpand All Property Groups",
             "view",
             "always",
-            None,
-            Some("inspector.expand_all"),
-            None,
-            None,
-            Some("arrows-out-line-vertical"),
-        ),
+        )
+        .host("inspector.expand_all")
+        .icon("arrows-out-line-vertical"),
         act(
             "action.view.collapse-all-groups",
             "&Collapse All Property Groups",
             "view",
             "always",
-            None,
-            Some("inspector.collapse_all"),
-            None,
-            None,
-            Some("arrows-in-line-vertical"),
-        ),
+        )
+        .host("inspector.collapse_all")
+        .icon("arrows-in-line-vertical"),
         // Window
         act(
             "action.window.panel-navigator",
             "Navigator",
             "window",
             "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.navigator"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_TOGGLE_PANEL)
+        .arg("panel.navigator"),
         act(
             "action.window.panel-swatches",
             "Swatches",
             "window",
             "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.swatches"),
-            None,
-            None,
-        ),
-        act(
-            "action.window.panel-layers",
-            "Layers",
-            "window",
-            "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.layers"),
-            None,
-            None,
-        ),
-        act(
-            "action.window.panel-history",
-            "History",
-            "window",
-            "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.history"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_TOGGLE_PANEL)
+        .arg("panel.swatches"),
+        act("action.window.panel-layers", "Layers", "window", "always")
+            .command(command_id::WORKSPACE_TOGGLE_PANEL)
+            .arg("panel.layers"),
+        act("action.window.panel-history", "History", "window", "always")
+            .command(command_id::WORKSPACE_TOGGLE_PANEL)
+            .arg("panel.history"),
         act(
             "action.window.panel-properties",
             "Properties",
             "window",
             "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.properties"),
-            None,
-            None,
-        ),
-        act(
-            "action.window.panel-paths",
-            "Paths",
-            "window",
-            "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.paths"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_TOGGLE_PANEL)
+        .arg("panel.properties"),
+        act("action.window.panel-paths", "Paths", "window", "always")
+            .command(command_id::WORKSPACE_TOGGLE_PANEL)
+            .arg("panel.paths"),
         act(
             "action.window.panel-character",
             "Character",
             "window",
             "always",
-            Some(command_id::WORKSPACE_TOGGLE_PANEL),
-            None,
-            Some("panel.character"),
-            None,
-            None,
-        ),
-        act(
-            "action.window.reset",
-            "Reset Workspace",
-            "window",
-            "always",
-            Some(command_id::WORKSPACE_RESET),
-            None,
-            None,
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_TOGGLE_PANEL)
+        .arg("panel.character"),
+        act("action.window.reset", "Reset Workspace", "window", "always")
+            .command(command_id::WORKSPACE_RESET),
         act(
             "action.window.preset-essentials",
             "Workspace: Essentials",
             "window",
             "always",
-            Some(command_id::WORKSPACE_APPLY_PRESET),
-            None,
-            Some("workspace.preset.essentials"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_APPLY_PRESET)
+        .arg("workspace.preset.essentials"),
         act(
             "action.window.preset-compact",
             "Workspace: Compact",
             "window",
             "always",
-            Some(command_id::WORKSPACE_APPLY_PRESET),
-            None,
-            Some("workspace.preset.compact"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_APPLY_PRESET)
+        .arg("workspace.preset.compact"),
         act(
             "action.window.preset-painting",
             "Workspace: Painting",
             "window",
             "always",
-            Some(command_id::WORKSPACE_APPLY_PRESET),
-            None,
-            Some("workspace.preset.painting"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_APPLY_PRESET)
+        .arg("workspace.preset.painting"),
         act(
             "action.window.preset-factory",
             "Workspace: Factory defaults",
             "window",
             "always",
-            Some(command_id::WORKSPACE_APPLY_PRESET),
-            None,
-            Some("workspace.preset.factory"),
-            None,
-            None,
-        ),
+        )
+        .command(command_id::WORKSPACE_APPLY_PRESET)
+        .arg("workspace.preset.factory"),
         // Help
-        act(
-            "action.help.about",
-            "&About PhotoTux",
-            "help",
-            "always",
-            None,
-            Some("help.about"),
-            None,
-            None,
-            Some("info"),
-        ),
+        act("action.help.about", "&About PhotoTux", "help", "always")
+            .host("help.about")
+            .icon("info"),
         // App chrome
         act(
             "action.app.command-palette",
             "Command &Palette…",
             "edit",
             "always",
-            None,
-            Some("palette.open"),
-            None,
-            Some("Ctrl+Shift+P"),
-            None,
-        ),
+        )
+        .host("palette.open")
+        .key("Ctrl+Shift+P"),
         act(
             "action.app.simulate-device-lost",
             "Simulate Device Lost (debug)",
             "view",
             "has_document",
-            None,
-            Some("app.simulate_device_lost"),
-            None,
-            None,
-            None,
-        ),
+        )
+        .host("app.simulate_device_lost"),
         act(
             "action.app.recover-gpu",
             "&Recover graphics…",
             "view",
             "document",
-            None,
-            Some("app.recover_gpu"),
-            None,
-            None,
-            Some("arrows-clockwise"),
-        ),
+        )
+        .host("app.recover_gpu")
+        .icon("arrows-clockwise"),
     ];
-    // One Layer-menu entry per adjustment kind, generated from the vocabulary.
+    // One Shape submenu entry per preset, and one Combine entry per boolean
+    // op. Both were hand-written lists restating vocabularies that already
+    // exist — `ShapePreset` and `BooleanOp` — with the same silent drift risk:
+    // a preset added to the engine with no menu entry can be created by
+    // nothing the user can reach.
+    actions.extend(crate::ShapePreset::ALL.into_iter().map(|preset| {
+        act(
+            &format!("action.layer.shape-{}", preset.as_str()),
+            preset.label(),
+            "layer.shape",
+            "has_document",
+        )
+        .host("shape.create")
+        .arg(preset.as_str())
+    }));
+    actions.extend(crate::BooleanOp::ALL.into_iter().map(|op| {
+        act(
+            &format!("action.layer.shape-{}", op.as_str()),
+            op.label(),
+            "layer.boolean",
+            "has_document_io_idle",
+        )
+        .command(command_id::SHAPE_BOOLEAN)
+        .arg(op.as_str())
+    }));
+    // One action per tool, generated from the tool descriptors.
     //
-    // These were three hand-written entries against seven kinds, so
-    // Hue/Saturation, Invert, Threshold and Posterize had no way into the
-    // document from the chrome at all — the same four the composite shader
-    // was ignoring. Two independent lists, one silence.
+    // These were eighteen hand-written entries restating each tool's title,
+    // icon and accelerator — a second list of the tool vocabulary, and the
+    // largest duplicated block in this file. `tools` is a search-only menu:
+    // tools belong on the shelf and in action search, not in the menu bar,
+    // which is why these labels carry no mnemonic.
+    actions.extend(crate::default_tools().into_iter().map(|tool| {
+        act(
+            &tool_action_id(&tool.id),
+            &tool.title,
+            "tools",
+            "has_document",
+        )
+        .host("tool.activate")
+        .arg(&tool.id)
+        .key(&tool.shortcut)
+        .icon(&tool.icon_key)
+    }));
     // One Layer Style submenu entry per style kind. Four hand-written entries
     // against a four-variant enum was not yet drift, but each also needed its
     // own command id, router arm and handler — which is why the set stood at
@@ -1292,12 +721,9 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             style.label(),
             "layer.style",
             "has_document",
-            Some(command_id::STYLE_ADD),
-            None,
-            Some(style.kind_key()),
-            None,
-            None,
         )
+        .command(command_id::STYLE_ADD)
+        .arg(style.kind_key())
     }));
     // One Filter-menu entry per filter kind, generated the same way and for
     // the same reason: five hand-written entries against a thirteen-kind
@@ -1308,25 +734,25 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             params.label(),
             "filter",
             "has_document",
-            Some(command_id::FILTER_ADD_EFFECT),
-            None,
-            Some(params.kind_key()),
-            None,
-            None,
         )
+        .command(command_id::FILTER_ADD_EFFECT)
+        .arg(params.kind_key())
     }));
+    // One Layer-menu entry per adjustment kind, generated from the vocabulary.
+    //
+    // These were three hand-written entries against seven kinds, so
+    // Hue/Saturation, Invert, Threshold and Posterize had no way into the
+    // document from the chrome at all — the same four the composite shader
+    // was ignoring. Two independent lists, one silence.
     actions.extend(crate::AdjustmentParams::ALL_KINDS.iter().map(|params| {
         act(
             &adjustment_action_id(params.kind_key()),
             params.label(),
             ADJUSTMENT_SUBMENU,
             "has_document",
-            Some(command_id::FILTER_ADD_ADJUSTMENT),
-            None,
-            Some(params.kind_key()),
-            None,
-            None,
         )
+        .command(command_id::FILTER_ADD_ADJUSTMENT)
+        .arg(params.kind_key())
     }));
     // Context-menu contributions (handbook P1.4).
     set_contexts(&mut actions, "action.layer.new-raster", &["layer"]);
@@ -1551,6 +977,53 @@ pub fn effective_shortcuts_json(overrides: &BTreeMap<String, String>) -> (String
 
 #[cfg(test)]
 mod tests {
+    /// Every tool needs an action, at the id it has always had.
+    ///
+    /// These were eighteen hand-written entries restating the tool
+    /// descriptors' title, icon and accelerator; generating them removed the
+    /// second list, and the ids are asserted literally because a renamed
+    /// action id drops a user's custom shortcut for it without saying so.
+    #[test]
+    fn every_tool_has_an_action_at_its_shipped_id() {
+        let actions = default_actions();
+        for tool in crate::default_tools() {
+            let id = tool_action_id(&tool.id);
+            let action = actions
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{} has no action at {id}", tool.id));
+            assert_eq!(action.host_op.as_deref(), Some("tool.activate"));
+            assert_eq!(action.arg.as_deref(), Some(tool.id.as_str()));
+            assert_eq!(action.label, tool.title);
+            assert_eq!(action.icon_key.as_deref(), Some(tool.icon_key.as_str()));
+            assert_eq!(action.shortcut.as_deref(), Some(tool.shortcut.as_str()));
+        }
+        for id in [
+            "action.tool.move",
+            "action.tool.select-rect",
+            "action.tool.select-ellipse",
+            "action.tool.select-lasso",
+            "action.tool.select-polygon",
+            "action.tool.brush",
+            "action.tool.eraser",
+            "action.tool.fill",
+            "action.tool.gradient",
+            "action.tool.eyedropper",
+            "action.tool.text",
+            "action.tool.shape",
+            "action.tool.path-edit",
+            "action.tool.crop",
+            "action.tool.transform",
+            "action.tool.pan",
+            "action.tool.zoom",
+        ] {
+            assert!(
+                actions.iter().any(|a| a.id == id),
+                "{id} disappeared; a user shortcut bound to it would be dropped"
+            );
+        }
+    }
+
     /// Every layer style needs a menu entry naming a kind the engine knows.
     /// The ids are asserted literally because a renamed action id drops a
     /// user's custom shortcut for it without saying so.
