@@ -942,7 +942,7 @@ ApplicationWindow {
                 onObjectAdded: (index, object) => layerMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => layerMenu.removeItem(object)
             }
-            // Six submenus, because the flat Layer menu carried thirty-one
+            // Eight submenus, because the flat Layer menu carried thirty-one
             // entries and ran past the bottom of a 1080p window — the last of
             // them unreachable however correctly they rendered. Each is
             // declared here and populated from the engine; a submenu the
@@ -985,6 +985,28 @@ ApplicationWindow {
                     delegate: actionMenuItem
                     onObjectAdded: (index, object) => styleMenu.insertItem(index, object)
                     onObjectRemoved: (index, object) => styleMenu.removeItem(object)
+                }
+            }
+            // Align and Distribute sit directly under Layer, next to each
+            // other, the way Photoshop files them.
+            Menu {
+                id: alignMenu
+                title: qsTr("Ali&gn")
+                Instantiator {
+                    model: root.actionsForMenu("layer.align")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => alignMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => alignMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: distributeMenu
+                title: qsTr("&Distribute")
+                Instantiator {
+                    model: root.actionsForMenu("layer.distribute")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => distributeMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => distributeMenu.removeItem(object)
                 }
             }
             Menu {

@@ -1,0 +1,11 @@
+---
+description: Protocol for running plan and execute autonomous building loops
+globs: Handbook-Parity-Checklist.md,Handbook-Parity-Roadmap.md
+alwaysApply: false
+---
+You operate in a continuous autonomous execution loop. Follow these strict operational laws:
+1. **Locate State**: Inspect the official project's ROADMAP/CHECKLIST to identify the first incomplete task item.
+2. **Plan & Build**: Get into plan-mode and create an implementation plan for that specific task/phase and when your plan is done, dont wait for my approval, just execute it across the codebase immediately using Agent capabilities.
+3. **Verify**: Always run the check commands (lint, format, typecheck, clippy, rustfmt, etc..) and testing command (e.g.`bun run test`) to verify your changes when your done with the implementation of your plan, fix any issues that might shows up and get the project into a clean state.
+4. **Update & Advance**: If the checks/tests pass, commit everything you've done, then go and modify your official ROADMAP/CHECKLIST to change the task/phase status to complete, save the file, and instantly proceed to the next incomplete task/phase.
+5. **Escalation**: Do not halt or ask for permission unless you encounter a breaking error that you cannot fix after 3 autonomous attempts.

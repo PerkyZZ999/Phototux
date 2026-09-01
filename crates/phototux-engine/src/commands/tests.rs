@@ -626,3 +626,207 @@ fn path_edit_round_trip_on_shape() {
     assert_eq!(restored.anchors.len(), 4);
     assert!((restored.anchors[0].x - 10.0).abs() < f32::EPSILON);
 }
+
+// —— Align and distribute ——
+
+/// A document with `count` extra layers, and the ids of every layer in it.
+fn session_with_layers(count: usize) -> (SessionState, Vec<LayerId>) {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    for _ in 0..count {
+        s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+            .expect("create layer");
+    }
+    let ids = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    (s, ids)
+}
+
+fn target(id: LayerId, x: f32, y: f32, w: f32, h: f32) -> crate::AlignTarget {
+    crate::AlignTarget::single(id, crate::Rect::new(x, y, w, h))
+}
+
+fn translation(s: &SessionState, id: LayerId) -> (f32, f32) {
+    let t = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .get(id)
+        .expect("layer")
+        .transform;
+    (t.translate_x, t.translate_y)
+}
+
+#[test]
+fn aligning_writes_translations_and_one_undo_puts_them_all_back() {
+    let (mut s, ids) = session_with_layers(2);
+    let targets = vec![
+        target(ids[0], 100.0, 0.0, 50.0, 50.0),
+        target(ids[1], 300.0, 0.0, 50.0, 50.0),
+        target(ids[2], 220.0, 0.0, 50.0, 50.0),
+    ];
+    s.invoke(
+        command_id::LAYER_ALIGN,
+        CommandArgs::AlignLayers {
+            op: crate::AlignOp::Left,
+            targets,
+        },
+    )
+    .expect("align");
+    assert_eq!(
+        translation(&s, ids[0]),
+        (0.0, 0.0),
+        "leftmost must not move"
+    );
+    assert_eq!(translation(&s, ids[1]), (-200.0, 0.0));
+    assert_eq!(translation(&s, ids[2]), (-120.0, 0.0));
+
+    // The whole alignment is one history entry, not one per layer.
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+    for id in &ids {
+        assert_eq!(translation(&s, *id), (0.0, 0.0), "undo left a layer moved");
+    }
+}
+
+#[test]
+fn aligning_adds_to_a_translation_the_layer_already_had() {
+    // Offsets are deltas; treating them as absolute positions would throw away
+    // whatever the transform gizmo had already put on the layer.
+    let (mut s, ids) = session_with_layers(1);
+    let graph = s.graph.as_mut().expect("graph");
+    graph.set_transform(
+        ids[1],
+        LayerTransform {
+            translate_x: 40.0,
+            translate_y: 7.0,
+            ..LayerTransform::identity()
+        },
+    );
+    s.invoke(
+        command_id::LAYER_ALIGN,
+        CommandArgs::AlignLayers {
+            op: crate::AlignOp::Left,
+            targets: vec![
+                target(ids[0], 10.0, 0.0, 20.0, 20.0),
+                target(ids[1], 60.0, 0.0, 20.0, 20.0),
+            ],
+        },
+    )
+    .expect("align");
+    assert_eq!(translation(&s, ids[1]), (-10.0, 7.0));
+}
+
+#[test]
+fn a_group_moves_as_one_object_and_keeps_its_internal_arrangement() {
+    // The compositor does not pass a group's transform to its children, so a
+    // group can only move by moving every member the same amount. Members are
+    // given one shared box for exactly that reason.
+    let (mut s, ids) = session_with_layers(2);
+    let group = crate::AlignTarget {
+        bounds: crate::Rect::new(300.0, 0.0, 80.0, 40.0),
+        members: vec![ids[1], ids[2]],
+    };
+    s.invoke(
+        command_id::LAYER_ALIGN,
+        CommandArgs::AlignLayers {
+            op: crate::AlignOp::Left,
+            targets: vec![target(ids[0], 100.0, 0.0, 50.0, 50.0), group],
+        },
+    )
+    .expect("align");
+    assert_eq!(translation(&s, ids[1]), (-200.0, 0.0));
+    assert_eq!(
+        translation(&s, ids[2]),
+        (-200.0, 0.0),
+        "both members must move by the same amount"
+    );
+}
+
+#[test]
+fn aligning_already_aligned_layers_is_refused_rather_than_stacking_a_no_op() {
+    let (mut s, ids) = session_with_layers(1);
+    let targets = vec![
+        target(ids[0], 40.0, 0.0, 10.0, 10.0),
+        target(ids[1], 40.0, 0.0, 10.0, 10.0),
+    ];
+    let err = s
+        .invoke(
+            command_id::LAYER_ALIGN,
+            CommandArgs::AlignLayers {
+                op: crate::AlignOp::Left,
+                targets,
+            },
+        )
+        .expect_err("an alignment that moves nothing must not reach history");
+    assert!(matches!(err, CommandError::Rejected(_)), "{err:?}");
+}
+
+#[test]
+fn distributing_two_layers_is_refused_before_it_touches_the_document() {
+    let (mut s, ids) = session_with_layers(1);
+    let err = s
+        .invoke(
+            command_id::LAYER_ALIGN,
+            CommandArgs::AlignLayers {
+                op: crate::AlignOp::DistributeHorizontal,
+                targets: vec![
+                    target(ids[0], 0.0, 0.0, 10.0, 10.0),
+                    target(ids[1], 90.0, 0.0, 10.0, 10.0),
+                ],
+            },
+        )
+        .expect_err("distribute needs three");
+    assert!(matches!(err, CommandError::Rejected(_)), "{err:?}");
+}
+
+#[test]
+fn a_position_locked_layer_blocks_the_whole_alignment() {
+    // All-or-nothing: a partial alignment reads as a broken alignment, and the
+    // layer left behind is the one the user is least likely to be watching.
+    let (mut s, ids) = session_with_layers(1);
+    if let Some(layer) = s.graph.as_mut().and_then(|g| g.get_mut(ids[1])) {
+        layer.locks.position = true;
+    }
+    let err = s
+        .invoke(
+            command_id::LAYER_ALIGN,
+            CommandArgs::AlignLayers {
+                op: crate::AlignOp::Left,
+                targets: vec![
+                    target(ids[0], 100.0, 0.0, 10.0, 10.0),
+                    target(ids[1], 300.0, 0.0, 10.0, 10.0),
+                ],
+            },
+        )
+        .expect_err("a locked position must refuse the command");
+    assert!(matches!(err, CommandError::Rejected(_)), "{err:?}");
+    assert_eq!(
+        translation(&s, ids[0]),
+        (0.0, 0.0),
+        "nothing may have moved"
+    );
+}
+
+#[test]
+fn a_single_layer_aligns_to_the_canvas() {
+    // The one-layer case only does anything because the frame falls back to the
+    // document; aligning a layer to its own bounding box is a no-op.
+    let (mut s, ids) = session_with_layers(0);
+    s.invoke(
+        command_id::LAYER_ALIGN,
+        CommandArgs::AlignLayers {
+            op: crate::AlignOp::HorizontalCenter,
+            targets: vec![target(ids[0], 0.0, 0.0, 200.0, 100.0)],
+        },
+    )
+    .expect("align to canvas");
+    let (dx, _) = translation(&s, ids[0]);
+    assert!((dx - (1280.0 - 200.0) / 2.0).abs() < 0.5, "dx was {dx}");
+}

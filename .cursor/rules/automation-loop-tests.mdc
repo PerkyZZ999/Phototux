@@ -1,0 +1,32 @@
+---
+description: Protocol for running autonomous interactive stability testing and QA debugging loops
+globs: Interactive-Stability-Checklist.md
+alwaysApply: false
+---
+You operate in a continuous autonomous interactive testing and verification loop. Follow these strict operational laws to drive OS-level and windowing-system validation using `computer-use-linux` or `kwinmcp` MCP tools:
+
+1. **Locate Test State**
+   * Open and inspect `internal_docs/Appendix/Interactive-Stability-Checklist.md` to identify the very first uncompleted test item (`[ ]`).
+   * Read any accompanying "Evidence tips" or Handbook references linked to that section to understand the target criteria (e.g., AT-SPI tree names, window titles, expected logs).
+
+2. **Plan & Drive Interaction**
+   * Enter plan-mode and formulate an exact manual interaction sequence to validate the target checklist item.
+   * Do not wait for approval—immediately execute the plan using your interactive MCP capabilities. 
+   * Launch the application, inspect the Wayland window state via the compositor, use `find_ui_elements` on the accessibility tree, or capture targeted screenshots to confirm visual and state parity.
+
+3. **Diagnose & Patch Failures**
+   * If the interactive test fails, reveals an edge case, causes a silent crash (e.g., QML root failures), or triggers a layout conflict, pivot immediately to debugging.
+   * Inspect the application's stdout/stderr streams, session logs, and the source code.
+   * Modify the codebase directly to fix the root cause of the stability failure, ensuring your solution is robust and accounts for the target edge case.
+
+4. **Verify & Stabilize**
+   * Re-run the interactive testing plan on the live desktop environment to ensure the bug is fully resolved.
+   * Execute standard code verification workflows (e.g., linting, formating, and unit tests) to guarantee no regressions were introduced while patching the GUI behavior.
+
+5. **Commit & Advance**
+   * Once the criteria are completely satisfied and verified, update the task status in `internal_docs/Appendix/Interactive-Stability-Checklist.md` to complete (`[x]`).
+   * Commit all code modifications along with the updated checklist file in a single clean commit.
+   * Instantly advance to the next uncompleted item on the checklist without halting.
+
+6. **Escalation Law**
+   * Do not interrupt the user unless you encounter a breaking OS-level, compositor, or driver infrastructure issue that remains completely unresolved after 3 autonomous code/environment repair attempts.

@@ -35,17 +35,24 @@ set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular"
 # phototux_engine reads this list as text and fails when one is missing —
 # CMake cannot see the Rust descriptors, so the check runs from the other side.
 set(ICON_NAMES
+    align-bottom
+    align-center-horizontal
+    align-center-vertical
+    align-left
+    align-right
+    align-top
     arrow-clockwise
-    arrows-clockwise
     arrow-counter-clockwise
     arrow-down
     arrow-elbow-down-right
     arrow-square-out
     arrow-up
+    arrows-clockwise
     arrows-in-line-vertical
     arrows-left-right
     arrows-out
     arrows-out-cardinal
+    arrows-out-line-horizontal
     arrows-out-line-vertical
     caret-down
     caret-right
@@ -74,8 +81,8 @@ set(ICON_NAMES
     gradient
     hand
     image-square
-    intersect
     info
+    intersect
     lasso
     magic-wand
     magnifying-glass
@@ -88,17 +95,17 @@ set(ICON_NAMES
     pen-nib
     plus
     polygon
-    scribble
     question
     rectangle-dashed
+    scribble
     selection
     selection-background
     selection-foreground
     selection-plus
-    sparkle
     shapes
-    sun-dim
+    sparkle
     stamp
+    sun-dim
     text-t
     trash
     x

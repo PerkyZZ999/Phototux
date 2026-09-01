@@ -7,7 +7,7 @@ use crate::color_mgmt::DocumentColorState;
 use crate::error::DocumentError;
 use crate::layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
-    LayerKind, LayerMask, MAX_BLUR_RADIUS, ShapeContent, TextContent,
+    LayerKind, LayerMask, LayerTransform, MAX_BLUR_RADIUS, ShapeContent, TextContent,
 };
 use crate::paths::PathDocument;
 
@@ -349,6 +349,24 @@ impl DocumentGraph {
         let layer = self.get_mut(id)?;
         let prev = layer.mask.clone();
         layer.mask = mask;
+        self.bump();
+        Some(prev)
+    }
+
+    /// Replace a layer's transform, returning the one it had.
+    ///
+    /// Used by align/distribute, which moves layers by writing their
+    /// translation rather than by baking pixels — the composite already
+    /// honours `layer.transform`, so the move stays non-destructive and
+    /// survives into `.ptx`.
+    pub fn set_transform(
+        &mut self,
+        id: LayerId,
+        transform: LayerTransform,
+    ) -> Option<LayerTransform> {
+        let layer = self.get_mut(id)?;
+        let prev = layer.transform;
+        layer.transform = transform;
         self.bump();
         Some(prev)
     }

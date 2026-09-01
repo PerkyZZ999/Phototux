@@ -152,6 +152,9 @@ Prefer handbook panel descriptors (`panel.layers`, …) for panel chrome. Sugges
 | Add / subtract / intersect selection | `selection-plus` / `minus-circle` / `intersect` | |
 | Feather / expand / contract | `drop-half-bottom` / `plus-circle` / `minus` | |
 | Shape boolean unite / subtract / intersect / exclude | `unite` / `subtract` / `intersect` / `exclude` | Align with `shape.boolean` commands |
+| Align left / centre / right | `align-left` / `align-center-horizontal` / `align-right` | `AlignOp::icon_key` |
+| Align top / middle / bottom | `align-top` / `align-center-vertical` / `align-bottom` | `AlignOp::icon_key` |
+| Distribute horizontally / vertically | `arrows-out-line-horizontal` / `arrows-out-line-vertical` | Phosphor has no distribute glyph; the outward arrows read as spreading |
 
 ---
 

@@ -33,6 +33,18 @@ Rectangle {
     readonly property bool isColorSelect: tool === "tool.select.wand"
                                           || tool === "tool.select.color-range"
     readonly property bool isGradient: tool === "tool.gradient"
+    // Photoshop puts the align and distribute buttons in the Move tool's
+    // options bar, which is where someone arriving from it will look first.
+    readonly property bool isMove: tool === "tool.move"
+
+    /// Align and distribute operations, as the engine declares them.
+    readonly property var alignOps: {
+        try {
+            return JSON.parse(AppSession.alignOpsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
 
     /// Gradient shapes, as the engine declares them.
     readonly property var gradientKinds: {
@@ -206,6 +218,48 @@ Rectangle {
                                                              : "transparent")
                                 border.color: gradButton.checked ? Theme.primary : "transparent"
                                 border.width: 1
+                            }
+                        }
+                    }
+                }
+
+                // ── Move: align and distribute ────────────────────────────
+                Field {
+                    visible: root.isMove
+                    label: qsTr("Align")
+                    Repeater {
+                        model: root.alignOps
+                        delegate: ToolButton {
+                            id: alignButton
+                            required property var modelData
+                            // Distribution needs a third layer to have anything
+                            // to space out, so its buttons stay dim until there
+                            // is one rather than accepting a click that does
+                            // nothing.
+                            readonly property bool available:
+                                AppSession.hasDocument
+                                && AppSession.layerCount >= alignButton.modelData.minTargets
+                            implicitWidth: Theme.controlHeight
+                            implicitHeight: Theme.controlHeight
+                            padding: 0
+                            enabled: alignButton.available
+                            onClicked: AppSession.alignLayers(alignButton.modelData.id)
+                            ToolTip.visible: hovered
+                            ToolTip.text: alignButton.modelData.label
+                            Accessible.name: alignButton.modelData.label
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: Theme.iconUrl(AppSession.iconRoot,
+                                                      alignButton.modelData.icon)
+                                size: Theme.iconMd
+                                color: alignButton.enabled ? Theme.iconOnSurfaceEffective
+                                                           : Theme.iconDisabledEffective
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: alignButton.hovered && alignButton.enabled
+                                       ? Theme.surfaceContainerHigh
+                                       : "transparent"
                             }
                         }
                     }

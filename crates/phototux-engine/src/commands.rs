@@ -52,6 +52,7 @@ impl SessionState {
             command_id::LAYER_UNGROUP => self.cmd_layer_ungroup(),
             command_id::LAYER_SET_CLIP => self.cmd_layer_set_clip(args),
             command_id::LAYER_SET_LOCKS => self.cmd_layer_set_locks(args),
+            command_id::LAYER_ALIGN => self.cmd_layer_align(args),
             command_id::VIEW_ZOOM_TO => self.cmd_view_zoom(args),
             command_id::VIEW_ZOOM_TO_FIT => {
                 self.zoom_to_fit();
@@ -392,6 +393,43 @@ impl SessionState {
         ids.sort_by_key(|id| graph.index_of(*id).unwrap_or(usize::MAX));
         ids.dedup();
         Ok(ids)
+    }
+
+    /// Align or distribute layers using boxes the host measured.
+    ///
+    /// The move is written into each layer's translation rather than baked
+    /// into its pixels: the compositor already honours `layer.transform`, so
+    /// aligning stays non-destructive and one undo puts every layer back.
+    fn cmd_layer_align(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::AlignLayers { op, targets } = args else {
+            return Err(CommandError::InvalidArgument("expected align targets"));
+        };
+        if targets.len() < op.min_targets() {
+            return Err(CommandError::Rejected("not enough layers to align"));
+        }
+        let canvas = crate::Rect::new(0.0, 0.0, self.size.width as f32, self.size.height as f32);
+        let ids: Vec<LayerId> = targets
+            .iter()
+            .flat_map(|t| t.members.iter().copied())
+            .collect();
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        reject_position_locked(graph, &ids)?;
+
+        let rects: Vec<crate::Rect> = targets.iter().map(|t| t.bounds).collect();
+        let frame = crate::align_frame(&rects, canvas);
+        let batch = align_batch(graph, &targets, &crate::align_offsets(op, &rects, frame));
+        if batch.is_empty() {
+            return Err(CommandError::Rejected("layers already aligned"));
+        }
+        let moved = batch.len();
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history
+            .push_graph_applied(crate::GraphCommand::Batch(batch), op.label(), generation);
+        self.announce(format!("{}: moved {moved} layer(s)", op.label()));
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_layer_delete(&mut self) -> Result<CommandEffects, CommandError> {
@@ -2444,6 +2482,67 @@ fn reject_locked_layers(
         }
     }
     Ok(())
+}
+
+/// Refuse the whole operation when any target has its position locked.
+///
+/// All-or-nothing rather than skipping the locked ones: a partial alignment
+/// looks like a bug in the alignment, not like a lock doing its job, and the
+/// layer left behind is the one the user is least likely to be looking at.
+fn reject_position_locked(
+    graph: &crate::DocumentGraph,
+    targets: &[LayerId],
+) -> Result<(), CommandError> {
+    for id in targets {
+        let Some(layer) = graph.get(*id) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if layer.position_blocked() {
+            return Err(CommandError::Rejected("layer position locked"));
+        }
+    }
+    Ok(())
+}
+
+/// Apply per-layer offsets, recording an undo entry for each layer that moved.
+///
+/// Offsets under a twentieth of a pixel are dropped. Alignment arithmetic on
+/// measured boxes rarely lands on exactly zero, and without a floor "align
+/// left" on already-aligned layers would push a no-op onto the undo stack that
+/// the user then has to press undo to clear.
+fn align_batch(
+    graph: &mut crate::DocumentGraph,
+    targets: &[crate::AlignTarget],
+    offsets: &[(f32, f32)],
+) -> Vec<crate::GraphCommand> {
+    const EPSILON: f32 = 0.05;
+    let mut batch = Vec::new();
+    for (target, (dx, dy)) in targets.iter().zip(offsets) {
+        if dx.abs() < EPSILON && dy.abs() < EPSILON {
+            continue;
+        }
+        // Every member of a target takes the same offset, so a group keeps its
+        // internal arrangement instead of collapsing onto one edge.
+        for id in &target.members {
+            let Some(layer) = graph.get(*id) else {
+                continue;
+            };
+            let prev = layer.transform;
+            let next = LayerTransform {
+                translate_x: prev.translate_x + dx,
+                translate_y: prev.translate_y + dy,
+                ..prev
+            };
+            if graph.set_transform(*id, next).is_some() {
+                batch.push(crate::GraphCommand::SetTransform {
+                    id: *id,
+                    prev,
+                    next,
+                });
+            }
+        }
+    }
+    batch
 }
 
 fn break_clips_whose_base_deleted(

@@ -3,8 +3,8 @@
 use crate::document::DocumentGraph;
 use crate::filter_plan::FilterPlan;
 use crate::layer::{
-    AdjustmentParams, BlendMode, FillContent, FilterEffect, Layer, LayerId, LayerMask, LockFlags,
-    ShapeContent,
+    AdjustmentParams, BlendMode, FillContent, FilterEffect, Layer, LayerId, LayerMask,
+    LayerTransform, LockFlags, ShapeContent,
 };
 use crate::layer_style::LayerStyle;
 use crate::paths::PathDocument;
@@ -66,6 +66,17 @@ pub enum GraphCommand {
         id: LayerId,
         prev: bool,
         next: bool,
+    },
+    /// Layer placement, written by align/distribute rather than by the gizmo.
+    ///
+    /// The free-transform gizmo commits by baking pixels and resetting the
+    /// transform to the identity, so it needs no undo entry here. Aligning
+    /// leaves the transform live, which means the *transform* is the edit and
+    /// history has to be able to put the old one back.
+    SetTransform {
+        id: LayerId,
+        prev: LayerTransform,
+        next: LayerTransform,
     },
     SetAdjustment {
         id: LayerId,
@@ -165,6 +176,7 @@ impl GraphCommand {
             Self::SetClipsToBelow { id, next, .. } => {
                 graph.set_clips_to_below(*id, *next).is_some()
             }
+            Self::SetTransform { id, next, .. } => graph.set_transform(*id, *next).is_some(),
             Self::SetAdjustment { id, next, .. } => {
                 graph.set_adjustment(*id, next.clone()).is_some()
             }
@@ -330,6 +342,11 @@ impl GraphCommand {
                 next: prev.clone(),
             },
             Self::SetLocks { id, prev, next } => Self::SetLocks {
+                id: *id,
+                prev: *next,
+                next: *prev,
+            },
+            Self::SetTransform { id, prev, next } => Self::SetTransform {
                 id: *id,
                 prev: *next,
                 next: *prev,

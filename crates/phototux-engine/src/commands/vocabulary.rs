@@ -31,6 +31,12 @@ pub mod command_id {
     pub const LAYER_UNGROUP: &str = "layer.ungroup";
     pub const LAYER_SET_CLIP: &str = "layer.set-clip";
     pub const LAYER_SET_LOCKS: &str = "layer.set-locks";
+    /// Align or distribute the selected layers by their measured content.
+    ///
+    /// One command for all eight operations rather than eight commands: they
+    /// differ only in which edge they read, and a per-operation command would
+    /// need a constant, a router arm, a handler and a taxonomy row each.
+    pub const LAYER_ALIGN: &str = "layer.align";
 
     pub const VIEW_ZOOM_TO: &str = "view.zoom-to";
     pub const VIEW_ZOOM_TO_FIT: &str = "view.zoom-to-fit";
@@ -151,6 +157,7 @@ pub mod command_id {
         LAYER_UNGROUP,
         LAYER_SET_CLIP,
         LAYER_SET_LOCKS,
+        LAYER_ALIGN,
         VIEW_ZOOM_TO,
         VIEW_ZOOM_TO_FIT,
         VIEW_PAN_TO,
@@ -279,6 +286,16 @@ pub enum CommandArgs {
     },
     SetBlend {
         blend: String,
+    },
+    /// Align or distribute layers by boxes the host measured on the GPU.
+    ///
+    /// The boxes arrive as arguments because this crate cannot read pixels,
+    /// and every layer here is document-sized — so the only meaningful edges
+    /// are the ones around its visible content, which only the host can see.
+    /// Deciding what to do with them stays in the engine.
+    AlignLayers {
+        op: crate::AlignOp,
+        targets: Vec<crate::AlignTarget>,
     },
     Reorder {
         to_index: i32,

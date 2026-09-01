@@ -280,6 +280,44 @@ Transform records state matrix convention, pivot semantics, interpolation policy
 
 Changing parent normally preserves either local transform or document-space appearance according to explicit command parameter. Drag-and-drop presentation must state which policy applies. Reparent preserving appearance computes a new local transform transactionally and rejects numeric instability.
 
+### Align and Distribute
+
+Aligning cannot mean aligning layer rectangles, because every raster layer in a
+document is document-sized and every rectangle is therefore the same rectangle.
+The edges that matter are the ones around a layer's *visible* pixels: the
+bounding box of its non-transparent samples, mapped into the document by the
+layer's transform.
+
+That splits the work across the crate boundary. Measurement needs pixels, which
+live on the GPU, so `phototux_ui` reads each target layer back and calls
+`content_bounds` and `placed_bounds`. Everything about *where the layers end up*
+is decided in `phototux_engine::align`, which can be tested without a device:
+which frame an operation aligns to, how many targets it needs, and how the
+spacing is computed. The measured boxes reach the engine as `AlignTarget`
+values on the `layer.align` command.
+
+The frame is the union of the targets when there are two or more, and the canvas
+when there is exactly one — aligning a single layer to its own bounding box is a
+no-op, so the only useful reading of "align this layer" is "align it to the
+document". Distribution requires three targets: with two, both are already the
+extremes and there is nothing in between to respace. It distributes by *centre*
+rather than by gap, so boxes of different sizes land on an even rhythm and the
+result does not shift when a layer's transparent margin changes.
+
+A group is one target holding every member, because the compositor does not pass
+a group's transform down to its children — the only way to move a group is to
+move each member by the same amount, and counting a group's members separately
+would space them out instead of moving the group. Layers with nothing visible
+(an empty layer, an adjustment) contribute no box and are left out.
+
+The move is written into each layer's translation rather than baked into its
+pixels. The composite already honours `layer.transform`, so aligning stays
+non-destructive, survives into `.ptx`, and one `GraphCommand::SetTransform`
+batch is one undo entry however many layers moved. Offsets under a twentieth of
+a pixel are dropped, so realigning already-aligned layers is refused rather than
+pushing a no-op onto the undo stack. Any target with its position locked refuses
+the whole operation: a partial alignment reads as a broken alignment.
+
 ## Clipping, Isolation, Effects, and Masks
 
 Clipping chains associate one or more layers with a valid base in the same compositing context. They do not create containment. Chain rules define base eligibility, order, alpha source, group boundaries, hidden-base behavior, and reordering consequences. Removing or moving the base either breaks the chain through explicit transaction effects or rejects if command scope did not authorize that change.

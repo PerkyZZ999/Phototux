@@ -17,13 +17,14 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    CommandArgs, CommandEffects, CommandError, CropRect, DabMode, DocumentGraph, DocumentRegistry,
-    DocumentSize, EngineCommand, EngineEvent, FilterParams, GradientKind, GradientRamp, Guide,
-    GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
-    LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect,
-    SelectionShape, SelectionState, SessionState, ShapeBooleanPartner, ShapePreset, TextContent,
-    TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
-    parse_selection_modify_arg, stroke_path_rgba8, tool_id,
+    AlignOp, AlignTarget, CommandArgs, CommandEffects, CommandError, CropRect, DabMode,
+    DocumentGraph, DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams,
+    GradientKind, GradientRamp, Guide, GuideOrientation, HistoryKind, HostFollowUp,
+    HostHistoryAction, Layer, LayerId, LayerKind, LayerTransform, OpenDocumentId, PathPoint,
+    SelectionCombine, SelectionModifyOp, SelectionRect, SelectionShape, SelectionState,
+    SessionState, ShapeBooleanPartner, ShapePreset, TextContent, TransformSession, VectorPath,
+    WorkspaceState, bake_text_rgba8, command_id, parse_selection_modify_arg, stroke_path_rgba8,
+    tool_id,
 };
 use prefs::Preferences;
 use selection_path::PathVerdict;
@@ -193,6 +194,7 @@ pub struct AppSession {
     gradient_kind: String,
     /// The gradient shapes, for the tool options.
     gradient_kinds_json: String,
+    align_ops_json: String,
     selection_preview_active: bool,
     selection_preview_x: i32,
     selection_preview_y: i32,
@@ -483,6 +485,7 @@ impl AppSession {
                     .collect::<Vec<_>>(),
             )
             .unwrap_or_else(|_| "[]".into()),
+            align_ops_json: phototux_engine::align_ops_json(),
             selection_preview_active: false,
             selection_preview_x: 0,
             selection_preview_y: 0,
@@ -1786,6 +1789,8 @@ impl AppSession {
             "has_mask" => self.has_document && self.active_layer_has_mask() && !busy,
             "no_mask" => self.has_document && !self.active_layer_has_mask() && !busy,
             "has_multiple_layers" => self.has_document && self.layer_count > 1 && !busy,
+            // Distributing needs something in the middle to space out.
+            "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
         }
     }
@@ -1985,6 +1990,7 @@ impl AppSession {
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
             "document.rotate_90" => self.rotate_canvas_90_cw(),
             "text.bake" => self.bake_text_layer(),
+            "layer.align" => self.align_layers(arg.unwrap_or_default().to_owned()),
             "shape.create" => self.add_shape_layer(arg.unwrap_or("rect").to_owned()),
             "shape.rasterize" => self.rasterize_shape_layer(),
             "path.stroke" => self.stroke_active_path_to_layer(),
@@ -2841,6 +2847,11 @@ impl AppSession {
         Notify = gradient_kinds_json_changed
     );
     qproperty!(
+        "alignOpsJson",
+        Member = align_ops_json,
+        Notify = align_ops_json_changed
+    );
+    qproperty!(
         "selectionPreviewActive",
         Member = selection_preview_active,
         Notify = selection_preview_active_changed
@@ -3450,6 +3461,8 @@ impl AppSession {
     fn gradient_kind_changed(&mut self);
     #[qsignal]
     fn gradient_kinds_json_changed(&mut self);
+    #[qsignal]
+    fn align_ops_json_changed(&mut self);
     #[qsignal]
     fn selection_preview_active_changed(&mut self);
     #[qsignal]
@@ -6037,6 +6050,102 @@ impl AppSession {
             .announce("Text baked to pixels — editable text discarded");
         self.status_text = "Text baked to pixels — editable text discarded".to_owned();
         self.status_text_changed();
+    }
+
+    /// Align or distribute the object selection (`op`: an [`AlignOp`] key).
+    ///
+    /// The measuring happens here rather than in the engine because every
+    /// layer is document-sized: the only edges worth aligning are the ones
+    /// around each layer's visible pixels, and the pixels live on the GPU.
+    /// Once measured, the engine decides where everything goes.
+    #[qslot]
+    fn align_layers(&mut self, op: String) {
+        let Some(op) = AlignOp::parse(&op) else {
+            self.set_status(format!("Unknown align operation: {op}"));
+            return;
+        };
+        let targets = self.align_targets();
+        if targets.len() < op.min_targets() {
+            self.set_status(format!(
+                "{} needs {} layers with visible content",
+                op.label(),
+                op.min_targets()
+            ));
+            return;
+        }
+        if let Err(error) = self.invoke_command(
+            command_id::LAYER_ALIGN,
+            CommandArgs::AlignLayers { op, targets },
+        ) {
+            self.report_action_error(&error.to_string());
+        }
+    }
+
+    /// Measure what the object selection would move, one target per object.
+    ///
+    /// A group becomes a single target holding every member, because the
+    /// compositor does not pass a group's transform to its children — the only
+    /// way to move a group is to move each member by the same amount. Layers
+    /// with nothing visible (an empty layer, an adjustment) contribute no box
+    /// and are left out rather than aligned to a rectangle that is not there.
+    fn align_targets(&mut self) -> Vec<AlignTarget> {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return Vec::new();
+        };
+        let ids = if self.engine.selected_layer_ids.is_empty() {
+            graph.active_id().into_iter().collect::<Vec<_>>()
+        } else {
+            self.engine.selected_layer_ids.clone()
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        let mut targets = Vec::new();
+        for id in ids {
+            let Some(layer) = graph.get(id) else {
+                continue;
+            };
+            let members: Vec<LayerId> = if layer.kind == LayerKind::Group {
+                graph
+                    .layers()
+                    .iter()
+                    .filter(|l| l.parent == Some(id))
+                    .map(|l| l.id)
+                    .collect()
+            } else {
+                vec![id]
+            };
+            if let Some(bounds) = self.union_placed_bounds(&members, w, h) {
+                targets.push(AlignTarget { bounds, members });
+            }
+        }
+        targets
+    }
+
+    /// Combined document-space box of `ids`, or `None` when none has content.
+    fn union_placed_bounds(
+        &self,
+        ids: &[LayerId],
+        w: u32,
+        h: u32,
+    ) -> Option<phototux_engine::Rect> {
+        let graph = self.engine.graph.as_ref()?;
+        let mut boxes = Vec::new();
+        for id in ids {
+            let Some(layer) = graph.get(*id) else {
+                continue;
+            };
+            let Ok((lw, lh, pixels)) = phototux_canvas::read_layer_rgba(*id) else {
+                continue;
+            };
+            if let Some(source) = phototux_engine::content_bounds(&pixels, lw, lh) {
+                boxes.push(phototux_engine::placed_bounds(
+                    source,
+                    layer.transform,
+                    w,
+                    h,
+                ));
+            }
+        }
+        (!boxes.is_empty()).then(|| phototux_engine::align_frame(&boxes, boxes[0]))
     }
 
     /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).

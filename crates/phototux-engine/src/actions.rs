@@ -104,6 +104,11 @@ fn filter_action_id(kind: &str) -> String {
     format!("action.filter.{kind}")
 }
 
+/// Action id for one align-or-distribute entry.
+fn align_action_id(key: &str) -> String {
+    format!("action.layer.align-{key}")
+}
+
 /// Action id for the "add layer style" entry of one style kind.
 fn style_action_id(kind: &str) -> String {
     format!("action.layer.{kind}")
@@ -701,6 +706,31 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .arg(&tool.id)
         .key(&tool.shortcut)
         .icon(&tool.icon_key)
+    }));
+    // Align and Distribute, generated from `AlignOp`. Two submenus rather
+    // than one, and directly under Layer, because that is where Photoshop
+    // files them — a user arriving from Photoshop should find them without
+    // hunting. Distribution is enabled only from three layers up: with two,
+    // the ends are already fixed and the command would accept the click and
+    // then do nothing.
+    actions.extend(crate::AlignOp::ALL.into_iter().map(|op| {
+        act(
+            &align_action_id(op.as_str()),
+            op.label(),
+            if op.is_distribute() {
+                "layer.distribute"
+            } else {
+                "layer.align"
+            },
+            if op.is_distribute() {
+                "has_three_layers"
+            } else {
+                "has_document"
+            },
+        )
+        .host("layer.align")
+        .arg(op.as_str())
+        .icon(op.icon_key())
     }));
     // One Layer Style submenu entry per style kind. Four hand-written entries
     // against a four-variant enum was not yet drift, but each also needed its
