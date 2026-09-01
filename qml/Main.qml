@@ -3419,21 +3419,42 @@ ApplicationWindow {
                             id: layerControls
                             Layout.fillWidth: true
                             Layout.margins: Theme.spaceSm
+                            // Controls for a layer that is not there read as
+                            // broken chrome rather than as an empty document.
+                            visible: AppSession.hasDocument
                             blendModes: root.blendModes
                         }
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 1
+                            Layout.preferredHeight: visible ? 1 : 0
+                            visible: AppSession.hasDocument
                             color: Theme.border
                         }
-                        LayersPanel {
+                        Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            iconUrl: root.iconUrl
-                            maskEditActive: root.maskEditActive
-                            onContextMenuRequested: function (stackIndex, origin, localX, localY) {
-                                layerContextMenu.targetIndex = stackIndex
-                                root.openContextMenu(layerContextMenu, origin, localX, localY)
+
+                            // A document always has at least one layer, so an
+                            // empty list means there is no document — not that
+                            // the layers went missing.
+                            PanelPlaceholder {
+                                anchors.fill: parent
+                                visible: !AppSession.hasDocument
+                                iconKey: "stack-simple"
+                                iconUrl: root.iconUrl
+                                text: qsTr("No document open")
+                                hint: qsTr("Open or create one to see its layers.")
+                            }
+
+                            LayersPanel {
+                                anchors.fill: parent
+                                visible: AppSession.hasDocument
+                                iconUrl: root.iconUrl
+                                maskEditActive: root.maskEditActive
+                                onContextMenuRequested: function (stackIndex, origin, localX, localY) {
+                                    layerContextMenu.targetIndex = stackIndex
+                                    root.openContextMenu(layerContextMenu, origin, localX, localY)
+                                }
                             }
                         }
                     }
@@ -3485,6 +3506,23 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? 120 : 0
                     color: Theme.surfaceSunken
+
+                    // Two empty states, because the guidance differs: with no
+                    // document there is nothing to have a history of, and with
+                    // one open the list simply has not been written to yet.
+                    PanelPlaceholder {
+                        anchors.fill: parent
+                        visible: historyList.count === 0
+                        iconKey: "clock-counter-clockwise"
+                        iconUrl: root.iconUrl
+                        text: AppSession.hasDocument
+                              ? qsTr("No history yet")
+                              : qsTr("No document open")
+                        hint: AppSession.hasDocument
+                              ? qsTr("Edits you make will be listed here, newest last.")
+                              : qsTr("Open or create one to start a history.")
+                    }
+
                     ListView {
                         id: historyList
                         anchors.fill: parent

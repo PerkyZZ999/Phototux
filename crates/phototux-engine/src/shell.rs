@@ -639,6 +639,65 @@ mod tests {
                 action.id
             );
         }
+
+        // Icons the shell names directly, which no descriptor mentions. The
+        // sweep above only covers stems the *engine* declares, so a glyph
+        // written into QML by hand — a panel placeholder, a dialog badge —
+        // shipped blank with nothing to say so.
+        for (file, stems) in qml_icon_literals() {
+            for stem in stems {
+                assert!(
+                    packaged.contains(&stem.as_str()),
+                    "{file} names icon {stem:?}, which the qrc does not carry"
+                );
+            }
+        }
+    }
+
+    /// Icon stems written as literals in `qml/`, by file.
+    ///
+    /// Matches `iconKey: "stem"` and `iconUrl("stem")` — the two forms the
+    /// shell uses to name a glyph that comes from nowhere else. Interpolated
+    /// stems (`root.toolIconStem(...)`) resolve from descriptors and are
+    /// already covered above.
+    fn qml_icon_literals() -> Vec<(String, Vec<String>)> {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
+        let mut out = Vec::new();
+        let entries = std::fs::read_dir(dir).expect("qml/ is readable from the engine crate");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "qml") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("qml file is readable");
+            let mut stems = Vec::new();
+            for (marker, closer) in [("iconKey: \"", '"'), ("iconUrl(\"", '"')] {
+                for chunk in text.split(marker).skip(1) {
+                    if let Some(stem) = chunk.split(closer).next()
+                        && !stem.is_empty()
+                        && stem
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c == '-' || c.is_ascii_digit())
+                    {
+                        stems.push(stem.to_owned());
+                    }
+                }
+            }
+            if !stems.is_empty() {
+                stems.sort_unstable();
+                stems.dedup();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                out.push((name, stems));
+            }
+        }
+        assert!(
+            !out.is_empty(),
+            "no icon literals found in qml/ — the scan broke rather than the shell"
+        );
+        out
     }
 
     use super::*;

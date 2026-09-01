@@ -61,6 +61,7 @@ set(ICON_NAMES
     circle-half
     circle-half-tilt
     circle-notch
+    clock-counter-clockwise
     corners-in
     crop
     diamond
@@ -104,6 +105,7 @@ set(ICON_NAMES
     selection-plus
     shapes
     sparkle
+    stack-simple
     stamp
     sun-dim
     text-t

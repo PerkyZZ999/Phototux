@@ -10,6 +10,29 @@ The central rule is:
 
 > Users manipulate document objects through semantic actions presented in context. Views reveal state; they do not become state owners.
 
+## Empty Panels
+
+A dock panel with nothing to list shows a placeholder, never a blank rectangle.
+An empty sunken rectangle says nothing: a user cannot tell "there is nothing
+here yet" from "this panel is broken" or "I am looking at the wrong panel". The
+placeholder names what *will* fill the panel, so an empty state carries the same
+information scent as a full one.
+
+Where the guidance differs by cause, the placeholder differs too. History has
+two: with no document there is nothing to have a history of, and with one open
+the list simply has not been written to yet. Layers has one, because a document
+always has at least one layer — an empty list there means there is no document,
+not that the layers went missing.
+
+Controls belonging to absent content are hidden rather than disabled. The
+Layers panel's blend, opacity and lock strip is not shown when no document is
+open: chrome for a layer that is not there reads as broken rather than as an
+empty document.
+
+Placeholders are deliberately quiet — muted text, a dimmed glyph, no border. An
+empty panel is a normal state, not a warning, and one loud enough to compete
+with the canvas would be worse than the blank rectangle it replaces.
+
 ## Panel Vocabulary
 
 `default_panels()` is the list of panels, and every entry must be one the shell
