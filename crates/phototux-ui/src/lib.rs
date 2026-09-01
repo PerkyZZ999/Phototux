@@ -60,6 +60,29 @@ fn resolve_icon_root() -> String {
     "qrc:/qt/qml/PhotoTux/App/icons".to_owned()
 }
 
+/// Recoverable snapshots as the chooser reads them.
+///
+/// A projection rather than the stored `RecoveryEntry` itself: the chooser
+/// needs a label a person can tell apart, and the stored entry's fields are
+/// the ones the *restore* path needs. It used to publish the raw entry, and the
+/// chooser built each row's name from the first eight characters of
+/// `document_id` — which are structurally always zero, so every row read
+/// "Untitled (00000000)".
+fn recovery_entries_view_json(entries: &[phototux_io::RecoveryEntry]) -> String {
+    let rows: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "id": entry.document_id,
+                "shortId": entry.short_id(),
+                "path": entry.original_path,
+                "savedMs": entry.saved_unix_ms as f64,
+            })
+        })
+        .collect();
+    serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
+}
+
 /// The active layer's blend ranges, as the Properties panel reads them.
 ///
 /// Stops are published as `0..=255` because that is the scale on Photoshop's
@@ -5086,8 +5109,7 @@ impl AppSession {
     #[qslot]
     fn sync_recovery_list_fields(&mut self) {
         let entries = list_recoverable().unwrap_or_default();
-        self.recovery_entries_json =
-            serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into());
+        self.recovery_entries_json = recovery_entries_view_json(&entries);
     }
 
     #[qslot]
@@ -5126,6 +5148,26 @@ impl AppSession {
             }
             Err(error) => self.fail_io("Recover", &error.to_string()),
         }
+    }
+
+    /// Discard every recoverable snapshot.
+    ///
+    /// Reachable in one step because the list is unbounded: a session that
+    /// crashed repeatedly leaves dozens of entries, and clearing them one at a
+    /// time is the kind of chore people abandon halfway. The chooser makes the
+    /// caller confirm before this runs — it permanently deletes unsaved work.
+    #[qslot]
+    fn discard_all_recovery(&mut self) {
+        let Ok(entries) = list_recoverable() else {
+            return;
+        };
+        let count = entries.len();
+        for entry in &entries {
+            let _ = discard_recovery(entry);
+        }
+        self.sync_recovery_list_fields();
+        self.emit_recovery_list();
+        self.set_status(format!("Discarded {count} recovery snapshot(s)"));
     }
 
     #[qslot]

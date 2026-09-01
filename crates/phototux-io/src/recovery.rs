@@ -20,6 +20,24 @@ pub struct RecoveryEntry {
     pub dirty: bool,
 }
 
+impl RecoveryEntry {
+    /// Short identifier for telling two untitled snapshots apart.
+    ///
+    /// The **last** eight hex digits, not the first. `document_id` is a
+    /// zero-padded 128-bit value built from nanoseconds since the epoch xored
+    /// with the pid shifted left 64 — nanoseconds occupy the low 64 bits and a
+    /// pid a further 22 or so, which leaves the top 32 bits permanently zero.
+    /// The first eight characters are therefore `00000000` for every document
+    /// that will ever exist, and a chooser using them labelled every row
+    /// identically.
+    #[must_use]
+    pub fn short_id(&self) -> &str {
+        let id = self.document_id.as_str();
+        let start = id.len().saturating_sub(8);
+        &id[start..]
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RecoveryError {
     #[error(transparent)]
@@ -172,5 +190,41 @@ mod tests {
         unsafe {
             std::env::remove_var("XDG_STATE_HOME");
         }
+    }
+
+    /// Two snapshots taken by the same build must be distinguishable.
+    #[test]
+    fn short_ids_differ_between_documents() {
+        // Real ids: nanoseconds since the epoch xored with a shifted pid. The
+        // top half is structurally zero, which is the whole reason `short_id`
+        // reads from the end.
+        let entry = |id: &str| RecoveryEntry {
+            document_id: id.to_owned(),
+            original_path: None,
+            snapshot_path: String::new(),
+            saved_unix_ms: 0,
+            dirty: true,
+        };
+        let a = entry("0000000000241342488570709a4b1a2d");
+        let b = entry("0000000000241342488570709a4b7f01");
+        assert_eq!(a.short_id(), "9a4b1a2d");
+        assert_ne!(a.short_id(), b.short_id(), "two snapshots looked identical");
+        assert_ne!(
+            a.short_id(),
+            "00000000",
+            "the leading digits are always zero and must not be used"
+        );
+    }
+
+    #[test]
+    fn a_short_id_survives_an_id_shorter_than_eight_characters() {
+        let entry = RecoveryEntry {
+            document_id: "abc".to_owned(),
+            original_path: None,
+            snapshot_path: String::new(),
+            saved_unix_ms: 0,
+            dirty: true,
+        };
+        assert_eq!(entry.short_id(), "abc");
     }
 }

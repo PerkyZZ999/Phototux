@@ -228,7 +228,7 @@ Rectangle {
                     visible: root.isMove
                     label: qsTr("Align")
                     Repeater {
-                        model: root.alignOps
+                        model: root.alignOps.filter(op => !op.distribute)
                         delegate: ToolButton {
                             id: alignButton
                             required property var modelData
@@ -258,6 +258,53 @@ Rectangle {
                             background: Rectangle {
                                 radius: Theme.radiusSm
                                 color: alignButton.hovered && alignButton.enabled
+                                       ? Theme.surfaceContainerHigh
+                                       : "transparent"
+                            }
+                        }
+                    }
+                }
+                // Distribution is its own labelled run rather than two more
+                // buttons on the end of Align: they answer a different question
+                // ("space these evenly", not "line these up"), they need a
+                // third layer where aligning needs one, and Photoshop separates
+                // them the same way. Eight unlabelled icons in one row is also
+                // more than a glance can parse.
+                Divider { visible: root.isMove }
+                Field {
+                    visible: root.isMove
+                    label: qsTr("Distribute")
+                    Repeater {
+                        model: root.alignOps.filter(op => op.distribute)
+                        delegate: ToolButton {
+                            id: distributeButton
+                            required property var modelData
+                            readonly property bool available:
+                                AppSession.hasDocument
+                                && AppSession.layerCount >= distributeButton.modelData.minTargets
+                            implicitWidth: Theme.controlHeight
+                            implicitHeight: Theme.controlHeight
+                            padding: 0
+                            enabled: distributeButton.available
+                            onClicked: AppSession.alignLayers(distributeButton.modelData.id)
+                            ToolTip.visible: hovered
+                            ToolTip.text: distributeButton.available
+                                          ? distributeButton.modelData.label
+                                          : qsTr("%1 — needs %2 layers")
+                                            .arg(distributeButton.modelData.label)
+                                            .arg(distributeButton.modelData.minTargets)
+                            Accessible.name: distributeButton.modelData.label
+                            contentItem: ThemedIcon {
+                                anchors.centerIn: parent
+                                source: Theme.iconUrl(AppSession.iconRoot,
+                                                      distributeButton.modelData.icon)
+                                size: Theme.iconMd
+                                color: distributeButton.enabled ? Theme.iconOnSurfaceEffective
+                                                                : Theme.iconDisabledEffective
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: distributeButton.hovered && distributeButton.enabled
                                        ? Theme.surfaceContainerHigh
                                        : "transparent"
                             }

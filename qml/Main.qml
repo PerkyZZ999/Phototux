@@ -914,16 +914,6 @@ ApplicationWindow {
             }
         }
         Menu {
-            id: selectMenu
-            title: qsTr("&Select")
-            Instantiator {
-                model: root.actionsForMenu("select")
-                delegate: actionMenuItem
-                onObjectAdded: (index, object) => selectMenu.insertItem(index, object)
-                onObjectRemoved: (index, object) => selectMenu.removeItem(object)
-            }
-        }
-        Menu {
             id: imageMenu
             title: qsTr("&Image")
             Instantiator {
@@ -1030,6 +1020,20 @@ ApplicationWindow {
                 }
             }
         }
+        // Select sits between Layer and Filter, which is where Photoshop keeps
+        // it. It used to be between Edit and Image, so anyone reaching for
+        // Image by position opened Select instead — the exact relearning cost
+        // matching Photoshop's layout is meant to remove.
+        Menu {
+            id: selectMenu
+            title: qsTr("&Select")
+            Instantiator {
+                model: root.actionsForMenu("select")
+                delegate: actionMenuItem
+                onObjectAdded: (index, object) => selectMenu.insertItem(index, object)
+                onObjectRemoved: (index, object) => selectMenu.removeItem(object)
+            }
+        }
         Menu {
             id: filterMenu
             title: qsTr("Filte&r")
@@ -1128,12 +1132,29 @@ ApplicationWindow {
             modal: true
             title: qsTr("Recover unsaved work")
             header: ThemedDialogHeader { text: recoveryDialog.title }
-            width: 440
+            width: 460
             standardButtons: Dialog.Close
             onClosed: {
+                recoveryDialog.confirmingDiscardAll = false
                 if (!AppSession.hasDocument && !AppSession.ioBusy)
                     welcomeDialog.open()
             }
+
+            readonly property var entries: {
+                try {
+                    return JSON.parse(AppSession.recoveryEntriesJson || "[]")
+                } catch (e) {
+                    return []
+                }
+            }
+            /// Second press of "Discard All" is the one that deletes.
+            ///
+            /// Discarding every snapshot destroys unsaved work permanently, and
+            /// a second modal stacked on this one is worse than arming the
+            /// button in place — the confirmation stays where the user's
+            /// attention already is, and moving the pointer away disarms it.
+            property bool confirmingDiscardAll: false
+
             background: Rectangle {
                 color: Theme.surface
                 border.color: Theme.border
@@ -1141,47 +1162,156 @@ ApplicationWindow {
             }
             contentItem: ColumnLayout {
                 spacing: Theme.spaceSm
-                width: 400
+                width: 420
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    text: qsTr("PhotoTux found autosaved documents from a previous session.")
+                    text: recoveryDialog.entries.length === 1
+                          ? qsTr("PhotoTux found 1 autosaved document from a previous session.")
+                          : qsTr("PhotoTux found %1 autosaved documents from a previous session.")
+                            .arg(recoveryDialog.entries.length)
                     color: Theme.colorOnSurface
                     font.pixelSize: Theme.fontBody
                 }
-                Repeater {
-                    model: {
-                        try {
-                            return JSON.parse(AppSession.recoveryEntriesJson || "[]")
-                        } catch (e) {
-                            return []
-                        }
+                // Capped and scrollable. A bare Repeater in this column grew the
+                // dialog by one row per snapshot, and a session that had crashed
+                // a few times pushed Close off the bottom of the screen — the
+                // chooser became unclosable exactly when it was needed most.
+                ListView {
+                    id: recoveryList
+                    Layout.fillWidth: true
+                    // A whole number of rows, measured rather than assumed: a
+                    // guessed row height leaves the last one sliced in half,
+                    // which reads as a broken list rather than a scrollable one.
+                    Layout.preferredHeight: {
+                        if (count <= 0)
+                            return 0
+                        var row = contentHeight / count
+                        return Math.min(contentHeight, Math.floor(5) * row)
                     }
-                    delegate: RowLayout {
+                    visible: count > 0
+                    clip: true
+                    spacing: Theme.spaceXs
+                    boundsBehavior: Flickable.StopAtBounds
+                    // Always on when there is more than fits: five rows out of
+                    // twenty-three with no scrollbar reads as "eighteen are
+                    // missing", not as "scroll for the rest".
+                    ScrollBar.vertical: ScrollBar {
+                        policy: recoveryList.contentHeight > recoveryList.height
+                                ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    }
+                    model: recoveryDialog.entries
+                    // The band is the delegate's own root rather than a child
+                    // anchored inside the row: a Layout manages its children's
+                    // geometry, so an anchored sibling in there fights it and
+                    // takes a slot of its own — which collapsed every row after
+                    // the first.
+                    delegate: Rectangle {
+                        id: recoveryRow
                         required property var modelData
-                        Layout.fillWidth: true
-                        spacing: Theme.spaceSm
-                        Label {
-                            Layout.fillWidth: true
-                            elide: Text.ElideMiddle
-                            text: modelData.original_path && modelData.original_path.length
-                                  ? modelData.original_path
-                                  : qsTr("Untitled (%1)").arg(modelData.document_id.slice(0, 8))
-                            color: Theme.colorOnSurface
-                            font.pixelSize: Theme.fontBodySm
-                        }
-                        Button {
-                            text: qsTr("Restore")
-                            onClicked: {
-                                AppSession.restoreRecovery(modelData.document_id)
-                                recoveryDialog.close()
+                        width: recoveryList.width
+                        implicitHeight: rowBody.implicitHeight + Theme.spaceXs
+                        radius: Theme.radiusSm
+                        // A hover band, the way Plasma's list views mark the row
+                        // under the pointer. With two actions per row and rows
+                        // that differ only by a timestamp, it is what keeps a
+                        // click aimed at the row it looks aimed at.
+                        color: rowHover.hovered ? Theme.surfaceContainerHigh : "transparent"
+                        HoverHandler { id: rowHover }
+
+                        RowLayout {
+                            id: rowBody
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.spaceXs
+                            anchors.rightMargin: Theme.spaceXs
+                            spacing: Theme.spaceSm
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Label {
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideMiddle
+                                    text: recoveryRow.modelData.path
+                                          && recoveryRow.modelData.path.length
+                                          ? recoveryRow.modelData.path
+                                          : qsTr("Untitled (%1)").arg(recoveryRow.modelData.shortId)
+                                    color: Theme.colorOnSurface
+                                    font.pixelSize: Theme.fontBodySm
+                                }
+                                // The time is what actually tells two untitled
+                                // snapshots apart; the id is only a tiebreaker.
+                                Label {
+                                    text: Qt.formatDateTime(
+                                              new Date(recoveryRow.modelData.savedMs),
+                                              Locale.ShortFormat)
+                                    color: Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontLabelSm
+                                }
+                            }
+                            Button {
+                                text: qsTr("Restore")
+                                onClicked: {
+                                    AppSession.restoreRecovery(recoveryRow.modelData.id)
+                                    recoveryDialog.close()
+                                }
+                            }
+                            Button {
+                                text: qsTr("Discard")
+                                flat: true
+                                Accessible.name: qsTr("Discard this snapshot permanently")
+                                contentItem: Label {
+                                    text: parent.text
+                                    color: parent.hovered ? Theme.error : Theme.colorOnSurfaceMuted
+                                    font.pixelSize: Theme.fontBodySm
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                onClicked: {
+                                    AppSession.discardRecoveryEntry(recoveryRow.modelData.id)
+                                    recoveryDialog.confirmingDiscardAll = false
+                                }
                             }
                         }
-                        Button {
-                            text: qsTr("Discard")
-                            flat: true
-                            onClicked: AppSession.discardRecoveryEntry(modelData.document_id)
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    visible: recoveryDialog.entries.length === 0
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Nothing left to recover.")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontBodySm
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: recoveryDialog.entries.length > 1
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        flat: true
+                        text: recoveryDialog.confirmingDiscardAll
+                              ? qsTr("Delete %1 permanently").arg(recoveryDialog.entries.length)
+                              : qsTr("Discard All")
+                        Accessible.name: text
+                        contentItem: Label {
+                            text: parent.text
+                            color: recoveryDialog.confirmingDiscardAll
+                                   ? Theme.error : Theme.colorOnSurfaceMuted
+                            font.pixelSize: Theme.fontBodySm
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
+                        onClicked: {
+                            if (recoveryDialog.confirmingDiscardAll) {
+                                AppSession.discardAllRecovery()
+                                recoveryDialog.confirmingDiscardAll = false
+                            } else {
+                                recoveryDialog.confirmingDiscardAll = true
+                            }
+                        }
+                        // Wandering off disarms it, so an armed button cannot be
+                        // triggered later by a click aimed at something else.
+                        onHoveredChanged: if (!hovered) recoveryDialog.confirmingDiscardAll = false
                     }
                 }
             }
