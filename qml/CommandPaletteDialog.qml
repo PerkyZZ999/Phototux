@@ -169,7 +169,7 @@ Popup {
             font.weight: Font.DemiBold
         }
 
-        TextField {
+        ThemedTextField {
             id: paletteField
             Layout.fillWidth: true
             placeholderText: qsTr("Filter commands…")

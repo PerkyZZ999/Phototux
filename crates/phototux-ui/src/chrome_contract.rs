@@ -151,11 +151,16 @@ mod tests {
     fn every_slider_tells_assistive_technology_what_it_adjusts() {
         let mut checked = 0;
         for (name, text) in qml_files() {
-            for (line, body) in blocks_of(&text, "Slider") {
+            // The themed component's own root is a `Slider` with no name; the
+            // instances of it are what a screen reader meets.
+            if name == "ThemedSlider.qml" {
+                continue;
+            }
+            for (line, body) in blocks_of(&text, "ThemedSlider") {
                 checked += 1;
                 assert!(
                     body.contains("Accessible.name"),
-                    "{name}:{line} is a Slider with no Accessible.name — a screen \
+                    "{name}:{line} is a slider with no Accessible.name — a screen \
                      reader announces it as an unnamed slider"
                 );
             }
@@ -189,6 +194,8 @@ mod tests {
                 ("CheckBox", "ThemedCheckBox"),
                 ("ComboBox", "ThemedComboBox"),
                 ("SpinBox", "ThemedSpinBox"),
+                ("Slider", "ThemedSlider"),
+                ("TextField", "ThemedTextField"),
             ] {
                 // The themed component is allowed to *be* the bare control.
                 if name == format!("{themed}.qml") {

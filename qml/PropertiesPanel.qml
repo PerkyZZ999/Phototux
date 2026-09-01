@@ -670,11 +670,6 @@ ColumnLayout {
             }
 
             Label {
-                text: qsTr("Character")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontBodySm
-            }
-            Label {
                 visible: !AppSession.textLayerActive
                 text: qsTr("Click the canvas with the Text tool to create a text layer.")
                 color: Theme.colorOnSurfaceMuted
@@ -682,7 +677,7 @@ ColumnLayout {
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
             }
-            TextField {
+            ThemedTextField {
                 id: textBodyField
                 Layout.fillWidth: true
                 enabled: AppSession.textLayerActive
@@ -785,7 +780,7 @@ ColumnLayout {
                     color: Theme.colorOnSurface
                     font.pixelSize: Theme.fontBodySm
                 }
-                TextField {
+                ThemedTextField {
                     id: textColorField
                     Layout.fillWidth: true
                     enabled: AppSession.textLayerActive
@@ -890,11 +885,6 @@ ColumnLayout {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.spaceXs
-            Label {
-                text: qsTr("Fill")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontBodySm
-            }
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spaceSm
@@ -903,7 +893,7 @@ ColumnLayout {
                     color: Theme.colorOnSurfaceVariant
                     font.pixelSize: Theme.fontLabelSm
                 }
-                TextField {
+                ThemedTextField {
                     Layout.fillWidth: true
                     text: AppSession.fillColorHex
                     onEditingFinished: AppSession.setActiveFillHex(text)
@@ -979,7 +969,7 @@ ColumnLayout {
                             font.family: "Noto Sans Mono"
                         }
                     }
-                    Slider {
+                    ThemedSlider {
                         Layout.fillWidth: true
                         from: slotEditor.modelData.min
                         to: slotEditor.modelData.max
@@ -1070,7 +1060,7 @@ ColumnLayout {
                         font.pixelSize: Theme.fontBodySm
                         Layout.preferredWidth: 52
                     }
-                    Slider {
+                    ThemedSlider {
                         id: smartScale
                         Layout.fillWidth: true
                         from: 0.05
@@ -1101,7 +1091,7 @@ ColumnLayout {
                         font.pixelSize: Theme.fontBodySm
                         Layout.preferredWidth: 52
                     }
-                    Slider {
+                    ThemedSlider {
                         id: smartRotation
                         Layout.fillWidth: true
                         from: -180
@@ -1198,7 +1188,7 @@ ColumnLayout {
                     color: colorRow.hex
                     border.color: Theme.border
                 }
-                TextField {
+                ThemedTextField {
                     id: hexField
                     Layout.fillWidth: true
                     text: colorRow.hex
@@ -1276,7 +1266,7 @@ ColumnLayout {
                     font.pixelSize: Theme.fontBodySm
                     Layout.preferredWidth: 44
                 }
-                Slider {
+                ThemedSlider {
                     id: strokeWidth
                     Layout.fillWidth: true
                     from: 0
@@ -1411,9 +1401,14 @@ ColumnLayout {
                     onClicked: AppSession.setActiveTool("tool.crop")
                 }
             }
+            // Only once a session is running. While the starter row above is
+            // showing, this said "Free Transform" directly under a button
+            // reading "Free Transform" — the same words three times in six
+            // rows, in the panel with the least height to spend on them.
             Label {
-                text: root.isCropTool() || AppSession.cropPreviewActive
-                      ? qsTr("Crop") : qsTr("Free Transform")
+                visible: AppSession.transformActive || AppSession.cropPreviewActive
+                text: AppSession.cropPreviewActive
+                      ? qsTr("Crop in progress") : qsTr("Transform in progress")
                 color: Theme.colorOnSurface
                 font.pixelSize: Theme.fontBodySm
             }
@@ -1477,7 +1472,7 @@ ColumnLayout {
                     color: Theme.colorOnSurface
                     font.pixelSize: Theme.fontBodySm
                 }
-                Slider {
+                ThemedSlider {
                     Accessible.name: qsTr("Rotate, %1 degrees").arg(Math.round(AppSession.transformRot))
                     Layout.fillWidth: true
                     from: -180
@@ -1665,7 +1660,7 @@ ColumnLayout {
             color: Theme.colorOnSurfaceVariant
             font.pixelSize: Theme.fontLabelSm
         }
-        Slider {
+        ThemedSlider {
             Layout.fillWidth: true
             from: 0
             to: 1
@@ -1686,7 +1681,7 @@ ColumnLayout {
             color: Theme.colorOnSurfaceVariant
             font.pixelSize: Theme.fontLabelSm
         }
-        Slider {
+        ThemedSlider {
             Layout.fillWidth: true
             from: 0
             to: 64
@@ -1702,7 +1697,7 @@ ColumnLayout {
             color: Theme.colorOnSurfaceVariant
             font.pixelSize: Theme.fontLabelSm
         }
-        Slider {
+        ThemedSlider {
             Layout.fillWidth: true
             from: -1
             to: 1
@@ -1718,7 +1713,7 @@ ColumnLayout {
             color: Theme.colorOnSurfaceVariant
             font.pixelSize: Theme.fontLabelSm
         }
-        Slider {
+        ThemedSlider {
             Layout.fillWidth: true
             from: -1
             to: 1
@@ -1803,7 +1798,7 @@ ColumnLayout {
                                 font.pixelSize: Theme.fontLabelSm
                                 Layout.preferredWidth: 64
                             }
-                            Slider {
+                            ThemedSlider {
                                 Layout.fillWidth: true
                                 from: styleSlot.modelData.min
                                 to: styleSlot.modelData.max
@@ -1935,7 +1930,7 @@ ColumnLayout {
                         font.pixelSize: Theme.fontLabelSm
                         Layout.preferredWidth: 74
                     }
-                    Slider {
+                    ThemedSlider {
                         Layout.fillWidth: true
                         from: 0
                         to: 255
@@ -2109,7 +2104,7 @@ ColumnLayout {
                     font.family: "Noto Sans Mono"
                 }
             }
-            Slider {
+            ThemedSlider {
                 Accessible.name: qsTr("Gaussian blur radius, %1 pixels").arg(AppSession.gaussianRadius.toFixed(1))
                 visible: AppSession.hasGaussianBlur
                 Layout.fillWidth: true

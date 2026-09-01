@@ -59,28 +59,10 @@ ColumnLayout {
     }
 
     /// One lock toggle. Three buttons that differ only in label and action.
-    component LockButton: Button {
-        id: lockButton
+    component LockButton: ThemedButton {
         required property string actionId
         Layout.fillWidth: true
-        implicitHeight: Theme.controlHeight
         enabled: AppSession.hasDocument
-        Accessible.name: text
-        background: Rectangle {
-            radius: Theme.radiusSm
-            color: lockButton.down || lockButton.hovered
-                   ? Theme.surfaceRaised : Theme.surfaceContainer
-            border.color: Theme.borderSubtle
-            border.width: 1
-            opacity: lockButton.enabled ? 1.0 : 0.55
-        }
-        contentItem: Text {
-            text: lockButton.text
-            color: lockButton.enabled ? Theme.colorOnSurface : Theme.colorOnSurfaceDisabled
-            font.pixelSize: Theme.fontLabel
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
     }
 
     // Row 1 — blend mode and opacity, side by side the way Photoshop pairs them.
@@ -111,7 +93,7 @@ ColumnLayout {
             color: Theme.colorOnSurfaceMuted
             font.pixelSize: Theme.fontLabelSm
         }
-        Slider {
+        ThemedSlider {
             id: opacitySlider
             Layout.fillWidth: true
             Layout.preferredWidth: 1

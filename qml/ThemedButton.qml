@@ -58,11 +58,11 @@ Button {
                 return Theme.surfaceContainerHigh
             return control._accent
         }
-        border.color: control.activeFocus
+        border.color: control.visualFocus
                       ? Theme.focusRing
                       : (control.prominence === "normal" && !control.flat
                          ? Theme.borderSubtle : "transparent")
-        border.width: (control.activeFocus
+        border.width: (control.visualFocus
                        || (control.prominence === "normal" && !control.flat)) ? 1 : 0
         // Dimmed rather than greyed: the label keeps its contrast ratio, and
         // a disabled button still has to be readable to say why it is there.

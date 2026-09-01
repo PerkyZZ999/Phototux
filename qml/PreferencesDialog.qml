@@ -333,7 +333,7 @@ Dialog {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spaceSm
-                TextField {
+                ThemedTextField {
                     id: userWorkspacePresetName
                     Layout.fillWidth: true
                     placeholderText: qsTr("Name for current layout")

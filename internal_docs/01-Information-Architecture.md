@@ -704,6 +704,26 @@ Options-bar content is chosen by **presence**, not disclosure: an absent control
 
 A control whose absence would strand the user **MUST NOT** live in an overflow region. Commit and cancel for an uncommitted operation are the clear case: they stay outside any scrolling area, because a narrow window scrolling them out of reach leaves the document in a state the user cannot resolve from the surface that created it.
 
+### Reading a Panel That Does Not Fit
+
+The dock is the narrowest surface in the application and its panels routinely
+hold more than fits. A panel in that state **MUST** say so without being
+touched: the scroll bar is pinned on whenever the content exceeds the height,
+and the cut edge fades. `AsNeeded` was not enough — it shows the bar only while
+flicking, so a section heading sliced in half by a hard edge read as a
+rendering fault rather than as "there is more below".
+
+The scroll bar is an overlay, so the panel body reserves its width at the right
+margin whether or not the bar is showing. Making that margin depend on the
+bar's visibility would feed the content width back into the height that decides
+that visibility.
+
+A label **MUST NOT** repeat the heading directly above it. Three separate
+sections opened with a row restating their own group title — "Fill" under
+*Fill*, "Character" under *Character*, "Free Transform" under a button reading
+*Free Transform* — each spending a row of the panel with the least height to
+spend on saying nothing.
+
 ### Inspector Badge Rules
 
 Header badges are **derived from host state, never from the group's widgets**. The rules are a pure function of an inspector state snapshot, so a badge is computed identically whether or not the body exists, and each rule is testable without a running shell.

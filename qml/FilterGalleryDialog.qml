@@ -97,7 +97,7 @@ Dialog {
                     color: Theme.colorOnSurface
                     font.pixelSize: Theme.fontBodySm
                 }
-                Slider {
+                ThemedSlider {
                     Layout.fillWidth: true
                     from: slotRow.modelData.min
                     to: slotRow.modelData.max

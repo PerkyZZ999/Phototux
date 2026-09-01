@@ -3034,6 +3034,7 @@ ApplicationWindow {
                 }
 
                 Flickable {
+                    id: propertiesFlick
                     visible: root.panelShowsInDock("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2 + 1
                     Layout.column: 0
@@ -3065,8 +3066,32 @@ ApplicationWindow {
                     contentHeight: propsCol.implicitHeight
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
+                    // Pinned on whenever there is more than fits. `AsNeeded`
+                    // shows the bar only while flicking, so a panel that had
+                    // clipped a section's heading mid-word looked broken
+                    // rather than scrollable — the one thing a dense dock has
+                    // to say without being touched.
                     ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
+                        policy: propertiesFlick.contentHeight > propertiesFlick.height
+                                ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    }
+
+                    // A fade at the cut, for the same reason: a heading sliced
+                    // in half by a hard edge reads as a rendering fault, and
+                    // the same heading fading out reads as "there is more".
+                    Rectangle {
+                        parent: propertiesFlick
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: Theme.spaceLg
+                        z: 10
+                        visible: propertiesFlick.contentHeight - propertiesFlick.contentY
+                                 > propertiesFlick.height + 1
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "transparent" }
+                            GradientStop { position: 1.0; color: Theme.surface }
+                        }
                     }
 
                     PropertiesPanel {
@@ -3075,6 +3100,13 @@ ApplicationWindow {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.margins: Theme.spaceMd
+                        // The scroll bar is an overlay, so it lands on top of
+                        // whatever is at the right edge — it was clipping the
+                        // border of every full-width button. Reserved whether
+                        // or not the bar is showing: making the margin depend
+                        // on its visibility would feed the content width back
+                        // into the height that decides that visibility.
+                        anchors.rightMargin: Theme.spaceMd + Theme.spaceSm
                         spacing: Theme.spaceMd
 
                         iconUrl: root.iconUrl
@@ -3424,20 +3456,13 @@ ApplicationWindow {
                                 }
                             }
 
-                            TextField {
+                            ThemedTextField {
                                 id: hexField
                                 Layout.fillWidth: true
                                 text: AppSession.foregroundHex
-                                selectByMouse: true
                                 Accessible.name: qsTr("Foreground hex")
                                 font.family: "Noto Sans Mono"
                                 font.pixelSize: Theme.fontMono
-                                color: Theme.colorOnSurface
-                                background: Rectangle {
-                                    color: Theme.surfaceContainer
-                                    border.color: parent.activeFocus ? Theme.primary : Theme.border
-                                    radius: Theme.radiusSm
-                                }
                                 onActiveFocusChanged: root.refreshShortcutYield()
                                 onEditingFinished: AppSession.setForegroundHex(text)
                                 Keys.onReturnPressed: {

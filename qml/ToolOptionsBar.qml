@@ -190,7 +190,7 @@ Rectangle {
                 Field {
                     visible: root.isBrushLike
                     label: qsTr("Size")
-                    Slider {
+                    ThemedSlider {
                         Layout.preferredWidth: 110
                         from: 1
                         to: 500
@@ -206,7 +206,7 @@ Rectangle {
                 Field {
                     visible: root.isBrushLike
                     label: qsTr("Hardness")
-                    Slider {
+                    ThemedSlider {
                         Layout.preferredWidth: 90
                         from: 0
                         to: 1
@@ -222,7 +222,7 @@ Rectangle {
                 Field {
                     visible: root.isBrushLike
                     label: qsTr("Texture")
-                    Slider {
+                    ThemedSlider {
                         Layout.preferredWidth: 90
                         from: 0
                         to: 1
@@ -365,7 +365,7 @@ Rectangle {
                 Field {
                     visible: root.isColorSelect
                     label: qsTr("Tolerance")
-                    Slider {
+                    ThemedSlider {
                         implicitWidth: 120
                         from: 0
                         to: 1
@@ -436,7 +436,7 @@ Rectangle {
                 Field {
                     visible: root.tool === "tool.fill"
                     label: qsTr("Fill")
-                    TextField {
+                    ThemedTextField {
                         Layout.preferredWidth: 90
                         text: AppSession.fillColorHex
                         onEditingFinished: AppSession.setActiveFillHex(text)

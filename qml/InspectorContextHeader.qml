@@ -80,10 +80,10 @@ ColumnLayout {
             color: tab.current
                    ? Theme.toolActiveBg
                    : (tab.hovered ? Theme.surfaceContainerHigh : "transparent")
-            border.color: tab.activeFocus
+            border.color: tab.visualFocus
                           ? Theme.focusRing
                           : (tab.current ? Theme.primary : "transparent")
-            border.width: (tab.current || tab.activeFocus) ? 1 : 0
+            border.width: (tab.current || tab.visualFocus) ? 1 : 0
         }
         contentItem: Text {
             text: tab.text
@@ -120,10 +120,10 @@ ColumnLayout {
             color: chip.current
                    ? Theme.surfaceRaised
                    : (chip.hovered ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-            border.color: chip.activeFocus
+            border.color: chip.visualFocus
                           ? Theme.focusRing
                           : (chip.current ? Theme.primary : Theme.border)
-            border.width: (chip.current || chip.activeFocus) ? 2 : 1
+            border.width: (chip.current || chip.visualFocus) ? 2 : 1
         }
         contentItem: Item {
             ThemedIcon {
