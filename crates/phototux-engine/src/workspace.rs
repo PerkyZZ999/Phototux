@@ -190,6 +190,19 @@ impl WorkspaceState {
         Ok(())
     }
 
+    /// Record a dragged panel height.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not docked.
+    pub fn set_panel_height(&mut self, panel_id: &str, height: u32) -> Result<(), &'static str> {
+        let before = self.dock.clone();
+        self.dock.set_panel_height(panel_id, height)?;
+        if self.dock != before {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(())
+    }
+
     /// Absolute reorder by stack indices.
     ///
     /// # Errors
@@ -396,5 +409,18 @@ mod tests {
             .expect("essentials has a multi-tab group");
         ws.dock.set_active_tab(&group[1]).expect("raise second tab");
         assert_eq!(ws.effective_active_tab(&group[0]), Some(group[1].clone()));
+    }
+
+    #[test]
+    fn resetting_the_workspace_forgets_dragged_panel_heights() {
+        // "Reset Workspace" replaces the whole topology, so this falls out of
+        // the reset rather than needing a clear of its own — which is why there
+        // is no separate command for it.
+        let mut ws = WorkspaceState::essentials();
+        ws.set_panel_height("panel.properties", 420)
+            .expect("docked");
+        assert_eq!(ws.dock.panel_height("panel.properties"), Some(420));
+        ws.reset_essentials();
+        assert_eq!(ws.dock.panel_height("panel.properties"), None);
     }
 }

@@ -4320,6 +4320,23 @@ impl AppSession {
         self.commit_workspace_op(outcome, "Panel move failed");
     }
 
+    /// Commit a dragged panel height.
+    ///
+    /// The shell drags in pixels and commits on release rather than on every
+    /// motion event: each commit bumps the workspace revision and writes prefs,
+    /// which is not something a drag should do sixty times a second.
+    #[qslot]
+    fn set_panel_height(&mut self, panel_id: String, height: i32) {
+        let Ok(height) = u32::try_from(height) else {
+            return;
+        };
+        let outcome = self
+            .workspace
+            .set_panel_height(&panel_id, height)
+            .map_err(|reason| reason.to_string());
+        self.commit_workspace_op(outcome, "Panel resize failed");
+    }
+
     /// Reorder right stack by indices (DnD commit).
     #[qslot]
     fn reorder_panel_in_stack(&mut self, from: i32, to: i32) {

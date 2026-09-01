@@ -196,6 +196,102 @@ ApplicationWindow {
         return out
     }
 
+    /// Live per-panel body heights while a grip is being dragged.
+    ///
+    /// The committed value lives in the dock topology; this is the in-flight
+    /// one, so the panel follows the pointer without writing preferences on
+    /// every motion event.
+    property var panelHeightDrafts: ({})
+    /// Bumped whenever a draft changes.
+    ///
+    /// A binding that reads a `var` property does not reliably re-evaluate when
+    /// that property is reassigned — the resolved map went stale after the
+    /// first drag step while the drag itself kept reporting the right numbers.
+    /// An int changes by value and always notifies, so the bindings read this
+    /// as well; the same `var _ = …` idiom the tool shelf already uses to make
+    /// a dependency explicit.
+    property int panelHeightRevision: 0
+
+    /// The height the shell gives a panel that the user has never dragged.
+    ///
+    /// The one home for these numbers. `-1` means the panel is not resizable:
+    /// Swatches sizes to its content and Layers takes whatever is left, so
+    /// neither has a height of its own to drag — resizing Layers really means
+    /// resizing everything above it, which is what the other grips already do.
+    function panelDefaultHeight(panelId, dockHeight) {
+        switch (panelId) {
+        case "panel.properties":
+            // Keeps Layers and History above the status bar in an untouched
+            // dock. Only a default now — a dragged height overrides it.
+            return Math.min(dockHeight * 0.42,
+                            Math.max(0, dockHeight - Theme.dockStackReserve))
+        case "panel.navigator":
+            return 132
+        case "panel.history":
+            return 120
+        }
+        return -1
+    }
+
+    function panelIsResizable(panelId, dockHeight) {
+        return root.panelDefaultHeight(panelId, dockHeight) >= 0
+    }
+
+    /// The docked panel immediately above `panelId`, or "" when it is the first.
+    ///
+    /// A group's identity for sizing is its *active tab*, because that is the
+    /// panel whose body is on screen and therefore the one a seam resizes.
+    function panelAboveInStack(panelId) {
+        var row = root.dockStackRow(panelId)
+        if (row <= 0 || row >= 1000)
+            return ""
+        var groups = root.dockGroups
+        var above = groups[row - 1]
+        if (!above)
+            return ""
+        return above.active || (above.tabs || [])[0] || ""
+    }
+
+    /// Panel id → the height the user has chosen, live drag winning over the
+    /// committed value. Absent means "the shell decides".
+    ///
+    /// A property rather than a function, because a binding that resolves a
+    /// height by *calling* a helper did not re-evaluate when the drafts
+    /// changed: the panel stayed put while the drag reported the right numbers
+    /// the whole way. Bindings index this directly, so the dependency is a
+    /// plain property read and cannot be missed.
+    readonly property var resolvedPanelHeights: {
+        var _ = root.panelHeightRevision
+        var out = {}
+        var stored = root.dockTopology.panel_heights || {}
+        for (var id in stored)
+            out[id] = stored[id]
+        var drafts = root.panelHeightDrafts
+        for (var live in drafts)
+            out[live] = drafts[live]
+        return out
+    }
+
+    // Both of these build a *new* object rather than mutating and reassigning.
+    // A `property var` holding the same reference emits no change signal, so
+    // mutating in place left every binding on it stale — the panel did not
+    // follow the drag, and the commit then wrote back the height it started
+    // with.
+    function setPanelHeightDraft(panelId, height) {
+        var drafts = Object.assign({}, root.panelHeightDrafts)
+        drafts[panelId] = height
+        root.panelHeightDrafts = drafts
+        root.panelHeightRevision += 1
+    }
+
+    function commitPanelHeight(panelId, height) {
+        var drafts = Object.assign({}, root.panelHeightDrafts)
+        delete drafts[panelId]
+        root.panelHeightDrafts = drafts
+        root.panelHeightRevision += 1
+        AppSession.setPanelHeight(panelId, height)
+    }
+
     function panelIsDocked(panelId) {
         return root.dockStackRow(panelId) < 1000
     }
@@ -2876,6 +2972,28 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
+                    // The seam between this group and the one above it. The dock
+                    // had no such affordance at all — every panel's height was a
+                    // constant in the shell, so Properties was permanently capped
+                    // at a fraction of the dock and its longer groups could only
+                    // be scrolled. Hidden on the topmost group, and on a neighbour
+                    // that sizes to its own content and so has no height to drag.
+                    PanelResizeGrip {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: -2
+                        readonly property string above: root.panelAboveInStack("panel.properties")
+                        readonly property real dockHeight: rightDock.height
+                        visible: above.length > 0 && root.panelIsResizable(above, dockHeight)
+                        panelId: above
+                        currentHeight: root.panelHeightRevision >= 0
+                                       && root.resolvedPanelHeights[above] !== undefined
+                                       ? root.resolvedPanelHeights[above]
+                                       : root.panelDefaultHeight(above, dockHeight)
+                        onPreviewed: (height) => root.setPanelHeightDraft(above, height)
+                        onCommitted: (height) => root.commitPanelHeight(above, height)
+                    }
                     Rectangle {
                         anchors.bottom: parent.bottom
                         width: parent.width
@@ -2944,8 +3062,21 @@ ApplicationWindow {
                         var h = parent.height
                         if (h <= 0)
                             return 0
-                        return Math.min(h * 0.42, Math.max(0, h - Theme.dockStackReserve))
+                        // The automatic cap is only the *default* now: it keeps
+                        // Layers and History above the status bar in a dock the
+                        // user has never touched. A dragged height overrides it.
+                        var _rev = root.panelHeightRevision
+                        var chosen = root.resolvedPanelHeights["panel.properties"]
+                        return chosen !== undefined
+                               ? chosen
+                               : root.panelDefaultHeight("panel.properties", h)
                     }
+                    // Pinned to the preferred height, or the layout squeezes it
+                    // straight back: once a panel is dragged taller the stack's
+                    // preferred sizes add up to more than the dock, and a
+                    // GridLayout resolves that by compressing whatever has no
+                    // minimum. The Layers body fills, so it is what yields.
+                    Layout.minimumHeight: Layout.preferredHeight
                     contentHeight: propsCol.implicitHeight
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -2983,6 +3114,22 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
+                    PanelResizeGrip {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: -2
+                        readonly property string above: root.panelAboveInStack("panel.navigator")
+                        readonly property real dockHeight: rightDock.height
+                        visible: above.length > 0 && root.panelIsResizable(above, dockHeight)
+                        panelId: above
+                        currentHeight: root.panelHeightRevision >= 0
+                                       && root.resolvedPanelHeights[above] !== undefined
+                                       ? root.resolvedPanelHeights[above]
+                                       : root.panelDefaultHeight(above, dockHeight)
+                        onPreviewed: (height) => root.setPanelHeightDraft(above, height)
+                        onCommitted: (height) => root.commitPanelHeight(above, height)
+                    }
                     Rectangle {
                         anchors.top: parent.top
                         width: parent.width
@@ -3033,7 +3180,14 @@ ApplicationWindow {
                     Layout.row: root.dockStackRow("panel.navigator") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? 132 : 0
+                    Layout.preferredHeight: visible && root.panelHeightRevision >= 0
+                                            ? (root.resolvedPanelHeights["panel.navigator"]
+                                               !== undefined
+                                               ? root.resolvedPanelHeights["panel.navigator"]
+                                               : root.panelDefaultHeight("panel.navigator",
+                                                                         parent.height))
+                                            : 0
+                    Layout.minimumHeight: Layout.preferredHeight
                     color: Theme.surfaceSunken
                     clip: true
 
@@ -3131,6 +3285,22 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
+                    PanelResizeGrip {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: -2
+                        readonly property string above: root.panelAboveInStack("panel.swatches")
+                        readonly property real dockHeight: rightDock.height
+                        visible: above.length > 0 && root.panelIsResizable(above, dockHeight)
+                        panelId: above
+                        currentHeight: root.panelHeightRevision >= 0
+                                       && root.resolvedPanelHeights[above] !== undefined
+                                       ? root.resolvedPanelHeights[above]
+                                       : root.panelDefaultHeight(above, dockHeight)
+                        onPreviewed: (height) => root.setPanelHeightDraft(above, height)
+                        onCommitted: (height) => root.commitPanelHeight(above, height)
+                    }
                     Rectangle {
                         anchors.top: parent.top
                         width: parent.width
@@ -3328,6 +3498,22 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
+                    PanelResizeGrip {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: -2
+                        readonly property string above: root.panelAboveInStack("panel.layers")
+                        readonly property real dockHeight: rightDock.height
+                        visible: above.length > 0 && root.panelIsResizable(above, dockHeight)
+                        panelId: above
+                        currentHeight: root.panelHeightRevision >= 0
+                                       && root.resolvedPanelHeights[above] !== undefined
+                                       ? root.resolvedPanelHeights[above]
+                                       : root.panelDefaultHeight(above, dockHeight)
+                        onPreviewed: (height) => root.setPanelHeightDraft(above, height)
+                        onCommitted: (height) => root.commitPanelHeight(above, height)
+                    }
                     Rectangle {
                         anchors.top: parent.top
                         width: parent.width
@@ -3478,6 +3664,22 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.panelHeaderHeight : 0
                     color: Theme.surfaceContainer
+                    PanelResizeGrip {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: -2
+                        readonly property string above: root.panelAboveInStack("panel.history")
+                        readonly property real dockHeight: rightDock.height
+                        visible: above.length > 0 && root.panelIsResizable(above, dockHeight)
+                        panelId: above
+                        currentHeight: root.panelHeightRevision >= 0
+                                       && root.resolvedPanelHeights[above] !== undefined
+                                       ? root.resolvedPanelHeights[above]
+                                       : root.panelDefaultHeight(above, dockHeight)
+                        onPreviewed: (height) => root.setPanelHeightDraft(above, height)
+                        onCommitted: (height) => root.commitPanelHeight(above, height)
+                    }
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spaceSm
@@ -3514,7 +3716,14 @@ ApplicationWindow {
                     Layout.row: root.dockStackRow("panel.history") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? 120 : 0
+                    Layout.preferredHeight: visible && root.panelHeightRevision >= 0
+                                            ? (root.resolvedPanelHeights["panel.history"]
+                                               !== undefined
+                                               ? root.resolvedPanelHeights["panel.history"]
+                                               : root.panelDefaultHeight("panel.history",
+                                                                         parent.height))
+                                            : 0
+                    Layout.minimumHeight: Layout.preferredHeight
                     color: Theme.surfaceSunken
 
                     // Two empty states, because the guidance differs: with no

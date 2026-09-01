@@ -10,6 +10,43 @@ The central rule is:
 
 > Users manipulate document objects through semantic actions presented in context. Views reveal state; they do not become state owners.
 
+## Resizable Dock Panels
+
+The seam between two stacked dock panels is draggable, and the height is
+remembered. Every panel's height used to be a constant in the shell, so
+Properties was permanently capped at a fraction of the dock and its longer
+groups could only be scrolled.
+
+The grip sits on the top edge of a panel header and resizes the panel *above*
+it, which is the seam a user aims at — the line they can see between the two.
+It is a hairline until approached. Hidden on the topmost group, and on a
+neighbour that has no height of its own to drag: Swatches sizes to its content
+and Layers takes whatever is left.
+
+Committed heights live in `DockTopology::panel_heights`, keyed by panel id and
+absent for a panel the user has never dragged — absent means "the shell
+decides", and writing a default for every panel would freeze a layout decision
+the shell should still be free to change. Undocking a panel forgets its height,
+and "Reset Workspace" clears them all by replacing the topology.
+
+Two things the implementation has to get right, both found by getting them
+wrong:
+
+- A resized body must pin `Layout.minimumHeight` to its preferred height. Once
+  a panel is dragged taller the stack's preferred sizes exceed the dock, and a
+  `GridLayout` resolves that by compressing whatever has no minimum — so the
+  panel springs straight back. The Layers body fills, so it is what yields.
+- A binding that resolves a height by *calling a helper* which reads a `var`
+  property does not reliably re-evaluate when that property is reassigned. The
+  drag reported the right numbers the whole way while the panel stayed put. An
+  `int` revision, bumped on every change and read by each binding, is the
+  dependency that cannot be missed — the same `var _ = …` idiom the tool shelf
+  uses.
+
+The commit is computed from the pointer position at *release*, not from the last
+preview: motion events are not guaranteed, and a resize that depends on having
+seen them commits the height it started with.
+
 ## Messages
 
 Transient messages are **toasts**, stacked bottom-centre over the canvas. They

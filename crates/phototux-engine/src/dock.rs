@@ -51,6 +51,15 @@ pub struct DockTopology {
     /// first panel.
     #[serde(default)]
     pub active_tabs: Vec<String>,
+    /// Body height in pixels for panels the user has resized, by panel id.
+    ///
+    /// Absent means "use the shell's default for that panel", which is what
+    /// every panel starts with — storing a height for one the user has never
+    /// touched would freeze a layout decision the shell should still be free to
+    /// change. A `BTreeMap` so the serialised order is stable and two identical
+    /// layouts compare equal.
+    #[serde(default)]
+    pub panel_heights: std::collections::BTreeMap<String, u32>,
 }
 
 impl Default for DockTopology {
@@ -80,6 +89,7 @@ impl DockTopology {
             auto_hidden: Vec::new(),
             tabbed_with_previous: vec!["panel.swatches".into(), "panel.history".into()],
             active_tabs: Vec::new(),
+            panel_heights: std::collections::BTreeMap::new(),
         }
     }
 
@@ -114,6 +124,38 @@ impl DockTopology {
         selected.or_else(|| group.first().cloned())
     }
 
+    /// Smallest and largest body height a panel may be dragged to.
+    ///
+    /// The floor is enough to show a header's worth of content, so a panel
+    /// cannot be collapsed into an unrecoverable sliver — the user would have
+    /// no handle left to drag it back out with. The ceiling keeps one panel
+    /// from taking the whole dock and leaving the others with nothing.
+    pub const MIN_PANEL_HEIGHT: u32 = 64;
+    pub const MAX_PANEL_HEIGHT: u32 = 2000;
+
+    /// The stored height for `panel_id`, or `None` to use the shell's default.
+    #[must_use]
+    pub fn panel_height(&self, panel_id: &str) -> Option<u32> {
+        self.panel_heights.get(panel_id).copied()
+    }
+
+    /// Record a dragged height, clamped to the usable range.
+    ///
+    /// # Errors
+    /// Returns a static reason when the panel is not docked — a height for a
+    /// floating or unknown panel would be dead state that `validate` then has
+    /// to tolerate forever.
+    pub fn set_panel_height(&mut self, panel_id: &str, height: u32) -> Result<(), &'static str> {
+        if !self.is_docked(panel_id) {
+            return Err("panel is not docked");
+        }
+        self.panel_heights.insert(
+            panel_id.to_owned(),
+            height.clamp(Self::MIN_PANEL_HEIGHT, Self::MAX_PANEL_HEIGHT),
+        );
+        Ok(())
+    }
+
     /// Raise `panel_id` to be the visible tab of its group.
     ///
     /// # Errors
@@ -141,6 +183,10 @@ impl DockTopology {
         self.tabbed_with_previous
             .retain(|id| self.right_stack.contains(id));
         self.active_tabs.retain(|id| self.right_stack.contains(id));
+        // A height for an undocked panel is dead state that `validate` would
+        // then have to tolerate for ever.
+        let docked = self.right_stack.clone();
+        self.panel_heights.retain(|id, _| docked.contains(id));
         if let Some(first) = self.right_stack.first().cloned() {
             self.tabbed_with_previous.retain(|id| *id != first);
         }
@@ -601,6 +647,7 @@ mod tests {
             auto_hidden: Vec::new(),
             tabbed_with_previous: Vec::new(),
             active_tabs: Vec::new(),
+            panel_heights: std::collections::BTreeMap::new(),
         };
         assert!(topo.tear_off("panel.layers", 0, 0, 300, 200, "").is_err());
     }
@@ -662,5 +709,66 @@ mod tests {
         assert!(topo.is_docked("panel.navigator"));
         topo.pin("panel.navigator").expect("pin");
         assert!(!topo.is_auto_hidden("panel.navigator"));
+    }
+
+    #[test]
+    fn a_dragged_height_is_clamped_into_a_usable_range() {
+        let mut topo = DockTopology::essentials();
+        topo.set_panel_height("panel.layers", 1).expect("docked");
+        assert_eq!(
+            topo.panel_height("panel.layers"),
+            Some(DockTopology::MIN_PANEL_HEIGHT),
+            "a panel dragged to nothing has no handle left to drag back out"
+        );
+        topo.set_panel_height("panel.layers", 999_999)
+            .expect("docked");
+        assert_eq!(
+            topo.panel_height("panel.layers"),
+            Some(DockTopology::MAX_PANEL_HEIGHT)
+        );
+    }
+
+    #[test]
+    fn an_untouched_panel_stores_no_height() {
+        // Absent means "the shell decides". Writing a default for every panel
+        // would freeze a layout decision the shell should still be free to
+        // change between versions.
+        let topo = DockTopology::essentials();
+        assert!(topo.panel_heights.is_empty());
+        assert_eq!(topo.panel_height("panel.properties"), None);
+    }
+
+    #[test]
+    fn a_height_cannot_be_set_for_a_panel_that_is_not_docked() {
+        let mut topo = DockTopology::essentials();
+        assert!(topo.set_panel_height("panel.nope", 200).is_err());
+        assert!(topo.panel_heights.is_empty());
+    }
+
+    #[test]
+    fn undocking_a_panel_forgets_its_height() {
+        let mut topo = DockTopology::essentials();
+        topo.set_panel_height("panel.history", 200).expect("docked");
+        topo.tear_off("panel.history", 0, 0, 300, 200, "")
+            .expect("tear off");
+        assert_eq!(
+            topo.panel_height("panel.history"),
+            None,
+            "a height for an undocked panel is dead state validate must tolerate"
+        );
+        topo.validate().expect("still valid");
+    }
+
+    #[test]
+    fn a_topology_written_before_heights_existed_still_loads() {
+        let mut value = serde_json::to_value(DockTopology::essentials()).expect("serialize");
+        value
+            .as_object_mut()
+            .expect("object")
+            .remove("panel_heights")
+            .expect("the field must be there to strip");
+        let back: DockTopology = serde_json::from_value(value).expect("deserialize");
+        assert!(back.panel_heights.is_empty());
+        back.validate().expect("valid");
     }
 }
