@@ -55,6 +55,8 @@ pub mod command_id {
     pub const SELECTION_INVERT: &str = "selection.invert";
     pub const SELECTION_SELECT_ALL: &str = "selection.select-all";
     pub const SELECTION_MODIFY: &str = "selection.modify";
+    /// Select by colour from a seed pixel (magic wand / colour range).
+    pub const SELECTION_COLOR_SELECT: &str = "selection.color-select";
     /// Copy pixel selection R8 into the active layer mask (host GPU).
     pub const SELECTION_TO_MASK: &str = "selection.to-mask";
     /// Load active layer mask R8 into the pixel selection channel (host GPU).
@@ -168,6 +170,7 @@ pub mod command_id {
         SELECTION_INVERT,
         SELECTION_SELECT_ALL,
         SELECTION_MODIFY,
+        SELECTION_COLOR_SELECT,
         SELECTION_TO_MASK,
         MASK_TO_SELECTION,
         MASK_CREATE,
@@ -354,6 +357,14 @@ pub enum CommandArgs {
     /// [`crate::AdjustmentParams::editor_slots`].
     FilterParameters {
         slots: [f32; crate::MAX_ADJUSTMENT_SLOTS],
+    },
+    /// Seed and tolerance for a colour-based selection.
+    SelectionColorSelect {
+        /// `true` floods from the seed (magic wand); `false` takes every
+        /// matching pixel in the layer (colour range).
+        contiguous: bool,
+        tolerance: f32,
+        combine: SelectionCombine,
     },
     /// Layer-style kind key; see [`crate::LayerStyle::kind_key`].
     LayerStyleKind {

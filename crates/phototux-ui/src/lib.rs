@@ -187,6 +187,8 @@ pub struct AppSession {
     selection_h: i32,
     selection_shape: String,
     selection_combine: String,
+    /// Magic wand / colour range tolerance, 0..=1.
+    selection_tolerance: f32,
     selection_preview_active: bool,
     selection_preview_x: i32,
     selection_preview_y: i32,
@@ -462,6 +464,7 @@ impl AppSession {
             selection_h: 0,
             selection_shape: "rect".to_owned(),
             selection_combine: SelectionCombine::Replace.as_str().to_owned(),
+            selection_tolerance: 0.15,
             selection_preview_active: false,
             selection_preview_x: 0,
             selection_preview_y: 0,
@@ -2805,6 +2808,11 @@ impl AppSession {
         Notify = selection_combine_changed
     );
     qproperty!(
+        "selectionTolerance",
+        Member = selection_tolerance,
+        Notify = selection_tolerance_changed
+    );
+    qproperty!(
         "selectionPreviewActive",
         Member = selection_preview_active,
         Notify = selection_preview_active_changed
@@ -3408,6 +3416,8 @@ impl AppSession {
     fn selection_shape_changed(&mut self);
     #[qsignal]
     fn selection_combine_changed(&mut self);
+    #[qsignal]
+    fn selection_tolerance_changed(&mut self);
     #[qsignal]
     fn selection_preview_active_changed(&mut self);
     #[qsignal]
@@ -6208,6 +6218,58 @@ impl AppSession {
     /// Separate from the slot so the action registry path can reach it with
     /// the op it parsed, rather than rendering the op back to a string for the
     /// slot to parse a second time.
+    #[qslot]
+    fn set_selection_tolerance(&mut self, value: f32) {
+        let value = value.clamp(0.0, 1.0);
+        if (self.selection_tolerance - value).abs() < f32::EPSILON {
+            return;
+        }
+        self.selection_tolerance = value;
+        self.selection_tolerance_changed();
+    }
+
+    /// Select by colour at a document pixel — the magic wand and colour range.
+    ///
+    /// `contiguous` is the only difference between the two tools: the wand
+    /// floods from the seed, colour range takes every matching pixel.
+    #[qslot]
+    fn color_select_at(&mut self, doc_x: f32, doc_y: f32, contiguous: bool) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let (w, h) = (graph.size.width, graph.size.height);
+        if doc_x < 0.0 || doc_y < 0.0 {
+            return;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "guarded non-negative above and bounds-checked below"
+        )]
+        let (x, y) = (doc_x as u32, doc_y as u32);
+        if x >= w || y >= h {
+            return;
+        }
+        let Some(layer) = graph.active_id() else {
+            return;
+        };
+        let tolerance = self.selection_tolerance;
+        let combine = self.engine.selection.combine;
+        if !self.commit_selection_edit("color select", || {
+            phototux_canvas::selection_color_select(layer, x, y, tolerance, contiguous, combine)
+        }) {
+            return;
+        }
+        let _ = self.invoke_command(
+            command_id::SELECTION_COLOR_SELECT,
+            CommandArgs::SelectionColorSelect {
+                contiguous,
+                tolerance,
+                combine,
+            },
+        );
+    }
+
     fn apply_selection_modify(&mut self, op: SelectionModifyOp, radius: u32) {
         let Ok(mask) = phototux_canvas::selection_snapshot() else {
             return;

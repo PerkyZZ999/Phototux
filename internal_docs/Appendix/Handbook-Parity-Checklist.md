@@ -152,6 +152,7 @@ Chapters: [01](../01-Information-Architecture.md), [12](../12-Selection-System.m
 - [~] Commands/announce for each concept (`lastAnnounce` + status; full a11y flood-control later)
 - [x] Mask-edit target vs layer pixels clearly indicated
 - [~] Selection channel ops (replace/add/subtract/intersect) complete in chrome (tool options present)
+- [x] Magic Wand + Colour Range tools with tolerance; Smooth / Border added to the modify ops
 - [~] Marching-ants / overlay performance within interactive budgets (GPU ants shipped; SLO evidence → P13)
 - [x] Select → mask / mask → selection flows (`selection.to-mask`, `mask.to-selection`)
 

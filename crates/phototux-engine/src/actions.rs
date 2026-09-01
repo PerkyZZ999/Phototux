@@ -203,30 +203,6 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("selection.invert")
         .key("Ctrl+Shift+I"),
         act(
-            "action.select.feather",
-            "&Feather…",
-            "select",
-            "selection_active",
-        )
-        .host("selection.modify")
-        .arg("feather:4"),
-        act(
-            "action.select.expand",
-            "Expand",
-            "select",
-            "selection_active",
-        )
-        .host("selection.modify")
-        .arg("expand:2"),
-        act(
-            "action.select.contract",
-            "Contract",
-            "select",
-            "selection_active",
-        )
-        .host("selection.modify")
-        .arg("contract:2"),
-        act(
             "action.select.selection-to-mask",
             "Selection to &Mask",
             "select",
@@ -667,6 +643,21 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("app.recover_gpu")
         .icon("arrows-clockwise"),
     ];
+    // One Select-menu entry per modify op, generated from the vocabulary.
+    //
+    // A conformance test already refuses an op the user cannot invoke, and it
+    // fired the moment Smooth and Border were added — three hand-written
+    // entries against what is now a five-op vocabulary.
+    actions.extend(crate::SelectionModifyOp::ALL.into_iter().map(|op| {
+        act(
+            &format!("action.select.{}", op.action_suffix()),
+            op.label(),
+            "select",
+            "selection_active",
+        )
+        .host("selection.modify")
+        .arg(&format!("{}:{}", op.as_str(), op.menu_radius()))
+    }));
     // One Shape submenu entry per preset, and one Combine entry per boolean
     // op. Both were hand-written lists restating vocabularies that already
     // exist — `ShapePreset` and `BooleanOp` — with the same silent drift risk:

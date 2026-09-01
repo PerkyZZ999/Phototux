@@ -28,7 +28,11 @@ Rectangle {
     readonly property bool isBrushLike: tool === "tool.brush" || tool === "tool.eraser"
     readonly property bool isMarquee: tool === "tool.select.rect" || tool === "tool.select.ellipse"
     readonly property bool isLasso: tool === "tool.select.lasso" || tool === "tool.select.polygon"
-    readonly property bool isSelectLike: isMarquee || isLasso
+    // The wand and colour range differ only in whether the flood is
+    // contiguous, so they share every option including the combine mode.
+    readonly property bool isColorSelect: tool === "tool.select.wand"
+                                          || tool === "tool.select.color-range"
+    readonly property bool isSelectLike: isMarquee || isLasso || isColorSelect
 
     readonly property string toolTitle: {
         var all = AppSession.toolDescriptorsJson
@@ -158,6 +162,25 @@ Rectangle {
                 }
 
                 // ── Selection tools ───────────────────────────────────────
+                Field {
+                    visible: root.isColorSelect
+                    label: qsTr("Tolerance")
+                    Slider {
+                        implicitWidth: 120
+                        from: 0
+                        to: 1
+                        value: AppSession.selectionTolerance
+                        enabled: AppSession.hasDocument
+                        Accessible.name: qsTr("Colour tolerance")
+                        onMoved: AppSession.setSelectionTolerance(value)
+                    }
+                    Label {
+                        text: Math.round(AppSession.selectionTolerance * 100) + "%"
+                        color: Theme.primary
+                        font.pixelSize: Theme.fontMono
+                        font.family: "Noto Sans Mono"
+                    }
+                }
                 Field {
                     visible: root.isSelectLike
                     label: qsTr("Mode")

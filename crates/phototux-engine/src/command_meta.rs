@@ -192,6 +192,7 @@ pub const ALL: &[CommandMeta] = &[
     sel_tx(command_id::SELECTION_INVERT),
     sel_tx(command_id::SELECTION_SELECT_ALL),
     sel_tx(command_id::SELECTION_MODIFY),
+    sel_tx(command_id::SELECTION_COLOR_SELECT),
     doc_tx(command_id::SELECTION_TO_MASK),
     sel_tx(command_id::MASK_TO_SELECTION),
     doc_tx(command_id::MASK_CREATE),

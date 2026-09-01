@@ -103,7 +103,8 @@ pub use render_plan::{
 };
 pub use selection::{
     SelectionCombine, SelectionEllipse, SelectionModifyOp, SelectionRect, SelectionShape,
-    SelectionState, contract_mask_r8, expand_mask_r8, feather_mask_r8, parse_selection_modify_arg,
+    SelectionState, border_mask_r8, color_select_mask, contract_mask_r8, expand_mask_r8,
+    feather_mask_r8, parse_selection_modify_arg, smooth_mask_r8,
 };
 pub use shape_bake::{rasterize_shape_content, rgba_f32_to_u8};
 pub use shape_boolean::{BooleanOp, boolean_rgba8};
@@ -238,6 +239,8 @@ pub mod tool_id {
         SELECT_ELLIPSE => "tool.select.ellipse",
         SELECT_LASSO => "tool.select.lasso",
         SELECT_POLYGON => "tool.select.polygon",
+        SELECT_WAND => "tool.select.wand",
+        SELECT_COLOR_RANGE => "tool.select.color-range",
         MOVE => "tool.move",
         TRANSFORM => "tool.transform",
         CROP => "tool.crop",

@@ -129,6 +129,34 @@ impl SelectionMask {
         });
     }
 
+    /// Combine an R8 coverage buffer into the mask.
+    ///
+    /// The magic wand and colour range compute their coverage from layer
+    /// pixels in `phototux_engine`, which has no wgpu; this is how that answer
+    /// reaches the mask without the algorithm following it into this crate.
+    ///
+    /// # Errors
+    /// Returns an error when the coverage length does not match the mask.
+    pub fn apply_coverage(
+        &mut self,
+        ctx: &GpuContext,
+        coverage: &[u8],
+        combine: SelectionCombine,
+    ) -> Result<(), String> {
+        let expected = (self.width as usize) * (self.height as usize);
+        if coverage.len() != expected {
+            return Err(format!(
+                "coverage length {} != expected {expected}",
+                coverage.len()
+            ));
+        }
+        let stride = self.width as usize;
+        self.apply_predicate(ctx, combine, |x, y| {
+            coverage[(y as usize) * stride + (x as usize)] >= 128
+        });
+        Ok(())
+    }
+
     /// Raw Vulkan VkImage handle for zero-copy canvas ants (best-effort).
     pub fn texture_vk_handle(&self) -> Option<u64> {
         GpuContext::texture_vk_image_handle(&self.texture)

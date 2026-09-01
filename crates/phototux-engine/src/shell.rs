@@ -128,6 +128,20 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             group: "select".into(),
         },
         ToolDescriptor {
+            id: tool_id::SELECT_WAND.into(),
+            title: "Magic Wand".into(),
+            icon_key: "magic-wand".into(),
+            shortcut: "W".into(),
+            group: "select".into(),
+        },
+        ToolDescriptor {
+            id: tool_id::SELECT_COLOR_RANGE.into(),
+            title: "Color Range".into(),
+            icon_key: "selection-foreground".into(),
+            shortcut: "Shift+W".into(),
+            group: "select".into(),
+        },
+        ToolDescriptor {
             id: tool_id::SELECT_POLYGON.into(),
             title: "Polygonal Lasso".into(),
             icon_key: "polygon".into(),
@@ -483,6 +497,56 @@ pub fn tools_json() -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Every icon a descriptor names must be packaged into the QML resource.
+    ///
+    /// The qrc carries a hand-written list of icon stems, which CMake cannot
+    /// derive from these descriptors — so a tool or action naming an icon
+    /// nobody added to that list ships a blank button, silently. This reads
+    /// the list from the other side.
+    #[test]
+    fn every_icon_key_is_packaged_into_the_qrc() {
+        let cmake = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../phototux/qml-aot/CMakeLists.txt"
+        ))
+        .expect("qml-aot/CMakeLists.txt is readable from the engine crate");
+        let packaged: Vec<&str> = cmake
+            .split("set(ICON_NAMES")
+            .nth(1)
+            .expect("ICON_NAMES list")
+            .split(')')
+            .next()
+            .expect("ICON_NAMES terminator")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        assert!(
+            packaged.len() > 20,
+            "the ICON_NAMES parse found {} entries — the list moved, rather than shrank",
+            packaged.len()
+        );
+
+        for tool in default_tools() {
+            assert!(
+                packaged.contains(&tool.icon_key.as_str()),
+                "{} names icon {:?}, which the qrc does not carry — the button ships blank",
+                tool.id,
+                tool.icon_key
+            );
+        }
+        for action in crate::default_actions() {
+            let Some(icon) = action.icon_key.as_deref() else {
+                continue;
+            };
+            assert!(
+                packaged.contains(&icon),
+                "{} names icon {icon:?}, which the qrc does not carry",
+                action.id
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -8,6 +8,29 @@ Selection mutations **MUST** use the [Command System](08-Command-System.md) and 
 
 This specification uses normative language from [Requirement Keywords](Appendix/Requirement-Keywords.md), vocabulary from the [Glossary](Appendix/Glossary.md), and the selection/focus distinctions established by [01 — Information Architecture](01-Information-Architecture.md). It does not freeze tile dimensions, UI toolkit, async runtime, final file format, or GPU kernel implementation.
 
+## Colour-based selection
+
+The **Magic Wand** (`tool.select.wand`) and **Colour Range** (`tool.select.color-range`) differ in exactly one thing: whether the match is contiguous. The wand floods outward from the seed pixel and stops at the first pixel outside the tolerance; colour range takes every matching pixel in the layer wherever it is. Both are one call to `phototux_engine::color_select_mask`, whose `contiguous` flag *is* that difference.
+
+Tolerance is a fraction of the largest possible colour distance — squared Euclidean over four 0–255 channels — so `0.0` selects only exact matches and `1.0` selects everything, whichever channels happen to differ.
+
+The algorithm lives in `phototux_engine`, which has no wgpu, while the pixels live in GPU textures. The host reads the layer, calls the engine, and combines the resulting R8 coverage into the mask through `SelectionMask::apply_coverage`; the command then records bounds, history and generation. That is the same division as `raster.fill` and the other host-executed edits: the engine owns *which pixels belong together*, the GPU crate owns *how to move them*.
+
+Two refusals worth naming. A seed outside the layer is an error rather than a clamp — the caller named a pixel that is not there, and selecting a different one is an edit nobody asked for. And the flood uses an explicit stack rather than recursion, because a flood across a 4K layer is sixteen million pixels deep in the worst case, which no call stack survives.
+
+## Modify operations
+
+Five ops, all on `SelectionModifyOp`, which owns its wire name, display label, menu radius and action-id suffix so the Select menu is generated rather than restated:
+
+| Op | Effect |
+| --- | --- |
+| Feather | Box-blur the mask edge. The one op the document remembers, because it is a property of the selection channel rather than a one-off edit of the mask. |
+| Grow / Shrink | Dilate / erode. |
+| Smooth | Erode-then-dilate followed by dilate-then-erode — the open-then-close pair, which drops specks and then fills nicks. |
+| Border | The dilation minus the erosion: the band a stroke along the outline would cover. |
+
+A conformance test refuses an op that no action can invoke, and it fired the moment Smooth and Border were added against three hand-written menu entries.
+
 ## Responsibilities
 
 The selection system **MUST**:

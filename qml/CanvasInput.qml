@@ -286,6 +286,16 @@ onPressed: function (mouse) {
         AppSession.fillActiveLayer()
         return
     }
+    // The wand and colour range act on a click; the only difference between
+    // them is whether the flood is contiguous.
+    if (AppSession.activeTool === "tool.select.wand"
+            || AppSession.activeTool === "tool.select.color-range") {
+        AppSession.colorSelectAt(
+                    root.screenToDocX(mouse.x),
+                    root.screenToDocY(mouse.y),
+                    AppSession.activeTool === "tool.select.wand")
+        return
+    }
     if (AppSession.activeTool === "tool.eyedropper") {
         AppSession.sampleColorAt(
                     root.screenToDocX(mouse.x),

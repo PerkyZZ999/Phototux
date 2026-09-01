@@ -76,6 +76,7 @@ impl SessionState {
             command_id::SELECTION_INVERT => self.cmd_selection_invert(),
             command_id::SELECTION_SELECT_ALL => self.cmd_selection_select_all(),
             command_id::SELECTION_MODIFY => self.cmd_selection_modify(args),
+            command_id::SELECTION_COLOR_SELECT => self.cmd_selection_color_select(args),
             command_id::SELECTION_TO_MASK => self.cmd_selection_to_mask(),
             command_id::MASK_TO_SELECTION => self.cmd_mask_to_selection(),
             command_id::MASK_CREATE => self.cmd_mask_create(),
@@ -1147,6 +1148,48 @@ impl SessionState {
         let generation = self.bump_document_generation();
         self.history
             .push_selection(format!("Selection {}", op.as_str()), generation);
+        Ok(CommandEffects::selection_edit(generation))
+    }
+
+    /// Record a colour-based selection made by the host.
+    ///
+    /// The pixels live on the GPU, so the host reads them, runs
+    /// [`crate::color_select_mask`] and writes the coverage; this records the
+    /// bounds, the history entry and the generation — the same division as
+    /// `raster.fill` and the other host-executed edits.
+    fn cmd_selection_color_select(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SelectionColorSelect {
+            contiguous,
+            tolerance,
+            combine,
+        } = args
+        else {
+            return Err(CommandError::InvalidArgument("expected colour select"));
+        };
+        if !self.has_document {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        }
+        if !(0.0..=1.0).contains(&tolerance) {
+            return Err(CommandError::InvalidArgument("tolerance outside 0..=1"));
+        }
+        let _ = self.active_layer_id()?;
+        // The coverage is arbitrary, so the mask is the authority on its own
+        // bounds; the whole canvas is the honest answer until the host reports
+        // otherwise.
+        let (w, h) = (self.size.width, self.size.height);
+        self.selection.select_all(w, h);
+        self.selection.shape = crate::SelectionShape::Mask;
+        self.selection.combine = combine;
+        let label = if contiguous {
+            "Magic wand"
+        } else {
+            "Color range"
+        };
+        let generation = self.bump_document_generation();
+        self.history.push_selection(label, generation);
         Ok(CommandEffects::selection_edit(generation))
     }
 

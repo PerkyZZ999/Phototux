@@ -490,6 +490,31 @@ pub fn selection_apply_polygon(
     with_selection_mut(|ctx, mask| mask.apply_polygon(ctx, points, combine))
 }
 
+/// Select by colour from a seed pixel on `layer`.
+///
+/// The algorithm is `phototux_engine::color_select_mask`, which has no wgpu;
+/// this reads the layer's pixels, hands them over, and combines the answer
+/// into the mask. Keeping the flood here would put document policy in the
+/// crate that knows how to run a pass, not which pixels belong together.
+///
+/// # Errors
+/// Returns an error when no document is open, the layer cannot be read, or
+/// the seed lies outside it.
+pub fn selection_color_select(
+    layer: LayerId,
+    seed_x: u32,
+    seed_y: u32,
+    tolerance: f32,
+    contiguous: bool,
+    combine: SelectionCombine,
+) -> Result<(), String> {
+    let (width, height, pixels) = read_layer_rgba(layer)?;
+    let coverage = phototux_engine::color_select_mask(
+        &pixels, width, height, seed_x, seed_y, tolerance, contiguous,
+    )?;
+    with_selection_mut(|ctx, mask| mask.apply_coverage(ctx, &coverage, combine))?
+}
+
 /// Snapshot the current selection mask CPU mirror for undo.
 ///
 /// # Errors

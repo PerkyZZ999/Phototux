@@ -30,8 +30,13 @@ foreach(QML_FILE IN LISTS QML_FILES)
     endif()
 endforeach()
 set(ICON_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../assets/icons/phosphor/regular")
+# Every icon key any descriptor or action names must appear here, or the
+# control ships blank. `every_icon_key_is_packaged_into_the_qrc` in
+# phototux_engine reads this list as text and fails when one is missing —
+# CMake cannot see the Rust descriptors, so the check runs from the other side.
 set(ICON_NAMES
     arrow-clockwise
+    arrows-clockwise
     arrow-counter-clockwise
     arrow-down
     arrow-elbow-down-right
@@ -46,6 +51,8 @@ set(ICON_NAMES
     caret-right
     caret-up
     circle-dashed
+    circle-half
+    circle-half-tilt
     circle-notch
     corners-in
     crop
@@ -66,6 +73,7 @@ set(ICON_NAMES
     intersect
     info
     lasso
+    magic-wand
     magnifying-glass
     minus
     minus-circle
@@ -79,6 +87,8 @@ set(ICON_NAMES
     question
     rectangle-dashed
     selection
+    selection-background
+    selection-foreground
     selection-plus
     shapes
     text-t
