@@ -10,6 +10,32 @@ The central rule is:
 
 > Users manipulate document objects through semantic actions presented in context. Views reveal state; they do not become state owners.
 
+## Panel Placement
+
+Panels go where Photoshop puts them. The reasoning is not deference: panel
+position is muscle memory, and a user arriving from Photoshop who has to read
+the shell every time has lost the thing a familiar layout is for. Plasma
+governs how the chrome *looks*; Photoshop governs where things *are*. The two
+are not in tension — a Photoshop layout drawn in Plasma's idiom is the target.
+
+In practice: the tool shelf on the left, the tool options bar under the main
+toolbar, the dock column on the right, and menu entries under the Photoshop
+menu they belong to. The menu bar itself reads File, Edit, Image, Layer,
+Select, Filter, View, Window, Help — `Select` sits between Layer and Filter, not
+between Edit and Image, because reaching for Image by position and opening
+Select is exactly the cost this rule exists to remove.
+
+Blend mode, opacity and the lock row live at the **top of the Layers panel**,
+not in Properties. They are the most-used control cluster in the application
+and the one a user reaches for without looking, and Properties is the panel
+with the tightest height budget. Properties holds what is contextual to the
+current tool and layer; Layers holds what every layer always has.
+
+Depth is reached by progressive disclosure rather than by showing everything.
+A surface opens with the controls most users need and reveals the rest on
+demand — disclosure groups in the inspector, flyouts on the tool shelf,
+submenus under a menu that would otherwise overflow the window.
+
 ## Responsibilities
 
 The information architecture MUST:

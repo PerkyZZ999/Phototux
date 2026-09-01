@@ -57,9 +57,17 @@ ComboBox {
     // — drawn, sized, but with no text — and neither reading the delegate's own
     // `model`, nor indexing the array, nor re-evaluating on `visible` fixed it.
     // A ListView over the plain array has no shared item to contend for.
+    /// Floor for the drop-down's width, in pixels.
+    ///
+    /// A combo squeezed into half a row is narrower than its own longest label,
+    /// and a list that elides to "Pass Thro…" and "Darker Col…" is a list you
+    /// cannot read. The closed control may be as narrow as the layout wants;
+    /// the open list is sized by its contents.
+    property int popupMinimumWidth: 180
+
     popup: Popup {
         y: control.height
-        width: control.width
+        width: Math.max(control.width, control.popupMinimumWidth)
         height: Math.min(contentItem.implicitHeight + 2, 280)
         padding: 1
 

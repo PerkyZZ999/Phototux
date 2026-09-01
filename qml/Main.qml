@@ -73,6 +73,19 @@ ApplicationWindow {
             return []
         }
     }
+    /// The blend-mode vocabulary, as the engine declares it.
+    ///
+    /// The combo used to carry its own list of eight, so the other nineteen
+    /// modes — every component mode among them — were unreachable from the
+    /// chrome however well the compositor drew them.
+    readonly property var blendModes: {
+        try {
+            return JSON.parse(AppSession.blendModesJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
     /// Tool shelf as slots, the way Photoshop stacks it.
     readonly property var toolSlots: {
         try {
@@ -695,12 +708,16 @@ ApplicationWindow {
     function isLassoTool() {
         return AppSession.activeTool === "tool.select.lasso"
     }
-    // The combo itself lives in PropertiesPanel; the shell only asks it to
-    // resync. Guarded because the panel is built with the right dock, and
-    // host state can change before that happens.
+    // The combo itself lives in the Layers panel's control strip; the shell
+    // only asks it to resync. Guarded because the strip is built with the right
+    // dock, and host state can change before that happens.
     function syncBlendCombo() {
-        if (typeof propsCol !== "undefined" && propsCol)
-            propsCol.syncBlendCombo()
+        if (typeof layerControls !== "undefined" && layerControls)
+            layerControls.syncBlendCombo()
+    }
+    function syncLayerOpacity() {
+        if (typeof layerControls !== "undefined" && layerControls)
+            layerControls.setLayerOpacity(AppSession.activeOpacity)
     }
     function isPolygonTool() {
         return AppSession.activeTool === "tool.select.polygon"
@@ -3398,13 +3415,33 @@ ApplicationWindow {
                     Layout.preferredHeight: visible ? 180 : 0
                     color: Theme.surfaceSunken
 
-                    LayersPanel {
+                    ColumnLayout {
                         anchors.fill: parent
-                        iconUrl: root.iconUrl
-                        maskEditActive: root.maskEditActive
-                        onContextMenuRequested: function (stackIndex, origin, localX, localY) {
-                            layerContextMenu.targetIndex = stackIndex
-                            root.openContextMenu(layerContextMenu, origin, localX, localY)
+                        spacing: 0
+
+                        // Blend, opacity and locks sit above the list, where
+                        // Photoshop keeps them. They used to be in Properties,
+                        // three panels away from the layer they act on.
+                        LayerControlStrip {
+                            id: layerControls
+                            Layout.fillWidth: true
+                            Layout.margins: Theme.spaceSm
+                            blendModes: root.blendModes
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 1
+                            color: Theme.border
+                        }
+                        LayersPanel {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            iconUrl: root.iconUrl
+                            maskEditActive: root.maskEditActive
+                            onContextMenuRequested: function (stackIndex, origin, localX, localY) {
+                                layerContextMenu.targetIndex = stackIndex
+                                root.openContextMenu(layerContextMenu, origin, localX, localY)
+                            }
                         }
                     }
                 }
@@ -3848,8 +3885,7 @@ ApplicationWindow {
                 AppSession.applySizePreset(presetLabel)
             else
                 AppSession.applyDocumentSize(w, h)
-            if (typeof propsCol !== "undefined" && propsCol)
-                propsCol.setLayerOpacity(AppSession.activeOpacity)
+            root.syncLayerOpacity()
             root.syncBlendCombo()
         }
     }
@@ -3870,8 +3906,7 @@ ApplicationWindow {
     Connections {
         target: AppSession
         function onActiveOpacityChanged() {
-            if (typeof propsCol !== "undefined" && propsCol)
-                propsCol.setLayerOpacity(AppSession.activeOpacity)
+            root.syncLayerOpacity()
         }
         function onActiveBlendChanged() {
             root.syncBlendCombo()

@@ -123,48 +123,6 @@ ColumnLayout {
         return qsTr("Linear")
     }
 
-    /// The blend-mode vocabulary, as the engine declares it.
-    ///
-    /// The combo used to carry its own list of eight, so the other nineteen
-    /// modes — every component mode among them — were unreachable from the
-    /// Properties panel however well the compositor drew them.
-    readonly property var blendModes: {
-        try {
-            return JSON.parse(AppSession.blendModesJson || "[]")
-        } catch (e) {
-            return []
-        }
-    }
-
-    /// Point the blend combo at the active layer's blend mode.
-    ///
-    /// A combo box holds its own selection, so host state has to be pushed into
-    /// it rather than bound — and the combo is in here now, so the push lives
-    /// here too. Falls back to index 0 for a blend the model does not list.
-    function syncBlendCombo() {
-        if (!blendCombo)
-            return
-        var id = AppSession.activeBlend
-        for (var i = 0; i < blendCombo.model.length; i++) {
-            if (blendCombo.model[i].id === id) {
-                blendCombo.currentIndex = i
-                return
-            }
-        }
-        blendCombo.currentIndex = 0
-    }
-
-    /// Push an opacity from the host into the slider.
-    ///
-    /// The epsilon matters: the slider emits on every assignment, so writing a
-    /// value it already holds would round-trip back to the host and fight the
-    /// user mid-drag.
-    function setLayerOpacity(value) {
-        if (!layerOpacitySlider)
-            return
-        if (Math.abs(layerOpacitySlider.value - value) > 0.001)
-            layerOpacitySlider.value = value
-    }
 
     // Edit target + selection context (distinct chrome)
     Rectangle {
@@ -289,68 +247,6 @@ ColumnLayout {
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
         Accessible.name: AppSession.lastAnnounce
-    }
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Theme.spaceXs
-        visible: AppSession.hasDocument
-        Button {
-            text: qsTr("Lock px")
-            Layout.fillWidth: true
-            onClicked: root.runAction("action.layer.lock-pixels")
-            background: Rectangle {
-                radius: Theme.radiusSm
-                color: parent.down || parent.hovered
-                       ? Theme.surfaceRaised : Theme.surfaceContainer
-                border.color: Theme.borderSubtle
-                border.width: 1
-            }
-            contentItem: Text {
-                text: parent.text
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontLabel
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-        }
-        Button {
-            text: qsTr("Lock pos")
-            Layout.fillWidth: true
-            onClicked: root.runAction("action.layer.lock-position")
-            background: Rectangle {
-                radius: Theme.radiusSm
-                color: parent.down || parent.hovered
-                       ? Theme.surfaceRaised : Theme.surfaceContainer
-                border.color: Theme.borderSubtle
-                border.width: 1
-            }
-            contentItem: Text {
-                text: parent.text
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontLabel
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-        }
-        Button {
-            text: qsTr("Lock all")
-            Layout.fillWidth: true
-            onClicked: root.runAction("action.layer.lock-all")
-            background: Rectangle {
-                radius: Theme.radiusSm
-                color: parent.down || parent.hovered
-                       ? Theme.surfaceRaised : Theme.surfaceContainer
-                border.color: Theme.borderSubtle
-                border.width: 1
-            }
-            contentItem: Text {
-                text: parent.text
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontLabel
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-        }
     }
 
     // Selection combine modes
@@ -1748,36 +1644,6 @@ ColumnLayout {
         }
     }
 
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Theme.spaceXs
-        visible: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
-        Label {
-            text: qsTr("Blend Mode")
-            color: Theme.colorOnSurface
-            font.pixelSize: Theme.fontBodySm
-        }
-        Label {
-            visible: AppSession.inspectorBlendMixed
-            text: qsTr("Mixed")
-            color: Theme.colorOnSurfaceMuted
-            font.pixelSize: Theme.fontLabelSm
-            font.italic: true
-            Accessible.name: qsTr("Blend mode mixed across selection")
-        }
-        ThemedComboBox {
-            id: blendCombo
-            Layout.fillWidth: true
-            model: root.blendModes
-            textRole: "label"
-            valueRole: "id"
-            familyRole: "family"
-            enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
-            opacity: AppSession.inspectorBlendMixed ? 0.85 : 1.0
-            Component.onCompleted: root.syncBlendCombo()
-            onActivated: AppSession.setActiveBlend(currentValue)
-        }
-    }
 
     ColumnLayout {
         Layout.fillWidth: true
@@ -1854,44 +1720,6 @@ ColumnLayout {
         }
     }
 
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Theme.spaceXs
-        RowLayout {
-            Layout.fillWidth: true
-            Label {
-                text: qsTr("Layer Opacity")
-                color: Theme.colorOnSurface
-                font.pixelSize: Theme.fontBodySm
-                Layout.fillWidth: true
-            }
-            Label {
-                text: AppSession.inspectorOpacityMixed
-                      ? qsTr("Mixed")
-                      : (Math.round(layerOpacitySlider.value * 100) + " %")
-                color: AppSession.inspectorOpacityMixed
-                       ? Theme.colorOnSurfaceMuted
-                       : Theme.primary
-                font.pixelSize: Theme.fontMono
-                font.family: "Noto Sans Mono"
-                font.italic: AppSession.inspectorOpacityMixed
-                Accessible.name: AppSession.inspectorOpacityMixed
-                                 ? qsTr("Opacity mixed across selection")
-                                 : qsTr("Layer opacity percent %1")
-                                       .arg(Math.round(layerOpacitySlider.value * 100))
-            }
-        }
-        Slider {
-            id: layerOpacitySlider
-            Layout.fillWidth: true
-            from: 0
-            to: 1
-            value: AppSession.activeOpacity
-            enabled: AppSession.hasDocument && AppSession.activeLayerIndex >= 0
-            opacity: AppSession.inspectorOpacityMixed ? 0.85 : 1.0
-            onMoved: AppSession.setActiveOpacity(value)
-        }
-    }
 
     Label {
         text: root.gpuStatus
