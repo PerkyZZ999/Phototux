@@ -2183,6 +2183,16 @@ ApplicationWindow {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
 
+            // Toasts live over the canvas, not in the chrome: they are the one
+            // surface that must not be missed, and the canvas is where the eye
+            // already is. Last child of the host so they draw above everything
+            // in it, and `z` so a later sibling cannot bury them.
+            NoticeToasts {
+                anchors.fill: parent
+                z: 100
+                iconUrl: root.iconUrl
+            }
+
             Rectangle {
                 anchors.fill: parent
                 color: Theme.canvasLetterbox

@@ -21,8 +21,8 @@ use phototux_engine::{
     AlignOp, AlignTarget, CommandArgs, CommandEffects, CommandError, CropRect, DabMode,
     DocumentGraph, DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams,
     GradientKind, GradientRamp, Guide, GuideOrientation, HistoryKind, HostFollowUp,
-    HostHistoryAction, Layer, LayerId, LayerKind, LayerTransform, OpenDocumentId, PathPoint,
-    SelectionCombine, SelectionModifyOp, SelectionRect, SelectionShape, SelectionState,
+    HostHistoryAction, Layer, LayerId, LayerKind, LayerTransform, NoticeLevel, OpenDocumentId,
+    PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect, SelectionShape, SelectionState,
     SessionState, ShapeBooleanPartner, ShapePreset, TextContent, TransformSession, VectorPath,
     WorkspaceState, bake_text_rgba8, command_id, parse_selection_modify_arg, stroke_path_rgba8,
     tool_id,
@@ -177,6 +177,8 @@ pub struct AppSession {
     composite_ms: f32,
     stroke_latency_ms: f32,
     status_text: String,
+    notices_json: String,
+    notices: phototux_engine::NoticeQueue,
     active_tool: String,
     has_document: bool,
     layer_count: i32,
@@ -478,6 +480,8 @@ impl AppSession {
             composite_ms: 0.0,
             stroke_latency_ms: 0.0,
             status_text: engine.status_summary(),
+            notices_json: "[]".into(),
+            notices: phototux_engine::NoticeQueue::default(),
             active_tool: engine.active_tool.clone(),
             has_document: engine.has_document,
             layer_count: 0,
@@ -771,9 +775,25 @@ impl AppSession {
             self.enter_gpu_lost();
             return;
         }
-        self.status_text = format!("{operation} failed: {error}");
-        self.status_text_changed();
+        self.notify(NoticeLevel::Error, format!("{operation} failed: {error}"));
         eprintln!("[phototux] {operation}: {error}");
+    }
+
+    /// Post a message to the toast channel.
+    ///
+    /// Not the status bar. That carries the document summary — size, zoom,
+    /// active layer, tool — which is state, always true and always there. A
+    /// message is an event, true once, and putting the two in one string meant
+    /// the next summary refresh silently erased whatever the user had not yet
+    /// read.
+    fn notify(&mut self, level: NoticeLevel, text: impl Into<String>) {
+        self.notices.post(level, text);
+        self.publish_notices();
+    }
+
+    fn publish_notices(&mut self) {
+        let json = self.notices.to_json();
+        publish!(self, notices_json, json, notices_json_changed);
     }
 
     fn enter_gpu_lost(&mut self) {
@@ -784,8 +804,10 @@ impl AppSession {
         }
         self.engine
             .announce("Graphics device lost — document preserved");
-        self.status_text = "Graphics device lost — document preserved".into();
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Error,
+            "Graphics device lost — the document is preserved. Use Recover to restore the canvas.",
+        );
         self.publish_announcement();
         eprintln!("[phototux] GPU lost — document authority preserved");
     }
@@ -1822,8 +1844,10 @@ impl AppSession {
 
     fn persist_prefs(&mut self) {
         if let Err(error) = self.prefs.save() {
-            self.status_text = format!("Preferences save failed: {error}");
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Error,
+                format!("Preferences save failed: {error}"),
+            );
         }
     }
 
@@ -2112,8 +2136,7 @@ impl AppSession {
                 self.toggle_panel_by_id(&format!("panel.{panel}"));
             }
             _ => {
-                self.status_text = format!("Unknown host op: {op}");
-                self.status_text_changed();
+                self.notify(NoticeLevel::Warning, format!("Unknown host op: {op}"));
             }
         }
     }
@@ -2330,7 +2353,15 @@ impl AppSession {
                 self.bump_composite_generation();
             }
             Err(e) => {
-                self.report_gpu("composite", &e);
+                // The composite runs from a timer as well as from edits, so it
+                // can fire in the window before the GPU side of the document
+                // exists. That is a transient state and the next pass will
+                // succeed — reporting it would put a failure in front of the
+                // user for something that is not wrong. It was always being
+                // posted; the status bar simply overwrote it before anyone saw.
+                if phototux_canvas::has_document() {
+                    self.report_gpu("composite", &e);
+                }
             }
         }
     }
@@ -2916,6 +2947,11 @@ impl AppSession {
         "blendIfChannelsJson",
         Member = blend_if_channels_json,
         Notify = blend_if_channels_json_changed
+    );
+    qproperty!(
+        "noticesJson",
+        Member = notices_json,
+        Notify = notices_json_changed
     );
     qproperty!(
         "toolSlotsJson",
@@ -3542,6 +3578,8 @@ impl AppSession {
     #[qsignal]
     fn tool_slots_json_changed(&mut self);
     #[qsignal]
+    fn notices_json_changed(&mut self);
+    #[qsignal]
     fn selection_preview_active_changed(&mut self);
     #[qsignal]
     fn selection_preview_x_changed(&mut self);
@@ -3760,15 +3798,17 @@ impl AppSession {
         ) {
             self.report_action_error(&error);
         } else {
-            self.status_text = format!(
-                "Assigned profile (pixels not converted): {}",
-                self.engine
-                    .graph
-                    .as_ref()
-                    .map(|g| g.color.assigned_profile.as_str())
-                    .unwrap_or("?")
+            self.notify(
+                NoticeLevel::Info,
+                format!(
+                    "Assigned profile (pixels not converted): {}",
+                    self.engine
+                        .graph
+                        .as_ref()
+                        .map(|g| g.color.assigned_profile.as_str())
+                        .unwrap_or("?")
+                ),
             );
-            self.status_text_changed();
         }
     }
 
@@ -3787,8 +3827,10 @@ impl AppSession {
     #[qslot]
     fn recover_gpu(&mut self) {
         let Some(graph) = self.engine.graph.as_ref() else {
-            self.status_text = "Recover failed: no document".into();
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                "Open a document before recovering the canvas.",
+            );
             return;
         };
         let doc_gen = graph.generation;
@@ -3817,8 +3859,7 @@ impl AppSession {
                     "loss/recover must not bump document generation"
                 );
                 self.engine.announce("Graphics recovered — canvas restored");
-                self.status_text = "Graphics recovered — canvas restored".into();
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, "Graphics recovered — canvas restored");
                 self.publish_announcement();
             }
             Err(error) => {
@@ -3833,16 +3874,14 @@ impl AppSession {
         let path = match local_path(&file_url) {
             Ok(path) => path,
             Err(error) => {
-                self.status_text = format!("Embed ICC failed: {error}");
-                self.status_text_changed();
+                self.notify(NoticeLevel::Error, format!("Embed ICC failed: {error}"));
                 return;
             }
         };
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(error) => {
-                self.status_text = format!("Embed ICC failed: {error}");
-                self.status_text_changed();
+                self.notify(NoticeLevel::Error, format!("Embed ICC failed: {error}"));
                 return;
             }
         };
@@ -3850,8 +3889,7 @@ impl AppSession {
             command_id::DOCUMENT_SET_ICC,
             CommandArgs::SetIcc { bytes: Some(bytes) },
         ) {
-            self.status_text = format!("Embed ICC failed: {error}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Error, format!("Embed ICC failed: {error}"));
         }
     }
 
@@ -3861,16 +3899,14 @@ impl AppSession {
             command_id::DOCUMENT_SET_ICC,
             CommandArgs::SetIcc { bytes: None },
         ) {
-            self.status_text = format!("Clear ICC failed: {error}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Error, format!("Clear ICC failed: {error}"));
         }
     }
 
     #[qslot]
     fn invoke_action(&mut self, id: String) {
         let Some(action) = phototux_engine::action_by_id(&id) else {
-            self.status_text = format!("Unknown action: {id}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, format!("Unknown action: {id}"));
             return;
         };
         if !self.action_enablement(&action.enablement) {
@@ -3898,8 +3934,10 @@ impl AppSession {
                     other => other,
                 }
             };
-            self.status_text = format!("Action unavailable: {label} ({reason})");
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                format!("Action unavailable: {label} ({reason})"),
+            );
             return;
         }
         if let Some(host) = action.host_op.as_deref() {
@@ -3927,8 +3965,10 @@ impl AppSession {
     fn report_action_error(&mut self, error: &CommandError) {
         if error.is_user_correctable() {
             let message = error.user_message();
-            self.status_text = message.clone();
-            self.status_text_changed();
+            // Warning, not info: the command did not happen. The colour and the
+            // spoken prefix are the only thing distinguishing "I did that" from
+            // "I could not do that".
+            self.notify(NoticeLevel::Warning, message.clone());
             self.engine.announce(message);
             self.publish_announcement();
             return;
@@ -4063,8 +4103,7 @@ impl AppSession {
             command_id::FILTER_PREVIEW,
             CommandArgs::FilterPreview { kind },
         ) {
-            self.status_text = error.to_string();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, error.to_string());
         }
         self.sync_filter_preview_fields();
         self.emit_filter_preview_fields();
@@ -4076,8 +4115,7 @@ impl AppSession {
             command_id::FILTER_SET_PREVIEW_PARAMS,
             CommandArgs::FilterPreviewParams { p0, p1, p2 },
         ) {
-            self.status_text = error.to_string();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, error.to_string());
         }
         self.sync_filter_preview_fields();
         self.emit_filter_preview_fields();
@@ -4086,8 +4124,7 @@ impl AppSession {
     #[qslot]
     fn filter_gallery_apply(&mut self) {
         if let Err(error) = self.invoke_command(command_id::FILTER_COMMIT, CommandArgs::None) {
-            self.status_text = error.to_string();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, error.to_string());
             return;
         }
         self.filter_gallery_open = false;
@@ -4156,8 +4193,7 @@ impl AppSession {
         if value {
             self.engine
                 .announce("Safe start armed — next launch uses essentials chrome");
-            self.status_text = self.engine.last_announce.clone();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, self.engine.last_announce.clone());
             self.publish_announcement();
         }
     }
@@ -4232,8 +4268,7 @@ impl AppSession {
     #[qslot]
     fn set_panel_visible(&mut self, panel_id: String, value: bool) {
         if !self.workspace.set_visible(&panel_id, value) {
-            self.status_text = format!("Unknown panel: {panel_id}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, format!("Unknown panel: {panel_id}"));
             return;
         }
         self.persist_workspace_visibility();
@@ -4245,15 +4280,19 @@ impl AppSession {
         match phototux_engine::DockTopology::from_json(&json) {
             Ok(dock) => {
                 if let Err(reason) = self.workspace.set_dock(dock) {
-                    self.status_text = format!("Dock topology rejected: {reason}");
-                    self.status_text_changed();
+                    self.notify(
+                        NoticeLevel::Warning,
+                        format!("Dock topology rejected: {reason}"),
+                    );
                     return;
                 }
                 self.persist_workspace_visibility();
             }
             Err(reason) => {
-                self.status_text = format!("Dock topology invalid: {reason}");
-                self.status_text_changed();
+                self.notify(
+                    NoticeLevel::Warning,
+                    format!("Dock topology invalid: {reason}"),
+                );
             }
         }
     }
@@ -4265,8 +4304,7 @@ impl AppSession {
     /// property of the operation rather than a convention each slot restates.
     fn commit_workspace_op(&mut self, result: Result<(), String>, failure_label: &str) {
         if let Err(reason) = result {
-            self.status_text = format!("{failure_label}: {reason}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, format!("{failure_label}: {reason}"));
             return;
         }
         self.persist_workspace_visibility();
@@ -4376,8 +4414,7 @@ impl AppSession {
 
     fn toggle_panel_by_id(&mut self, panel_id: &str) {
         if !self.workspace.toggle(panel_id) {
-            self.status_text = format!("Unknown panel: {panel_id}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, format!("Unknown panel: {panel_id}"));
             return;
         }
         self.persist_workspace_visibility();
@@ -4391,8 +4428,7 @@ impl AppSession {
         self.persist_prefs();
         self.emit_pref_fields();
         self.pref_effective_json_changed();
-        self.status_text = "Workspace reset to Essentials".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Workspace reset to Essentials");
     }
 
     #[qslot]
@@ -4401,45 +4437,48 @@ impl AppSession {
             &preset_id,
             &self.prefs.user_workspace_presets_json,
         ) else {
-            self.status_text = format!("Unknown workspace preset: {preset_id}");
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                format!("Unknown workspace preset: {preset_id}"),
+            );
             return;
         };
         self.workspace.apply_preset(&preset);
         self.persist_workspace_visibility();
-        self.status_text = format!("Workspace: {}", preset.title);
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, format!("Workspace: {}", preset.title));
     }
 
     #[qslot]
     fn save_user_workspace_preset(&mut self, title: String) {
         let title = title.trim().to_owned();
         if title.is_empty() {
-            self.status_text = "Workspace preset name is required".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, "Give the workspace preset a name.");
             return;
         }
         let slug = phototux_engine::slugify_workspace_preset_title(&title);
         let id = format!("{}{slug}", phototux_engine::USER_WORKSPACE_PRESET_PREFIX);
         let preset = phototux_engine::WorkspacePreset::from_workspace(id, title, &self.workspace);
         if let Err(err) = self.prefs.upsert_user_workspace_preset(preset.clone()) {
-            self.status_text = err;
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, err);
             return;
         }
         self.workspace.active_preset_id = preset.id.clone();
         self.refresh_workspace_presets_json();
         self.persist_workspace_visibility();
         self.emit_workspace_presets_json();
-        self.status_text = format!("Saved workspace preset “{}”", preset.title);
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            format!("Saved workspace preset “{}”", preset.title),
+        );
     }
 
     #[qslot]
     fn delete_user_workspace_preset(&mut self, preset_id: String) {
         if !self.prefs.delete_user_workspace_preset(&preset_id) {
-            self.status_text = format!("Not a user workspace preset: {preset_id}");
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                format!("Not a user workspace preset: {preset_id}"),
+            );
             return;
         }
         if self.workspace.active_preset_id == preset_id {
@@ -4450,21 +4489,21 @@ impl AppSession {
         self.sync_panel_visibility_from_workspace();
         self.active_workspace_preset_id_changed();
         self.emit_workspace_presets_json();
-        self.status_text = "Deleted user workspace preset".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Deleted user workspace preset");
     }
 
     #[qslot]
     fn restore_last_saved_workspace(&mut self) {
         let Some(ws) = self.prefs.load_last_saved_workspace() else {
-            self.status_text = "No last-saved workspace layout".to_owned();
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                "There is no saved workspace layout to restore.",
+            );
             return;
         };
         self.workspace = ws;
         self.persist_workspace_visibility();
-        self.status_text = "Workspace restored from last saved".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Workspace restored from last saved");
     }
 
     #[qslot]
@@ -4715,18 +4754,17 @@ impl AppSession {
             } => self.handle_psd_opened(path, graph, layer_rasters, flattened, report),
             FileEvent::Saved { path } => self.handle_file_saved(path),
             FileEvent::Autosaved => {
-                self.status_text = "Autosave written".to_owned();
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, "Autosave written");
             }
             FileEvent::Exported { path } => {
                 self.io_busy = false;
-                self.status_text = format!("Exported {}", path.display());
+                self.notify(NoticeLevel::Info, format!("Exported {}", path.display()));
                 self.io_busy_changed();
                 self.status_text_changed();
             }
             FileEvent::Cancelled { operation } => {
                 self.io_busy = false;
-                self.status_text = format!("{operation} cancelled");
+                self.notify(NoticeLevel::Info, format!("{operation} cancelled"));
                 self.io_busy_changed();
                 self.status_text_changed();
             }
@@ -4886,7 +4924,7 @@ impl AppSession {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Document.ptx".into());
-        self.status_text = format!("Saved {}", path.display());
+        self.notify(NoticeLevel::Info, format!("Saved {}", path.display()));
         self.sync_from_engine();
         self.emit_doc_fields();
     }
@@ -4976,8 +5014,7 @@ impl AppSession {
     #[qslot]
     fn apply_size_preset(&mut self, label: String) {
         if let Err(error) = self.prepare_new_document_tab("Untitled") {
-            self.status_text = error;
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, error);
             return;
         }
         if self
@@ -4998,8 +5035,7 @@ impl AppSession {
     #[qslot]
     fn apply_document_size(&mut self, width: i32, height: i32) {
         if let Err(error) = self.prepare_new_document_tab("Untitled") {
-            self.status_text = error;
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, error);
             return;
         }
         let w = width.max(1) as u32;
@@ -5028,8 +5064,7 @@ impl AppSession {
             return;
         }
         if let Err(error) = self.activate_document_id(OpenDocumentId(id as u64)) {
-            self.status_text = error;
-            self.status_text_changed();
+            self.notify(NoticeLevel::Info, error);
         }
     }
 
@@ -5048,7 +5083,7 @@ impl AppSession {
         self.io_busy = true;
         self.io_error.clear();
         self.compatibility_report.clear();
-        self.status_text = format!("Opening {}…", path.display());
+        self.notify(NoticeLevel::Info, format!("Opening {}…", path.display()));
         self.io_busy_changed();
         self.status_text_changed();
         self.compatibility_report_changed();
@@ -5095,7 +5130,7 @@ impl AppSession {
         self.pending_save_generation = Some(graph.generation);
         self.io_busy = true;
         self.io_error.clear();
-        self.status_text = format!("Saving {}…", path.display());
+        self.notify(NoticeLevel::Info, format!("Saving {}…", path.display()));
         self.io_busy_changed();
         self.status_text_changed();
         if let Err(error) = self.file_worker.send(FileCommand::SavePtx { path, graph }) {
@@ -5107,8 +5142,7 @@ impl AppSession {
     #[qslot]
     fn cancel_io(&mut self) {
         self.file_worker.cancel_token().cancel();
-        self.status_text = "Cancelling…".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Cancelling…");
     }
 
     #[qslot]
@@ -5162,8 +5196,7 @@ impl AppSession {
                 let _ = discard_recovery(&entry);
                 self.sync_recovery_list_fields();
                 self.emit_recovery_list();
-                self.status_text = "Recovered unsaved document".to_owned();
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, "Recovered unsaved document");
             }
             Err(error) => self.fail_io("Recover", &error.to_string()),
         }
@@ -5219,7 +5252,7 @@ impl AppSession {
             .is_some_and(|ext| ext.eq_ignore_ascii_case("psd"));
         self.io_busy = true;
         self.io_error.clear();
-        self.status_text = format!("Exporting {}…", path.display());
+        self.notify(NoticeLevel::Info, format!("Exporting {}…", path.display()));
         self.io_busy_changed();
         self.status_text_changed();
         let send_result = if is_psd {
@@ -5269,8 +5302,7 @@ impl AppSession {
         let next = self.doc_registry.parked_ids().next();
         if let Some(next_id) = next {
             if let Err(error) = self.activate_document_id(next_id) {
-                self.status_text = error;
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, error);
                 self.document_name = "Untitled".to_owned();
                 self.dirty = false;
                 self.sync_from_engine();
@@ -5357,12 +5389,29 @@ impl AppSession {
     }
 
     #[qslot]
+    /// Post an informational message. Kept as a slot because QML calls it.
     fn set_status(&mut self, text: String) {
-        self.status_text = text;
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, text);
     }
 
     // —— Layers / undo (Phase 3) ——
+
+    /// Dismiss one toast, by the id the projection gave it.
+    #[qslot]
+    fn dismiss_notice(&mut self, id: i64) {
+        if u64::try_from(id).is_ok_and(|id| self.notices.dismiss(id)) {
+            self.publish_notices();
+        }
+    }
+
+    /// Dismiss every toast at once.
+    #[qslot]
+    fn dismiss_all_notices(&mut self) {
+        if !self.notices.is_empty() {
+            self.notices.clear();
+            self.publish_notices();
+        }
+    }
 
     #[qslot]
     fn add_layer(&mut self) {
@@ -5646,26 +5695,26 @@ impl AppSession {
         let payload = match crate::clipboard::ImagePayload::new(width, height, pixels) {
             Ok(payload) => payload,
             Err(refusal) => {
-                self.status_text = refusal.message("Copy");
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, refusal.message("Copy"));
                 return;
             }
         };
         let os_ok = Self::push_os_clipboard_rgba(&payload).is_ok();
         self.clipboard_rgba = Some(payload);
-        self.status_text = if os_ok {
-            "Copied (app + system clipboard)".to_owned()
-        } else {
-            "Copied (app clipboard only)".to_owned()
-        };
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            if os_ok {
+                "Copied (app + system clipboard)".to_owned()
+            } else {
+                "Copied (app clipboard only)".to_owned()
+            },
+        );
     }
 
     /// Copy selection coverage plus active-layer (or composite) pixels masked by it.
     fn copy_active_selection_payload(&mut self) {
         let Ok(r8) = phototux_canvas::selection_snapshot() else {
-            self.status_text = "Copy selection failed: no mask".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, "Make a selection first.");
             return;
         };
         let Some(graph) = self.engine.graph.as_ref() else {
@@ -5679,8 +5728,7 @@ impl AppSession {
         // agreement is a precondition of that loop rather than a policy check
         // that could be deferred to the payload constructors.
         let Ok(coverage) = crate::clipboard::CoveragePayload::new(width, height, r8) else {
-            self.status_text = "Copy selection failed: size mismatch".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Error, "Copy selection failed: size mismatch");
             return;
         };
         let rgba_result = self
@@ -5715,20 +5763,21 @@ impl AppSession {
         self.clipboard_selection_r8 = Some(coverage);
         self.clipboard_rgba = Some(image);
         self.engine.announce("Selection copied");
-        self.status_text = if os_ok {
-            "Copied selection pixels (app + system clipboard)".to_owned()
-        } else {
-            "Copied selection pixels (app clipboard)".to_owned()
-        };
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            if os_ok {
+                "Copied selection pixels (app + system clipboard)".to_owned()
+            } else {
+                "Copied selection pixels (app clipboard)".to_owned()
+            },
+        );
         self.publish_announcement();
     }
 
     #[qslot]
     fn copy_selection_mask(&mut self) {
         let Ok(r8) = phototux_canvas::selection_snapshot() else {
-            self.status_text = "Copy selection failed: no mask".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Error, "Copy selection failed: no mask");
             return;
         };
         let Some(graph) = self.engine.graph.as_ref() else {
@@ -5741,28 +5790,28 @@ impl AppSession {
         let coverage = match crate::clipboard::CoveragePayload::new(width, height, r8) {
             Ok(coverage) => coverage,
             Err(refusal) => {
-                self.status_text = refusal.message("Copy");
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, refusal.message("Copy"));
                 return;
             }
         };
         let os_ok = Self::push_os_clipboard_gray(&coverage).is_ok();
         self.clipboard_selection_r8 = Some(coverage);
         self.engine.announce("Selection copied");
-        self.status_text = if os_ok {
-            "Copied selection (app + system grayscale)".to_owned()
-        } else {
-            "Copied selection (app clipboard)".to_owned()
-        };
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            if os_ok {
+                "Copied selection (app + system grayscale)".to_owned()
+            } else {
+                "Copied selection (app clipboard)".to_owned()
+            },
+        );
         self.publish_announcement();
     }
 
     #[qslot]
     fn copy_layer_mask(&mut self) {
         let Some(id) = self.active_id() else {
-            self.status_text = "Copy mask failed: no active layer".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, "Select a layer first.");
             return;
         };
         let Some(graph) = self.engine.graph.as_ref() else {
@@ -5773,15 +5822,13 @@ impl AppSession {
             .iter()
             .any(|l| l.id == id && l.mask.is_some())
         {
-            self.status_text = "Copy mask failed: layer has no mask".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, "This layer has no mask to copy.");
             return;
         }
         let width = graph.size.width;
         let height = graph.size.height;
         let Ok(r8) = phototux_canvas::read_mask_r8(id) else {
-            self.status_text = "Copy mask failed: layer has no mask".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Error, "Copy mask failed: layer has no mask");
             return;
         };
         // Coverage, not an image: this validates the buffer describes *this*
@@ -5789,20 +5836,21 @@ impl AppSession {
         let coverage = match crate::clipboard::CoveragePayload::new(width, height, r8) {
             Ok(coverage) => coverage,
             Err(refusal) => {
-                self.status_text = refusal.message("Copy");
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, refusal.message("Copy"));
                 return;
             }
         };
         let os_ok = Self::push_os_clipboard_gray(&coverage).is_ok();
         self.clipboard_mask_r8 = Some(coverage);
         self.engine.announce("Layer mask copied");
-        self.status_text = if os_ok {
-            "Copied layer mask (app + system grayscale)".to_owned()
-        } else {
-            "Copied layer mask (app clipboard)".to_owned()
-        };
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            if os_ok {
+                "Copied layer mask (app + system grayscale)".to_owned()
+            } else {
+                "Copied layer mask (app clipboard)".to_owned()
+            },
+        );
         self.publish_announcement();
     }
 
@@ -5837,8 +5885,7 @@ impl AppSession {
         self.sync_from_engine();
         self.emit_doc_fields();
         self.engine.announce("Selection pasted");
-        self.status_text = "Pasted selection from clipboard".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Pasted selection from clipboard");
         self.publish_announcement();
     }
 
@@ -5886,8 +5933,7 @@ impl AppSession {
         self.sync_from_engine();
         self.emit_layer_fields();
         self.engine.announce("Mask pasted onto active layer");
-        self.status_text = "Pasted mask onto active layer".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Pasted mask onto active layer");
         self.publish_announcement();
     }
 
@@ -5959,11 +6005,13 @@ impl AppSession {
         }
         let tag = self.display_profile_tag.clone();
         self.set_soft_proof(tag, "relative".into());
-        self.status_text = format!(
-            "Soft-proof: display profile ({})",
-            self.display_profile_name
+        self.notify(
+            NoticeLevel::Info,
+            format!(
+                "Soft-proof: display profile ({})",
+                self.display_profile_name
+            ),
         );
-        self.status_text_changed();
     }
 
     #[qslot]
@@ -5999,8 +6047,7 @@ impl AppSession {
         self.brush_hardness_changed();
         self.brush_texture_strength_changed();
         self.brush_color_changed();
-        self.status_text = format!("Brush preset: {}", preset.name);
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, format!("Brush preset: {}", preset.name));
     }
 
     #[qslot]
@@ -6067,8 +6114,7 @@ impl AppSession {
                         return;
                     }
                     self.recomposite();
-                    self.status_text = "Pasted layer".to_owned();
-                    self.status_text_changed();
+                    self.notify(NoticeLevel::Info, "Pasted layer");
                 }
             }
             Err(error) => self.report_gpu("paste", &error.to_string()),
@@ -6128,8 +6174,7 @@ impl AppSession {
             return;
         };
         if layer.kind != LayerKind::Text {
-            self.status_text = "Bake Text requires an active text layer".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, "Select a text layer to bake it.");
             return;
         }
         let Some(content) = layer.text.clone() else {
@@ -6154,8 +6199,10 @@ impl AppSession {
         self.recomposite();
         self.engine
             .announce("Text baked to pixels — editable text discarded");
-        self.status_text = "Text baked to pixels — editable text discarded".to_owned();
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            "Text baked to pixels — editable text discarded",
+        );
     }
 
     /// Align or distribute the object selection (`op`: an [`AlignOp`] key).
@@ -6167,7 +6214,10 @@ impl AppSession {
     #[qslot]
     fn align_layers(&mut self, op: String) {
         let Some(op) = AlignOp::parse(&op) else {
-            self.set_status(format!("Unknown align operation: {op}"));
+            self.notify(
+                NoticeLevel::Warning,
+                format!("Unknown align operation: {op}"),
+            );
             return;
         };
         let targets = self.align_targets();
@@ -6262,8 +6312,7 @@ impl AppSession {
             // did not ask for is a document mutation they then have to notice.
             // `shape_create_actions_name_a_known_preset` keeps the shipped
             // callers out of this branch.
-            self.status_text = format!("Unknown shape: {kind}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, format!("Unknown shape: {kind}"));
             return;
         };
         let Some(graph) = self.engine.graph.as_ref() else {
@@ -6353,11 +6402,13 @@ impl AppSession {
                 };
                 match phototux_engine::boolean_rgba8(&pixels_a, &pixels_b, op) {
                     Ok(p) => {
-                        self.status_text = format!(
-                            "Boolean {} (raster bake; vector path unavailable)",
-                            op.as_str()
+                        self.notify(
+                            NoticeLevel::Warning,
+                            format!(
+                                "Boolean {} (raster bake; vector path unavailable)",
+                                op.as_str()
+                            ),
                         );
-                        self.status_text_changed();
                         p
                     }
                     Err(e) => {
@@ -6373,8 +6424,10 @@ impl AppSession {
         }
         self.recomposite();
         if !self.status_text.contains("raster bake") {
-            self.status_text = format!("Boolean {} (vector-preserving)", op.as_str());
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Info,
+                format!("Boolean {} (vector-preserving)", op.as_str()),
+            );
         }
     }
 
@@ -6417,8 +6470,10 @@ impl AppSession {
             return;
         };
         if layer.kind != LayerKind::Shape {
-            self.status_text = "Rasterize Shape requires an active shape layer".to_owned();
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                "Select a shape layer to rasterize it.",
+            );
             return;
         }
         let Some(content) = layer.shape.clone() else {
@@ -6441,8 +6496,7 @@ impl AppSession {
             return;
         }
         self.recomposite();
-        self.status_text = "Shape rasterized to pixels".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Shape rasterized to pixels");
     }
 
     /// Morphological / feather modify of the live selection mask (`op`: feather|expand|contract).
@@ -6452,8 +6506,7 @@ impl AppSession {
         // as the widest thing it can express. Narrow them here and let the
         // rest of the path carry types that cannot say "unknown op".
         let Some(parsed) = SelectionModifyOp::parse(&op) else {
-            self.status_text = format!("Unknown selection op: {op}");
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, format!("Unknown selection op: {op}"));
             return;
         };
         let Ok(radius) = u32::try_from(radius) else {
@@ -6490,8 +6543,10 @@ impl AppSession {
     #[qslot]
     fn set_clone_anchor(&mut self, doc_x: f32, doc_y: f32) {
         self.send_paint(EngineCommand::SetCloneAnchor { x: doc_x, y: doc_y });
-        self.status_text = format!("Clone source at {:.0}, {:.0}", doc_x, doc_y);
-        self.status_text_changed();
+        self.notify(
+            NoticeLevel::Info,
+            format!("Clone source at {:.0}, {:.0}", doc_x, doc_y),
+        );
     }
 
     #[qslot]
@@ -6565,8 +6620,10 @@ impl AppSession {
                     command_id::SELECTION_MODIFY,
                     CommandArgs::SelectionModify { op, radius },
                 );
-                self.status_text = format!("Selection {} ({radius}px)", op.as_str());
-                self.status_text_changed();
+                self.notify(
+                    NoticeLevel::Info,
+                    format!("Selection {} ({radius}px)", op.as_str()),
+                );
             }
             Err(error) => self.report_gpu("modify selection", &error),
         }
@@ -6621,8 +6678,7 @@ impl AppSession {
                     return;
                 }
                 self.recomposite();
-                self.status_text = "Path stroked to new layer".to_owned();
-                self.status_text_changed();
+                self.notify(NoticeLevel::Info, "Path stroked to new layer");
             }
             Err(error) => self.report_gpu("stroke path", &error.to_string()),
         }
@@ -6701,7 +6757,10 @@ impl AppSession {
     #[qslot]
     fn set_blend_if_channel(&mut self, channel: String) {
         let Some(parsed) = phototux_engine::BlendIfChannel::parse(&channel) else {
-            self.set_status(format!("Unknown blend channel: {channel}"));
+            self.notify(
+                NoticeLevel::Warning,
+                format!("Unknown blend channel: {channel}"),
+            );
             return;
         };
         let Some(mut blend_if) = self.active_blend_if() else {
@@ -7137,8 +7196,10 @@ impl AppSession {
     #[qslot]
     fn add_guide(&mut self, orientation: String, position: f32) {
         let Some(orient) = GuideOrientation::parse(&orientation) else {
-            self.status_text = format!("Unknown guide orientation: {orientation}");
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                format!("Unknown guide orientation: {orientation}"),
+            );
             return;
         };
         let position = self.engine.guides.snap_value(position, orient);
@@ -7148,8 +7209,7 @@ impl AppSession {
         });
         self.sync_guides_fields();
         self.emit_guides_fields();
-        self.status_text = format!("Guide added at {position:.0}px");
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, format!("Guide added at {position:.0}px"));
     }
 
     #[qslot]
@@ -7157,8 +7217,7 @@ impl AppSession {
         self.engine.guides.clear_guides();
         self.sync_guides_fields();
         self.emit_guides_fields();
-        self.status_text = "Guides cleared".to_owned();
-        self.status_text_changed();
+        self.notify(NoticeLevel::Info, "Guides cleared");
     }
 
     #[qslot]
@@ -7549,8 +7608,7 @@ impl AppSession {
     #[qslot]
     fn fill_active_layer(&mut self) {
         let Some(id) = self.active_raster_paintable() else {
-            self.status_text = "Fill requires an unlocked raster layer".to_owned();
-            self.status_text_changed();
+            self.notify(NoticeLevel::Warning, "Fill needs an unlocked raster layer.");
             return;
         };
         let fg = self.engine.colors.foreground;
@@ -7568,8 +7626,10 @@ impl AppSession {
     #[qslot]
     fn commit_linear_gradient(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
         let Some(id) = self.active_raster_paintable() else {
-            self.status_text = "Gradient requires an unlocked raster layer".to_owned();
-            self.status_text_changed();
+            self.notify(
+                NoticeLevel::Warning,
+                "Gradient needs an unlocked raster layer.",
+            );
             return;
         };
         let c0 = self.engine.colors.foreground;
@@ -7614,11 +7674,13 @@ impl AppSession {
         match rgb {
             Ok([r, g, b]) => {
                 self.set_brush_color(r, g, b);
-                self.status_text = format!(
-                    "Sampled {}",
-                    phototux_engine::ColorState::to_hex([r, g, b, 1.0])
+                self.notify(
+                    NoticeLevel::Info,
+                    format!(
+                        "Sampled {}",
+                        phototux_engine::ColorState::to_hex([r, g, b, 1.0])
+                    ),
                 );
-                self.status_text_changed();
             }
             Err(error) => self.report_gpu("eyedropper", &error),
         }

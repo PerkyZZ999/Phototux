@@ -1052,6 +1052,18 @@ pub fn end_stroke() -> Result<(), String> {
     })
 }
 
+/// Whether a document exists on the GPU yet.
+///
+/// The composite runs from a timer and from document edits, and both can fire
+/// in the window before `open_document` has built the GPU side — a transient
+/// state, not a failure. Callers ask this rather than matching the "no document
+/// GPU state" text of the error they would otherwise get, so that a benign race
+/// is not reported to the user as a failed composite.
+#[must_use]
+pub fn has_document() -> bool {
+    DOC_GPU.lock().is_ok_and(|guard| guard.is_some())
+}
+
 pub fn can_undo_stroke() -> bool {
     DOC_GPU
         .lock()
@@ -1207,10 +1219,18 @@ mod tests {
     /// The exceptions are named rather than inferred. The two `open_*` entry
     /// points install the context this helper requires, and `close_document`
     /// tears it down — refusing to close because the device is already lost is
-    /// exactly backwards.
+    /// exactly backwards. `has_document` is the fourth: it *reports* whether
+    /// the state this helper requires exists, so routing it through the helper
+    /// would make it answer "no" by erroring, and a predicate must not run a
+    /// device check as a side effect of being asked.
     #[test]
     fn gpu_entry_points_go_through_the_document_helper() {
-        const INSTALLERS: [&str; 3] = ["open_document", "open_raster_document", "close_document"];
+        const INSTALLERS: [&str; 4] = [
+            "open_document",
+            "open_raster_document",
+            "close_document",
+            "has_document",
+        ];
         let source = include_str!("document_gpu.rs");
 
         let mut offenders = Vec::new();

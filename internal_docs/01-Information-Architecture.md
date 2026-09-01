@@ -10,6 +10,41 @@ The central rule is:
 
 > Users manipulate document objects through semantic actions presented in context. Views reveal state; they do not become state owners.
 
+## Messages
+
+Transient messages are **toasts**, stacked bottom-centre over the canvas. They
+are not written into the status bar.
+
+The two are different kinds of thing and were sharing one string. The status bar
+carries the document summary — size, zoom, active layer, tool — which is *state*:
+true continuously, and refreshed from six places. A message is an *event*: true
+once. Putting both in `status_text` meant the next summary refresh silently
+erased whatever the user had not read, so a message was only seen by someone
+already looking at the footer. `nothing_writes_a_message_into_the_status_bar`
+keeps them apart.
+
+Severity is a vocabulary (`NoticeLevel`), not something the presenter infers
+from the text — inferring "error" by searching a message for the word "failed"
+is the same mistake as classifying a typed error by grepping its `Display`.
+Info and warning fade after three seconds; **errors do not fade**, because a
+save that did not happen must not scroll past while the user is looking at the
+canvas. Every toast can be dismissed by hand, and hovering holds one open: a
+message worth reading is often longer than three seconds' worth of reading.
+
+A repeated message counts up in place rather than stacking, so one refused
+command clicked four times does not become a wall. The queue is bounded at four
+and drops the oldest, since a loop posting every frame would otherwise cover the
+canvas it is reporting on.
+
+Making messages reliable exposed one that had always been posted and always
+swallowed: the composite runs from a timer and could fire before the GPU side of
+the document existed, reporting a failure for a transient state. The host asks
+`phototux_canvas::has_document()` rather than matching the error's text.
+
+Dialogs remain for things that need a decision or a long read — the recovery
+chooser, the `.ptx` integrity report. A toast is for something the user should
+know, not something they must answer.
+
 ## Empty Panels
 
 A dock panel with nothing to list shows a placeholder, never a blank rectangle.

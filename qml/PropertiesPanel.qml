@@ -239,15 +239,6 @@ ColumnLayout {
         }
     }
 
-    Label {
-        visible: AppSession.hasDocument && AppSession.lastAnnounce.length > 0
-        text: AppSession.lastAnnounce
-        color: Theme.colorOnSurfaceVariant
-        font.pixelSize: Theme.fontLabelSm
-        wrapMode: Text.WordWrap
-        Layout.fillWidth: true
-        Accessible.name: AppSession.lastAnnounce
-    }
 
     // Selection combine modes
     DisclosureGroup {

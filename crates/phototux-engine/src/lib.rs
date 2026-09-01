@@ -29,6 +29,7 @@ mod host_request;
 mod layer;
 mod layer_row;
 mod layer_style;
+mod notice;
 mod paths;
 mod render_plan;
 mod selection;
@@ -103,6 +104,7 @@ pub use layer::{
 };
 pub use layer_row::{LayerRow, layer_rows};
 pub use layer_style::{LayerStyle, StrokePosition, apply_styles_rgba8, layer_styles_json};
+pub use notice::{Notice, NoticeLevel, NoticeQueue};
 pub use paths::{
     PathDocument, PathPoint, VectorPath, ellipse_path, fill_gradient_even_odd, polygon_path,
     rasterize_shape_rgba8, rect_path, stroke_path_rgba8,

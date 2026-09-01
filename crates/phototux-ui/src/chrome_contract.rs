@@ -96,6 +96,39 @@ mod tests {
         );
     }
 
+    /// The status bar carries state, never messages.
+    ///
+    /// It shows the document summary — size, zoom, active layer, tool — which
+    /// is true continuously. A message is true once. When both went into the
+    /// same string the next summary refresh silently erased whatever the user
+    /// had not yet read, and there are six places that refresh it. Messages go
+    /// to the toast channel; `status_text` may only ever be the summary.
+    #[test]
+    fn nothing_writes_a_message_into_the_status_bar() {
+        let source = include_str!("lib.rs");
+        let mut assignments = 0;
+        for (i, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            let Some(rhs) = trimmed.strip_prefix("self.status_text = ") else {
+                continue;
+            };
+            assignments += 1;
+            assert_eq!(
+                rhs,
+                "self.engine.status_summary();",
+                "lib.rs:{} assigns something other than the summary to the status \
+                 bar — messages belong in `notify`, which the next summary \
+                 refresh cannot erase",
+                i + 1
+            );
+        }
+        assert!(
+            assignments > 3,
+            "found {assignments} status_text assignments — the scan broke rather \
+             than the shell"
+        );
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {

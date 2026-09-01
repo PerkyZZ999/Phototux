@@ -110,7 +110,9 @@ set(ICON_NAMES
     sun-dim
     text-t
     trash
+    warning
     x
+    x-circle
 )
 set(ICON_FILES)
 foreach(ICON_NAME IN LISTS ICON_NAMES)
