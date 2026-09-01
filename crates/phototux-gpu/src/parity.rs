@@ -369,10 +369,11 @@ mod gpu_tests {
         for kind in AdjustmentParams::ALL_KINDS {
             // Defaults are neutral by design, so each kind is nudged off it —
             // a neutral adjustment cannot tell "applied" from "skipped".
-            let slots = kind.slots();
-            let moved = kind
-                .with_slots([slots[0] + 0.3, slots[1] + 0.2, slots[2]])
-                .clamped();
+            let mut slots = kind.slots();
+            for (i, (_, min, max)) in kind.editor_slots().iter().enumerate() {
+                slots[i] = (slots[i] + (max - min) * 0.25).clamp(*min, *max);
+            }
+            let moved = kind.with_slots(slots).clamped();
             let (expected, actual) = match gpu_adjustment_rgb(moved.clone(), base) {
                 Ok(pair) => pair,
                 Err(e) => {

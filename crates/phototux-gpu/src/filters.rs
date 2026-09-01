@@ -1,18 +1,25 @@
 //! Nondestructive GPU filter helpers (Phase 10).
 
-use phototux_engine::{AdjustmentParams, FilterParams};
+use phototux_engine::{AdjustmentParams, FilterParams, MAX_ADJUSTMENT_SLOTS};
+
+/// Widen a pass's parameters into the fixed slot array the uniform carries.
+fn pad_params(values: &[f32]) -> [f32; MAX_ADJUSTMENT_SLOTS] {
+    let mut out = [0.0; MAX_ADJUSTMENT_SLOTS];
+    let n = values.len().min(MAX_ADJUSTMENT_SLOTS);
+    out[..n].copy_from_slice(&values[..n]);
+    out
+}
 
 /// Describe a filter/adjustment pass for the composite planner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilterPass {
     pub label: &'static str,
     pub shader_key: &'static str,
-    pub params: [f32; 4],
+    pub params: [f32; MAX_ADJUSTMENT_SLOTS],
 }
 
 /// Map engine adjustment params to a GPU pass descriptor.
 pub fn adjustment_pass(params: &AdjustmentParams) -> FilterPass {
-    let slots = params.slots();
     FilterPass {
         label: params.label(),
         shader_key: match params {
@@ -23,8 +30,11 @@ pub fn adjustment_pass(params: &AdjustmentParams) -> FilterPass {
             AdjustmentParams::Threshold { .. } => "adjust.threshold",
             AdjustmentParams::Posterize { .. } => "adjust.posterize",
             AdjustmentParams::Exposure { .. } => "adjust.exposure",
+            AdjustmentParams::Vibrance { .. } => "adjust.vibrance",
+            AdjustmentParams::BlackAndWhite { .. } => "adjust.black_white",
+            AdjustmentParams::WhiteBalance { .. } => "adjust.white_balance",
         },
-        params: [slots[0], slots[1], slots[2], 0.0],
+        params: params.slots(),
     }
 }
 
@@ -34,27 +44,27 @@ pub fn filter_pass(params: &FilterParams) -> FilterPass {
         FilterParams::GaussianBlur { radius } => FilterPass {
             label: "Gaussian Blur",
             shader_key: "filter.gaussian_blur",
-            params: [radius, 0.0, 0.0, 0.0],
+            params: pad_params(&[radius, 0.0, 0.0, 0.0]),
         },
         FilterParams::BoxBlur { radius } => FilterPass {
             label: "Box Blur",
             shader_key: "filter.box_blur",
-            params: [radius, 0.0, 0.0, 0.0],
+            params: pad_params(&[radius, 0.0, 0.0, 0.0]),
         },
         FilterParams::Sharpen { amount } => FilterPass {
             label: "Sharpen",
             shader_key: "filter.sharpen",
-            params: [amount, 0.0, 0.0, 0.0],
+            params: pad_params(&[amount, 0.0, 0.0, 0.0]),
         },
         FilterParams::Invert => FilterPass {
             label: "Invert",
             shader_key: "filter.invert",
-            params: [0.0; 4],
+            params: pad_params(&[0.0; 4]),
         },
         FilterParams::Offset { x, y } => FilterPass {
             label: "Offset",
             shader_key: "filter.offset",
-            params: [x as f32, y as f32, 0.0, 0.0],
+            params: pad_params(&[x as f32, y as f32, 0.0, 0.0]),
         },
         FilterParams::MotionBlur {
             distance,
@@ -62,7 +72,7 @@ pub fn filter_pass(params: &FilterParams) -> FilterPass {
         } => FilterPass {
             label: "Motion Blur",
             shader_key: "filter.motion_blur",
-            params: [distance, angle_deg, 0.0, 0.0],
+            params: pad_params(&[distance, angle_deg, 0.0, 0.0]),
         },
         FilterParams::Emboss {
             strength,
@@ -70,12 +80,12 @@ pub fn filter_pass(params: &FilterParams) -> FilterPass {
         } => FilterPass {
             label: "Emboss",
             shader_key: "filter.emboss",
-            params: [strength, angle_deg, 0.0, 0.0],
+            params: pad_params(&[strength, angle_deg, 0.0, 0.0]),
         },
         FilterParams::Noise { amount } => FilterPass {
             label: "Noise",
             shader_key: "filter.noise",
-            params: [amount, 0.0, 0.0, 0.0],
+            params: pad_params(&[amount, 0.0, 0.0, 0.0]),
         },
     }
 }

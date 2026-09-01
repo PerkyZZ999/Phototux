@@ -230,8 +230,8 @@ pub fn disclosure_groups_json() -> String {
 /// Editable bounds of one inspector parameter, in `AdjustmentParams` units.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdjustmentParamRange {
-    /// `p0` | `p1` | `p2` — the slot this parameter occupies in the projection.
-    pub slot: &'static str,
+    /// Position in the kind's slot projection.
+    pub index: usize,
     pub label: &'static str,
     pub min: f32,
     pub max: f32,
@@ -251,8 +251,9 @@ pub fn adjustment_editor_ranges() -> Vec<(&'static str, Vec<AdjustmentParamRange
             let slots = params
                 .editor_slots()
                 .iter()
-                .map(|&(slot, label, min, max)| AdjustmentParamRange {
-                    slot,
+                .enumerate()
+                .map(|(index, &(label, min, max))| AdjustmentParamRange {
+                    index,
                     label,
                     min,
                     max,
@@ -278,7 +279,6 @@ pub fn adjustment_editor_ranges_json() -> String {
                 .into_iter()
                 .map(|p| {
                     serde_json::json!({
-                        "slot": p.slot,
                         "label": p.label,
                         "min": p.min,
                         "max": p.max,
@@ -319,9 +319,9 @@ pub struct DisclosureBadge {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct InspectorState<'a> {
     pub adjustment_kind: &'a str,
-    pub adjustment_p0: f32,
-    pub adjustment_p1: f32,
-    pub adjustment_p2: f32,
+    /// Slot values of the active adjustment, index-aligned with the kind's
+    /// [`crate::AdjustmentParams::editor_slots`].
+    pub adjustment_slots: &'a [f32],
     pub selection_active: bool,
     /// Outline bounds as `(x, y, width, height)` in document space.
     pub selection_bounds: Option<(i32, i32, u32, u32)>,
@@ -397,10 +397,8 @@ fn adjustment_out_of_range(state: &InspectorState<'_>) -> Option<String> {
     params
         .into_iter()
         .find(|p| {
-            let value = match p.slot {
-                "p0" => state.adjustment_p0,
-                "p1" => state.adjustment_p1,
-                _ => state.adjustment_p2,
+            let Some(&value) = state.adjustment_slots.get(p.index) else {
+                return false;
             };
             let slack = (p.max - p.min) * 1e-3;
             value < p.min - slack || value > p.max + slack
@@ -564,7 +562,7 @@ mod tests {
             .collect();
         let state = InspectorState {
             adjustment_kind: "levels",
-            adjustment_p2: 6.0,
+            adjustment_slots: &[0.0, 1.0, 6.0],
             selection_active: true,
             selection_bounds: Some((-500, 0, 100, 100)),
             document_size: (256, 256),
@@ -572,7 +570,9 @@ mod tests {
             text_font_family: "Nonexistent Sans",
             known_font_families: Some(&[]),
             gpu_lost: true,
-            ..InspectorState::default()
+            // No `..default()`: naming every field is what makes adding one
+            // without a rule — or a rule without a fixture — a compile error
+            // here rather than a badge nobody notices is missing.
         };
         let badges = inspector_badges(&state);
         assert_eq!(badges.len(), 4, "expected every rule to fire: {badges:?}");
@@ -588,14 +588,14 @@ mod tests {
     fn slider_extremes_never_raise_a_badge() {
         for (kind, params) in adjustment_editor_ranges() {
             for p in &params {
-                assert!(p.min < p.max, "{kind}.{} has an empty range", p.slot);
+                assert!(p.min < p.max, "{kind} slot {} has an empty range", p.index);
                 for value in [p.min, p.max] {
-                    let state = project(kind, build_adjustment(kind, p.slot, value).clamped());
+                    let state = project(kind, build_adjustment(kind, p.index, value).clamped());
                     assert_eq!(
                         adjustment_out_of_range(&state),
                         None,
-                        "{kind}.{} at {value} raises a badge after clamping",
-                        p.slot
+                        "{kind} slot {} at {value} raises a badge after clamping",
+                        p.index
                     );
                 }
             }
@@ -608,27 +608,22 @@ mod tests {
     /// carry its own `match` with a fallback arm, so sweeping the sliders of a
     /// kind it did not name silently swept Brightness/Contrast instead and
     /// flagged the wrong badge.
-    fn build_adjustment(kind: &str, slot: &str, value: f32) -> crate::AdjustmentParams {
+    fn build_adjustment(kind: &str, index: usize, value: f32) -> crate::AdjustmentParams {
         let base = crate::AdjustmentParams::default_for_kind(kind)
             .unwrap_or_else(|| panic!("{kind} is not a known adjustment kind"));
         let mut slots = base.slots();
-        let index = match slot {
-            "p0" => 0,
-            "p1" => 1,
-            _ => 2,
-        };
         slots[index] = value;
         base.with_slots(slots)
     }
 
     /// Mirror the host's `p0..p2` projection of an adjustment.
     fn project(kind: &'static str, params: crate::AdjustmentParams) -> InspectorState<'static> {
-        let [p0, p1, p2] = params.slots();
+        // Leaked so the borrow outlives the helper; the suite is short-lived
+        // and this keeps `InspectorState` borrowing rather than owning.
+        let slots: &'static [f32] = Box::leak(Box::new(params.slots()));
         InspectorState {
             adjustment_kind: kind,
-            adjustment_p0: p0,
-            adjustment_p1: p1,
-            adjustment_p2: p2,
+            adjustment_slots: slots,
             ..InspectorState::default()
         }
     }
@@ -637,9 +632,7 @@ mod tests {
     fn in_range_adjustment_raises_no_badge() {
         let state = InspectorState {
             adjustment_kind: "levels",
-            adjustment_p0: 0.0,
-            adjustment_p1: 1.0,
-            adjustment_p2: 3.0,
+            adjustment_slots: &[0.0, 1.0, 3.0],
             ..InspectorState::default()
         };
         assert!(adjustment_out_of_range(&state).is_none());
@@ -649,7 +642,7 @@ mod tests {
     fn out_of_range_badge_names_the_parameter() {
         let state = InspectorState {
             adjustment_kind: "levels",
-            adjustment_p2: 6.0,
+            adjustment_slots: &[0.0, 1.0, 6.0],
             ..InspectorState::default()
         };
         assert_eq!(

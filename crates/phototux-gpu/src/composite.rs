@@ -8,12 +8,13 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId, LayerKind, MAX_LAYERS};
+use phototux_engine::{
+    BlendMode, DocumentSize, Layer, LayerId, LayerKind, MAX_ADJUSTMENT_SLOTS, MAX_LAYERS,
+};
 
 use crate::blur::SeparableBlur;
 use crate::brush::PixelRect;
 use crate::effect_pass::{EffectPass, LayerPackPlan};
-use crate::filters::adjustment_pass;
 use crate::layer_mask::LayerMaskChannel;
 use crate::pass_timer::PassTimer;
 use crate::transform_bake::inverse_affine_coeffs;
@@ -42,6 +43,10 @@ struct LayerParams {
     p1: f32,
     p2: f32,
     p3: f32,
+    p4: f32,
+    p5: f32,
+    p6: f32,
+    p7: f32,
 };
 
 struct Uniforms {
@@ -170,11 +175,12 @@ fn apply_brightness_contrast(rgb: vec3<f32>, brightness: f32, contrast: f32) -> 
     return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-fn apply_levels(rgb: vec3<f32>, black: f32, white: f32, gamma: f32) -> vec3<f32> {
+fn apply_levels(rgb: vec3<f32>, black: f32, white: f32, gamma: f32, out_black: f32, out_white: f32) -> vec3<f32> {
     let span = max(white - black, 1e-5);
     var t = clamp((rgb - vec3<f32>(black)) / span, vec3<f32>(0.0), vec3<f32>(1.0));
     let g = max(gamma, 0.01);
     t = pow(t, vec3<f32>(1.0 / g));
+    t = vec3<f32>(out_black) + t * (out_white - out_black);
     return clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
@@ -261,6 +267,35 @@ fn apply_hue_saturation(rgb: vec3<f32>, hue: f32, sat: f32, light: f32) -> vec3<
     return clamp(hsl_to_rgb(hsl), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// Boost weighted by how much room a pixel has left: an already saturated
+// colour barely moves, which is what separates this from the saturation slider.
+fn apply_vibrance(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let mx = max(rgb.r, max(rgb.g, rgb.b));
+    let mn = min(rgb.r, min(rgb.g, rgb.b));
+    let gain = amount * (1.0 - (mx - mn));
+    let luma = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+    return clamp(vec3<f32>(luma) + (rgb - vec3<f32>(luma)) * (1.0 + gain), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// Weights are normalized so a set that does not sum to one cannot brighten or
+// darken the image as a side effect.
+fn apply_black_and_white(rgb: vec3<f32>, r: f32, g: f32, b: f32) -> vec3<f32> {
+    let sum = max(r + g + b, 1e-4);
+    let grey = (r * rgb.r + g * rgb.g + b * rgb.b) / sum;
+    return vec3<f32>(clamp(grey, 0.0, 1.0));
+}
+
+// Warm lifts red and drops blue; tint trades green against the red/blue pair.
+fn apply_white_balance(rgb: vec3<f32>, temperature: f32, tint: f32) -> vec3<f32> {
+    let warm = temperature * 0.3;
+    let green_shift = tint * 0.3;
+    return clamp(vec3<f32>(
+        rgb.r * (1.0 + warm) * (1.0 - green_shift * 0.5),
+        rgb.g * (1.0 + green_shift),
+        rgb.b * (1.0 - warm) * (1.0 - green_shift * 0.5),
+    ), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 fn apply_threshold(rgb: vec3<f32>, level: f32) -> vec3<f32> {
     let luma = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
     return select(vec3<f32>(0.0), vec3<f32>(1.0), luma >= level);
@@ -316,7 +351,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             if (p.adj_op == 1u) {
                 adjusted = apply_brightness_contrast(acc.rgb, p.p0, p.p1);
             } else if (p.adj_op == 2u) {
-                adjusted = apply_levels(acc.rgb, p.p0, p.p1, p.p2);
+                adjusted = apply_levels(acc.rgb, p.p0, p.p1, p.p2, p.p3, p.p4);
             } else if (p.adj_op == 3u) {
                 adjusted = apply_exposure(acc.rgb, p.p0, p.p1);
             } else if (p.adj_op == 4u) {
@@ -327,6 +362,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                 adjusted = apply_threshold(acc.rgb, p.p0);
             } else if (p.adj_op == 7u) {
                 adjusted = apply_posterize(acc.rgb, p.p0);
+            } else if (p.adj_op == 8u) {
+                adjusted = apply_vibrance(acc.rgb, p.p0);
+            } else if (p.adj_op == 9u) {
+                adjusted = apply_black_and_white(acc.rgb, p.p0, p.p1, p.p2);
+            } else if (p.adj_op == 10u) {
+                adjusted = apply_white_balance(acc.rgb, p.p0, p.p1);
             }
             let rgb = mix(acc.rgb, adjusted, strength);
             acc = vec4<f32>(rgb, acc.a);
@@ -378,10 +419,10 @@ struct LayerParamsGpu {
     kind: u32,
     adj_op: u32,
     _pad0: u32,
-    p0: f32,
-    p1: f32,
-    p2: f32,
-    p3: f32,
+    // Index-aligned with `AdjustmentParams::slots`; `MAX_ADJUSTMENT_SLOTS`
+    // wide, so raising that constant is a shader-layout change and fails the
+    // test that pins the two together.
+    p: [f32; MAX_ADJUSTMENT_SLOTS],
 }
 
 #[repr(C)]
@@ -801,14 +842,15 @@ impl LayerCompositeEngine {
             }
             _ => (0, 0, 0),
         };
-        let (kind, adj_op, mut p0, mut p1, p2, mut p3) = adjustment_gpu_params(layer);
+        let (kind, adj_op, mut p) = adjustment_gpu_params(layer);
         if kind == 0 {
+            // A non-adjustment layer reuses the same slots for mask refine.
             if let Some(m) = layer.mask.as_ref() {
-                p0 = m.contrast.clamp(-1.0, 1.0);
-                p1 = m.shift.clamp(-1.0, 1.0);
-                p3 = m.density.clamp(0.0, 1.0);
+                p[0] = m.contrast.clamp(-1.0, 1.0);
+                p[1] = m.shift.clamp(-1.0, 1.0);
+                p[3] = m.density.clamp(0.0, 1.0);
             } else {
-                p3 = 1.0;
+                p[3] = 1.0;
             }
         }
         LayerParamsGpu {
@@ -828,10 +870,7 @@ impl LayerCompositeEngine {
             kind,
             adj_op,
             _pad0: 0,
-            p0,
-            p1,
-            p2,
-            p3,
+            p,
         }
     }
 
@@ -1105,10 +1144,7 @@ impl LayerCompositeEngine {
                 kind: 0,
                 adj_op: 0,
                 _pad0: 0,
-                p0: 0.0,
-                p1: 0.0,
-                p2: 0.0,
-                p3: 0.0,
+                p: [0.0; MAX_ADJUSTMENT_SLOTS],
             }; MAX_LAYERS],
         };
 
@@ -1731,24 +1767,21 @@ fn copy_slice_2d(
     );
 }
 
-fn adjustment_gpu_params(layer: &Layer) -> (u32, u32, f32, f32, f32, f32) {
+/// `(kind, adj_op, slots)` for one layer's uniform block.
+fn adjustment_gpu_params(layer: &Layer) -> (u32, u32, [f32; MAX_ADJUSTMENT_SLOTS]) {
     if layer.kind != LayerKind::Adjustment {
-        return (0, 0, 0.0, 0.0, 0.0, 0.0);
+        return (0, 0, [0.0; MAX_ADJUSTMENT_SLOTS]);
     }
     let Some(params) = layer.adjustment.as_ref() else {
-        return (1, 0, 0.0, 0.0, 0.0, 0.0);
+        return (1, 0, [0.0; MAX_ADJUSTMENT_SLOTS]);
     };
-    let pass = adjustment_pass(params);
     (
         1,
         // The engine owns this mapping. It used to be a `match` here with a
         // `_ => 0` arm, and 0 means "no adjustment" — so Hue/Saturation,
         // Invert, Threshold and Posterize layers composited as nothing.
         params.gpu_op(),
-        pass.params[0],
-        pass.params[1],
-        pass.params[2],
-        pass.params[3],
+        params.slots(),
     )
 }
 

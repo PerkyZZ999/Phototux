@@ -240,9 +240,13 @@ pub struct AppSession {
     viewport_width: f32,
     viewport_height: f32,
     adjustment_kind: String,
-    adjustment_p0: f32,
-    adjustment_p1: f32,
-    adjustment_p2: f32,
+    /// Slot values of the active adjustment as a JSON array, index-aligned
+    /// with the kind's editor slots. An array rather than a fixed set of
+    /// scalars because the slot count is a property of the kind — Levels has
+    /// five, Invert has none.
+    adjustment_slots_json: String,
+    /// Slot values behind [`Self::adjustment_slots_json`], for the badge rules.
+    adjustment_slots: Vec<f32>,
     has_gaussian_blur: bool,
     gaussian_radius: f32,
     effects_joined: String,
@@ -370,6 +374,21 @@ impl Default for AppSession {
 }
 
 impl AppSession {
+    /// Store the active adjustment's slot values and publish them.
+    ///
+    /// The vector feeds the inspector badge rules and the JSON feeds QML; they
+    /// are set together so a badge can never describe a value the panel is not
+    /// showing.
+    fn set_adjustment_slot_values(&mut self, values: &[f32]) {
+        if self.adjustment_slots == values {
+            return;
+        }
+        self.adjustment_slots = values.to_vec();
+        self.adjustment_slots_json =
+            serde_json::to_string(values).unwrap_or_else(|_| "[]".to_owned());
+        self.adjustment_slots_json_changed();
+    }
+
     pub fn new(icon_root: String) -> Self {
         let engine = SessionState::default();
         let mut out = Self {
@@ -472,9 +491,8 @@ impl AppSession {
             viewport_width: 1.0,
             viewport_height: 1.0,
             adjustment_kind: String::new(),
-            adjustment_p0: 0.0,
-            adjustment_p1: 0.0,
-            adjustment_p2: 1.0,
+            adjustment_slots_json: "[]".into(),
+            adjustment_slots: Vec::new(),
             has_gaussian_blur: false,
             gaussian_radius: 0.0,
             effects_joined: String::new(),
@@ -932,28 +950,38 @@ impl AppSession {
             .and_then(|g| g.active_id().and_then(|id| g.get(id)));
         let Some(layer) = layer else {
             self.adjustment_kind.clear();
-            self.adjustment_p0 = 0.0;
-            self.adjustment_p1 = 0.0;
-            self.adjustment_p2 = 1.0;
+            self.set_adjustment_slot_values(&[]);
             self.has_gaussian_blur = false;
             self.gaussian_radius = 0.0;
             return;
         };
-        match layer.adjustment.as_ref() {
-            Some(params) => {
-                let [p0, p1, p2] = params.slots();
-                self.adjustment_kind = params.kind_key().into();
-                self.adjustment_p0 = p0;
-                self.adjustment_p1 = p1;
-                self.adjustment_p2 = p2;
+        // Copied out before publishing: the layer is borrowed from `self`, and
+        // the publisher needs `self` mutably.
+        let adjustment = layer.adjustment.as_ref().map(|params| {
+            (
+                params.kind_key(),
+                params.slots(),
+                params.editor_slots().len(),
+            )
+        });
+        match adjustment {
+            Some((kind, slots, used)) => {
+                self.adjustment_kind = kind.to_owned();
+                self.set_adjustment_slot_values(&slots[..used]);
             }
             None => {
                 self.adjustment_kind.clear();
-                self.adjustment_p0 = 0.0;
-                self.adjustment_p1 = 0.0;
-                self.adjustment_p2 = 1.0;
+                self.set_adjustment_slot_values(&[]);
             }
         }
+        let layer = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)));
+        let Some(layer) = layer else {
+            return;
+        };
         let gaussian = layer.effects.iter().find_map(|effect| {
             if !effect.enabled {
                 return None;
@@ -1221,9 +1249,7 @@ impl AppSession {
         self.recent_colors_changed();
         self.brush_color_changed();
         self.adjustment_kind_changed();
-        self.adjustment_p0_changed();
-        self.adjustment_p1_changed();
-        self.adjustment_p2_changed();
+        self.adjustment_slots_json_changed();
         self.has_gaussian_blur_changed();
         self.gaussian_radius_changed();
         self.effects_joined_changed();
@@ -1588,9 +1614,7 @@ impl AppSession {
     fn refresh_inspector_badges(&mut self) {
         let state = phototux_engine::InspectorState {
             adjustment_kind: &self.adjustment_kind,
-            adjustment_p0: self.adjustment_p0,
-            adjustment_p1: self.adjustment_p1,
-            adjustment_p2: self.adjustment_p2,
+            adjustment_slots: &self.adjustment_slots,
             selection_active: self.selection_active,
             selection_bounds: self
                 .engine
@@ -2970,19 +2994,9 @@ impl AppSession {
         Notify = adjustment_kind_changed
     );
     qproperty!(
-        "adjustmentP0",
-        Member = adjustment_p0,
-        Notify = adjustment_p0_changed
-    );
-    qproperty!(
-        "adjustmentP1",
-        Member = adjustment_p1,
-        Notify = adjustment_p1_changed
-    );
-    qproperty!(
-        "adjustmentP2",
-        Member = adjustment_p2,
-        Notify = adjustment_p2_changed
+        "adjustmentSlotsJson",
+        Member = adjustment_slots_json,
+        Notify = adjustment_slots_json_changed
     );
     qproperty!(
         "hasGaussianBlur",
@@ -3448,11 +3462,7 @@ impl AppSession {
     #[qsignal]
     fn adjustment_kind_changed(&mut self);
     #[qsignal]
-    fn adjustment_p0_changed(&mut self);
-    #[qsignal]
-    fn adjustment_p1_changed(&mut self);
-    #[qsignal]
-    fn adjustment_p2_changed(&mut self);
+    fn adjustment_slots_json_changed(&mut self);
     #[qsignal]
     fn has_gaussian_blur_changed(&mut self);
     #[qsignal]
@@ -6304,11 +6314,34 @@ impl AppSession {
         }
     }
 
+    /// Write one editor slot of the active adjustment, leaving the rest alone.
+    ///
+    /// The chrome sends one slot rather than the whole array because that is
+    /// what a slider drag means, and because the slot count differs per kind:
+    /// a panel that rebuilt the array would have to know which kind it is
+    /// editing, which is exactly the knowledge the editor no longer carries.
     #[qslot]
-    fn set_adjustment_params(&mut self, p0: f32, p1: f32, p2: f32) {
+    fn set_adjustment_slot(&mut self, index: i32, value: f32) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        let Some(params) = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .and_then(|l| l.adjustment.as_ref())
+        else {
+            return;
+        };
+        if index >= params.editor_slots().len() {
+            return;
+        }
+        let mut slots = params.slots();
+        slots[index] = value;
         let _ = self.invoke_command(
             command_id::FILTER_SET_PARAMETERS,
-            CommandArgs::FilterParameters { p0, p1, p2 },
+            CommandArgs::FilterParameters { slots },
         );
     }
 

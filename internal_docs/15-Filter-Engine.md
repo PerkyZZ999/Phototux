@@ -188,12 +188,17 @@ Preview never changes modified state or history. A preview can lag parameter inp
 | Kind | Key | Editor slots |
 | --- | --- | --- |
 | Brightness/Contrast | `brightness` | Brightness, Contrast |
-| Levels | `levels` | Black, White, Gamma |
+| Levels | `levels` | Black, White, Gamma, Output Black, Output White |
 | Exposure | `exposure` | Stops, Gamma |
 | Hue/Saturation | `hue` | Hue, Saturation, Lightness |
 | Invert | `invert` | *(none)* |
 | Threshold | `threshold` | Level |
 | Posterize | `posterize` | Levels |
+| Vibrance | `vibrance` | Amount |
+| Black & White | `black-white` | Red, Green, Blue |
+| White Balance | `white-balance` | Temperature, Tint |
+
+Slots are positional: an entry's index in `editor_slots` *is* its index in `slots`, so a parameter cannot be described by one index and read from another. `MAX_ADJUSTMENT_SLOTS` (8) bounds the list, because the composite shader carries that many floats per layer — raising it is a uniform-layout change, and a kind wanting a curve or a gradient should take a lookup texture instead of a longer slot list.
 
 Three rules hold the vocabulary together, each pinned by test:
 
@@ -201,7 +206,7 @@ Three rules hold the vocabulary together, each pinned by test:
 - **`slots` and `with_slots` are inverse.** The chrome edits an adjustment only through the three slots, so a parameter the projection drops is a control that silently does nothing.
 - **`apply_rgb` is the reference the WGSL mirrors**, and a device-backed fixture composites every kind and compares against it. Without it there is nothing to notice a shader arm that was never added.
 
-Adding a kind is a variant plus one arm in each method, an arm in the shader, and nothing in the chrome: the Properties editor builds itself from `editor_slots`.
+Adding a kind is a variant plus one arm in each method, an arm in the shader, and **nothing in the chrome**: the Properties editor builds itself from `editor_slots`, and the Layer-menu entry is generated from `ALL_KINDS`. Vibrance, Black & White and White Balance were added this way and reached the menu and the inspector with no QML edit at all.
 
 ## Nondestructive Nodes
 

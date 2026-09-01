@@ -462,6 +462,12 @@ pub enum AdjustmentParams {
         black: f32,
         white: f32,
         gamma: f32,
+        /// Output black point — the value input black maps to.
+        #[serde(default)]
+        out_black: f32,
+        /// Output white point — the value input white maps to.
+        #[serde(default = "one")]
+        out_white: f32,
     },
     HueSaturation {
         hue: f32,
@@ -480,6 +486,21 @@ pub enum AdjustmentParams {
         stops: f32,
         gamma: f32,
     },
+    /// Saturation boost weighted against what is already saturated.
+    Vibrance {
+        amount: f32,
+    },
+    /// Monochrome conversion with explicit per-channel luminance weights.
+    BlackAndWhite {
+        red: f32,
+        green: f32,
+        blue: f32,
+    },
+    /// Temperature and tint, as a warm/cool and green/magenta shift.
+    WhiteBalance {
+        temperature: f32,
+        tint: f32,
+    },
 }
 
 impl Default for AdjustmentParams {
@@ -489,6 +510,26 @@ impl Default for AdjustmentParams {
             contrast: 0.0,
         }
     }
+}
+
+/// `serde` default for a levels output-white that predates the field.
+fn one() -> f32 {
+    1.0
+}
+
+/// Editor slots one adjustment kind may expose.
+///
+/// The composite shader carries this many floats per layer, so raising it is a
+/// uniform-layout change, not a free one. Eight covers every kind shipped; a
+/// kind needing a curve or a gradient wants a lookup texture rather than a
+/// longer slot list.
+pub const MAX_ADJUSTMENT_SLOTS: usize = 8;
+
+/// Widen a kind's parameters into the fixed slot array.
+fn pad<const N: usize>(values: [f32; N]) -> [f32; MAX_ADJUSTMENT_SLOTS] {
+    let mut out = [0.0; MAX_ADJUSTMENT_SLOTS];
+    out[..N].copy_from_slice(&values);
+    out
 }
 
 impl AdjustmentParams {
@@ -506,6 +547,8 @@ impl AdjustmentParams {
                 black,
                 white,
                 gamma,
+                out_black,
+                out_white,
             } => {
                 let black = black.clamp(0.0, 1.0);
                 let white = white.clamp(0.0, 1.0).max(black + 1e-4);
@@ -513,6 +556,8 @@ impl AdjustmentParams {
                     black,
                     white,
                     gamma: gamma.clamp(0.01, 10.0),
+                    out_black: out_black.clamp(0.0, 1.0),
+                    out_white: out_white.clamp(0.0, 1.0),
                 }
             }
             Self::HueSaturation {
@@ -535,6 +580,18 @@ impl AdjustmentParams {
                 stops: stops.clamp(-5.0, 5.0),
                 gamma: gamma.clamp(0.01, 10.0),
             },
+            Self::Vibrance { amount } => Self::Vibrance {
+                amount: amount.clamp(-1.0, 1.0),
+            },
+            Self::BlackAndWhite { red, green, blue } => Self::BlackAndWhite {
+                red: red.clamp(0.0, 2.0),
+                green: green.clamp(0.0, 2.0),
+                blue: blue.clamp(0.0, 2.0),
+            },
+            Self::WhiteBalance { temperature, tint } => Self::WhiteBalance {
+                temperature: temperature.clamp(-1.0, 1.0),
+                tint: tint.clamp(-1.0, 1.0),
+            },
         }
     }
 
@@ -549,6 +606,9 @@ impl AdjustmentParams {
             Self::Threshold { .. } => "threshold",
             Self::Posterize { .. } => "posterize",
             Self::Exposure { .. } => "exposure",
+            Self::Vibrance { .. } => "vibrance",
+            Self::BlackAndWhite { .. } => "black-white",
+            Self::WhiteBalance { .. } => "white-balance",
         }
     }
 
@@ -563,6 +623,9 @@ impl AdjustmentParams {
             Self::Threshold { .. } => "Threshold",
             Self::Posterize { .. } => "Posterize",
             Self::Exposure { .. } => "Exposure",
+            Self::Vibrance { .. } => "Vibrance",
+            Self::BlackAndWhite { .. } => "Black & White",
+            Self::WhiteBalance { .. } => "White Balance",
         }
     }
 
@@ -583,6 +646,9 @@ impl AdjustmentParams {
             Self::Invert => 5,
             Self::Threshold { .. } => 6,
             Self::Posterize { .. } => 7,
+            Self::Vibrance { .. } => 8,
+            Self::BlackAndWhite { .. } => 9,
+            Self::WhiteBalance { .. } => 10,
         }
     }
 
@@ -596,6 +662,8 @@ impl AdjustmentParams {
             black: 0.0,
             white: 1.0,
             gamma: 1.0,
+            out_black: 0.0,
+            out_white: 1.0,
         },
         Self::Exposure {
             stops: 0.0,
@@ -609,6 +677,16 @@ impl AdjustmentParams {
         Self::Invert,
         Self::Threshold { level: 0.5 },
         Self::Posterize { levels: 8 },
+        Self::Vibrance { amount: 0.0 },
+        Self::BlackAndWhite {
+            red: 0.299,
+            green: 0.587,
+            blue: 0.114,
+        },
+        Self::WhiteBalance {
+            temperature: 0.0,
+            tint: 0.0,
+        },
     ];
 
     /// The default parameters for a kind key; `None` for an unknown key.
@@ -623,43 +701,53 @@ impl AdjustmentParams {
             .cloned()
     }
 
-    /// Parameters projected onto the three editor slots.
+    /// Parameters projected onto the editor slots.
     ///
     /// The slots are the chrome's whole vocabulary for an adjustment — QML
-    /// binds `p0`/`p1`/`p2` sliders and the command carries the same three —
-    /// so the projection and its inverse belong together, next to the ranges
-    /// that bound them.
+    /// binds one slider per slot and the command carries the same values — so
+    /// the projection and its inverse belong together, next to the ranges that
+    /// bound them. Slots past [`Self::editor_slots`]'s length are unused and
+    /// read as zero.
+    ///
+    /// A fixed array rather than a `Vec`: this runs once per layer on every
+    /// composite sync, and the budget is small enough that an allocation there
+    /// would cost more than the eight floats.
     #[must_use]
-    pub fn slots(&self) -> [f32; 3] {
+    pub fn slots(&self) -> [f32; MAX_ADJUSTMENT_SLOTS] {
         match *self {
             Self::BrightnessContrast {
                 brightness,
                 contrast,
-            } => [brightness, contrast, 0.0],
+            } => pad([brightness, contrast]),
             Self::Levels {
                 black,
                 white,
                 gamma,
-            } => [black, white, gamma],
+                out_black,
+                out_white,
+            } => pad([black, white, gamma, out_black, out_white]),
             Self::HueSaturation {
                 hue,
                 saturation,
                 lightness,
-            } => [hue, saturation, lightness],
-            Self::Invert => [0.0; 3],
-            Self::Threshold { level } => [level, 0.0, 0.0],
+            } => pad([hue, saturation, lightness]),
+            Self::Invert => [0.0; MAX_ADJUSTMENT_SLOTS],
+            Self::Threshold { level } => pad([level]),
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "posterize levels are clamped to 2..=256 and fit f32 exactly"
             )]
-            Self::Posterize { levels } => [levels as f32, 0.0, 0.0],
-            Self::Exposure { stops, gamma } => [stops, gamma, 0.0],
+            Self::Posterize { levels } => pad([levels as f32]),
+            Self::Exposure { stops, gamma } => pad([stops, gamma]),
+            Self::Vibrance { amount } => pad([amount]),
+            Self::BlackAndWhite { red, green, blue } => pad([red, green, blue]),
+            Self::WhiteBalance { temperature, tint } => pad([temperature, tint]),
         }
     }
 
     /// Rebuild this kind from editor slot values.
     #[must_use]
-    pub fn with_slots(&self, p: [f32; 3]) -> Self {
+    pub fn with_slots(&self, p: [f32; MAX_ADJUSTMENT_SLOTS]) -> Self {
         match self {
             Self::BrightnessContrast { .. } => Self::BrightnessContrast {
                 brightness: p[0],
@@ -669,6 +757,8 @@ impl AdjustmentParams {
                 black: p[0],
                 white: p[1],
                 gamma: p[2],
+                out_black: p[3],
+                out_white: p[4],
             },
             Self::HueSaturation { .. } => Self::HueSaturation {
                 hue: p[0],
@@ -689,34 +779,52 @@ impl AdjustmentParams {
                 stops: p[0],
                 gamma: p[1].max(0.01),
             },
+            Self::Vibrance { .. } => Self::Vibrance { amount: p[0] },
+            Self::BlackAndWhite { .. } => Self::BlackAndWhite {
+                red: p[0],
+                green: p[1],
+                blue: p[2],
+            },
+            Self::WhiteBalance { .. } => Self::WhiteBalance {
+                temperature: p[0],
+                tint: p[1],
+            },
         }
     }
 
-    /// Editor slots this kind exposes, as `(slot, label, min, max)`.
+    /// Editor slots this kind exposes, as `(label, min, max)`.
     ///
-    /// An empty list means the kind has no parameters — Invert is the whole
-    /// adjustment — not that its editor is missing.
+    /// Position in this list *is* the slot index, so a parameter cannot be
+    /// described by one index and read from another. An empty list means the
+    /// kind has no parameters — Invert is the whole adjustment — not that its
+    /// editor is missing.
     #[must_use]
-    pub fn editor_slots(&self) -> &'static [(&'static str, &'static str, f32, f32)] {
+    pub fn editor_slots(&self) -> &'static [(&'static str, f32, f32)] {
         match self {
-            Self::BrightnessContrast { .. } => &[
-                ("p0", "Brightness", -1.0, 1.0),
-                ("p1", "Contrast", -1.0, 1.0),
-            ],
+            Self::BrightnessContrast { .. } => {
+                &[("Brightness", -1.0, 1.0), ("Contrast", -1.0, 1.0)]
+            }
             Self::Levels { .. } => &[
-                ("p0", "Black", 0.0, 1.0),
-                ("p1", "White", 0.0, 1.0),
-                ("p2", "Gamma", 0.1, 3.0),
+                ("Black", 0.0, 1.0),
+                ("White", 0.0, 1.0),
+                ("Gamma", 0.1, 3.0),
+                ("Output Black", 0.0, 1.0),
+                ("Output White", 0.0, 1.0),
             ],
-            Self::Exposure { .. } => &[("p0", "Stops", -5.0, 5.0), ("p1", "Gamma", 0.1, 3.0)],
+            Self::Exposure { .. } => &[("Stops", -5.0, 5.0), ("Gamma", 0.1, 3.0)],
             Self::HueSaturation { .. } => &[
-                ("p0", "Hue", -1.0, 1.0),
-                ("p1", "Saturation", -1.0, 1.0),
-                ("p2", "Lightness", -1.0, 1.0),
+                ("Hue", -1.0, 1.0),
+                ("Saturation", -1.0, 1.0),
+                ("Lightness", -1.0, 1.0),
             ],
             Self::Invert => &[],
-            Self::Threshold { .. } => &[("p0", "Level", 0.0, 1.0)],
-            Self::Posterize { .. } => &[("p0", "Levels", 2.0, 32.0)],
+            Self::Threshold { .. } => &[("Level", 0.0, 1.0)],
+            Self::Posterize { .. } => &[("Levels", 2.0, 32.0)],
+            Self::Vibrance { .. } => &[("Amount", -1.0, 1.0)],
+            Self::BlackAndWhite { .. } => {
+                &[("Red", 0.0, 2.0), ("Green", 0.0, 2.0), ("Blue", 0.0, 2.0)]
+            }
+            Self::WhiteBalance { .. } => &[("Temperature", -1.0, 1.0), ("Tint", -1.0, 1.0)],
         }
     }
 
@@ -740,10 +848,16 @@ impl AdjustmentParams {
                 black,
                 white,
                 gamma,
+                out_black,
+                out_white,
             } => {
                 let span = (white - black).max(1e-5);
                 let g = gamma.max(0.01);
-                clamp3(rgb.map(|v| ((v - black) / span).clamp(0.0, 1.0).powf(1.0 / g)))
+                let out_span = out_white - out_black;
+                clamp3(rgb.map(|v| {
+                    let t = ((v - black) / span).clamp(0.0, 1.0).powf(1.0 / g);
+                    out_black + t * out_span
+                }))
             }
             Self::Exposure { stops, gamma } => {
                 let mul = stops.clamp(-5.0, 5.0).exp2();
@@ -782,6 +896,35 @@ impl AdjustmentParams {
                 let luma = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
                 let v = if luma >= level { 1.0 } else { 0.0 };
                 [v; 3]
+            }
+            // Boost weighted by how much room a pixel has left: already
+            // saturated colours barely move, which is what separates this from
+            // the saturation slider next door.
+            Self::Vibrance { amount } => {
+                let max = rgb[0].max(rgb[1]).max(rgb[2]);
+                let min = rgb[0].min(rgb[1]).min(rgb[2]);
+                let sat = max - min;
+                let gain = amount * (1.0 - sat);
+                let luma = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+                clamp3(rgb.map(|v| luma + (v - luma) * (1.0 + gain)))
+            }
+            Self::BlackAndWhite { red, green, blue } => {
+                // Normalized so a set of weights cannot brighten or darken the
+                // image as a side effect of summing to something other than 1.
+                let sum = (red + green + blue).max(1e-4);
+                let grey = (red * rgb[0] + green * rgb[1] + blue * rgb[2]) / sum;
+                [grey.clamp(0.0, 1.0); 3]
+            }
+            Self::WhiteBalance { temperature, tint } => {
+                // Warm lifts red and drops blue; tint trades green against the
+                // red/blue pair. Both are gains around 1.0 so zero is neutral.
+                let warm = temperature * 0.3;
+                let green_shift = tint * 0.3;
+                clamp3([
+                    rgb[0] * (1.0 + warm) * (1.0 - green_shift * 0.5),
+                    rgb[1] * (1.0 + green_shift),
+                    rgb[2] * (1.0 - warm) * (1.0 - green_shift * 0.5),
+                ])
             }
             Self::Posterize { levels } => {
                 let n = levels.clamp(2, 256);
@@ -1256,10 +1399,18 @@ mod tests {
                 "{} does not survive its own projection",
                 params.kind_key()
             );
-            for (slot, label, min, max) in params.editor_slots() {
-                assert!(matches!(*slot, "p0" | "p1" | "p2"), "{slot} is not a slot");
+            assert!(
+                params.editor_slots().len() <= MAX_ADJUSTMENT_SLOTS,
+                "{} declares more slots than the shader carries",
+                params.kind_key()
+            );
+            for (index, (label, min, max)) in params.editor_slots().iter().enumerate() {
                 assert!(!label.is_empty());
-                assert!(min < max, "{} {slot}: {min}..{max}", params.kind_key());
+                assert!(
+                    min < max,
+                    "{} slot {index}: {min}..{max}",
+                    params.kind_key()
+                );
             }
         }
     }
@@ -1271,16 +1422,13 @@ mod tests {
         let probe = [0.25, 0.55, 0.8];
         for params in AdjustmentParams::ALL_KINDS {
             // Defaults are deliberately neutral, so each kind is nudged off it.
-            let slots = params.slots();
-            let moved = params.with_slots([
-                if params.editor_slots().is_empty() {
-                    slots[0]
-                } else {
-                    slots[0] + 0.3
-                },
-                slots[1] + 0.2,
-                slots[2],
-            ]);
+            let mut slots = params.slots();
+            // Defaults are deliberately neutral, so each slot is nudged off it
+            // within the range its editor declares.
+            for (i, (_, min, max)) in params.editor_slots().iter().enumerate() {
+                slots[i] = (slots[i] + (max - min) * 0.25).clamp(*min, *max);
+            }
+            let moved = params.with_slots(slots);
             let out = moved.apply_rgb(probe);
             assert!(
                 out != probe,

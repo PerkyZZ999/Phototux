@@ -1640,7 +1640,7 @@ impl SessionState {
         &mut self,
         args: CommandArgs,
     ) -> Result<CommandEffects, CommandError> {
-        let CommandArgs::FilterParameters { p0, p1, p2 } = args else {
+        let CommandArgs::FilterParameters { slots } = args else {
             return Err(CommandError::InvalidArgument("expected filter params"));
         };
         let id = self.active_layer_id()?;
@@ -1650,7 +1650,7 @@ impl SessionState {
             .and_then(|g| g.get(id))
             .and_then(|l| l.adjustment.clone())
             .ok_or(CommandError::Rejected("no adjustment"))?;
-        let next = prev.with_slots([p0, p1, p2]).clamped();
+        let next = prev.with_slots(slots).clamped();
         if next == prev {
             return Err(CommandError::Rejected("adjustment unchanged"));
         }

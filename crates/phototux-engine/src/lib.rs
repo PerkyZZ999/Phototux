@@ -86,8 +86,9 @@ pub use history::{HistoryEntry, HistoryKind, HistoryRow, HistoryService};
 pub use host_request::HostRequest;
 pub use layer::{
     AdjustmentParams, BlendMode, FillContent, FilterEffect, FilterParams, Layer, LayerId,
-    LayerKind, LayerMask, LayerTransform, LockFlags, MAX_BLUR_RADIUS, PaintTarget,
-    ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent, VectorMask, blend_modes_json,
+    LayerKind, LayerMask, LayerTransform, LockFlags, MAX_ADJUSTMENT_SLOTS, MAX_BLUR_RADIUS,
+    PaintTarget, ShapeBooleanPartner, ShapeContent, ShapeGradient, TextContent, VectorMask,
+    blend_modes_json,
 };
 pub use layer_row::{LayerRow, layer_rows};
 pub use layer_style::{LayerStyle, apply_styles_rgba8};

@@ -338,10 +338,10 @@ pub enum CommandArgs {
     FilterAdjustment {
         kind: String,
     },
+    /// Editor slot values for the active adjustment, index-aligned with
+    /// [`crate::AdjustmentParams::editor_slots`].
     FilterParameters {
-        p0: f32,
-        p1: f32,
-        p2: f32,
+        slots: [f32; crate::MAX_ADJUSTMENT_SLOTS],
     },
     FilterEffect {
         kind: String,

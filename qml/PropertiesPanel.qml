@@ -68,30 +68,19 @@ ColumnLayout {
         }
     }
 
-    /// Current value of editor slot `index`.
-    ///
-    /// The host publishes the three slots as scalars, so the mapping from a
-    /// slot's position in the table to its property is here rather than in
-    /// every delegate.
-    function adjustmentSlotValue(index) {
-        var slot = root.adjustmentSlots[index]
-        var name = slot ? slot.slot : ""
-        if (name === "p1")
-            return AppSession.adjustmentP1
-        if (name === "p2")
-            return AppSession.adjustmentP2
-        return AppSession.adjustmentP0
+    /// Current values of the active adjustment's editor slots.
+    readonly property var adjustmentValues: {
+        try {
+            return JSON.parse(AppSession.adjustmentSlotsJson || "[]")
+        } catch (e) {
+            return []
+        }
     }
 
-    /// Write `value` into editor slot `index`, leaving the others alone.
-    function commitAdjustmentSlot(index, value) {
-        var p = [AppSession.adjustmentP0, AppSession.adjustmentP1,
-                 AppSession.adjustmentP2]
-        var slot = root.adjustmentSlots[index]
-        var name = slot ? slot.slot : "p0"
-        var at = name === "p2" ? 2 : (name === "p1" ? 1 : 0)
-        p[at] = value
-        AppSession.setAdjustmentParams(p[0], p[1], p[2])
+    /// Current value of editor slot `index`.
+    function adjustmentSlotValue(index) {
+        var v = root.adjustmentValues[index]
+        return v === undefined ? 0 : v
     }
 
     /// The blend-mode vocabulary, as the engine declares it.
@@ -1044,7 +1033,7 @@ ColumnLayout {
                         Accessible.name: qsTr("%1 for %2")
                                          .arg(slotEditor.modelData.label)
                                          .arg(root.adjustmentLabel)
-                        onMoved: root.commitAdjustmentSlot(slotEditor.index, value)
+                        onMoved: AppSession.setAdjustmentSlot(slotEditor.index, value)
                     }
                 }
             }
