@@ -450,21 +450,21 @@ ColumnLayout {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spaceXs
-                Button {
+                ThemedButton {
                     text: qsTr("Add H")
                     Layout.fillWidth: true
                     enabled: AppSession.hasDocument
                     Accessible.name: qsTr("Add horizontal guide")
                     onClicked: root.runAction("action.view.guide-h")
                 }
-                Button {
+                ThemedButton {
                     text: qsTr("Add V")
                     Layout.fillWidth: true
                     enabled: AppSession.hasDocument
                     Accessible.name: qsTr("Add vertical guide")
                     onClicked: root.runAction("action.view.guide-v")
                 }
-                Button {
+                ThemedButton {
                     text: qsTr("Clear")
                     Layout.fillWidth: true
                     enabled: root.guides.length > 0
@@ -508,20 +508,20 @@ ColumnLayout {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spaceXs
-                    Button {
+                    ThemedButton {
                         text: qsTr("Use display profile")
                         flat: true
                         enabled: AppSession.hasDocument && !AppSession.ioBusy
                         onClicked: AppSession.useDisplaySoftProof()
                         Accessible.name: qsTr("Soft-proof with display ICC")
                     }
-                    Button {
+                    ThemedButton {
                         text: qsTr("Embed ICC…")
                         flat: true
                         enabled: !AppSession.ioBusy
                         onClicked: root.embedIccRequested()
                     }
-                    Button {
+                    ThemedButton {
                         text: qsTr("Clear ICC")
                         flat: true
                         enabled: AppSession.hasEmbeddedIcc && !AppSession.ioBusy
@@ -814,7 +814,7 @@ ColumnLayout {
                 font.pixelSize: Theme.fontLabelSm
                 text: qsTr("Keep editable until you bake. Bake Text converts to pixels and discards the editable text layer.")
             }
-            Button {
+            ThemedButton {
                 text: qsTr("Bake Text")
                 enabled: AppSession.textLayerActive && !AppSession.ioBusy
                 onClicked: AppSession.bakeTextLayer()
@@ -1125,7 +1125,7 @@ ColumnLayout {
                 color: Theme.warning
                 font.pixelSize: Theme.fontLabelSm
             }
-            Button {
+            ThemedButton {
                 text: qsTr("Rasterize Shape")
                 Accessible.name: qsTr("Convert this shape to pixels")
                 onClicked: root.runAction("action.layer.rasterize-shape")
@@ -1174,7 +1174,7 @@ ColumnLayout {
                 color: Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontLabelSm
             }
-            Button {
+            ThemedButton {
                 text: qsTr("Delete Anchor")
                 enabled: AppSession.pathEditSelected >= 0
                          && AppSession.pathAnchorCount > 2
@@ -1214,14 +1214,14 @@ ColumnLayout {
                 spacing: Theme.spaceXs
                 visible: !AppSession.transformActive
                          && !AppSession.cropPreviewActive
-                Button {
+                ThemedButton {
                     text: qsTr("Free Transform")
                     Layout.fillWidth: true
                     enabled: AppSession.hasDocument
                     Accessible.name: text
                     onClicked: AppSession.setActiveTool("tool.transform")
                 }
-                Button {
+                ThemedButton {
                     text: qsTr("Crop")
                     Layout.fillWidth: true
                     enabled: AppSession.hasDocument
@@ -1238,7 +1238,7 @@ ColumnLayout {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spaceXs
-                Button {
+                ThemedButton {
                     text: qsTr("Apply")
                     enabled: AppSession.hasDocument
                              && (AppSession.transformActive
@@ -1254,7 +1254,7 @@ ColumnLayout {
                                         AppSession.cropPreviewH)
                     }
                 }
-                Button {
+                ThemedButton {
                     text: qsTr("Cancel")
                     Accessible.name: qsTr("Cancel")
                     enabled: AppSession.transformActive
@@ -1436,14 +1436,14 @@ ColumnLayout {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spaceXs
-                    Button {
+                    ThemedButton {
                         text: qsTr("Add Mask")
                         Layout.fillWidth: true
                         enabled: AppSession.hasDocument
                         Accessible.name: qsTr("Add a layer mask")
                         onClicked: root.runAction("action.layer.add-mask")
                     }
-                    Button {
+                    ThemedButton {
                         text: qsTr("Add Vector Mask")
                         Layout.fillWidth: true
                         enabled: AppSession.hasDocument
@@ -1547,11 +1547,11 @@ ColumnLayout {
                          AppSession.maskInverted, AppSession.maskLinked,
                          AppSession.maskContrast, value)
         }
-        Button {
+        ThemedButton {
             text: qsTr("Apply Mask")
             onClicked: AppSession.invokeAction("action.layer.apply-mask")
         }
-        Button {
+        ThemedButton {
             text: qsTr("Delete Mask")
             onClicked: AppSession.deleteMaskOnActive()
         }

@@ -359,45 +359,21 @@ Popup {
                             Layout.fillWidth: true
                             spacing: Theme.spaceSm
 
-                            Button {
+                            ThemedButton {
                                 Layout.fillWidth: true
                                 text: qsTr("Cancel")
                                 onClicked: dialog.close()
-                                background: Rectangle {
-                                    radius: Theme.radiusSm
-                                    color: parent.down ? Theme.surfaceContainerHigh : Theme.surfaceRaised
-                                    border.color: Theme.border
-                                }
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: Theme.colorOnSurface
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                    font.pixelSize: Theme.fontLabel
-                                }
                             }
 
-                            Button {
+                            ThemedButton {
                                 id: createButton
                                 Layout.fillWidth: true
                                 text: qsTr("Create")
-                                Accessible.name: qsTr("Create")
+                                prominence: "primary"
                                 focus: true
                                 onClicked: dialog.confirmCreate()
                                 Keys.onReturnPressed: dialog.confirmCreate()
                                 Keys.onEnterPressed: dialog.confirmCreate()
-                                background: Rectangle {
-                                    radius: Theme.radiusSm
-                                    color: parent.down ? Theme.primaryHover : Theme.primary
-                                }
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: Theme.primaryOn
-                                    font.weight: Font.DemiBold
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                    font.pixelSize: Theme.fontLabel
-                                }
                             }
                         }
                     }

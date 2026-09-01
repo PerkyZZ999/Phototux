@@ -496,13 +496,13 @@ Rectangle {
                         Layout.preferredWidth: 46
                         text: qsTr("%1%").arg(Math.round(AppSession.zoom * 100))
                     }
-                    Button {
+                    ThemedButton {
                         text: qsTr("Fit")
                         flat: true
                         enabled: AppSession.hasDocument
                         onClicked: AppSession.zoomToFit()
                     }
-                    Button {
+                    ThemedButton {
                         text: qsTr("100%")
                         flat: true
                         enabled: AppSession.hasDocument
@@ -517,7 +517,7 @@ Rectangle {
         // Commit controls sit outside the scrolling region: an uncommitted
         // crop or transform must never scroll out of reach.
         Divider { visible: AppSession.transformActive || AppSession.cropPreviewActive }
-        Button {
+        ThemedButton {
             visible: AppSession.transformActive || AppSession.cropPreviewActive
             text: qsTr("Apply")
             Layout.alignment: Qt.AlignVCenter
@@ -529,7 +529,7 @@ Rectangle {
                                           AppSession.cropPreviewW, AppSession.cropPreviewH)
             }
         }
-        Button {
+        ThemedButton {
             visible: AppSession.transformActive || AppSession.cropPreviewActive
             text: qsTr("Cancel")
             Layout.alignment: Qt.AlignVCenter

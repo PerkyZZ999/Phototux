@@ -343,7 +343,7 @@ Dialog {
                         text = ""
                     }
                 }
-                Button {
+                ThemedButton {
                     text: qsTr("Save")
                     enabled: userWorkspacePresetName.text.trim().length > 0
                     Accessible.name: qsTr("Save user workspace preset")
@@ -365,7 +365,7 @@ Dialog {
                     required property var modelData
                     Layout.fillWidth: true
                     spacing: Theme.spaceXs
-                    Button {
+                    ThemedButton {
                         Layout.fillWidth: true
                         text: qsTr(modelData.title || modelData.id)
                         highlighted: AppSession.activeWorkspacePresetId === modelData.id
@@ -407,11 +407,11 @@ Dialog {
                     }
                 }
             }
-            Button {
+            ThemedButton {
                 text: qsTr("Restore last saved layout")
                 onClicked: AppSession.restoreLastSavedWorkspace()
             }
-            Button {
+            ThemedButton {
                 text: qsTr("Reset Workspace to Essentials")
                 onClicked: AppSession.resetWorkspace()
             }
@@ -463,7 +463,7 @@ Dialog {
                         font.pixelSize: Theme.fontBodySm
                         elide: Text.ElideRight
                     }
-                    Button {
+                    ThemedButton {
                         implicitWidth: 140
                         text: dialog.capturingActionId === modelData.id
                               ? qsTr("Press keys…")
@@ -477,7 +477,7 @@ Dialog {
                 }
             }
 
-            Button {
+            ThemedButton {
                 text: qsTr("Reset shortcuts to defaults")
                 onClicked: {
                     dialog.capturingActionId = ""

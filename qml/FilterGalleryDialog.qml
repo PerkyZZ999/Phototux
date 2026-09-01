@@ -137,18 +137,18 @@ Dialog {
     }
 
     footer: DialogButtonBox {
-        Button {
+        ThemedButton {
             text: qsTr("Preview")
             DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
             onClicked: AppSession.filterGalleryPreview(filterKindCombo.currentKind())
         }
-        Button {
+        ThemedButton {
             text: qsTr("Apply")
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             enabled: AppSession.filterPreviewActive
             onClicked: AppSession.filterGalleryApply()
         }
-        Button {
+        ThemedButton {
             text: qsTr("Cancel")
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: AppSession.filterGalleryCancel()

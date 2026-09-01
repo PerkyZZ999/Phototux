@@ -116,7 +116,7 @@ QML lives in `qml/` and ships through the AOT module built by `crates/phototux/b
 | `LayersPanel.qml` | Right dock's layer list, over `AppSession.layerModel` |
 | `CanvasInput.qml` | Canvas pointer input and in-progress drag state |
 | `PanelHeaderControls.qml`, `ThemedIcon.qml`, `ChromeIconToolButton.qml` | Panel and icon chrome |
-| `ThemedCheckBox.qml`, `ThemedComboBox.qml`, `ThemedSpinBox.qml`, `ThemedDialogHeader.qml` | Controls themed off `Theme.qml` rather than the Basic style |
+| `ThemedButton.qml`, `ThemedCheckBox.qml`, `ThemedComboBox.qml`, `ThemedSpinBox.qml`, `ThemedDialogHeader.qml` | Controls themed off `Theme.qml` rather than the Basic style. A bare `Button` / `CheckBox` / `ComboBox` / `SpinBox` fails `no_unstyled_controls_reach_the_user`: with no style configured the shell runs Basic, whose light palette is invisible on a developer profile with a Qt style set system-wide and obvious on a clean one. `ThemedButton` takes a `prominence` of `normal`, `primary` or `danger`, and `flat` for a run of secondary actions. |
 | `NewDocumentDialog.qml`, `WelcomeDialog.qml` | Entry dialogs |
 | `FilterGalleryDialog.qml`, `CommandPaletteDialog.qml`, `PreferencesDialog.qml` | Extracted shell dialogs |
 

@@ -1402,24 +1402,18 @@ ApplicationWindow {
                                     font.pixelSize: Theme.fontLabelSm
                                 }
                             }
-                            Button {
+                            ThemedButton {
                                 text: qsTr("Restore")
                                 onClicked: {
                                     AppSession.restoreRecovery(recoveryRow.modelData.id)
                                     recoveryDialog.close()
                                 }
                             }
-                            Button {
+                            ThemedButton {
                                 text: qsTr("Discard")
                                 flat: true
+                                prominence: "danger"
                                 Accessible.name: qsTr("Discard this snapshot permanently")
-                                contentItem: Label {
-                                    text: parent.text
-                                    color: parent.hovered ? Theme.error : Theme.colorOnSurfaceMuted
-                                    font.pixelSize: Theme.fontBodySm
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
                                 onClicked: {
                                     AppSession.discardRecoveryEntry(recoveryRow.modelData.id)
                                     recoveryDialog.confirmingDiscardAll = false
@@ -1440,20 +1434,12 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     visible: recoveryDialog.entries.length > 1
                     Item { Layout.fillWidth: true }
-                    Button {
+                    ThemedButton {
                         flat: true
                         text: recoveryDialog.confirmingDiscardAll
                               ? qsTr("Delete %1 permanently").arg(recoveryDialog.entries.length)
                               : qsTr("Discard All")
-                        Accessible.name: text
-                        contentItem: Label {
-                            text: parent.text
-                            color: recoveryDialog.confirmingDiscardAll
-                                   ? Theme.error : Theme.colorOnSurfaceMuted
-                            font.pixelSize: Theme.fontBodySm
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        prominence: "danger"
                         onClicked: {
                             if (recoveryDialog.confirmingDiscardAll) {
                                 AppSession.discardAllRecovery()
@@ -1575,7 +1561,7 @@ ApplicationWindow {
                     font.pixelSize: Theme.fontBodySm
                     wrapMode: Text.WordWrap
                 }
-                Button {
+                ThemedButton {
                     text: qsTr("Dock")
                     onClicked: root.afterHostSlot(floatWin.requestRedock)
                 }
@@ -1750,7 +1736,7 @@ ApplicationWindow {
                 Accessible.role: Accessible.StatusBar
             }
 
-            Button {
+            ThemedButton {
                 visible: AppSession.gpuLost
                 text: qsTr("Recover")
                 flat: true

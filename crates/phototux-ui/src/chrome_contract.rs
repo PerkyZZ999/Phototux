@@ -171,6 +171,42 @@ mod tests {
         );
     }
 
+    /// Bare `Button` reaches the user as a white rectangle.
+    ///
+    /// No Controls style is configured, so the shell runs the **Basic** style,
+    /// whose palette is hardcoded light and ignores `palette`. That is
+    /// invisible on a developer profile with a Qt style set system-wide and
+    /// obvious on a clean one — which is every user's profile — so it survived
+    /// in thirty-seven places while four call sites hand-wrote the same
+    /// rounded rectangle to work around it. `ThemedButton` is the one home for
+    /// that treatment; the same rule already applies to check boxes, combo
+    /// boxes and spin boxes.
+    #[test]
+    fn no_unstyled_controls_reach_the_user() {
+        for (name, text) in qml_files() {
+            for (bare, themed) in [
+                ("Button", "ThemedButton"),
+                ("CheckBox", "ThemedCheckBox"),
+                ("ComboBox", "ThemedComboBox"),
+                ("SpinBox", "ThemedSpinBox"),
+            ] {
+                // The themed component is allowed to *be* the bare control.
+                if name == format!("{themed}.qml") {
+                    continue;
+                }
+                let found: Vec<usize> = blocks_of(&text, bare)
+                    .into_iter()
+                    .map(|(line, _)| line)
+                    .collect();
+                assert!(
+                    found.is_empty(),
+                    "{name} instantiates a bare {bare} at {found:?}, which the Basic \
+                     style draws with a hardcoded light palette — use {themed}"
+                );
+            }
+        }
+    }
+
     /// The status bar carries state, never messages.
     ///
     /// It shows the document summary — size, zoom, active layer, tool — which
