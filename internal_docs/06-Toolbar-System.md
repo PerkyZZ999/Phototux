@@ -4,6 +4,42 @@
 
 Toolbars present frequent semantic actions, tools, groups, options, presets, and current activation state. They are workspace projections generated from registries; they do not define command behavior or own document state. “Tool” means an input state machine. “Action” means a named semantic operation. “Toolbar” means a configurable presentation of either.
 
+## Tool Shelf Slots
+
+The shelf is one button per **slot**, not one per tool. Tools that answer the
+same question share a slot: the two marquees, the two lassos, the wand and
+colour range, the bucket and the gradient, blur/sharpen/smudge,
+dodge/burn/sponge. The button shows the tool in use, or the one last picked
+from that slot, marks itself with a corner wedge, and opens a flyout on
+right-click or press-and-hold. This is how Photoshop has stacked a shelf for
+thirty years, and someone arriving from it should not have to relearn where
+anything lives.
+
+`ToolDescriptor` therefore carries two groupings, and they are different
+questions. `group` is the **separator band** — where the shelf rules a line —
+and follows Photoshop's bands: move, selection, crop/transform/eyedropper, the
+whole painting block, vector, navigation. `slot` is what **stacks**. The six
+selection tools are one band drawn as three slots.
+
+Slots also make the shelf fit. Twenty-five buttons at the shipped hit size need
+about a thousand pixels of column; a maximized 1080p window leaves about nine
+hundred beside the canvas, so the tail fell into an overflow menu — a worse home
+for a tool than a flyout, since nothing about "…" says which tools are behind
+it. Eighteen slots fit with room to spare, and the overflow button's own space
+is now reserved only when it is going to exist: subtracting it unconditionally
+*created* overflow at the boundary, losing the last slot to a menu in order to
+make room for the button that menu needed.
+
+The default accelerators already encoded the slots — `M` / `Shift+M` are one
+slot, `R` / `Shift+R` / `Ctrl+Shift+R` another — so a test holds the two in
+agreement: tools sharing a slot must share the terminal key of their default
+chord. Slot membership is declared rather than derived from the shortcut,
+because shortcuts are rebindable and the shelf must not regroup when a user
+rebinds one.
+
+The last-picked tool per slot is session-local. It is a working habit, not a
+setting worth writing into prefs.
+
 ## Responsibilities
 
 The toolbar system **MUST** maintain stable tool/action IDs, explicit group ordering, active-tool visibility, complete keyboard and accessibility semantics, deterministic overflow, context-bound options, and equivalence with menu/search/shortcut invocation. It **MUST NOT** hide the sole route to a named action, mutate documents directly, or confuse active tool with active edit target. It **SHOULD** provide a tool shelf, operation toolbar, tool-options bar, group customization, reset, and compact layouts. It **MAY** remember last-used tool in a group as workspace state.

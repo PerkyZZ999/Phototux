@@ -241,6 +241,7 @@ pub struct AppSession {
     /// The gradient shapes, for the tool options.
     gradient_kinds_json: String,
     align_ops_json: String,
+    tool_slots_json: String,
     selection_preview_active: bool,
     selection_preview_x: i32,
     selection_preview_y: i32,
@@ -534,6 +535,7 @@ impl AppSession {
             )
             .unwrap_or_else(|_| "[]".into()),
             align_ops_json: phototux_engine::align_ops_json(),
+            tool_slots_json: phototux_engine::tool_slots_json(),
             selection_preview_active: false,
             selection_preview_x: 0,
             selection_preview_y: 0,
@@ -2911,6 +2913,11 @@ impl AppSession {
         Notify = blend_if_channels_json_changed
     );
     qproperty!(
+        "toolSlotsJson",
+        Member = tool_slots_json,
+        Notify = tool_slots_json_changed
+    );
+    qproperty!(
         "alignOpsJson",
         Member = align_ops_json,
         Notify = align_ops_json_changed
@@ -3527,6 +3534,8 @@ impl AppSession {
     fn gradient_kinds_json_changed(&mut self);
     #[qsignal]
     fn align_ops_json_changed(&mut self);
+    #[qsignal]
+    fn tool_slots_json_changed(&mut self);
     #[qsignal]
     fn selection_preview_active_changed(&mut self);
     #[qsignal]

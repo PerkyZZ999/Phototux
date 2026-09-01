@@ -73,6 +73,22 @@ ApplicationWindow {
             return []
         }
     }
+    /// Tool shelf as slots, the way Photoshop stacks it.
+    readonly property var toolSlots: {
+        try {
+            return JSON.parse(AppSession.toolSlotsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+    /// Slot key → the tool last picked from that slot.
+    ///
+    /// Photoshop's shelf remembers which member of a stack you were using, so
+    /// the button keeps showing the burn tool once you have chosen it rather
+    /// than snapping back to dodge. Session-local by design: it is a working
+    /// habit, not a setting worth persisting into prefs.
+    property var toolSlotChoice: ({})
+
     readonly property var documentTabs: {
         try {
             return JSON.parse(AppSession.documentTabsJson || "[]")
@@ -288,28 +304,63 @@ ApplicationWindow {
 
     /// How many tool strip rows fit above the overflow control.
     function toolStripCapacity(stripHeight) {
-        // Dense packing: 2px gaps match toolColumn.spacing so a 900px shell fits the
-        // full essentials tool set without forcing overflow.
+        // Dense packing: 2px gaps match toolColumn.spacing.
         // Literal hit size: Theme.toolHit can resolve to 0 under PHOTOTUX_QML.
         var gap = 2
         var hit = 40
         var row = hit + gap
+        var bare = Math.max(1, Math.floor((stripHeight - gap) / row))
+        // The overflow button's own space is reserved only when it is going to
+        // exist. Subtracting it unconditionally *created* overflow at the
+        // boundary: a shelf with room for exactly every slot lost its last one
+        // to a menu, to make space for the button that menu needed.
+        if (bare >= root.toolSlots.length)
+            return bare
         var reserve = hit + 8
         return Math.max(1, Math.floor((stripHeight - reserve - gap) / row))
     }
 
-    /// Split tools into visible strip vs overflow menu; keep active tool on-strip.
+    /// Whether `slot` holds the active tool.
+    function slotHoldsActive(slot) {
+        var list = slot.tools || []
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].id === AppSession.activeTool)
+                return true
+        }
+        return false
+    }
+
+    /// The tool a slot's button stands for: the active one when the slot holds
+    /// it, otherwise the one last picked from the slot, otherwise the first.
+    function slotFace(slot) {
+        var list = slot.tools || []
+        if (list.length === 0)
+            return ({ id: "", title: "", icon: "", shortcut: "" })
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].id === AppSession.activeTool)
+                return list[i]
+        }
+        var remembered = root.toolSlotChoice[slot.slot]
+        for (var j = 0; j < list.length; ++j) {
+            if (list[j].id === remembered)
+                return list[j]
+        }
+        return list[0]
+    }
+
+    /// Split slots into visible shelf vs overflow menu; keep the active slot on
+    /// the shelf. Slots make this a safety net rather than the usual case —
+    /// eighteen of them fit a maximized 1080p window with room to spare.
     function toolStripPartitions(capacity) {
-        var all = root.toolDescriptors
+        var all = root.toolSlots
         var cap = Math.max(1, capacity)
         if (all.length <= cap)
             return ({ visible: all, overflow: [] })
         var visible = all.slice(0, cap)
         var overflow = all.slice(cap)
-        var active = AppSession.activeTool
         var oi = -1
         for (var i = 0; i < overflow.length; ++i) {
-            if (overflow[i].id === active) {
+            if (root.slotHoldsActive(overflow[i])) {
                 oi = i
                 break
             }
@@ -320,6 +371,13 @@ ApplicationWindow {
             overflow[oi] = swapped
         }
         return ({ visible: visible, overflow: overflow })
+    }
+
+    function activateToolFromSlot(slotKey, toolId) {
+        var choice = root.toolSlotChoice
+        choice[slotKey] = toolId
+        root.toolSlotChoice = choice
+        root.activateToolFromStrip(toolId)
     }
 
     function activateToolFromStrip(toolId) {
@@ -1754,7 +1812,7 @@ ApplicationWindow {
             readonly property int stripCapacity: root.toolStripCapacity(height)
             // Bind active tool so overflow partition refreshes when selection changes.
             readonly property string activeToolBind: AppSession.activeTool
-            readonly property int toolCountBind: root.toolDescriptors.length
+            readonly property int toolCountBind: root.toolSlots.length
             readonly property var stripParts: {
                 var _ = activeToolBind
                 var __ = toolCountBind
@@ -1762,6 +1820,18 @@ ApplicationWindow {
             }
             readonly property var stripVisible: stripParts.visible || []
             readonly property var stripOverflow: stripParts.overflow || []
+            // The overflow menu is flat: a flyout inside a popup is a worse
+            // place to look for a tool than a plain list of the ones that did
+            // not fit. It should be empty at any usable window size.
+            readonly property var stripOverflowTools: {
+                var out = []
+                for (var i = 0; i < toolStrip.stripOverflow.length; ++i) {
+                    var list = toolStrip.stripOverflow[i].tools || []
+                    for (var j = 0; j < list.length; ++j)
+                        out.push(list[j])
+                }
+                return out
+            }
 
             Rectangle {
                 anchors.right: parent.right
@@ -1779,19 +1849,32 @@ ApplicationWindow {
                 // Literal width: Theme.spaceXs can be 0/NaN under filesystem QML.
                 width: parent.width - 8
 
+                // One button per slot. A slot holding several tools shows the
+                // one in use (or last used), marks itself with a corner wedge,
+                // and opens a flyout on right-click or press-and-hold — which
+                // is how Photoshop has stacked a tool shelf for thirty years,
+                // and what lets twenty-five tools live in eighteen buttons.
                 Repeater {
                     model: toolStrip.stripVisible
                     delegate: Item {
+                        id: slotItem
+                        required property var modelData
+                        required property int index
+
                         width: toolColumn.width
                         height: 40
-                        readonly property string toolId: modelData.id
-                        readonly property string toolGroup: modelData.group || ""
-                        readonly property string prevGroup: index > 0
-                                                           ? toolStrip.stripVisible[index - 1].group
+                        readonly property var slotTools: slotItem.modelData.tools || []
+                        readonly property var face: root.slotFace(slotItem.modelData)
+                        readonly property string toolId: slotItem.face.id
+                        readonly property bool stacked: slotItem.slotTools.length > 1
+                        readonly property bool holdsActive: root.slotHoldsActive(slotItem.modelData)
+                        readonly property string toolGroup: slotItem.modelData.group || ""
+                        readonly property string prevGroup: slotItem.index > 0
+                                                           ? toolStrip.stripVisible[slotItem.index - 1].group
                                                            : ""
 
                         Rectangle {
-                            visible: index > 0 && toolGroup !== prevGroup
+                            visible: slotItem.index > 0 && slotItem.toolGroup !== slotItem.prevGroup
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.top: parent.top
                             width: parent.width - 8
@@ -1805,11 +1888,12 @@ ApplicationWindow {
                             anchors.leftMargin: 2
                             anchors.rightMargin: 2
                             radius: Theme.radiusSm
-                            color: AppSession.activeTool === toolId
-                                   ? Theme.toolActiveBg : (toolHover.hovered ? Theme.surfaceContainerHigh : "transparent")
+                            color: slotItem.holdsActive
+                                   ? Theme.toolActiveBg
+                                   : (toolHover.hovered ? Theme.surfaceContainerHigh : "transparent")
 
                             Rectangle {
-                                visible: AppSession.activeTool === toolId
+                                visible: slotItem.holdsActive
                                 anchors.left: parent.left
                                 anchors.top: parent.top
                                 anchors.bottom: parent.bottom
@@ -1819,25 +1903,143 @@ ApplicationWindow {
 
                             ThemedIcon {
                                 anchors.centerIn: parent
-                                source: root.iconUrl(root.toolIconStem(modelData.icon_key))
+                                source: root.iconUrl(root.toolIconStem(slotItem.face.icon))
                                 size: 20
                                 color: Theme.iconOnSurfaceEffective
+                            }
+
+                            // The wedge says "there is more here". Without it a
+                            // stacked slot is indistinguishable from a plain
+                            // one, and the tools behind it are undiscoverable.
+                            Canvas {
+                                visible: slotItem.stacked
+                                width: 6
+                                height: 6
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.margins: 2
+                                onPaint: {
+                                    var ctx = getContext("2d")
+                                    ctx.reset()
+                                    ctx.fillStyle = Theme.colorOnSurfaceMuted
+                                    ctx.beginPath()
+                                    ctx.moveTo(width, 0)
+                                    ctx.lineTo(width, height)
+                                    ctx.lineTo(0, height)
+                                    ctx.closePath()
+                                    ctx.fill()
+                                }
                             }
 
                             HoverHandler { id: toolHover }
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                pressAndHoldInterval: 400
                                 Accessible.role: Accessible.Button
-                                Accessible.name: modelData.title
-                                Accessible.description: toolId
+                                Accessible.name: slotItem.face.title
+                                Accessible.description: slotItem.stacked
+                                    ? qsTr("%1 — hold or right-click for %2 more")
+                                      .arg(slotItem.toolId)
+                                      .arg(slotItem.slotTools.length - 1)
+                                    : slotItem.toolId
                                 Accessible.checkable: true
-                                Accessible.checked: AppSession.activeTool === toolId
-                                onClicked: root.activateToolFromStrip(toolId)
-                                ToolTip.visible: containsMouse
-                                ToolTip.text: modelData.title
+                                Accessible.checked: slotItem.holdsActive
+                                onClicked: (mouse) => {
+                                    if (mouse.button === Qt.RightButton) {
+                                        if (slotItem.stacked)
+                                            slotItem.openFlyout()
+                                    } else {
+                                        root.activateToolFromSlot(slotItem.modelData.slot,
+                                                                  slotItem.toolId)
+                                    }
+                                }
+                                onPressAndHold: if (slotItem.stacked) slotItem.openFlyout()
+                                ToolTip.visible: containsMouse && !slotFlyout.visible
+                                ToolTip.text: slotItem.stacked
+                                    ? qsTr("%1  (hold for %2 more)")
+                                      .arg(slotItem.face.title)
+                                      .arg(slotItem.slotTools.length - 1)
+                                    : slotItem.face.title
                                 ToolTip.delay: 400
                                 hoverEnabled: true
+                            }
+                        }
+
+                        // Same shape as the overflow popup a few lines down:
+                        // parented to the overlay so the 48px-wide shelf does
+                        // not clip it, and opened via callLater so the press
+                        // that opened it is not then read as a press-outside.
+                        function openFlyout() {
+                            var origin = slotItem.mapToItem(Overlay.overlay, slotItem.width + 2, 0)
+                            slotFlyout.x = origin.x
+                            slotFlyout.y = origin.y
+                            Qt.callLater(slotFlyout.open)
+                        }
+
+                        Popup {
+                            id: slotFlyout
+                            parent: Overlay.overlay
+                            padding: Theme.spaceXxs
+                            modal: false
+                            focus: true
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            background: Rectangle {
+                                color: Theme.surfaceOverlay
+                                border.color: Theme.border
+                                radius: Theme.radiusSm
+                            }
+                            // Explicit width. Sizing the popup from its rows
+                            // meant each row's implicitWidth read ids living
+                            // inside its own contentItem, which resolves to
+                            // nothing during construction — so the popup came
+                            // out zero wide and opened invisibly.
+                            width: 208
+                            contentItem: ColumnLayout {
+                                spacing: 0
+                                Repeater {
+                                    model: slotItem.slotTools
+                                    delegate: ItemDelegate {
+                                        id: flyoutRow
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        implicitHeight: Theme.controlHeight
+                                        Accessible.name: flyoutRow.modelData.title
+                                        onClicked: {
+                                            root.activateToolFromSlot(slotItem.modelData.slot,
+                                                                      flyoutRow.modelData.id)
+                                            slotFlyout.close()
+                                        }
+                                        background: Rectangle {
+                                            radius: Theme.radiusXs
+                                            color: flyoutRow.hovered
+                                                   ? Theme.surfaceContainerHigh : "transparent"
+                                        }
+                                        contentItem: RowLayout {
+                                            spacing: Theme.spaceSm
+                                            ThemedIcon {
+                                                source: root.iconUrl(
+                                                    root.toolIconStem(flyoutRow.modelData.icon))
+                                                size: Theme.iconMd
+                                                color: Theme.iconOnSurfaceEffective
+                                            }
+                                            Label {
+                                                text: flyoutRow.modelData.title
+                                                color: AppSession.activeTool === flyoutRow.modelData.id
+                                                       ? Theme.primary : Theme.colorOnSurface
+                                                font.pixelSize: Theme.fontBodySm
+                                                Layout.fillWidth: true
+                                            }
+                                            Label {
+                                                text: flyoutRow.modelData.shortcut
+                                                color: Theme.colorOnSurfaceMuted
+                                                font.pixelSize: Theme.fontLabelSm
+                                                font.family: "Noto Sans Mono"
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1906,7 +2108,7 @@ ApplicationWindow {
                 Column {
                     spacing: 2
                     Repeater {
-                        model: toolStrip.stripOverflow
+                        model: toolStrip.stripOverflowTools
                         delegate: Item {
                             required property var modelData
                             width: 168
@@ -1929,7 +2131,7 @@ ApplicationWindow {
 
                                 ThemedIcon {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    source: root.iconUrl(root.toolIconStem(modelData.icon_key))
+                                    source: root.iconUrl(root.toolIconStem(modelData.icon))
                                     size: 18
                                     color: Theme.iconOnSurfaceEffective
                                 }

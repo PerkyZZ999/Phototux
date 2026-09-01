@@ -38,6 +38,13 @@ pub struct ToolDescriptor {
     pub title: String,
     pub icon_key: String,
     pub group: String,
+    /// Tool-shelf slot. Tools sharing a slot occupy one button with a flyout.
+    ///
+    /// Coarser than [`Self::id`] and finer than [`Self::group`]: `group` draws
+    /// the separators between families, `slot` decides which tools stack. Both
+    /// are needed — the six selection tools are one family drawn as three
+    /// slots, the way Photoshop stacks them.
+    pub slot: String,
     /// Default accelerator, following the conventional raster-editor letters.
     ///
     /// Here rather than on the action registry because the registry's tool
@@ -98,173 +105,220 @@ pub fn default_panels() -> Vec<PanelDescriptor> {
 /// Built-in tool strip set (`icon_key` = Phosphor stem under `assets/icons/phosphor/`).
 pub fn default_tools() -> Vec<ToolDescriptor> {
     use crate::tool_id;
+    let tool =
+        |id: &str, title: &str, icon: &str, key: &str, group: &str, slot: &str| ToolDescriptor {
+            id: id.into(),
+            title: title.into(),
+            icon_key: icon.into(),
+            shortcut: key.into(),
+            group: group.into(),
+            slot: slot.into(),
+        };
+    // `group` is the *separator band*, not the tool family: Photoshop rules a
+    // line after Move, after the selection tools, after crop/transform/
+    // eyedropper, after the whole painting block, and after the vector block.
+    // Splitting painting from retouching would draw a line through the middle
+    // of that block, where Photoshop draws none.
+    //
+    // Rail order is Photoshop's, slot for slot, because a tool shelf is
+    // muscle memory: someone who reaches for the lasso three buttons down
+    // should find the lasso there. The two orders had drifted in one place
+    // that mattered — the polygonal lasso sat two slots below the freehand
+    // one, with the wand between them, so the pair a user thinks of as one
+    // tool were not neighbours and could not share a slot.
     let mut tools = vec![
-        ToolDescriptor {
-            id: tool_id::MOVE.into(),
-            title: "Move".into(),
-            icon_key: "arrows-out-cardinal".into(),
-            shortcut: "V".into(),
-            group: "move".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SELECT_RECT.into(),
-            title: "Rectangular Marquee".into(),
-            icon_key: "selection".into(),
-            shortcut: "M".into(),
-            group: "select".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SELECT_ELLIPSE.into(),
-            title: "Elliptical Marquee".into(),
-            icon_key: "circle-dashed".into(),
-            shortcut: "Shift+M".into(),
-            group: "select".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SELECT_LASSO.into(),
-            title: "Lasso".into(),
-            icon_key: "lasso".into(),
-            shortcut: "L".into(),
-            group: "select".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SELECT_WAND.into(),
-            title: "Magic Wand".into(),
-            icon_key: "magic-wand".into(),
-            shortcut: "W".into(),
-            group: "select".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SELECT_COLOR_RANGE.into(),
-            title: "Color Range".into(),
-            icon_key: "selection-foreground".into(),
-            shortcut: "Shift+W".into(),
-            group: "select".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SELECT_POLYGON.into(),
-            title: "Polygonal Lasso".into(),
-            icon_key: "polygon".into(),
-            shortcut: "Shift+L".into(),
-            group: "select".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::CROP.into(),
-            title: "Crop".into(),
-            icon_key: "crop".into(),
-            shortcut: "C".into(),
-            group: "transform".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::TRANSFORM.into(),
-            title: "Free Transform".into(),
-            icon_key: "arrows-out".into(),
-            shortcut: "Ctrl+T".into(),
-            group: "transform".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::EYEDROPPER.into(),
-            title: "Eyedropper".into(),
-            icon_key: "eyedropper".into(),
-            shortcut: "I".into(),
-            group: "sample".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::BRUSH.into(),
-            title: "Brush".into(),
-            icon_key: "paint-brush".into(),
-            shortcut: "B".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::ERASER.into(),
-            title: "Eraser".into(),
-            icon_key: "eraser".into(),
-            shortcut: "E".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::GRADIENT.into(),
-            title: "Gradient".into(),
-            icon_key: "gradient".into(),
-            shortcut: "Shift+G".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::FILL.into(),
-            title: "Paint Bucket".into(),
-            icon_key: "paint-bucket".into(),
-            shortcut: "G".into(),
-            group: "paint".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::TEXT.into(),
-            title: "Text".into(),
-            icon_key: "text-t".into(),
-            shortcut: "T".into(),
-            group: "type".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::PATH_EDIT.into(),
-            title: "Path Edit".into(),
-            icon_key: "pen-nib".into(),
-            shortcut: "A".into(),
-            group: "vector".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::SHAPE.into(),
-            title: "Shape".into(),
-            icon_key: "shapes".into(),
-            shortcut: "U".into(),
-            group: "vector".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::PAN.into(),
-            title: "Hand".into(),
-            icon_key: "hand".into(),
-            shortcut: "H".into(),
-            group: "navigate".into(),
-        },
-        ToolDescriptor {
-            id: tool_id::ZOOM.into(),
-            title: "Zoom".into(),
-            icon_key: "magnifying-glass".into(),
-            shortcut: "Z".into(),
-            group: "navigate".into(),
-        },
+        tool(
+            tool_id::MOVE,
+            "Move",
+            "arrows-out-cardinal",
+            "V",
+            "move",
+            "move",
+        ),
+        tool(
+            tool_id::SELECT_RECT,
+            "Rectangular Marquee",
+            "selection",
+            "M",
+            "select",
+            "marquee",
+        ),
+        tool(
+            tool_id::SELECT_ELLIPSE,
+            "Elliptical Marquee",
+            "circle-dashed",
+            "Shift+M",
+            "select",
+            "marquee",
+        ),
+        tool(
+            tool_id::SELECT_LASSO,
+            "Lasso",
+            "lasso",
+            "L",
+            "select",
+            "lasso",
+        ),
+        tool(
+            tool_id::SELECT_POLYGON,
+            "Polygonal Lasso",
+            "polygon",
+            "Shift+L",
+            "select",
+            "lasso",
+        ),
+        tool(
+            tool_id::SELECT_WAND,
+            "Magic Wand",
+            "magic-wand",
+            "W",
+            "select",
+            "wand",
+        ),
+        tool(
+            tool_id::SELECT_COLOR_RANGE,
+            "Color Range",
+            "selection-foreground",
+            "Shift+W",
+            "select",
+            "wand",
+        ),
+        tool(tool_id::CROP, "Crop", "crop", "C", "measure", "crop"),
+        tool(
+            tool_id::TRANSFORM,
+            "Free Transform",
+            "arrows-out",
+            "Ctrl+T",
+            "measure",
+            "transform",
+        ),
+        tool(
+            tool_id::EYEDROPPER,
+            "Eyedropper",
+            "eyedropper",
+            "I",
+            "measure",
+            "eyedropper",
+        ),
+        tool(
+            tool_id::BRUSH,
+            "Brush",
+            "paint-brush",
+            "B",
+            "paint",
+            "brush",
+        ),
     ];
-    // One rail entry per retouch mode. Modes and retouch tools are the same
-    // list seen from two sides — what a dab *does* and which tool selects it —
-    // so generating them keeps a mode from arriving with no way to pick it.
-    let retouch_at = retouch_insertion_index(&tools);
-    tools.splice(
-        retouch_at..retouch_at,
-        crate::DabMode::retouch_modes().map(|mode| ToolDescriptor {
+    // The retouch tools are generated from `DabMode` — modes and tools are one
+    // list seen from two sides, so a mode cannot arrive with no way to pick it
+    // — but they belong at three different points on the rail, next to the
+    // painting they rework. Each slot is placed where Photoshop places it.
+    tools.extend(retouch_tools("clone"));
+    tools.push(tool(
+        tool_id::ERASER,
+        "Eraser",
+        "eraser",
+        "E",
+        "paint",
+        "eraser",
+    ));
+    tools.push(tool(
+        tool_id::GRADIENT,
+        "Gradient",
+        "gradient",
+        "Shift+G",
+        "paint",
+        "fill",
+    ));
+    tools.push(tool(
+        tool_id::FILL,
+        "Paint Bucket",
+        "paint-bucket",
+        "G",
+        "paint",
+        "fill",
+    ));
+    tools.extend(retouch_tools("focus"));
+    tools.extend(retouch_tools("tone"));
+    tools.extend([
+        tool(
+            tool_id::PATH_EDIT,
+            "Path Edit",
+            "pen-nib",
+            "A",
+            "vector",
+            "pen",
+        ),
+        tool(tool_id::TEXT, "Text", "text-t", "T", "vector", "type"),
+        tool(tool_id::SHAPE, "Shape", "shapes", "U", "vector", "shape"),
+        tool(tool_id::PAN, "Hand", "hand", "H", "navigate", "hand"),
+        tool(
+            tool_id::ZOOM,
+            "Zoom",
+            "magnifying-glass",
+            "Z",
+            "navigate",
+            "zoom",
+        ),
+    ]);
+    tools
+}
+
+/// Rail entries for every retouch mode belonging to `slot`, in mode order.
+fn retouch_tools(slot: &'static str) -> impl Iterator<Item = ToolDescriptor> {
+    crate::DabMode::retouch_modes()
+        .filter(move |mode| mode.slot() == slot)
+        .map(|mode| ToolDescriptor {
             id: mode.tool_id().into(),
             title: mode.tool_title().into(),
             icon_key: mode.icon_key().into(),
             shortcut: mode.shortcut().into(),
-            group: "retouch".into(),
-        }),
-    );
-    tools
+            group: "paint".into(),
+            slot: mode.slot().into(),
+        })
 }
 
-/// Where the retouch family sits on the rail: straight after the *whole* paint
-/// family, so the tools that lay paint down and the tools that rework it are
-/// neighbours without either group being split.
+/// The shelf as slots, in rail order, each holding its tools in rail order.
 ///
-/// After the eraser specifically would land in the middle of paint, since the
-/// gradient and bucket follow it — and the shelf draws a separator wherever
-/// the group changes, so a split family reads as two.
-fn retouch_insertion_index(tools: &[ToolDescriptor]) -> usize {
-    let paint = tools.iter().position(|t| t.group == "paint");
-    paint.map_or(tools.len(), |start| {
-        tools[start..]
-            .iter()
-            .position(|t| t.group != "paint")
-            .map_or(tools.len(), |offset| start + offset)
-    })
+/// One button per slot with a flyout for the rest, the way Photoshop stacks a
+/// shelf. Twenty-five buttons in a column need about a thousand pixels and ran
+/// off the bottom of a 1080p window into an overflow menu — which is a worse
+/// place for a tool than a flyout, because nothing about "…" says which tools
+/// are behind it.
+#[must_use]
+pub fn tool_slots() -> Vec<Vec<ToolDescriptor>> {
+    let mut slots: Vec<Vec<ToolDescriptor>> = Vec::new();
+    for tool in default_tools() {
+        match slots.last_mut() {
+            Some(last) if last[0].slot == tool.slot => last.push(tool),
+            _ => slots.push(vec![tool]),
+        }
+    }
+    slots
+}
+
+/// Shelf slots as `[{slot, group, tools:[{id,title,icon,shortcut}]}]` for QML.
+#[must_use]
+pub fn tool_slots_json() -> String {
+    let rows: Vec<serde_json::Value> = tool_slots()
+        .into_iter()
+        .map(|tools| {
+            serde_json::json!({
+                "slot": tools[0].slot,
+                "group": tools[0].group,
+                "tools": tools
+                    .iter()
+                    .map(|t| serde_json::json!({
+                        "id": t.id,
+                        "title": t.title,
+                        "icon": t.icon_key,
+                        "shortcut": t.shortcut,
+                    }))
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
 }
 
 /// Built-in inspector disclosure groups, ordered as they appear in Properties.
@@ -624,6 +678,100 @@ mod tests {
             }
         }
         assert!(tools.iter().all(|t| !t.group.is_empty()));
+    }
+
+    /// The terminal key of a chord: `Ctrl+Shift+R` → `R`.
+    fn terminal_key(shortcut: &str) -> &str {
+        shortcut.rsplit('+').next().unwrap_or(shortcut)
+    }
+
+    #[test]
+    fn tools_sharing_a_slot_share_an_accelerator_letter() {
+        // The two say the same thing from different sides — Photoshop stacks
+        // the tools that share a letter — so they are the kind of pair that
+        // drifts silently. A slot grouping tools with different letters means
+        // one of the two is wrong, and neither is obviously the wrong one.
+        for slot in tool_slots() {
+            let keys: Vec<&str> = slot
+                .iter()
+                .map(|t| terminal_key(t.shortcut.as_str()))
+                .collect();
+            assert!(
+                keys.windows(2).all(|w| w[0] == w[1]),
+                "slot {} stacks tools with different accelerators: {keys:?}",
+                slot[0].slot
+            );
+        }
+    }
+
+    #[test]
+    fn every_slot_is_contiguous_and_named() {
+        // `tool_slots` folds *adjacent* tools, so a slot whose members are not
+        // neighbours would silently split into two buttons showing the same
+        // name — which is what the polygonal lasso did before the rail was
+        // reordered.
+        let mut seen: Vec<String> = Vec::new();
+        for slot in tool_slots() {
+            let key = slot[0].slot.clone();
+            assert!(!key.is_empty(), "a tool has no slot");
+            assert!(
+                !seen.contains(&key),
+                "slot {key} appears twice — its tools are not neighbours"
+            );
+            assert!(slot.iter().all(|t| t.slot == key));
+            seen.push(key);
+        }
+        assert!(seen.len() < default_tools().len(), "no tool stacks at all");
+    }
+
+    #[test]
+    fn every_retouch_mode_reaches_the_shelf_exactly_once() {
+        // The rail places the retouch slots at three separate points now, so
+        // "generated from the vocabulary" is no longer one splice — a mode
+        // whose slot matched nothing would vanish from the shelf entirely.
+        let ids: Vec<&str> = default_tools()
+            .iter()
+            .map(|t| t.id.clone())
+            .collect::<Vec<_>>()
+            .leak()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        for mode in crate::DabMode::retouch_modes() {
+            let hits = ids.iter().filter(|id| **id == mode.tool_id()).count();
+            assert_eq!(
+                hits,
+                1,
+                "{} appears {hits} times on the shelf",
+                mode.tool_id()
+            );
+        }
+    }
+
+    #[test]
+    fn the_shelf_fits_a_maximized_1080p_window() {
+        // The reason slots exist at all. Budget is what a maximized 1080p
+        // window leaves beside the canvas once the chrome bands are taken off:
+        // title, menu, toolbar, tool options, document tabs and status bar.
+        // Flat, twenty-five tools needed a thousand pixels of column and the
+        // tail fell into an overflow menu — a worse home for a tool than a
+        // flyout, since nothing about "…" says which tools are behind it.
+        const HIT: usize = 40; // Theme.toolHit at density 1.0
+        const CHROME: usize = 30 + 26 + 40 + 40 + 28 + 28;
+        let budget = 1080 - CHROME;
+        let slots = tool_slots().len();
+        let needed = slots * HIT;
+        assert!(
+            needed <= budget,
+            "{slots} slots need {needed}px but the shelf has {budget}px"
+        );
+        // And it must actually be doing something: a shelf where every tool
+        // got its own slot would pass the line above only by luck.
+        assert!(
+            slots < default_tools().len() - 4,
+            "{slots} slots for {} tools — barely anything stacks",
+            default_tools().len()
+        );
     }
 
     /// Pointer and selection lead, navigation trails. Users reach for these

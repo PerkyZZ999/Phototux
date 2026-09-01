@@ -123,7 +123,7 @@ pub use shell::{
     PanelDescriptor, ToolDescriptor, adjustment_editor_ranges, adjustment_editor_ranges_json,
     adjustment_labels_json, default_disclosure_groups, default_panels, default_tools,
     disclosure_groups_json, essentials_panel_visibility, inspector_badges, inspector_badges_json,
-    panels_json, tools_json,
+    panels_json, tool_slots, tool_slots_json, tools_json,
 };
 pub use snapshot_publish::{
     MAX_SNAPSHOT_BYTES, PixelSnapshot, SnapshotError, SnapshotPublisher, solid_layer_rgba,

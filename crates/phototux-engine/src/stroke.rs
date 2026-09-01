@@ -179,6 +179,24 @@ impl DabMode {
         }
     }
 
+    /// Which tool-shelf slot this mode's tool shares with its siblings.
+    ///
+    /// Photoshop stacks related tools in one shelf slot with a flyout rather
+    /// than giving each its own button — three ways of softening an area are
+    /// one decision, not three — and the default accelerators already say
+    /// which belong together: `R` / `Shift+R` / `Ctrl+Shift+R` are one slot,
+    /// `O` and its variants another. A test holds the two in agreement.
+    #[must_use]
+    pub fn slot(self) -> &'static str {
+        match self {
+            Self::Paint => "brush",
+            Self::Erase => "eraser",
+            Self::Clone => "clone",
+            Self::Blur | Self::Sharpen | Self::Smudge => "focus",
+            Self::Dodge | Self::Burn | Self::Sponge => "tone",
+        }
+    }
+
     /// The mode a tool selects; [`Self::Paint`] for anything else, because a
     /// tool with no mode of its own paints when it paints at all.
     #[must_use]
