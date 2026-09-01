@@ -8,9 +8,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use phototux_engine::{
-    AdjustmentParams, BlendMode, DocumentSize, Layer, LayerId, LayerKind, MAX_LAYERS,
-};
+use phototux_engine::{BlendMode, DocumentSize, Layer, LayerId, LayerKind, MAX_LAYERS};
 
 use crate::blur::SeparableBlur;
 use crate::brush::PixelRect;
@@ -188,6 +186,91 @@ fn apply_exposure(rgb: vec3<f32>, stops: f32, gamma: f32) -> vec3<f32> {
     return clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// Mirrors phototux_engine::rgb_to_hsl / hsl_to_rgb, which are the reference
+// these are held to by parity fixture.
+fn rgb_to_hsl(rgb: vec3<f32>) -> vec3<f32> {
+    let mx = max(rgb.r, max(rgb.g, rgb.b));
+    let mn = min(rgb.r, min(rgb.g, rgb.b));
+    let l = (mx + mn) * 0.5;
+    let span = mx - mn;
+    if (span <= 1e-6) {
+        return vec3<f32>(0.0, 0.0, l);
+    }
+    var s = span / (mx + mn);
+    if (l > 0.5) {
+        s = span / (2.0 - mx - mn);
+    }
+    var h = 0.0;
+    if (mx == rgb.r) {
+        h = (rgb.g - rgb.b) / span;
+        h = h - 6.0 * floor(h / 6.0);
+    } else if (mx == rgb.g) {
+        h = (rgb.b - rgb.r) / span + 2.0;
+    } else {
+        h = (rgb.r - rgb.g) / span + 4.0;
+    }
+    h = h / 6.0;
+    return vec3<f32>(h - floor(h), s, l);
+}
+
+fn hsl_channel(p: f32, q: f32, t_in: f32) -> f32 {
+    let t = t_in - floor(t_in);
+    if (t < 1.0 / 6.0) {
+        return p + (q - p) * 6.0 * t;
+    }
+    if (t < 0.5) {
+        return q;
+    }
+    if (t < 2.0 / 3.0) {
+        return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    }
+    return p;
+}
+
+fn hsl_to_rgb(hsl: vec3<f32>) -> vec3<f32> {
+    if (hsl.g <= 1e-6) {
+        return vec3<f32>(hsl.b);
+    }
+    var q = hsl.b + hsl.g - hsl.b * hsl.g;
+    if (hsl.b < 0.5) {
+        q = hsl.b * (1.0 + hsl.g);
+    }
+    let p = 2.0 * hsl.b - q;
+    return vec3<f32>(
+        hsl_channel(p, q, hsl.r + 1.0 / 3.0),
+        hsl_channel(p, q, hsl.r),
+        hsl_channel(p, q, hsl.r - 1.0 / 3.0),
+    );
+}
+
+// Negative values scale toward zero, positive ones close the distance to one,
+// so +1 is not a no-op on an already-saturated pixel.
+fn hsl_push(value: f32, amount: f32) -> f32 {
+    if (amount >= 0.0) {
+        return value + (1.0 - value) * amount;
+    }
+    return value * (1.0 + amount);
+}
+
+fn apply_hue_saturation(rgb: vec3<f32>, hue: f32, sat: f32, light: f32) -> vec3<f32> {
+    var hsl = rgb_to_hsl(rgb);
+    let h = hsl.r + hue;
+    hsl.r = h - floor(h);
+    hsl.g = clamp(hsl_push(hsl.g, sat), 0.0, 1.0);
+    hsl.b = clamp(hsl_push(hsl.b, light), 0.0, 1.0);
+    return clamp(hsl_to_rgb(hsl), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn apply_threshold(rgb: vec3<f32>, level: f32) -> vec3<f32> {
+    let luma = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+    return select(vec3<f32>(0.0), vec3<f32>(1.0), luma >= level);
+}
+
+fn apply_posterize(rgb: vec3<f32>, levels: f32) -> vec3<f32> {
+    let steps = max(clamp(levels, 2.0, 256.0) - 1.0, 1.0);
+    return clamp(round(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * steps) / steps, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -236,6 +319,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                 adjusted = apply_levels(acc.rgb, p.p0, p.p1, p.p2);
             } else if (p.adj_op == 3u) {
                 adjusted = apply_exposure(acc.rgb, p.p0, p.p1);
+            } else if (p.adj_op == 4u) {
+                adjusted = apply_hue_saturation(acc.rgb, p.p0, p.p1, p.p2);
+            } else if (p.adj_op == 5u) {
+                adjusted = clamp(vec3<f32>(1.0) - acc.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+            } else if (p.adj_op == 6u) {
+                adjusted = apply_threshold(acc.rgb, p.p0);
+            } else if (p.adj_op == 7u) {
+                adjusted = apply_posterize(acc.rgb, p.p0);
             }
             let rgb = mix(acc.rgb, adjusted, strength);
             acc = vec4<f32>(rgb, acc.a);
@@ -1648,15 +1739,12 @@ fn adjustment_gpu_params(layer: &Layer) -> (u32, u32, f32, f32, f32, f32) {
         return (1, 0, 0.0, 0.0, 0.0, 0.0);
     };
     let pass = adjustment_pass(params);
-    let adj_op = match params {
-        AdjustmentParams::BrightnessContrast { .. } => 1,
-        AdjustmentParams::Levels { .. } => 2,
-        AdjustmentParams::Exposure { .. } => 3,
-        _ => 0,
-    };
     (
         1,
-        adj_op,
+        // The engine owns this mapping. It used to be a `match` here with a
+        // `_ => 0` arm, and 0 means "no adjustment" — so Hue/Saturation,
+        // Invert, Threshold and Posterize layers composited as nothing.
+        params.gpu_op(),
         pass.params[0],
         pass.params[1],
         pass.params[2],

@@ -181,6 +181,28 @@ Tile size is provisional and can differ between storage and compute. Planner han
 
 Preview never changes modified state or history. A preview can lag parameter input but must identify generation so old tiles cannot appear as current. Progressive preview may mix resolutions only under one parameter generation and source snapshot; it cannot mix semantic versions.
 
+## Shipped adjustment kinds
+
+`phototux_engine::AdjustmentParams` is the single home for the adjustment vocabulary. Each variant answers for its own wire key, display label, composite-shader op code, defaults, editor slots and CPU reference — so a kind is either complete everywhere or it does not compile.
+
+| Kind | Key | Editor slots |
+| --- | --- | --- |
+| Brightness/Contrast | `brightness` | Brightness, Contrast |
+| Levels | `levels` | Black, White, Gamma |
+| Exposure | `exposure` | Stops, Gamma |
+| Hue/Saturation | `hue` | Hue, Saturation, Lightness |
+| Invert | `invert` | *(none)* |
+| Threshold | `threshold` | Level |
+| Posterize | `posterize` | Levels |
+
+Three rules hold the vocabulary together, each pinned by test:
+
+- **`gpu_op` is never `0`.** Zero is the shader's "no adjustment", so a kind that reaches it renders as an invisible layer rather than as an error. This mapping previously lived in `phototux_gpu` behind a `_ => 0` arm, and four of the seven kinds fell into it — creatable, serializable, editable, and drawing nothing.
+- **`slots` and `with_slots` are inverse.** The chrome edits an adjustment only through the three slots, so a parameter the projection drops is a control that silently does nothing.
+- **`apply_rgb` is the reference the WGSL mirrors**, and a device-backed fixture composites every kind and compares against it. Without it there is nothing to notice a shader arm that was never added.
+
+Adding a kind is a variant plus one arm in each method, an arm in the shader, and nothing in the chrome: the Properties editor builds itself from `editor_slots`.
+
 ## Nondestructive Nodes
 
 A nondestructive filter node preserves source and parameters. It may be an adjustment layer, ordered layer effect, fill/effect node, or another declared graph object. Its scope is explicit: one layer source, subtree result, clipped base, or bounded composite input.

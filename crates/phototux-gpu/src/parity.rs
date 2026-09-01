@@ -312,6 +312,85 @@ mod gpu_tests {
         Ok((cpu, gpu))
     }
 
+    /// Composite a solid layer under an adjustment layer and hand back
+    /// (expected, actual) RGB.
+    ///
+    /// `AdjustmentParams::apply_rgb` is the reference the shader mirrors.
+    /// Nothing held them together before, and the shader's own mapping had a
+    /// `_ => 0` arm — so four adjustment kinds composited as nothing while
+    /// their parameters round-tripped through the document perfectly.
+    fn gpu_adjustment_rgb(
+        params: phototux_engine::AdjustmentParams,
+        base: [u8; 4],
+    ) -> Result<([u8; 3], [u8; 3]), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 8;
+        const H: u32 = 8;
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new_flattened(size, "base");
+        let base_id = graph.layers()[0].id;
+        // `add_adjustment_top`, not a raster layer with `set_adjustment` after:
+        // that setter refuses a layer whose kind is not Adjustment, so the
+        // fixture would have composited a blank raster layer instead.
+        graph
+            .add_adjustment_top(Some("adjust".to_owned()), params.clone())
+            .map_err(|e| e.to_string())?;
+
+        let pixels = solid_rgba(W, H, base);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())?;
+        eng.write_layer_rgba(&ctx, base_id, &pixels)
+            .map_err(|e| e.to_string())?;
+        eng.composite(&ctx, graph.layers())?;
+        let gpu = eng.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+
+        let expected = params.apply_rgb([
+            f32::from(base[0]) / 255.0,
+            f32::from(base[1]) / 255.0,
+            f32::from(base[2]) / 255.0,
+        ]);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "apply_rgb clamps to 0..1 before the scale"
+        )]
+        let expected = expected.map(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8);
+        Ok((expected, [gpu[0], gpu[1], gpu[2]]))
+    }
+
+    /// Every adjustment kind must move the pixel the way the engine says, on
+    /// the device. Tolerance is generous because the shader works in f32 and
+    /// the HSL round trip is not exact, but "renders as nothing" fails by a
+    /// mile rather than by a rounding step.
+    #[test]
+    fn every_adjustment_kind_matches_the_engine_on_device() {
+        use phototux_engine::AdjustmentParams;
+        let base = [180, 90, 60, 255];
+        for kind in AdjustmentParams::ALL_KINDS {
+            // Defaults are neutral by design, so each kind is nudged off it —
+            // a neutral adjustment cannot tell "applied" from "skipped".
+            let slots = kind.slots();
+            let moved = kind
+                .with_slots([slots[0] + 0.3, slots[1] + 0.2, slots[2]])
+                .clamped();
+            let (expected, actual) = match gpu_adjustment_rgb(moved.clone(), base) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("skipping {}: {e}", moved.kind_key());
+                    return;
+                }
+            };
+            for (c, (e, a)) in expected.iter().zip(actual).enumerate() {
+                let diff = i32::from(*e).abs_diff(i32::from(a));
+                assert!(
+                    diff <= 3,
+                    "{}: channel {c} expected {e}, device gave {a}",
+                    moved.kind_key()
+                );
+            }
+        }
+    }
+
     /// Composite one masked layer and hand back (expected, actual) alpha.
     ///
     /// `LayerMask::coverage` is the single definition of mask semantics; the

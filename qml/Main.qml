@@ -705,22 +705,6 @@ ApplicationWindow {
         return false
     }
 
-    // Adjustment slider bounds come from the engine so the editor and the
-    // out-of-range disclosure badge cannot disagree about what is showable.
-    readonly property var adjustmentRanges: {
-        try {
-            return JSON.parse(AppSession.adjustmentRangesJson || "{}")
-        } catch (e) {
-            return ({})
-        }
-    }
-    function adjRange(kind, slot, edge) {
-        var params = root.adjustmentRanges[kind]
-        var bounds = params ? params[slot] : undefined
-        if (!bounds)
-            return edge === 0 ? 0 : 1
-        return bounds[edge]
-    }
     readonly property color colorOnSurface: Theme.colorOnSurface
     readonly property color colorOnSurfaceMuted: Theme.colorOnSurfaceMuted
     readonly property color warning: Theme.warning
@@ -948,6 +932,71 @@ ApplicationWindow {
                 delegate: actionMenuItem
                 onObjectAdded: (index, object) => layerMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => layerMenu.removeItem(object)
+            }
+            // Six submenus, because the flat Layer menu carried thirty-one
+            // entries and ran past the bottom of a 1080p window — the last of
+            // them unreachable however correctly they rendered. Each is
+            // declared here and populated from the engine; a submenu the
+            // engine declares and this file does not is a test failure.
+            Menu {
+                id: adjustmentMenu
+                title: qsTr("New &Adjustment Layer")
+                Instantiator {
+                    model: root.actionsForMenu("layer.adjustment")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => adjustmentMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => adjustmentMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: shapeMenu
+                title: qsTr("&Shape")
+                Instantiator {
+                    model: root.actionsForMenu("layer.shape")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => shapeMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => shapeMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: booleanMenu
+                title: qsTr("&Combine Shapes")
+                Instantiator {
+                    model: root.actionsForMenu("layer.boolean")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => booleanMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => booleanMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: styleMenu
+                title: qsTr("Layer St&yle")
+                Instantiator {
+                    model: root.actionsForMenu("layer.style")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => styleMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => styleMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: maskMenu
+                title: qsTr("&Mask")
+                Instantiator {
+                    model: root.actionsForMenu("layer.mask")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => maskMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => maskMenu.removeItem(object)
+                }
+            }
+            Menu {
+                id: lockMenu
+                title: qsTr("Loc&k")
+                Instantiator {
+                    model: root.actionsForMenu("layer.lock")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => lockMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => lockMenu.removeItem(object)
+                }
             }
         }
         Menu {
@@ -2528,7 +2577,6 @@ ApplicationWindow {
                         anchors.margins: Theme.spaceMd
                         spacing: Theme.spaceMd
 
-                        adjRange: root.adjRange
                         iconUrl: root.iconUrl
                         runAction: root.runAction
                         isTransformTool: root.isTransformTool

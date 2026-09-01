@@ -7,10 +7,10 @@
 // body below is the same tree — but it makes the panel's dependencies
 // enumerable, which they were not while every id in `Main.qml` was in scope.
 //
-// The seam is deliberately narrow: eleven inbound values, one signal out, and
+// The seam is deliberately narrow: ten inbound values, one signal out, and
 // two functions the shell calls to push host state into controls that hold
 // their own editing state. The properties are named exactly as they are on
-// `Main.qml`'s root so the body's `root.adjRange(...)` and friends resolve
+// `Main.qml`'s root so the body's `root.*` references resolve
 // against this component instead — the extraction is a move, not a rewrite.
 //
 // The `Flickable` stays behind: it carries the dock's `Layout.*` attachments
@@ -27,7 +27,6 @@ ColumnLayout {
 
     // Shell helpers, passed rather than reached for. `var` because these are
     // functions on the shell root; QML has no narrower type for them.
-    required property var adjRange
     required property var iconUrl
     required property var runAction
     required property var isTransformTool
@@ -46,6 +45,54 @@ ColumnLayout {
     /// Raised when the user asks to embed an ICC profile. The file dialog
     /// belongs to the shell, so the panel asks rather than opens.
     signal embedIccRequested
+
+    /// Editor slots for the active adjustment kind, as the engine declares them.
+    readonly property var adjustmentSlots: {
+        try {
+            var all = JSON.parse(AppSession.adjustmentRangesJson || "{}")
+            var slots = all[AppSession.adjustmentKind]
+            return slots ? slots : []
+        } catch (e) {
+            return []
+        }
+    }
+
+    /// Display name of the active adjustment kind.
+    readonly property string adjustmentLabel: {
+        try {
+            var labels = JSON.parse(AppSession.adjustmentLabelsJson || "{}")
+            var label = labels[AppSession.adjustmentKind]
+            return label ? label : qsTr("Adjustment")
+        } catch (e) {
+            return qsTr("Adjustment")
+        }
+    }
+
+    /// Current value of editor slot `index`.
+    ///
+    /// The host publishes the three slots as scalars, so the mapping from a
+    /// slot's position in the table to its property is here rather than in
+    /// every delegate.
+    function adjustmentSlotValue(index) {
+        var slot = root.adjustmentSlots[index]
+        var name = slot ? slot.slot : ""
+        if (name === "p1")
+            return AppSession.adjustmentP1
+        if (name === "p2")
+            return AppSession.adjustmentP2
+        return AppSession.adjustmentP0
+    }
+
+    /// Write `value` into editor slot `index`, leaving the others alone.
+    function commitAdjustmentSlot(index, value) {
+        var p = [AppSession.adjustmentP0, AppSession.adjustmentP1,
+                 AppSession.adjustmentP2]
+        var slot = root.adjustmentSlots[index]
+        var name = slot ? slot.slot : "p0"
+        var at = name === "p2" ? 2 : (name === "p1" ? 1 : 0)
+        p[at] = value
+        AppSession.setAdjustmentParams(p[0], p[1], p[2])
+    }
 
     /// The blend-mode vocabulary, as the engine declares it.
     ///
@@ -929,213 +976,81 @@ ColumnLayout {
     }
 
     // Adjustment layer params
+    //
+    // Built from the engine's slot table rather than a hand-written slider
+    // pair per kind: the panel used to name brightness, levels and exposure
+    // explicitly, so the four other adjustment kinds a user could create had
+    // no editor at all.
     DisclosureGroup {
         groupId: "inspector.adjustment"
         title: qsTr("Adjustment")
-        visible: AppSession.adjustmentKind === "brightness"
-                 || AppSession.adjustmentKind === "levels"
-                 || AppSession.adjustmentKind === "exposure"
+        visible: root.adjustmentSlots.length > 0
+                 || AppSession.adjustmentKind.length > 0
         summary: {
-            if (AppSession.adjustmentKind === "levels")
-                return qsTr("%1–%2 γ%3")
-                       .arg(Math.round(AppSession.adjustmentP0 * 255))
-                       .arg(Math.round(AppSession.adjustmentP1 * 255))
-                       .arg(AppSession.adjustmentP2.toFixed(2))
-            if (AppSession.adjustmentKind === "exposure")
-                return qsTr("%1 EV").arg(AppSession.adjustmentP0.toFixed(2))
-            return qsTr("%1 / %2")
-                   .arg(Math.round(AppSession.adjustmentP0 * 100))
-                   .arg(Math.round(AppSession.adjustmentP1 * 100))
+            var slots = root.adjustmentSlots
+            if (slots.length === 0)
+                return root.adjustmentLabel
+            var shown = []
+            for (var i = 0; i < slots.length && i < 2; i++)
+                shown.push(root.adjustmentSlotValue(i).toFixed(2))
+            return shown.join(" / ")
         }
 
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.spaceXs
             Label {
-                text: AppSession.adjustmentKind === "levels"
-                      ? qsTr("Levels")
-                      : (AppSession.adjustmentKind === "exposure"
-                         ? qsTr("Exposure") : qsTr("Brightness/Contrast"))
+                text: root.adjustmentLabel
                 color: Theme.colorOnSurface
                 font.pixelSize: Theme.fontBodySm
             }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "brightness"
-                Label {
-                    text: qsTr("Brightness")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
+            Label {
+                text: qsTr("No parameters")
+                visible: root.adjustmentSlots.length === 0
+                color: Theme.colorOnSurfaceMuted
+                font.pixelSize: Theme.fontLabelSm
+                font.italic: true
+            }
+            Repeater {
+                model: root.adjustmentSlots
+                delegate: ColumnLayout {
+                    id: slotEditor
+                    required property var modelData
+                    required property int index
+
                     Layout.fillWidth: true
+                    spacing: 2
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: slotEditor.modelData.label
+                            color: Theme.colorOnSurface
+                            font.pixelSize: Theme.fontBodySm
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: root.adjustmentSlotValue(slotEditor.index).toFixed(2)
+                            color: Theme.primary
+                            font.pixelSize: Theme.fontMono
+                            font.family: "Noto Sans Mono"
+                        }
+                    }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: slotEditor.modelData.min
+                        to: slotEditor.modelData.max
+                        value: root.adjustmentSlotValue(slotEditor.index)
+                        Accessible.name: qsTr("%1 for %2")
+                                         .arg(slotEditor.modelData.label)
+                                         .arg(root.adjustmentLabel)
+                        onMoved: root.commitAdjustmentSlot(slotEditor.index, value)
+                    }
                 }
-                Label {
-                    text: Math.round(AppSession.adjustmentP0 * 100)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "brightness"
-                from: root.adjRange("brightness", "p0", 0)
-                to: root.adjRange("brightness", "p0", 1)
-                value: AppSession.adjustmentP0
-                onMoved: AppSession.setAdjustmentParams(
-                             value, AppSession.adjustmentP1, 0)
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "brightness"
-                Label {
-                    text: qsTr("Contrast")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
-                    Layout.fillWidth: true
-                }
-                Label {
-                    text: Math.round(AppSession.adjustmentP1 * 100)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "brightness"
-                from: root.adjRange("brightness", "p1", 0)
-                to: root.adjRange("brightness", "p1", 1)
-                value: AppSession.adjustmentP1
-                onMoved: AppSession.setAdjustmentParams(
-                             AppSession.adjustmentP0, value, 0)
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "levels"
-                Label {
-                    text: qsTr("Black")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
-                    Layout.fillWidth: true
-                }
-                Label {
-                    text: Math.round(AppSession.adjustmentP0 * 255)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "levels"
-                from: root.adjRange("levels", "p0", 0)
-                to: root.adjRange("levels", "p0", 1)
-                value: AppSession.adjustmentP0
-                onMoved: AppSession.setAdjustmentParams(
-                             value, AppSession.adjustmentP1, AppSession.adjustmentP2)
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "levels"
-                Label {
-                    text: qsTr("White")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
-                    Layout.fillWidth: true
-                }
-                Label {
-                    text: Math.round(AppSession.adjustmentP1 * 255)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "levels"
-                from: root.adjRange("levels", "p1", 0)
-                to: root.adjRange("levels", "p1", 1)
-                value: AppSession.adjustmentP1
-                onMoved: AppSession.setAdjustmentParams(
-                             AppSession.adjustmentP0, value, AppSession.adjustmentP2)
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "levels"
-                Label {
-                    text: qsTr("Gamma")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
-                    Layout.fillWidth: true
-                }
-                Label {
-                    text: AppSession.adjustmentP2.toFixed(2)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "levels"
-                from: root.adjRange("levels", "p2", 0)
-                to: root.adjRange("levels", "p2", 1)
-                value: AppSession.adjustmentP2
-                onMoved: AppSession.setAdjustmentParams(
-                             AppSession.adjustmentP0, AppSession.adjustmentP1, value)
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "exposure"
-                Label {
-                    text: qsTr("Stops")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
-                    Layout.fillWidth: true
-                }
-                Label {
-                    text: AppSession.adjustmentP0.toFixed(2)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "exposure"
-                from: root.adjRange("exposure", "p0", 0)
-                to: root.adjRange("exposure", "p0", 1)
-                value: AppSession.adjustmentP0
-                onMoved: AppSession.setAdjustmentParams(
-                             value, AppSession.adjustmentP1, 0)
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "exposure"
-                Label {
-                    text: qsTr("Gamma")
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontBodySm
-                    Layout.fillWidth: true
-                }
-                Label {
-                    text: AppSession.adjustmentP1.toFixed(2)
-                    color: Theme.primary
-                    font.pixelSize: Theme.fontMono
-                    font.family: "Noto Sans Mono"
-                }
-            }
-            Slider {
-                Layout.fillWidth: true
-                visible: AppSession.adjustmentKind === "exposure"
-                from: root.adjRange("exposure", "p1", 0)
-                to: root.adjRange("exposure", "p1", 1)
-                value: AppSession.adjustmentP1
-                onMoved: AppSession.setAdjustmentParams(
-                             AppSession.adjustmentP0, value, 0)
             }
         }
     }
+
 
     // Gaussian blur effect
     DisclosureGroup {

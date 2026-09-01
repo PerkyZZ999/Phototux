@@ -539,6 +539,7 @@ impl AdjustmentParams {
     }
 
     /// Short kind key for QML (`brightness`, `levels`, …).
+    #[must_use]
     pub fn kind_key(&self) -> &'static str {
         match self {
             Self::BrightnessContrast { .. } => "brightness",
@@ -550,6 +551,302 @@ impl AdjustmentParams {
             Self::Exposure { .. } => "exposure",
         }
     }
+
+    /// Display name for the layer and for menus.
+    #[must_use]
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::BrightnessContrast { .. } => "Brightness/Contrast",
+            Self::Levels { .. } => "Levels",
+            Self::HueSaturation { .. } => "Hue/Saturation",
+            Self::Invert => "Invert",
+            Self::Threshold { .. } => "Threshold",
+            Self::Posterize { .. } => "Posterize",
+            Self::Exposure { .. } => "Exposure",
+        }
+    }
+
+    /// The composite shader's op code for this kind.
+    ///
+    /// `0` means "no adjustment", so a kind that forgets its code renders as
+    /// an invisible layer rather than as an error — which is what four of
+    /// these kinds did for as long as this mapping lived in the GPU crate,
+    /// where the `_ => 0` arm silently absorbed every kind added here.
+    /// [`Self::ALL_KINDS`] and the shader are held to each other by test.
+    #[must_use]
+    pub fn gpu_op(&self) -> u32 {
+        match self {
+            Self::BrightnessContrast { .. } => 1,
+            Self::Levels { .. } => 2,
+            Self::Exposure { .. } => 3,
+            Self::HueSaturation { .. } => 4,
+            Self::Invert => 5,
+            Self::Threshold { .. } => 6,
+            Self::Posterize { .. } => 7,
+        }
+    }
+
+    /// One default instance of every kind, in menu order.
+    pub const ALL_KINDS: &'static [Self] = &[
+        Self::BrightnessContrast {
+            brightness: 0.0,
+            contrast: 0.0,
+        },
+        Self::Levels {
+            black: 0.0,
+            white: 1.0,
+            gamma: 1.0,
+        },
+        Self::Exposure {
+            stops: 0.0,
+            gamma: 1.0,
+        },
+        Self::HueSaturation {
+            hue: 0.0,
+            saturation: 0.0,
+            lightness: 0.0,
+        },
+        Self::Invert,
+        Self::Threshold { level: 0.5 },
+        Self::Posterize { levels: 8 },
+    ];
+
+    /// The default parameters for a kind key; `None` for an unknown key.
+    ///
+    /// No fallback: the caller is creating a layer, and a Brightness/Contrast
+    /// layer the user did not ask for is one they have to notice and undo.
+    #[must_use]
+    pub fn default_for_kind(kind: &str) -> Option<Self> {
+        Self::ALL_KINDS
+            .iter()
+            .find(|p| p.kind_key() == kind)
+            .cloned()
+    }
+
+    /// Parameters projected onto the three editor slots.
+    ///
+    /// The slots are the chrome's whole vocabulary for an adjustment — QML
+    /// binds `p0`/`p1`/`p2` sliders and the command carries the same three —
+    /// so the projection and its inverse belong together, next to the ranges
+    /// that bound them.
+    #[must_use]
+    pub fn slots(&self) -> [f32; 3] {
+        match *self {
+            Self::BrightnessContrast {
+                brightness,
+                contrast,
+            } => [brightness, contrast, 0.0],
+            Self::Levels {
+                black,
+                white,
+                gamma,
+            } => [black, white, gamma],
+            Self::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+            } => [hue, saturation, lightness],
+            Self::Invert => [0.0; 3],
+            Self::Threshold { level } => [level, 0.0, 0.0],
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "posterize levels are clamped to 2..=256 and fit f32 exactly"
+            )]
+            Self::Posterize { levels } => [levels as f32, 0.0, 0.0],
+            Self::Exposure { stops, gamma } => [stops, gamma, 0.0],
+        }
+    }
+
+    /// Rebuild this kind from editor slot values.
+    #[must_use]
+    pub fn with_slots(&self, p: [f32; 3]) -> Self {
+        match self {
+            Self::BrightnessContrast { .. } => Self::BrightnessContrast {
+                brightness: p[0],
+                contrast: p[1],
+            },
+            Self::Levels { .. } => Self::Levels {
+                black: p[0],
+                white: p[1],
+                gamma: p[2],
+            },
+            Self::HueSaturation { .. } => Self::HueSaturation {
+                hue: p[0],
+                saturation: p[1],
+                lightness: p[2],
+            },
+            Self::Invert => Self::Invert,
+            Self::Threshold { .. } => Self::Threshold { level: p[0] },
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "rounded and clamped to 2..=256 before the cast"
+            )]
+            Self::Posterize { .. } => Self::Posterize {
+                levels: p[0].round().clamp(2.0, 256.0) as u32,
+            },
+            Self::Exposure { .. } => Self::Exposure {
+                stops: p[0],
+                gamma: p[1].max(0.01),
+            },
+        }
+    }
+
+    /// Editor slots this kind exposes, as `(slot, label, min, max)`.
+    ///
+    /// An empty list means the kind has no parameters — Invert is the whole
+    /// adjustment — not that its editor is missing.
+    #[must_use]
+    pub fn editor_slots(&self) -> &'static [(&'static str, &'static str, f32, f32)] {
+        match self {
+            Self::BrightnessContrast { .. } => &[
+                ("p0", "Brightness", -1.0, 1.0),
+                ("p1", "Contrast", -1.0, 1.0),
+            ],
+            Self::Levels { .. } => &[
+                ("p0", "Black", 0.0, 1.0),
+                ("p1", "White", 0.0, 1.0),
+                ("p2", "Gamma", 0.1, 3.0),
+            ],
+            Self::Exposure { .. } => &[("p0", "Stops", -5.0, 5.0), ("p1", "Gamma", 0.1, 3.0)],
+            Self::HueSaturation { .. } => &[
+                ("p0", "Hue", -1.0, 1.0),
+                ("p1", "Saturation", -1.0, 1.0),
+                ("p2", "Lightness", -1.0, 1.0),
+            ],
+            Self::Invert => &[],
+            Self::Threshold { .. } => &[("p0", "Level", 0.0, 1.0)],
+            Self::Posterize { .. } => &[("p0", "Levels", 2.0, 32.0)],
+        }
+    }
+
+    /// Apply this adjustment to one straight-alpha RGB colour.
+    ///
+    /// The reference the composite shader mirrors. Keeping it here rather than
+    /// only in WGSL is what makes an adjustment testable without a device, and
+    /// what a parity fixture compares the shader against.
+    #[must_use]
+    pub fn apply_rgb(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let clamp3 = |c: [f32; 3]| c.map(|v| v.clamp(0.0, 1.0));
+        match *self {
+            Self::BrightnessContrast {
+                brightness,
+                contrast,
+            } => {
+                let c = contrast + 1.0;
+                clamp3(rgb.map(|v| (v - 0.5) * c + 0.5 + brightness))
+            }
+            Self::Levels {
+                black,
+                white,
+                gamma,
+            } => {
+                let span = (white - black).max(1e-5);
+                let g = gamma.max(0.01);
+                clamp3(rgb.map(|v| ((v - black) / span).clamp(0.0, 1.0).powf(1.0 / g)))
+            }
+            Self::Exposure { stops, gamma } => {
+                let mul = stops.clamp(-5.0, 5.0).exp2();
+                let g = gamma.max(0.01);
+                clamp3(rgb.map(|v| (v * mul).clamp(0.0, 1.0).powf(1.0 / g)))
+            }
+            Self::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+            } => {
+                let mut hsl = rgb_to_hsl(rgb);
+                hsl[0] = (hsl[0] + hue).rem_euclid(1.0);
+                // Saturation and lightness read as "toward grey / toward the
+                // end of the range", so a negative value scales down and a
+                // positive one closes the remaining distance. A plain multiply
+                // would make +1 mean "unchanged" on an already-saturated pixel.
+                hsl[1] = if saturation >= 0.0 {
+                    hsl[1] + (1.0 - hsl[1]) * saturation
+                } else {
+                    hsl[1] * (1.0 + saturation)
+                };
+                hsl[2] = if lightness >= 0.0 {
+                    hsl[2] + (1.0 - hsl[2]) * lightness
+                } else {
+                    hsl[2] * (1.0 + lightness)
+                };
+                clamp3(hsl_to_rgb([
+                    hsl[0],
+                    hsl[1].clamp(0.0, 1.0),
+                    hsl[2].clamp(0.0, 1.0),
+                ]))
+            }
+            Self::Invert => rgb.map(|v| 1.0 - v.clamp(0.0, 1.0)),
+            Self::Threshold { level } => {
+                let luma = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+                let v = if luma >= level { 1.0 } else { 0.0 };
+                [v; 3]
+            }
+            Self::Posterize { levels } => {
+                let n = levels.clamp(2, 256);
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "level counts are clamped to 2..=256"
+                )]
+                let steps = (n - 1) as f32;
+                clamp3(rgb.map(|v| (v.clamp(0.0, 1.0) * steps).round() / steps))
+            }
+        }
+    }
+}
+
+/// RGB → HSL, all components in 0..1 (hue wraps).
+#[must_use]
+pub fn rgb_to_hsl(rgb: [f32; 3]) -> [f32; 3] {
+    let max = rgb[0].max(rgb[1]).max(rgb[2]);
+    let min = rgb[0].min(rgb[1]).min(rgb[2]);
+    let l = (max + min) * 0.5;
+    let span = max - min;
+    if span <= f32::EPSILON {
+        return [0.0, 0.0, l];
+    }
+    let s = if l > 0.5 {
+        span / (2.0 - max - min)
+    } else {
+        span / (max + min)
+    };
+    let h = if max == rgb[0] {
+        ((rgb[1] - rgb[2]) / span).rem_euclid(6.0)
+    } else if max == rgb[1] {
+        (rgb[2] - rgb[0]) / span + 2.0
+    } else {
+        (rgb[0] - rgb[1]) / span + 4.0
+    };
+    [(h / 6.0).rem_euclid(1.0), s, l]
+}
+
+/// HSL → RGB, inverse of [`rgb_to_hsl`].
+#[must_use]
+pub fn hsl_to_rgb(hsl: [f32; 3]) -> [f32; 3] {
+    let [h, s, l] = hsl;
+    if s <= f32::EPSILON {
+        return [l; 3];
+    }
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    let channel = |mut t: f32| {
+        t = t.rem_euclid(1.0);
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 0.5 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    [channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0)]
 }
 
 /// One nondestructive filter/effect node on a layer.
@@ -919,6 +1216,120 @@ mod tests {
         assert!((l.opacity - 1.0).abs() < f32::EPSILON);
         l.set_opacity(-1.0);
         assert!((l.opacity - 0.0).abs() < f32::EPSILON);
+    }
+
+    /// `0` is "no adjustment" in the shader, so a kind that reaches it renders
+    /// as an invisible layer. Four kinds did exactly that.
+    #[test]
+    fn every_adjustment_kind_has_a_live_gpu_op() {
+        let mut seen = Vec::new();
+        for params in AdjustmentParams::ALL_KINDS {
+            let op = params.gpu_op();
+            assert_ne!(op, 0, "{} renders as nothing", params.kind_key());
+            assert!(!seen.contains(&op), "{} reuses op {op}", params.kind_key());
+            seen.push(op);
+        }
+    }
+
+    /// The command that creates an adjustment layer looks kinds up by key, so
+    /// a kind whose key does not round-trip cannot be created at all.
+    #[test]
+    fn every_adjustment_kind_is_reachable_by_key() {
+        for params in AdjustmentParams::ALL_KINDS {
+            let found = AdjustmentParams::default_for_kind(params.kind_key());
+            assert_eq!(found.as_ref(), Some(params));
+            assert!(!params.label().is_empty());
+        }
+        assert_eq!(AdjustmentParams::default_for_kind("nonsense"), None);
+    }
+
+    /// The chrome edits an adjustment only through its slots, so a slot the
+    /// projection drops is a control that silently does nothing — and a slot
+    /// with no declared range is a slider with no bounds.
+    #[test]
+    fn editor_slots_round_trip_through_the_projection() {
+        for params in AdjustmentParams::ALL_KINDS {
+            let slots = params.slots();
+            assert_eq!(
+                &params.with_slots(slots),
+                params,
+                "{} does not survive its own projection",
+                params.kind_key()
+            );
+            for (slot, label, min, max) in params.editor_slots() {
+                assert!(matches!(*slot, "p0" | "p1" | "p2"), "{slot} is not a slot");
+                assert!(!label.is_empty());
+                assert!(min < max, "{} {slot}: {min}..{max}", params.kind_key());
+            }
+        }
+    }
+
+    /// Every kind must be able to change a pixel. A kind whose `apply_rgb` is
+    /// the identity has no implementation, however complete its metadata.
+    #[test]
+    fn every_adjustment_changes_some_pixel() {
+        let probe = [0.25, 0.55, 0.8];
+        for params in AdjustmentParams::ALL_KINDS {
+            // Defaults are deliberately neutral, so each kind is nudged off it.
+            let slots = params.slots();
+            let moved = params.with_slots([
+                if params.editor_slots().is_empty() {
+                    slots[0]
+                } else {
+                    slots[0] + 0.3
+                },
+                slots[1] + 0.2,
+                slots[2],
+            ]);
+            let out = moved.apply_rgb(probe);
+            assert!(
+                out != probe,
+                "{} left the pixel untouched",
+                params.kind_key()
+            );
+            for v in out {
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "{} escaped range",
+                    params.kind_key()
+                );
+            }
+        }
+    }
+
+    /// HSL is the pivot the Hue/Saturation adjustment turns on, so a colour
+    /// must survive the round trip it makes on every pixel.
+    #[test]
+    fn hsl_round_trips() {
+        for rgb in [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.5, 0.5, 0.5],
+            [0.9, 0.2, 0.35],
+            [0.1, 0.7, 0.4],
+            [0.25, 0.3, 0.95],
+        ] {
+            let back = hsl_to_rgb(rgb_to_hsl(rgb));
+            for (a, b) in back.iter().zip(rgb) {
+                assert!((a - b).abs() < 1e-4, "{rgb:?} -> {back:?}");
+            }
+        }
+    }
+
+    /// A neutral Hue/Saturation is the one a freshly created layer carries, and
+    /// it must not tint the document the moment it appears.
+    #[test]
+    fn a_neutral_hue_saturation_is_a_no_op() {
+        let neutral = AdjustmentParams::HueSaturation {
+            hue: 0.0,
+            saturation: 0.0,
+            lightness: 0.0,
+        };
+        let probe = [0.8, 0.3, 0.45];
+        let out = neutral.apply_rgb(probe);
+        for (a, b) in out.iter().zip(probe) {
+            assert!((a - b).abs() < 1e-4, "{probe:?} -> {out:?}");
+        }
     }
 
     #[test]

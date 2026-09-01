@@ -203,7 +203,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 - [x] Filter gallery UX (browse + preview + commit) — `filter.preview` / `filter.commit` / dialog
 - [x] Additional GPU executors — sharpen + noise CPU/GPU pack + menu/gallery
 - [x] Cancel / stale-result policy for long filters — `CancelToken` + generation reject; `filter.cancel-preview`
-- [x] Adjustment kinds — brightness/levels/hue/exposure (+ invert/threshold/posterize); fuller set residual `[P]`
+- [x] Adjustment kinds — brightness/levels/hue/exposure/invert/threshold/posterize, all seven live on GPU with a device parity fixture and a self-building editor; fuller set residual `[P]`
 
 ### P5.3 Text
 

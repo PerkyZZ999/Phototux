@@ -17,13 +17,13 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    AdjustmentParams, CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph,
-    DocumentRegistry, DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide,
-    GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
-    LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect,
-    SelectionShape, SelectionState, SessionState, ShapeBooleanPartner, ShapePreset, TextContent,
-    TransformSession, VectorPath, WorkspaceState, bake_text_rgba8, command_id,
-    parse_selection_modify_arg, stroke_path_rgba8, tool_id,
+    CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph, DocumentRegistry,
+    DocumentSize, EngineCommand, EngineEvent, FilterParams, Guide, GuideOrientation, HistoryKind,
+    HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind, LayerTransform, OpenDocumentId,
+    PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect, SelectionShape, SelectionState,
+    SessionState, ShapeBooleanPartner, ShapePreset, TextContent, TransformSession, VectorPath,
+    WorkspaceState, bake_text_rgba8, command_id, parse_selection_modify_arg, stroke_path_rgba8,
+    tool_id,
 };
 use prefs::Preferences;
 use selection_path::PathVerdict;
@@ -227,6 +227,8 @@ pub struct AppSession {
     inspector_badges_json: String,
     /// Static adjustment slider bounds, so QML and the badge rule agree.
     adjustment_ranges_json: String,
+    /// `{kind: label}` for the adjustment editor heading.
+    adjustment_labels_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
@@ -459,6 +461,7 @@ impl AppSession {
             composite_generation: 0,
             inspector_badges_json: "{}".to_owned(),
             adjustment_ranges_json: phototux_engine::adjustment_editor_ranges_json(),
+            adjustment_labels_json: phototux_engine::adjustment_labels_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
             pref_history_retention: 128,
@@ -937,46 +940,12 @@ impl AppSession {
             return;
         };
         match layer.adjustment.as_ref() {
-            Some(AdjustmentParams::BrightnessContrast {
-                brightness,
-                contrast,
-            }) => {
-                self.adjustment_kind = "brightness".into();
-                self.adjustment_p0 = *brightness;
-                self.adjustment_p1 = *contrast;
-                self.adjustment_p2 = 0.0;
-            }
-            Some(AdjustmentParams::Levels {
-                black,
-                white,
-                gamma,
-            }) => {
-                self.adjustment_kind = "levels".into();
-                self.adjustment_p0 = *black;
-                self.adjustment_p1 = *white;
-                self.adjustment_p2 = *gamma;
-            }
-            Some(AdjustmentParams::Exposure { stops, gamma }) => {
-                self.adjustment_kind = "exposure".into();
-                self.adjustment_p0 = *stops;
-                self.adjustment_p1 = *gamma;
-                self.adjustment_p2 = 0.0;
-            }
-            Some(AdjustmentParams::HueSaturation {
-                hue,
-                saturation,
-                lightness,
-            }) => {
-                self.adjustment_kind = "hue".into();
-                self.adjustment_p0 = *hue;
-                self.adjustment_p1 = *saturation;
-                self.adjustment_p2 = *lightness;
-            }
-            Some(other) => {
-                self.adjustment_kind = other.kind_key().into();
-                self.adjustment_p0 = 0.0;
-                self.adjustment_p1 = 0.0;
-                self.adjustment_p2 = 0.0;
+            Some(params) => {
+                let [p0, p1, p2] = params.slots();
+                self.adjustment_kind = params.kind_key().into();
+                self.adjustment_p0 = p0;
+                self.adjustment_p1 = p1;
+                self.adjustment_p2 = p2;
             }
             None => {
                 self.adjustment_kind.clear();
@@ -2946,6 +2915,11 @@ impl AppSession {
         Notify = adjustment_ranges_json_changed
     );
     qproperty!(
+        "adjustmentLabelsJson",
+        Member = adjustment_labels_json,
+        Notify = adjustment_labels_json_changed
+    );
+    qproperty!(
         "prefEffectiveJson",
         Member = pref_effective_json,
         Notify = pref_effective_json_changed
@@ -3451,6 +3425,8 @@ impl AppSession {
     fn inspector_badges_json_changed(&mut self);
     #[qsignal]
     fn adjustment_ranges_json_changed(&mut self);
+    #[qsignal]
+    fn adjustment_labels_json_changed(&mut self);
     #[qsignal]
     fn pref_effective_json_changed(&mut self);
     #[qsignal]

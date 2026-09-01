@@ -245,49 +245,58 @@ pub struct AdjustmentParamRange {
 /// that the gamma slider cannot reach. Sliders and the out-of-range badge read
 /// the same table so the two cannot disagree about what is showable.
 pub fn adjustment_editor_ranges() -> Vec<(&'static str, Vec<AdjustmentParamRange>)> {
-    let range = |slot, label, min, max| AdjustmentParamRange {
-        slot,
-        label,
-        min,
-        max,
-    };
-    vec![
-        (
-            "brightness",
-            vec![
-                range("p0", "Brightness", -1.0, 1.0),
-                range("p1", "Contrast", -1.0, 1.0),
-            ],
-        ),
-        (
-            "levels",
-            vec![
-                range("p0", "Black", 0.0, 1.0),
-                range("p1", "White", 0.0, 1.0),
-                range("p2", "Gamma", 0.1, 3.0),
-            ],
-        ),
-        (
-            "exposure",
-            vec![
-                range("p0", "Stops", -5.0, 5.0),
-                range("p1", "Gamma", 0.1, 3.0),
-            ],
-        ),
-    ]
+    crate::AdjustmentParams::ALL_KINDS
+        .iter()
+        .map(|params| {
+            let slots = params
+                .editor_slots()
+                .iter()
+                .map(|&(slot, label, min, max)| AdjustmentParamRange {
+                    slot,
+                    label,
+                    min,
+                    max,
+                })
+                .collect();
+            (params.kind_key(), slots)
+        })
+        .collect()
 }
 
-/// `{kind: {slot: [min, max]}}` for the QML sliders.
+/// `{kind: [{slot, label, min, max}]}` for the QML adjustment editor.
+///
+/// An ordered list rather than a slot→bounds map, because the chrome builds
+/// the editor from this: it needs the label and the order as much as the
+/// bounds. The panel used to hand-write a slider pair per kind, which is why
+/// four adjustment kinds had no editor at all.
+#[must_use]
 pub fn adjustment_editor_ranges_json() -> String {
-    let map: BTreeMap<&str, BTreeMap<&str, [f32; 2]>> = adjustment_editor_ranges()
+    let map: BTreeMap<&str, Vec<serde_json::Value>> = adjustment_editor_ranges()
         .into_iter()
         .map(|(kind, params)| {
             let slots = params
                 .into_iter()
-                .map(|p| (p.slot, [p.min, p.max]))
+                .map(|p| {
+                    serde_json::json!({
+                        "slot": p.slot,
+                        "label": p.label,
+                        "min": p.min,
+                        "max": p.max,
+                    })
+                })
                 .collect();
             (kind, slots)
         })
+        .collect();
+    serde_json::to_string(&map).unwrap_or_else(|_| "{}".into())
+}
+
+/// Display label per adjustment kind, for the editor heading.
+#[must_use]
+pub fn adjustment_labels_json() -> String {
+    let map: BTreeMap<&str, &str> = crate::AdjustmentParams::ALL_KINDS
+        .iter()
+        .map(|p| (p.kind_key(), p.label()))
         .collect();
     serde_json::to_string(&map).unwrap_or_else(|_| "{}".into())
 }
@@ -593,43 +602,28 @@ mod tests {
         }
     }
 
-    /// An adjustment holding `value` in `slot`, other slots at editor defaults.
+    /// An adjustment holding `value` in `slot`, other slots at their defaults.
+    ///
+    /// Built through the vocabulary rather than restated: this helper used to
+    /// carry its own `match` with a fallback arm, so sweeping the sliders of a
+    /// kind it did not name silently swept Brightness/Contrast instead and
+    /// flagged the wrong badge.
     fn build_adjustment(kind: &str, slot: &str, value: f32) -> crate::AdjustmentParams {
-        use crate::AdjustmentParams;
-        let at = |target: &str, fallback: f32| if target == slot { value } else { fallback };
-        match kind {
-            "levels" => AdjustmentParams::Levels {
-                black: at("p0", 0.0),
-                white: at("p1", 1.0),
-                gamma: at("p2", 1.0),
-            },
-            "exposure" => AdjustmentParams::Exposure {
-                stops: at("p0", 0.0),
-                gamma: at("p1", 1.0),
-            },
-            _ => AdjustmentParams::BrightnessContrast {
-                brightness: at("p0", 0.0),
-                contrast: at("p1", 0.0),
-            },
-        }
+        let base = crate::AdjustmentParams::default_for_kind(kind)
+            .unwrap_or_else(|| panic!("{kind} is not a known adjustment kind"));
+        let mut slots = base.slots();
+        let index = match slot {
+            "p0" => 0,
+            "p1" => 1,
+            _ => 2,
+        };
+        slots[index] = value;
+        base.with_slots(slots)
     }
 
     /// Mirror the host's `p0..p2` projection of an adjustment.
     fn project(kind: &'static str, params: crate::AdjustmentParams) -> InspectorState<'static> {
-        use crate::AdjustmentParams;
-        let (p0, p1, p2) = match params {
-            AdjustmentParams::Levels {
-                black,
-                white,
-                gamma,
-            } => (black, white, gamma),
-            AdjustmentParams::Exposure { stops, gamma } => (stops, gamma, 0.0),
-            AdjustmentParams::BrightnessContrast {
-                brightness,
-                contrast,
-            } => (brightness, contrast, 0.0),
-            _ => (0.0, 0.0, 0.0),
-        };
+        let [p0, p1, p2] = params.slots();
         InspectorState {
             adjustment_kind: kind,
             adjustment_p0: p0,

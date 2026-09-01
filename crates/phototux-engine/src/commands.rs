@@ -1611,41 +1611,10 @@ impl SessionState {
         let CommandArgs::FilterAdjustment { kind } = args else {
             return Err(CommandError::InvalidArgument("expected adjustment kind"));
         };
-        let (name, params) = match kind.as_str() {
-            "levels" => (
-                "Levels",
-                AdjustmentParams::Levels {
-                    black: 0.0,
-                    white: 1.0,
-                    gamma: 1.0,
-                },
-            ),
-            "invert" => ("Invert", AdjustmentParams::Invert),
-            "threshold" => ("Threshold", AdjustmentParams::Threshold { level: 0.5 }),
-            "posterize" => ("Posterize", AdjustmentParams::Posterize { levels: 8 }),
-            "hue" => (
-                "Hue/Saturation",
-                AdjustmentParams::HueSaturation {
-                    hue: 0.0,
-                    saturation: 0.0,
-                    lightness: 0.0,
-                },
-            ),
-            "exposure" => (
-                "Exposure",
-                AdjustmentParams::Exposure {
-                    stops: 0.0,
-                    gamma: 1.0,
-                },
-            ),
-            _ => (
-                "Brightness/Contrast",
-                AdjustmentParams::BrightnessContrast {
-                    brightness: 0.0,
-                    contrast: 0.0,
-                },
-            ),
+        let Some(params) = AdjustmentParams::default_for_kind(&kind) else {
+            return Err(CommandError::InvalidArgument("unknown adjustment kind"));
         };
+        let name = params.label();
         let SessionState { graph, history, .. } = self;
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
@@ -1681,32 +1650,7 @@ impl SessionState {
             .and_then(|g| g.get(id))
             .and_then(|l| l.adjustment.clone())
             .ok_or(CommandError::Rejected("no adjustment"))?;
-        let next = match &prev {
-            AdjustmentParams::BrightnessContrast { .. } => AdjustmentParams::BrightnessContrast {
-                brightness: p0,
-                contrast: p1,
-            },
-            AdjustmentParams::Levels { .. } => AdjustmentParams::Levels {
-                black: p0,
-                white: p1,
-                gamma: p2,
-            },
-            AdjustmentParams::HueSaturation { .. } => AdjustmentParams::HueSaturation {
-                hue: p0,
-                saturation: p1,
-                lightness: p2,
-            },
-            AdjustmentParams::Exposure { .. } => AdjustmentParams::Exposure {
-                stops: p0,
-                gamma: p1.max(0.01),
-            },
-            AdjustmentParams::Threshold { .. } => AdjustmentParams::Threshold { level: p0 },
-            AdjustmentParams::Posterize { .. } => AdjustmentParams::Posterize {
-                levels: p0.round().clamp(2.0, 256.0) as u32,
-            },
-            other => other.clone(),
-        };
-        let next = next.clamped();
+        let next = prev.with_slots([p0, p1, p2]).clamped();
         if next == prev {
             return Err(CommandError::Rejected("adjustment unchanged"));
         }

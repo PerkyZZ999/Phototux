@@ -12,60 +12,19 @@ pub struct FilterPass {
 
 /// Map engine adjustment params to a GPU pass descriptor.
 pub fn adjustment_pass(params: &AdjustmentParams) -> FilterPass {
-    match *params {
-        AdjustmentParams::BrightnessContrast {
-            brightness,
-            contrast,
-        } => FilterPass {
-            label: "Brightness/Contrast",
-            shader_key: "adjust.brightness_contrast",
-            params: [brightness, contrast, 0.0, 0.0],
+    let slots = params.slots();
+    FilterPass {
+        label: params.label(),
+        shader_key: match params {
+            AdjustmentParams::BrightnessContrast { .. } => "adjust.brightness_contrast",
+            AdjustmentParams::Levels { .. } => "adjust.levels",
+            AdjustmentParams::HueSaturation { .. } => "adjust.hue_sat",
+            AdjustmentParams::Invert => "adjust.invert",
+            AdjustmentParams::Threshold { .. } => "adjust.threshold",
+            AdjustmentParams::Posterize { .. } => "adjust.posterize",
+            AdjustmentParams::Exposure { .. } => "adjust.exposure",
         },
-        AdjustmentParams::Levels {
-            black,
-            white,
-            gamma,
-        } => FilterPass {
-            label: "Levels",
-            shader_key: "adjust.levels",
-            params: [black, white, gamma, 0.0],
-        },
-        AdjustmentParams::HueSaturation {
-            hue,
-            saturation,
-            lightness,
-        } => FilterPass {
-            label: "Hue/Saturation",
-            shader_key: "adjust.hue_sat",
-            params: [hue, saturation, lightness, 0.0],
-        },
-        AdjustmentParams::Invert => FilterPass {
-            label: "Invert",
-            shader_key: "adjust.invert",
-            params: [0.0; 4],
-        },
-        AdjustmentParams::Threshold { level } => FilterPass {
-            label: "Threshold",
-            shader_key: "adjust.threshold",
-            params: [level, 0.0, 0.0, 0.0],
-        },
-        AdjustmentParams::Posterize { levels } => {
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "posterize level counts fit f32 mantissa for UI params"
-            )]
-            let levels_f = levels as f32;
-            FilterPass {
-                label: "Posterize",
-                shader_key: "adjust.posterize",
-                params: [levels_f, 0.0, 0.0, 0.0],
-            }
-        }
-        AdjustmentParams::Exposure { stops, gamma } => FilterPass {
-            label: "Exposure",
-            shader_key: "adjust.exposure",
-            params: [stops, gamma, 0.0, 0.0],
-        },
+        params: [slots[0], slots[1], slots[2], 0.0],
     }
 }
 

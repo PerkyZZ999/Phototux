@@ -172,6 +172,12 @@ Tool keys **SHOULD** follow the letter assignments the wider raster-editing worl
 
 Tools **MUST NOT** occupy a menu-bar entry. They belong on the shelf and in action search; editors of this kind present no tool menu, and adding one is a visible deviation for no gain.
 
+### Menu paths and submenus
+
+An action's `menu` field is a path. A bare name (`layer`) is a menu-bar entry; a `parent.child` name (`layer.style`) is a submenu of `parent`, which must itself be a bar entry. The shell declares each submenu explicitly and fills it from the registry, so a submenu the engine names and the shell does not instantiate is a set of actions with no route in — a test asserts against exactly that.
+
+A menu **MUST NOT** be longer than it can display. The Layer menu reached thirty-one flat entries and ran past the bottom edge of a 1080p window, which made its last entries unreachable however correctly they rendered; grouping shapes, boolean combines, layer styles, masks, locks and adjustment kinds under six submenus returned it to thirteen rows. Length is a reachability property, not a matter of taste: an entry below the fold is as invisible as one that was never registered.
+
 A host that validates tool ids against a list **MUST** keep that list complete, and a conformance test **MUST** compare it against the registered shelf. Rejecting an unknown id by falling back to a default tool is silent: the shelf highlights the tool the user clicked while a different one is active, which reads as the click having been missed.
 
 ## Tool Options

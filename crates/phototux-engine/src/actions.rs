@@ -61,6 +61,19 @@ fn act(
     }
 }
 
+/// Menu path of the adjustment-layer submenu.
+///
+/// A `parent.child` menu name is a submenu of `parent`. The Layer menu already
+/// carried thirty entries and overflowed the window on a 1080p display, so the
+/// seven adjustment kinds go one level down rather than off the bottom edge —
+/// which is also where every editor of this kind files them.
+pub const ADJUSTMENT_SUBMENU: &str = "layer.adjustment";
+
+/// Action id for the "add adjustment layer" entry of one adjustment kind.
+fn adjustment_action_id(kind: &str) -> String {
+    format!("action.layer.adj-{kind}")
+}
+
 fn set_contexts(actions: &mut [ActionDescriptor], id: &str, contexts: &[&str]) {
     if let Some(action) = actions.iter_mut().find(|a| a.id == id) {
         action.contexts = contexts.iter().map(|s| (*s).to_owned()).collect();
@@ -529,7 +542,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-rect",
             "Rectangle",
-            "layer",
+            "layer.shape",
             "has_document",
             None,
             Some("shape.create"),
@@ -540,7 +553,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-ellipse",
             "Ellipse",
-            "layer",
+            "layer.shape",
             "has_document",
             None,
             Some("shape.create"),
@@ -551,7 +564,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-line",
             "Line",
-            "layer",
+            "layer.shape",
             "has_document",
             None,
             Some("shape.create"),
@@ -562,7 +575,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-polygon",
             "Polygon",
-            "layer",
+            "layer.shape",
             "has_document",
             None,
             Some("shape.create"),
@@ -573,7 +586,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-gradient",
             "Gradient Fill",
-            "layer",
+            "layer.shape",
             "has_document",
             None,
             Some("shape.create"),
@@ -584,7 +597,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-live",
             "Live Vector Shape",
-            "layer",
+            "layer.shape",
             "has_document",
             None,
             Some("shape.create"),
@@ -595,7 +608,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.rasterize-shape",
             "Rasterize Shape",
-            "layer",
+            "layer.shape",
             "has_document_io_idle",
             None,
             Some("shape.rasterize"),
@@ -606,7 +619,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-union",
             "Boolean Union",
-            "layer",
+            "layer.boolean",
             "has_document_io_idle",
             Some(command_id::SHAPE_BOOLEAN),
             None,
@@ -617,7 +630,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-intersect",
             "Boolean Intersect",
-            "layer",
+            "layer.boolean",
             "has_document_io_idle",
             Some(command_id::SHAPE_BOOLEAN),
             None,
@@ -628,7 +641,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-difference",
             "Boolean Difference",
-            "layer",
+            "layer.boolean",
             "has_document_io_idle",
             Some(command_id::SHAPE_BOOLEAN),
             None,
@@ -639,7 +652,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.shape-exclusion",
             "Boolean Exclusion",
-            "layer",
+            "layer.boolean",
             "has_document_io_idle",
             Some(command_id::SHAPE_BOOLEAN),
             None,
@@ -650,7 +663,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.drop-shadow",
             "Drop &Shadow",
-            "layer",
+            "layer.style",
             "has_document",
             Some(command_id::STYLE_ADD_DROP_SHADOW),
             None,
@@ -661,7 +674,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.stroke-style",
             "Layer Stroke Style",
-            "layer",
+            "layer.style",
             "has_document",
             Some(command_id::STYLE_ADD_STROKE),
             None,
@@ -672,7 +685,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.outer-glow",
             "Outer &Glow",
-            "layer",
+            "layer.style",
             "has_document",
             Some(command_id::STYLE_ADD_OUTER_GLOW),
             None,
@@ -683,7 +696,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.color-overlay",
             "Color &Overlay",
-            "layer",
+            "layer.style",
             "has_document",
             Some(command_id::STYLE_ADD_COLOR_OVERLAY),
             None,
@@ -694,7 +707,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.stroke-path",
             "Stroke Path to Layer",
-            "layer",
+            "layer.shape",
             "has_document_io_idle",
             None,
             Some("path.stroke"),
@@ -705,7 +718,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.apply-mask",
             "&Apply Mask",
-            "layer",
+            "layer.mask",
             "has_document",
             Some(command_id::MASK_APPLY),
             None,
@@ -716,7 +729,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.add-mask",
             "Add &Mask",
-            "layer",
+            "layer.mask",
             "no_mask",
             None,
             Some("mask.create"),
@@ -727,7 +740,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.delete-mask",
             "Delete Mask",
-            "layer",
+            "layer.mask",
             "has_mask",
             None,
             Some("mask.delete"),
@@ -738,7 +751,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.toggle-mask",
             "Toggle Mask Enabled",
-            "layer",
+            "layer.mask",
             "has_mask",
             None,
             Some("mask.toggle_enabled"),
@@ -749,7 +762,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.add-vector-mask",
             "Add Vector Mask",
-            "layer",
+            "layer.mask",
             "has_document",
             Some(command_id::MASK_CREATE_VECTOR),
             None,
@@ -760,7 +773,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.lock-pixels",
             "Lock Pixels",
-            "layer",
+            "layer.lock",
             "has_document",
             Some(command_id::LAYER_SET_LOCKS),
             None,
@@ -771,7 +784,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.lock-position",
             "Lock Position",
-            "layer",
+            "layer.lock",
             "has_document",
             Some(command_id::LAYER_SET_LOCKS),
             None,
@@ -782,7 +795,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.layer.lock-all",
             "Lock All",
-            "layer",
+            "layer.lock",
             "has_document",
             Some(command_id::LAYER_SET_LOCKS),
             None,
@@ -798,39 +811,6 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             None,
             Some("layer.toggle_clip"),
             None,
-            None,
-            None,
-        ),
-        act(
-            "action.layer.adj-brightness",
-            "Brightness/Contrast",
-            "layer",
-            "has_document",
-            Some(command_id::FILTER_ADD_ADJUSTMENT),
-            None,
-            Some("brightness"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.adj-levels",
-            "Levels",
-            "layer",
-            "has_document",
-            Some(command_id::FILTER_ADD_ADJUSTMENT),
-            None,
-            Some("levels"),
-            None,
-            None,
-        ),
-        act(
-            "action.layer.adj-exposure",
-            "Exposure",
-            "layer",
-            "has_document",
-            Some(command_id::FILTER_ADD_ADJUSTMENT),
-            None,
-            Some("exposure"),
             None,
             None,
         ),
@@ -1385,6 +1365,25 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             Some("arrows-clockwise"),
         ),
     ];
+    // One Layer-menu entry per adjustment kind, generated from the vocabulary.
+    //
+    // These were three hand-written entries against seven kinds, so
+    // Hue/Saturation, Invert, Threshold and Posterize had no way into the
+    // document from the chrome at all — the same four the composite shader
+    // was ignoring. Two independent lists, one silence.
+    actions.extend(crate::AdjustmentParams::ALL_KINDS.iter().map(|params| {
+        act(
+            &adjustment_action_id(params.kind_key()),
+            params.label(),
+            ADJUSTMENT_SUBMENU,
+            "has_document",
+            Some(command_id::FILTER_ADD_ADJUSTMENT),
+            None,
+            Some(params.kind_key()),
+            None,
+            None,
+        )
+    }));
     // Context-menu contributions (handbook P1.4).
     set_contexts(&mut actions, "action.layer.new-raster", &["layer"]);
     set_contexts(&mut actions, "action.layer.delete", &["layer"]);
@@ -1608,6 +1607,43 @@ pub fn effective_shortcuts_json(overrides: &BTreeMap<String, String>) -> (String
 
 #[cfg(test)]
 mod tests {
+    /// Every adjustment kind needs a Layer-menu entry, or it can be created
+    /// by nothing the user can reach. Four kinds shipped that way.
+    #[test]
+    fn every_adjustment_kind_has_a_layer_menu_action() {
+        let actions = default_actions();
+        for params in crate::AdjustmentParams::ALL_KINDS {
+            let id = adjustment_action_id(params.kind_key());
+            let action = actions
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{} has no action", params.kind_key()));
+            assert_eq!(
+                action.command_id.as_deref(),
+                Some(command_id::FILTER_ADD_ADJUSTMENT)
+            );
+            assert_eq!(action.arg.as_deref(), Some(params.kind_key()));
+            assert_eq!(action.menu, ADJUSTMENT_SUBMENU);
+        }
+    }
+
+    /// The other direction: an action carrying an adjustment argument the
+    /// engine cannot parse would create nothing and report success.
+    #[test]
+    fn every_adjustment_action_names_a_known_kind() {
+        for action in default_actions() {
+            if action.command_id.as_deref() != Some(command_id::FILTER_ADD_ADJUSTMENT) {
+                continue;
+            }
+            let arg = action.arg.as_deref().unwrap_or_default();
+            assert!(
+                crate::AdjustmentParams::default_for_kind(arg).is_some(),
+                "{} names unknown adjustment kind {arg:?}",
+                action.id
+            );
+        }
+    }
+
     use super::*;
     use crate::command_id;
     use crate::selection::{SelectionModifyOp, parse_selection_modify_arg};
@@ -1663,9 +1699,6 @@ mod tests {
     /// appear as a bar entry no editor of this kind has.
     #[test]
     fn tools_are_search_only_and_not_a_menu_bar_entry() {
-        const BAR: [&str; 9] = [
-            "file", "edit", "select", "image", "layer", "filter", "view", "window", "help",
-        ];
         for action in action_table() {
             if action.id.starts_with("action.tool.") {
                 assert_eq!(
@@ -1675,10 +1708,57 @@ mod tests {
                 );
             }
             assert!(
-                BAR.contains(&action.menu.as_str()) || action.menu == "tools",
+                menu_has_a_home(&action.menu),
                 "{} uses unknown menu {}",
                 action.id,
                 action.menu
+            );
+        }
+    }
+
+    /// Menu-bar entries, plus the search-only tools group.
+    const BAR: [&str; 9] = [
+        "file", "edit", "select", "image", "layer", "filter", "view", "window", "help",
+    ];
+
+    /// Whether the shell has somewhere to draw this menu name.
+    ///
+    /// A `parent.child` name is a submenu, so it needs its parent to be a bar
+    /// entry — otherwise the actions are addressed to a menu that does not
+    /// exist and vanish from the shell without any test noticing.
+    fn menu_has_a_home(menu: &str) -> bool {
+        if BAR.contains(&menu) || menu == "tools" {
+            return true;
+        }
+        match menu.split_once('.') {
+            Some((parent, child)) => BAR.contains(&parent) && !child.is_empty(),
+            None => false,
+        }
+    }
+
+    /// A submenu the engine declares must be declared by the shell too. QML
+    /// builds each menu from an explicit `actionsForMenu` call, so a submenu
+    /// nobody instantiates is a set of actions with no way in.
+    #[test]
+    fn every_submenu_is_declared_by_the_qml_shell() {
+        let shell =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/Main.qml"))
+                .expect("qml/Main.qml is readable from the engine crate");
+        let mut submenus: Vec<&str> = action_table()
+            .iter()
+            .map(|a| a.menu.as_str())
+            .filter(|m| m.contains('.'))
+            .collect();
+        submenus.sort_unstable();
+        submenus.dedup();
+        assert!(
+            !submenus.is_empty(),
+            "no submenus found — the parse broke rather than the shell"
+        );
+        for menu in submenus {
+            assert!(
+                shell.contains(&format!("actionsForMenu(\"{menu}\")")),
+                "{menu} is declared by the engine and instantiated by no menu"
             );
         }
     }
