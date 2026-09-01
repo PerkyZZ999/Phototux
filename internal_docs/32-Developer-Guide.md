@@ -331,7 +331,22 @@ Violating this is not a recoverable error. The exclusive-access check fails and 
 
 Notification handlers that only assign presentation properties are unaffected; the contract governs calls back into the host.
 
-### Item models are the synchronous case
+### A delegate's required properties are model roles
+
+Qt resolves `required property` on a delegate against the model's role names,
+and a miss **aborts the delegate**: the view renders nothing, with no warning in
+the log and no visible cause. A panel that has simply gone blank is the symptom.
+
+The layer row is written out in three places — `phototux_engine::LayerRow`, the
+`LayerItem` the derive turns into roles, and the delegate that declares them —
+so adding a field to one and not the others is easy and silent. The guard is
+`role_names_are_exactly_the_ones_qml_reads`, which compares
+`QModelItem::role_names()` against the `required property` names scanned out of
+the delegate. Both sides are derived; neither is a list anyone maintains. It
+asserts equality in both directions, because a role the panel never reads is
+dead weight crossing the boundary.
+
+## Item models are the synchronous case
 
 Property change notifications are the forgiving half of this. A presentation binding that merely *reads* host state may be re-evaluated after the slot returns, so reading is normally safe even though the notification was raised inside one.
 

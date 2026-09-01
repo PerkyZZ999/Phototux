@@ -280,6 +280,21 @@ Transform records state matrix convention, pivot semantics, interpolation policy
 
 Changing parent normally preserves either local transform or document-space appearance according to explicit command parameter. Drag-and-drop presentation must state which policy applies. Reparent preserving appearance computes a new local transform transactionally and rejects numeric instability.
 
+### Layer Kind Badge
+
+A layer row carries a one-letter marker for its kind, and *only* when there is a
+kind worth marking: raster is the default and by far the commonest, so
+`LayerKind::badge` answers with an empty string for it and the panel hides the
+slot. Every row used to carry the square regardless, blank for raster — which
+read as a thumbnail that had failed to load rather than as "nothing to say
+here". The slot keeps its width when hidden, so names stay aligned.
+
+The letters live on `LayerKind`, not in the panel. They were a nested
+conditional over five kind strings in QML: the layer vocabulary written a second
+time, where a sixth kind would have arrived as a blank badge indistinguishable
+from a raster layer. A test asserts raster is the only unbadged kind and that no
+two kinds share a badge or a label.
+
 ### Blend If
 
 A layer carries two four-stop ranges and the channel they read. The first hides

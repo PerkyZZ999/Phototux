@@ -51,7 +51,8 @@ ListView {
         // does not camel-case them — so they read as
         // snake_case here and nowhere else in this file.
         required property string name
-        required property string kind
+        required property string kind_badge
+        required property string kind_label
         required property bool layer_visible
         required property int mask_flag
         required property bool clips_to_below
@@ -108,21 +109,31 @@ ListView {
 
             // Visibility control is layerVisButton (above) so it stays above the row MouseArea.
 
-            Rectangle {
+            // The kind marker, and only when there is a kind worth marking.
+            //
+            // Every row used to carry this square, empty for raster layers —
+            // which is most of them — so the panel showed a bordered blank box
+            // beside each ordinary layer that read as a thumbnail that had
+            // failed to load. The letters also lived here, a second copy of the
+            // layer vocabulary; they come from `LayerKind::badge` now, and the
+            // slot keeps its width so the names below it stay aligned.
+            Item {
                 implicitWidth: 24
                 implicitHeight: 24
-                radius: Theme.radiusXs
-                color: Theme.surface
-                border.color: Theme.border
-                Label {
-                    anchors.centerIn: parent
-                    text: kind === "group" ? "G"
-                          : (kind === "text" ? "T"
-                          : (kind === "adjustment" ? "A"
-                          : (kind === "fill" ? "F"
-                          : (kind === "shape" ? "S" : ""))))
-                    color: Theme.colorOnSurfaceVariant
-                    font.pixelSize: 9
+                Rectangle {
+                    anchors.fill: parent
+                    visible: kind_badge.length > 0
+                    radius: Theme.radiusXs
+                    color: Theme.surface
+                    border.color: Theme.border
+                    Label {
+                        anchors.centerIn: parent
+                        text: kind_badge
+                        color: Theme.colorOnSurfaceVariant
+                        font.pixelSize: 9
+                    }
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: kind_label
                 }
             }
 

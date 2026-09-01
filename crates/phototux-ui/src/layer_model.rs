@@ -33,7 +33,10 @@ use std::rc::Rc;
 #[derive(QModelItem, Debug, Clone, Default, PartialEq, Eq)]
 pub struct LayerItem {
     pub name: String,
-    pub kind: String,
+    /// One-letter kind marker, empty for an ordinary raster layer.
+    pub kind_badge: String,
+    /// Display name of the kind, for tooltips and assistive technology.
+    pub kind_label: String,
     /// Not `visible`: the role name becomes a property on the delegate, and
     /// `Item.visible` already exists there. A `required property bool visible`
     /// would shadow the delegate's own visibility, so the layer's flag carries
@@ -53,7 +56,8 @@ impl From<phototux_engine::LayerRow> for LayerItem {
     fn from(row: phototux_engine::LayerRow) -> Self {
         Self {
             name: row.name,
-            kind: row.kind,
+            kind_badge: row.kind_badge,
+            kind_label: row.kind_label,
             layer_visible: row.visible,
             mask_flag: row.mask_flag,
             clips_to_below: row.clips_to_below,
@@ -197,7 +201,6 @@ mod tests {
     fn row(name: &str, stack_index: i32) -> LayerItem {
         LayerItem {
             name: name.to_owned(),
-            kind: "raster".to_owned(),
             layer_visible: true,
             stack_index,
             ..Default::default()
@@ -238,6 +241,39 @@ mod tests {
         assert_eq!(plan_update(&before, &after), RowUpdate::Rows(vec![0, 2]));
     }
 
+    /// Role names the layers delegate declares as `required property`.
+    ///
+    /// Read from the delegate specifically, not the whole file: the `ListView`
+    /// root also has required properties, and those are component API rather
+    /// than model roles.
+    fn roles_the_panel_requires() -> Vec<String> {
+        let panel = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../qml/LayersPanel.qml"
+        ))
+        .expect("qml/LayersPanel.qml is readable from the ui crate");
+        let delegate = panel
+            .split("delegate:")
+            .nth(1)
+            .expect("the panel has a delegate");
+        let mut names: Vec<String> = delegate
+            .lines()
+            .map(str::trim)
+            .filter_map(|line| line.strip_prefix("required property "))
+            .filter_map(|rest| rest.split_whitespace().nth(1))
+            .map(str::to_owned)
+            .collect();
+        names.sort();
+        names.dedup();
+        assert!(
+            names.len() > 4,
+            "found {} required properties on the delegate — the scan broke \
+             rather than the panel",
+            names.len()
+        );
+        names
+    }
+
     /// Every role participates in the comparison. A field that changed without
     /// being noticed here is a panel showing yesterday's state, and the ones
     /// most likely to be forgotten are the flags rather than the name.
@@ -246,7 +282,8 @@ mod tests {
         let base = row("a", 0);
         let mutations: Vec<fn(&mut LayerItem)> = vec![
             |r| r.name = "other".to_owned(),
-            |r| r.kind = "text".to_owned(),
+            |r| r.kind_badge = "T".to_owned(),
+            |r| r.kind_label = "Text layer".to_owned(),
             |r| r.layer_visible = !r.layer_visible,
             |r| r.mask_flag = 2,
             |r| r.clips_to_below = !r.clips_to_below,
@@ -270,6 +307,8 @@ mod tests {
         let engine_row = phototux_engine::LayerRow {
             name: "Sky".to_owned(),
             kind: "raster".to_owned(),
+            kind_badge: String::new(),
+            kind_label: "Raster layer".to_owned(),
             visible: false,
             mask_flag: 2,
             clips_to_below: true,
@@ -279,7 +318,8 @@ mod tests {
         };
         let item = LayerItem::from(engine_row.clone());
         assert_eq!(item.name, engine_row.name);
-        assert_eq!(item.kind, engine_row.kind);
+        assert_eq!(item.kind_badge, engine_row.kind_badge);
+        assert_eq!(item.kind_label, engine_row.kind_label);
         assert_eq!(item.layer_visible, engine_row.visible);
         assert_eq!(item.mask_flag, engine_row.mask_flag);
         assert_eq!(item.clips_to_below, engine_row.clips_to_below);
@@ -297,25 +337,25 @@ mod tests {
     /// here breaks a QML file this crate cannot see, and nothing else would
     /// fail first — which is what this test is for.
     #[test]
-    fn role_names_are_the_ones_qml_reads() {
-        let mut names: Vec<String> = <LayerItem as qtbridge::QModelItem>::role_names()
+    fn role_names_are_exactly_the_ones_qml_reads() {
+        // Both sides derived, neither written out. This used to compare the
+        // model's roles against a literal list, which is a third copy of the
+        // row — and a copy that agrees with the model says nothing about the
+        // panel, which is the file that actually breaks.
+        //
+        // Equality in both directions on purpose. A role the panel requires and
+        // the model lacks aborts every delegate, so the panel renders *nothing*
+        // with no warning in the log — that is what adding `kind_badge` to the
+        // engine row and not to `LayerItem` did. A role the model carries and
+        // the panel never reads is dead weight crossing the boundary.
+        let mut roles: Vec<String> = <LayerItem as qtbridge::QModelItem>::role_names()
             .into_values()
             .collect();
-        names.sort();
-        let mut expected = vec![
-            "active",
-            "clips_to_below",
-            "kind",
-            "layer_visible",
-            "mask_flag",
-            "name",
-            "selected",
-            "stack_index",
-        ];
-        expected.sort_unstable();
+        roles.sort();
         assert_eq!(
-            names, expected,
-            "the layers delegate binds these role names by hand"
+            roles,
+            roles_the_panel_requires(),
+            "the model's roles and the delegate's required properties disagree"
         );
     }
 }

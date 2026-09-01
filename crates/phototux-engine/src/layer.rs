@@ -24,6 +24,52 @@ pub enum LayerKind {
 }
 
 impl LayerKind {
+    /// Every kind, so a consumer can be checked for covering all of them.
+    pub const ALL: [Self; 6] = [
+        Self::Raster,
+        Self::Group,
+        Self::Text,
+        Self::Adjustment,
+        Self::Shape,
+        Self::Fill,
+    ];
+
+    /// One-letter marker for the layer row, empty for an ordinary raster layer.
+    ///
+    /// Empty on purpose: raster is the default and by far the commonest kind,
+    /// and a badge every row carries marks nothing. The panel hides the slot
+    /// when this is empty, so the badge means "this layer is *not* an ordinary
+    /// raster layer" — which is the only thing worth a glyph.
+    ///
+    /// Here rather than in QML because the panel used to carry its own nested
+    /// conditional over five kind strings. That is the layer vocabulary written
+    /// a second time: a seventh kind would have arrived as a blank badge,
+    /// indistinguishable from a raster layer.
+    #[must_use]
+    pub fn badge(self) -> &'static str {
+        match self {
+            Self::Raster => "",
+            Self::Group => "G",
+            Self::Text => "T",
+            Self::Adjustment => "A",
+            Self::Shape => "S",
+            Self::Fill => "F",
+        }
+    }
+
+    /// Display name, for tooltips and assistive technology.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Raster => "Raster layer",
+            Self::Group => "Group",
+            Self::Text => "Text layer",
+            Self::Adjustment => "Adjustment layer",
+            Self::Shape => "Shape layer",
+            Self::Fill => "Fill layer",
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Raster => "raster",

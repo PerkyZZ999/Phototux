@@ -26,6 +26,10 @@ pub struct LayerRow {
     pub name: String,
     /// `raster`, `text`, `shape`, … — the panel picks its icon from this.
     pub kind: String,
+    /// One-letter marker, empty for an ordinary raster layer.
+    pub kind_badge: String,
+    /// Display name of the kind, for tooltips and assistive technology.
+    pub kind_label: String,
     pub visible: bool,
     /// `0` no mask, `1` mask enabled, `2` mask disabled.
     ///
@@ -65,6 +69,8 @@ pub fn layer_rows(document: &DocumentGraph, selected: &[LayerId]) -> Vec<LayerRo
         .map(|(index, layer)| LayerRow {
             name: layer.name.clone(),
             kind: layer.kind.as_str().to_owned(),
+            kind_badge: layer.kind.badge().to_owned(),
+            kind_label: layer.kind.label().to_owned(),
             visible: layer.visible,
             mask_flag: i32::from(layer.mask_flag()),
             clips_to_below: layer.clips_to_below,
@@ -80,7 +86,7 @@ pub fn layer_rows(document: &DocumentGraph, selected: &[LayerId]) -> Vec<LayerRo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DocumentSize;
+    use crate::{DocumentSize, LayerKind};
 
     /// A graph whose stack is exactly `names`, bottom first.
     ///
@@ -229,5 +235,59 @@ mod tests {
             let document = document_with(&refs);
             assert_eq!(layer_rows(&document, &[]).len(), n);
         }
+    }
+
+    #[test]
+    fn only_the_default_kind_goes_unmarked() {
+        // The badge means "this is not an ordinary raster layer". A second
+        // empty badge would make two kinds indistinguishable in the panel, and
+        // a badge on raster would mark every row, which marks nothing.
+        let blank: Vec<&str> = LayerKind::ALL
+            .into_iter()
+            .filter(|k| k.badge().is_empty())
+            .map(LayerKind::as_str)
+            .collect();
+        assert_eq!(blank, vec!["raster"]);
+    }
+
+    #[test]
+    fn every_kind_has_its_own_badge_and_name() {
+        for (i, kind) in LayerKind::ALL.iter().enumerate() {
+            assert!(!kind.label().is_empty(), "{} has no label", kind.as_str());
+            for other in &LayerKind::ALL[i + 1..] {
+                assert_ne!(kind.label(), other.label());
+                if !kind.badge().is_empty() {
+                    assert_ne!(
+                        kind.badge(),
+                        other.badge(),
+                        "{} and {} share a badge",
+                        kind.as_str(),
+                        other.as_str()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_row_carries_the_badge_its_kind_declares() {
+        // The panel reads these as model roles, so a row that computed them
+        // some other way would put the panel back to holding its own copy of
+        // the vocabulary.
+        let mut graph = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = graph.add_group_top(None).expect("group");
+        let rows = layer_rows(&graph, &[]);
+        let row = rows
+            .iter()
+            .find(|r| r.stack_index == graph.index_of(group).expect("index") as i32)
+            .expect("the group has a row");
+        assert_eq!(row.kind, "group");
+        assert_eq!(row.kind_badge, LayerKind::Group.badge());
+        assert_eq!(row.kind_label, LayerKind::Group.label());
+        assert!(
+            rows.iter()
+                .any(|r| r.kind == "raster" && r.kind_badge.is_empty()),
+            "a raster row must carry no badge"
+        );
     }
 }
