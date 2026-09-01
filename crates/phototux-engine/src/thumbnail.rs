@@ -57,27 +57,7 @@ pub fn downsample_rgba8(
     let mut out = Vec::with_capacity(out_w * out_h * 4);
     for by in 0..out_h {
         for bx in 0..out_w {
-            let x0 = bx * block;
-            let y0 = by * block;
-            let x1 = (x0 + block).min(w);
-            let y1 = (y0 + block).min(h);
-            let mut sums = [0_u32; 4];
-            let mut count = 0_u32;
-            for y in y0..y1 {
-                let row = y * w * 4;
-                for x in x0..x1 {
-                    let i = row + x * 4;
-                    for (c, sum) in sums.iter_mut().enumerate() {
-                        *sum += u32::from(pixels[i + c]);
-                    }
-                    count += 1;
-                }
-            }
-            // `count` cannot be zero: the block always overlaps the image, or
-            // `out_w`/`out_h` would not have produced it.
-            for sum in sums {
-                out.push((sum / count) as u8);
-            }
+            out.extend_from_slice(&average_block(pixels, w, h, bx * block, by * block, block));
         }
     }
     Some(Thumbnail {
@@ -85,6 +65,31 @@ pub fn downsample_rgba8(
         height: out_h as u32,
         pixels: out,
     })
+}
+
+/// Mean RGBA of the `block`-square at (`x0`, `y0`), clipped to the image.
+///
+/// Clipped rather than padded: a block hanging off the right or bottom edge
+/// averages only the pixels that exist, because averaging against a phantom
+/// black pixel would darken those edges.
+fn average_block(pixels: &[u8], w: usize, h: usize, x0: usize, y0: usize, block: usize) -> [u8; 4] {
+    let x1 = (x0 + block).min(w);
+    let y1 = (y0 + block).min(h);
+    let mut sums = [0_u32; 4];
+    let mut count = 0_u32;
+    for y in y0..y1 {
+        let row = y * w * 4;
+        for x in x0..x1 {
+            let i = row + x * 4;
+            for (channel, sum) in sums.iter_mut().enumerate() {
+                *sum += u32::from(pixels[i + channel]);
+            }
+            count += 1;
+        }
+    }
+    // `count` cannot be zero: the caller only produces blocks that overlap the
+    // image, or `out_w` / `out_h` would not have named them.
+    sums.map(|sum| (sum / count.max(1)) as u8)
 }
 
 #[cfg(test)]
