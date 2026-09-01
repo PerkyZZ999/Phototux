@@ -12,6 +12,14 @@ Rendering is GPU-first through wgpu, not GPU-only. A CPU geometry/raster path pr
 
 [DR-027](Appendix/Decision-Register.md#dr-027--graph-kind-set-includes-shape): `LayerKind::Shape` with rect / ellipse / line primitives, fill/stroke, create + rasterize commands, CPU/GPU raster contribution. Boolean ops, full parametric sets, and advanced path editing are **Deferred** incremental work.
 
+## Shape presets
+
+Nine presets on `ShapePreset`, which owns each one's wire key, label, geometry, fill rule and whether it stays live vector: rectangle, rounded rectangle, ellipse, line, polygon, star, arrow, gradient fill and live rectangle. `parse` is derived from the list rather than restated, so a preset cannot be added and remain unparsable — which is exactly what happened when star, arrow and rounded rectangle were first added against a hand-written `match`.
+
+Star, arrow and rounded rectangle are all closed polygons as far as the path is concerned; they differ in their anchors, not in their kind, so they share `kind_key() == "polygon"`.
+
+The rounded rectangle's corners are **sampled arcs**, four anchors each, not Béziers: the path model carries anchors and controls that the renderer does not yet read as curves, and a visibly wrong curve is worse than an honest polyline. Its radius is clamped to half the shorter side, because a larger one folds the outline inside out.
+
 ## Gradient shapes
 
 Five shapes, declared by `phototux_engine::GradientKind`:

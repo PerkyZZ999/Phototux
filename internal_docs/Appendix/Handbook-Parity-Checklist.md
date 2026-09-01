@@ -219,7 +219,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 
 - [x] Boolean union / intersection / difference / exclusion — coverage bake → new raster (`shape.boolean`)
 - [x] Path edit tool (add/move/delete points, close) — `tool.path-edit` + `path.*` commands
-- [x] Parametric primitives — rect/ellipse/line/polygon + gradient fill
+- [x] Parametric primitives — rect/rounded-rect/ellipse/line/polygon/star/arrow + gradient fill
 - [x] Live vector contribution — `live_vector` re-raster each sync (v1; not tile GPU residency)
 - [x] Stroke/fill/gradient style — fill/stroke + five gradient shapes (linear, radial, angle, reflected, diamond)
 - [x] Vector-preserving boolean — `ShapeBooleanPartner` on result; raster fallback disclosed

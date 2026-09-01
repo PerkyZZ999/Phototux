@@ -8,7 +8,10 @@
 //! they call.
 
 use crate::layer::{ShapeContent, ShapeGradient};
-use crate::paths::{PathPoint, VectorPath, ellipse_path, polygon_path, rect_path};
+use crate::paths::{
+    PathPoint, VectorPath, arrow_path, ellipse_path, polygon_path, rect_path, rounded_rect_path,
+    star_path,
+};
 
 /// Which shape a "new shape layer" action creates.
 ///
@@ -26,17 +29,23 @@ pub enum ShapePreset {
     Gradient,
     /// A rectangle kept as live vector geometry rather than baked.
     LiveRect,
+    Star,
+    Arrow,
+    RoundedRect,
 }
 
 impl ShapePreset {
     /// Every preset, for exhaustiveness checks against the action registry.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 9] = [
         Self::Rect,
         Self::Ellipse,
         Self::Line,
         Self::Polygon,
         Self::Gradient,
         Self::LiveRect,
+        Self::Star,
+        Self::Arrow,
+        Self::RoundedRect,
     ];
 
     #[must_use]
@@ -48,6 +57,9 @@ impl ShapePreset {
             Self::Polygon => "polygon",
             Self::Gradient => "gradient",
             Self::LiveRect => "live",
+            Self::Star => "star",
+            Self::Arrow => "arrow",
+            Self::RoundedRect => "rounded-rect",
         }
     }
 
@@ -61,15 +73,7 @@ impl ShapePreset {
     /// answer.
     #[must_use]
     pub fn parse(kind: &str) -> Option<Self> {
-        match kind {
-            "rect" => Some(Self::Rect),
-            "ellipse" => Some(Self::Ellipse),
-            "line" => Some(Self::Line),
-            "polygon" => Some(Self::Polygon),
-            "gradient" => Some(Self::Gradient),
-            "live" => Some(Self::LiveRect),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|p| p.as_str() == kind)
     }
 
     /// Display name for menus.
@@ -82,6 +86,9 @@ impl ShapePreset {
             Self::Polygon => "Polygon",
             Self::Gradient => "Gradient Fill",
             Self::LiveRect => "Live Vector Shape",
+            Self::Star => "Star",
+            Self::Arrow => "Arrow",
+            Self::RoundedRect => "Rounded Rectangle",
         }
     }
 
@@ -96,7 +103,10 @@ impl ShapePreset {
             Self::Rect | Self::Gradient | Self::LiveRect => "rect",
             Self::Ellipse => "ellipse",
             Self::Line => "line",
-            Self::Polygon => "polygon",
+            // A star, an arrow and a rounded rectangle are all closed polygons
+            // as far as the path is concerned; they differ in their anchors,
+            // not in their kind.
+            Self::Polygon | Self::Star | Self::Arrow | Self::RoundedRect => "polygon",
         }
     }
 
@@ -151,6 +161,19 @@ impl ShapePreset {
                 false,
             ),
             Self::Gradient => rect_path("Gradient", w * 0.25, h * 0.25, w * 0.5, h * 0.4),
+            Self::Star => {
+                let r = w.min(h) * 0.22;
+                star_path("Star", w * 0.5, h * 0.5, r, r * 0.45, 5)
+            }
+            Self::Arrow => arrow_path("Arrow", w * 0.25, w * 0.75, h * 0.5, h * 0.08, h * 0.22),
+            Self::RoundedRect => rounded_rect_path(
+                "Rounded Rectangle",
+                w * 0.25,
+                h * 0.25,
+                w * 0.5,
+                h * 0.4,
+                w.min(h) * 0.06,
+            ),
             Self::Rect | Self::LiveRect => {
                 rect_path("Rectangle", w * 0.25, h * 0.25, w * 0.5, h * 0.4)
             }

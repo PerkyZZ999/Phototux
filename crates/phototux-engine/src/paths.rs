@@ -242,6 +242,115 @@ pub fn polygon_path(name: impl Into<String>, cx: f32, cy: f32, r: f32, sides: u3
     VectorPath::polyline(name, anchors, true)
 }
 
+/// Star with `points` tips, alternating between `r_outer` and `r_inner`.
+///
+/// A star is a polygon whose radius alternates, which is why it shares the
+/// same anchor loop rather than getting a shape of its own.
+#[must_use]
+pub fn star_path(
+    name: impl Into<String>,
+    cx: f32,
+    cy: f32,
+    r_outer: f32,
+    r_inner: f32,
+    points: u32,
+) -> VectorPath {
+    let n = points.clamp(3, 32) as usize;
+    let mut anchors = Vec::with_capacity(n * 2);
+    for i in 0..n * 2 {
+        let t = (i as f32 / (n * 2) as f32) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+        let r = if i.is_multiple_of(2) {
+            r_outer
+        } else {
+            r_inner
+        };
+        anchors.push(PathPoint {
+            x: cx + r * t.cos(),
+            y: cy + r * t.sin(),
+        });
+    }
+    VectorPath::polyline(name, anchors, true)
+}
+
+/// Horizontal arrow from `(x0, y)` to `(x1, y)`, drawn as an outline.
+///
+/// Seven anchors: the shaft's four corners and the head's three, walked so the
+/// outline closes without crossing itself.
+#[must_use]
+pub fn arrow_path(
+    name: impl Into<String>,
+    x0: f32,
+    x1: f32,
+    y: f32,
+    shaft: f32,
+    head: f32,
+) -> VectorPath {
+    let dir = if x1 >= x0 { 1.0 } else { -1.0 };
+    let head_len = (x1 - x0).abs().min(head * 2.0) * 0.5;
+    let neck = x1 - dir * head_len;
+    let half_shaft = shaft * 0.5;
+    let half_head = head * 0.5;
+    let p = |x: f32, y: f32| PathPoint { x, y };
+    VectorPath::polyline(
+        name,
+        vec![
+            p(x0, y - half_shaft),
+            p(neck, y - half_shaft),
+            p(neck, y - half_head),
+            p(x1, y),
+            p(neck, y + half_head),
+            p(neck, y + half_shaft),
+            p(x0, y + half_shaft),
+        ],
+        true,
+    )
+}
+
+/// Rectangle with corners cut at `radius`, approximated by three points each.
+///
+/// Chamfered rather than curved: the path model carries anchors, not Béziers,
+/// so a true fillet would need a curve type the renderer does not yet read —
+/// and a visibly wrong curve is worse than an honest bevel.
+#[must_use]
+pub fn rounded_rect_path(
+    name: impl Into<String>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+) -> VectorPath {
+    // A radius past half the shorter side would fold the outline inside out.
+    let r = radius.clamp(0.0, w.min(h) * 0.5);
+    let (x1, y1) = (x + w, y + h);
+
+    // Four quarter-turns, walked clockwise in screen space (y down) from the
+    // top-right corner. Each is sampled rather than curved: the path model
+    // carries anchors, not Béziers, so a true fillet would need a curve type
+    // the renderer does not yet read — and a visibly wrong curve is worse than
+    // an honest polyline.
+    const STEPS: usize = 4;
+    let mut anchors = Vec::with_capacity((STEPS + 1) * 4);
+    let mut arc = |cx: f32, cy: f32, from_deg: f32| {
+        for i in 0..=STEPS {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "STEPS is 4; the ratio is exact in f32"
+            )]
+            let t = (from_deg + 90.0 * (i as f32 / STEPS as f32)).to_radians();
+            anchors.push(PathPoint {
+                x: cx + r * t.cos(),
+                y: cy + r * t.sin(),
+            });
+        }
+    };
+    arc(x1 - r, y + r, -90.0);
+    arc(x1 - r, y1 - r, 0.0);
+    arc(x + r, y1 - r, 90.0);
+    arc(x + r, y + r, 180.0);
+    VectorPath::polyline(name, anchors, true)
+}
+
 /// Fill a closed path with a linear gradient (coverage from even-odd, color lerped).
 #[expect(
     clippy::too_many_arguments,
@@ -325,6 +434,76 @@ fn write_gradient_pixel(
 
 #[cfg(test)]
 mod tests {
+    /// A star's tips must alternate between the two radii, or it is a polygon
+    /// with twice as many sides.
+    #[test]
+    fn a_star_alternates_between_its_two_radii() {
+        let star = star_path("s", 0.0, 0.0, 10.0, 4.0, 5);
+        assert_eq!(star.anchors.len(), 10, "five points make ten anchors");
+        let radius = |p: &PathPoint| (p.x * p.x + p.y * p.y).sqrt();
+        for (i, p) in star.anchors.iter().enumerate() {
+            let want = if i.is_multiple_of(2) { 10.0 } else { 4.0 };
+            assert!(
+                (radius(p) - want).abs() < 1e-3,
+                "anchor {i} at radius {}",
+                radius(p)
+            );
+        }
+        assert!(star.closed);
+    }
+
+    /// The arrow's head must reach the point it was asked to end at, and its
+    /// shaft must be the narrower of the two — a head no wider than the shaft
+    /// is not an arrow.
+    #[test]
+    fn an_arrow_points_where_it_was_aimed() {
+        let arrow = arrow_path("a", 0.0, 100.0, 50.0, 10.0, 30.0);
+        assert!(arrow.closed);
+        let tip = arrow
+            .anchors
+            .iter()
+            .max_by(|a, b| a.x.total_cmp(&b.x))
+            .expect("tip");
+        assert!((tip.x - 100.0).abs() < 1e-3, "tip at {}", tip.x);
+        assert!((tip.y - 50.0).abs() < 1e-3, "tip off the axis");
+        let span = |f: fn(&PathPoint) -> f32| {
+            let ys: Vec<f32> = arrow.anchors.iter().map(f).collect();
+            ys.iter().cloned().fold(f32::MIN, f32::max)
+                - ys.iter().cloned().fold(f32::MAX, f32::min)
+        };
+        assert!((span(|p| p.y) - 30.0).abs() < 1e-3, "head width wrong");
+    }
+
+    /// A rounded rectangle must stay inside the box it was given, and its
+    /// corners must actually be cut — otherwise it is a rectangle.
+    #[test]
+    fn a_rounded_rectangle_stays_in_its_box_and_loses_its_corners() {
+        let r = rounded_rect_path("r", 10.0, 20.0, 100.0, 60.0, 12.0);
+        assert!(r.closed);
+        for p in &r.anchors {
+            assert!((10.0..=110.0).contains(&p.x), "x {} escaped", p.x);
+            assert!((20.0..=80.0).contains(&p.y), "y {} escaped", p.y);
+        }
+        // No anchor sits on a square corner of the box.
+        for &(cx, cy) in &[(10.0, 20.0), (110.0, 20.0), (110.0, 80.0), (10.0, 80.0)] {
+            assert!(
+                !r.anchors
+                    .iter()
+                    .any(|p| (p.x - cx).abs() < 1e-3 && (p.y - cy).abs() < 1e-3),
+                "the corner at ({cx}, {cy}) was not cut"
+            );
+        }
+    }
+
+    /// A radius larger than the box would fold the outline inside out.
+    #[test]
+    fn an_oversized_corner_radius_is_clamped() {
+        let r = rounded_rect_path("r", 0.0, 0.0, 20.0, 10.0, 999.0);
+        for p in &r.anchors {
+            assert!((0.0..=20.0).contains(&p.x) && (0.0..=10.0).contains(&p.y));
+        }
+    }
+
     use super::*;
 
     #[test]
