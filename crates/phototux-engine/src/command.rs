@@ -9,6 +9,14 @@ use crate::stroke_journal::JournalStroke;
 #[derive(Debug, Clone)]
 pub enum EngineCommand {
     SetBrush(BrushParams),
+    /// Where the clone stamp reads, in document pixels.
+    ///
+    /// A stroke's offset is fixed when it begins, from this anchor, so the
+    /// copy stays aligned with the original rather than following the cursor.
+    SetCloneAnchor {
+        x: f32,
+        y: f32,
+    },
     BeginStroke {
         layer: LayerId,
         target: PaintTarget,

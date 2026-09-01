@@ -2217,6 +2217,7 @@ mod region_tests {
     /// Paint one dab through the real stamper and report its region.
     fn paint(fx: &mut Fixture, x: f32, y: f32, radius: f32, color: [f32; 4]) -> PixelRect {
         let req = StampRequest {
+            source_offset: (0, 0),
             x,
             y,
             radius_px: radius,

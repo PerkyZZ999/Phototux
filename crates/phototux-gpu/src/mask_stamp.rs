@@ -159,7 +159,9 @@ impl MaskStamper {
             // Radius already includes size-pressure from StrokeBuilder.
             radius_uv: req.radius_px / max_dim,
             hardness: req.params.hardness.clamp(0.0, 1.0),
-            eraser: u32::from(req.params.eraser),
+            // A mask carries coverage, not colour, so the retouch modes have
+            // nothing to rework there: painting and erasing are the only two.
+            eraser: u32::from(req.params.mode == phototux_engine::DabMode::Erase),
             _pad0: 0,
             _pad1: 0,
             _pad2: 0,

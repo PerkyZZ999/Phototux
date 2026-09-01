@@ -98,7 +98,7 @@ pub fn default_panels() -> Vec<PanelDescriptor> {
 /// Built-in tool strip set (`icon_key` = Phosphor stem under `assets/icons/phosphor/`).
 pub fn default_tools() -> Vec<ToolDescriptor> {
     use crate::tool_id;
-    vec![
+    let mut tools = vec![
         ToolDescriptor {
             id: tool_id::MOVE.into(),
             title: "Move".into(),
@@ -232,7 +232,39 @@ pub fn default_tools() -> Vec<ToolDescriptor> {
             shortcut: "Z".into(),
             group: "navigate".into(),
         },
-    ]
+    ];
+    // One rail entry per retouch mode. Modes and retouch tools are the same
+    // list seen from two sides — what a dab *does* and which tool selects it —
+    // so generating them keeps a mode from arriving with no way to pick it.
+    let retouch_at = retouch_insertion_index(&tools);
+    tools.splice(
+        retouch_at..retouch_at,
+        crate::DabMode::retouch_modes().map(|mode| ToolDescriptor {
+            id: mode.tool_id().into(),
+            title: mode.tool_title().into(),
+            icon_key: mode.icon_key().into(),
+            shortcut: mode.shortcut().into(),
+            group: "retouch".into(),
+        }),
+    );
+    tools
+}
+
+/// Where the retouch family sits on the rail: straight after the *whole* paint
+/// family, so the tools that lay paint down and the tools that rework it are
+/// neighbours without either group being split.
+///
+/// After the eraser specifically would land in the middle of paint, since the
+/// gradient and bucket follow it — and the shelf draws a separator wherever
+/// the group changes, so a split family reads as two.
+fn retouch_insertion_index(tools: &[ToolDescriptor]) -> usize {
+    let paint = tools.iter().position(|t| t.group == "paint");
+    paint.map_or(tools.len(), |start| {
+        tools[start..]
+            .iter()
+            .position(|t| t.group != "paint")
+            .map_or(tools.len(), |offset| start + offset)
+    })
 }
 
 /// Built-in inspector disclosure groups, ordered as they appear in Properties.

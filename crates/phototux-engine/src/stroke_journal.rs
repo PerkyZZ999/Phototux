@@ -2,6 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
+/// `serde` default for journals written before the field existed: every
+/// stroke they recorded was a paint or an erase, and erase set its own flag.
+fn paint_mode() -> String {
+    crate::DabMode::Paint.as_str().to_owned()
+}
+
 use crate::layer::{LayerId, PaintTarget};
 use crate::stroke::{BrushParams, Dab};
 
@@ -26,12 +32,14 @@ pub struct JournalStroke {
 }
 
 /// Serde-friendly brush snapshot (mirrors [`BrushParams`]).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrushParamsSnapshot {
     pub size: f32,
     pub hardness: f32,
     pub color: [f32; 4],
-    pub eraser: bool,
+    /// Wire name of the dab mode; see [`crate::DabMode`].
+    #[serde(default = "paint_mode")]
+    pub mode: String,
     pub opacity: f32,
     pub flow: f32,
     pub spacing_ratio: f32,
@@ -47,7 +55,7 @@ impl From<BrushParams> for BrushParamsSnapshot {
             size: p.size,
             hardness: p.hardness,
             color: p.color,
-            eraser: p.eraser,
+            mode: p.mode.as_str().to_owned(),
             opacity: p.opacity,
             flow: p.flow,
             spacing_ratio: p.spacing_ratio,
@@ -64,7 +72,7 @@ impl From<BrushParamsSnapshot> for BrushParams {
             size: p.size,
             hardness: p.hardness,
             color: p.color,
-            eraser: p.eraser,
+            mode: crate::DabMode::parse(&p.mode).unwrap_or_default(),
             opacity: p.opacity,
             flow: p.flow,
             spacing_ratio: p.spacing_ratio,

@@ -58,12 +58,15 @@ set(ICON_NAMES
     crop
     diamond
     dots-three
+    drop
+    drop-half
     eraser
     export
     eye
     eye-slash
     eyedropper
     file-plus
+    flame
     floppy-disk
     folder
     folder-open
@@ -85,13 +88,17 @@ set(ICON_NAMES
     pen-nib
     plus
     polygon
+    scribble
     question
     rectangle-dashed
     selection
     selection-background
     selection-foreground
     selection-plus
+    sparkle
     shapes
+    sun-dim
+    stamp
     text-t
     trash
     x

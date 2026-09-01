@@ -17,7 +17,7 @@ use std::time::Instant;
 use file_worker::{FileCommand, FileEvent, FileWorker};
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
-    CommandArgs, CommandEffects, CommandError, CropRect, DocumentGraph, DocumentRegistry,
+    CommandArgs, CommandEffects, CommandError, CropRect, DabMode, DocumentGraph, DocumentRegistry,
     DocumentSize, EngineCommand, EngineEvent, FilterParams, GradientKind, GradientRamp, Guide,
     GuideOrientation, HistoryKind, HostFollowUp, HostHistoryAction, Layer, LayerId, LayerKind,
     LayerTransform, OpenDocumentId, PathPoint, SelectionCombine, SelectionModifyOp, SelectionRect,
@@ -4804,8 +4804,10 @@ impl AppSession {
         if !self.engine.has_document {
             return;
         }
-        let tool = self.engine.active_tool.as_str();
-        if tool != tool_id::BRUSH && tool != tool_id::ERASER {
+        // Every dab tool, not two named ids: the retouch tools are the same
+        // brush with a different dab mode, and naming brush and eraser here
+        // silently refused all seven of them.
+        if !DabMode::is_dab_tool(&self.engine.active_tool) {
             return;
         }
         self.engine.sync_brush_from_tool();
@@ -6263,6 +6265,18 @@ impl AppSession {
         }
         self.gradient_kind = kind.as_str().to_owned();
         self.gradient_kind_changed();
+    }
+
+    /// Anchor the clone stamp at a document point.
+    ///
+    /// Alt-click while the clone tool is active. The offset is fixed when the
+    /// next stroke begins, so the copy stays aligned with the original rather
+    /// than following the cursor.
+    #[qslot]
+    fn set_clone_anchor(&mut self, doc_x: f32, doc_y: f32) {
+        self.send_paint(EngineCommand::SetCloneAnchor { x: doc_x, y: doc_y });
+        self.status_text = format!("Clone source at {:.0}, {:.0}", doc_x, doc_y);
+        self.status_text_changed();
     }
 
     #[qslot]

@@ -196,6 +196,7 @@ Chapters: [14](../14-Brush-Engine.md), [15](../15-Filter-Engine.md), [18](../18-
 - [x] Brush preset library persistence + UI (prefs schema 4 + Properties apply/save)
 - [x] Stroke journal / recovery hooks (`StrokeJournal` → `recovery/strokes/*.json`)
 - [x] CPU dab reference path (`stamp_dab_rgba` / `paint_dabs_rgba`)
+- [x] Retouch tools — clone stamp, dodge, burn, sponge, blur, sharpen, smudge as dab modes on one brush
 - [P] Tile-aware stroke planner (after P11 tiling)
 
 ### P5.2 Filters

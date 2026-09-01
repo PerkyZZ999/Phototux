@@ -122,8 +122,8 @@ pub use snapshot_publish::{
     MAX_SNAPSHOT_BYTES, PixelSnapshot, SnapshotError, SnapshotPublisher, solid_layer_rgba,
 };
 pub use stroke::{
-    BrushParams, BrushTextureKind, Dab, StrokeBuilder, dab_coverage, paint_dabs_rgba,
-    stamp_dab_rgba,
+    BrushParams, BrushTextureKind, Dab, DabMode, DabSource, StrokeBuilder, dab_coverage,
+    paint_dabs_rgba, paint_dabs_rgba_from, stamp_dab_rgba, stamp_dab_rgba_from,
 };
 pub use stroke_journal::{
     BrushParamsSnapshot, DabSnapshot, JournalStroke, StrokeJournal, StrokeSample,
@@ -243,6 +243,13 @@ pub mod tool_id {
         SELECT_POLYGON => "tool.select.polygon",
         SELECT_WAND => "tool.select.wand",
         SELECT_COLOR_RANGE => "tool.select.color-range",
+        CLONE => "tool.clone",
+        DODGE => "tool.dodge",
+        BURN => "tool.burn",
+        SPONGE => "tool.sponge",
+        BLUR => "tool.blur",
+        SHARPEN => "tool.sharpen",
+        SMUDGE => "tool.smudge",
         MOVE => "tool.move",
         TRANSFORM => "tool.transform",
         CROP => "tool.crop",
@@ -411,7 +418,7 @@ impl SessionState {
     }
 
     pub fn sync_brush_from_tool(&mut self) {
-        self.brush.eraser = self.active_tool == tool_id::ERASER;
+        self.brush.mode = DabMode::for_tool(&self.active_tool);
         self.brush.size = self.brush_size;
         self.brush.hardness = self.brush_hardness;
         self.brush.color = self.brush_color;

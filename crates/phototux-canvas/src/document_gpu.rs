@@ -893,40 +893,117 @@ pub fn stamp_dabs(
     t0_ms: Option<f64>,
     recomposite: bool,
 ) -> Result<f32, String> {
+    stamp_dabs_from(layer, target, dabs, params, (0, 0), t0_ms, recomposite)
+}
+
+/// Turn a run of dabs into stamp requests, each carrying where it reads from.
+fn build_stamp_requests(
+    dabs: &[Dab],
+    target: PaintTarget,
+    params: BrushParams,
+    clone_offset: (i32, i32),
+) -> Vec<StampRequest> {
+    dabs.iter()
+        .copied()
+        .enumerate()
+        .map(|(i, dab)| {
+            let request = match target {
+                PaintTarget::LayerPixels => StampRequest::from_dab(dab, params),
+                PaintTarget::LayerMask => StampRequest::from_dab_mask(dab, params),
+            };
+            let previous = i.checked_sub(1).and_then(|p| dabs.get(p)).copied();
+            request.with_source_offset(dab_source_offset(params.mode, dab, previous, clone_offset))
+        })
+        .collect()
+}
+
+/// Run a batch into the layer's pixels or its mask, and mark what it touched.
+fn stamp_requests_into(
+    doc: &mut DocGpu,
+    layer: LayerId,
+    target: PaintTarget,
+    requests: &[StampRequest],
+) -> Result<(), String> {
+    match target {
+        PaintTarget::LayerPixels => {
+            let Some(tex) = doc.engine.layer_texture(layer) else {
+                return Err("layer texture missing".into());
+            };
+            doc.stamper.stamp_batch(&doc.ctx, tex, requests);
+            // Report the region the batch could touch, so the composite can
+            // re-blend it instead of the whole canvas. Falls back to the
+            // unbounded mark if any dab's bounds cannot be established.
+            let (doc_w, doc_h) = doc.engine.size();
+            match painted_bounds(requests, doc_w, doc_h) {
+                Some(rect) => doc.engine.mark_layer_painted_in(layer, rect),
+                None => doc.engine.mark_layer_painted(layer),
+            }
+        }
+        PaintTarget::LayerMask => {
+            let Some(tex) = doc.engine.mask_texture(layer) else {
+                return Err("layer mask texture missing".into());
+            };
+            doc.mask_stamper.stamp_batch(&doc.ctx, tex, requests);
+            doc.engine.mark_mask_painted(layer);
+        }
+    }
+    Ok(())
+}
+
+/// Where a source-reading dab samples, relative to the pixel it writes.
+///
+/// Clone holds one offset for the whole stroke, so the copy stays aligned with
+/// the original rather than following the cursor. Smudge trails the stroke by
+/// half a dab, which is what makes it pull colour along rather than duplicate
+/// a fixed spot. Everything else reads where it writes.
+fn dab_source_offset(
+    mode: phototux_engine::DabMode,
+    dab: Dab,
+    previous: Option<Dab>,
+    clone_offset: (i32, i32),
+) -> (i32, i32) {
+    use phototux_engine::DabMode;
+    match mode {
+        DabMode::Clone => clone_offset,
+        DabMode::Smudge => {
+            let Some(prev) = previous else {
+                return (0, 0);
+            };
+            let (dx, dy) = (dab.x - prev.x, dab.y - prev.y);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-3 {
+                return (0, 0);
+            }
+            let reach = (dab.radius * 0.5).max(1.0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "offsets are a fraction of a dab radius"
+            )]
+            let out = ((-dx / len * reach) as i32, (-dy / len * reach) as i32);
+            out
+        }
+        _ => (0, 0),
+    }
+}
+
+/// Stamp dabs, with the offset a clone reads from.
+///
+/// # Errors
+/// Returns an error when no document is open, stamping fails, or composite/export fails.
+pub fn stamp_dabs_from(
+    layer: LayerId,
+    target: PaintTarget,
+    dabs: &[Dab],
+    params: BrushParams,
+    clone_offset: (i32, i32),
+    t0_ms: Option<f64>,
+    recomposite: bool,
+) -> Result<f32, String> {
     let t_stamp = Instant::now();
     with_document(|doc| {
         if !dabs.is_empty() {
-            let requests: Vec<StampRequest> = dabs
-                .iter()
-                .copied()
-                .map(|dab| match target {
-                    PaintTarget::LayerPixels => StampRequest::from_dab(dab, params),
-                    PaintTarget::LayerMask => StampRequest::from_dab_mask(dab, params),
-                })
-                .collect();
-            match target {
-                PaintTarget::LayerPixels => {
-                    let Some(tex) = doc.engine.layer_texture(layer) else {
-                        return Err("layer texture missing".into());
-                    };
-                    doc.stamper.stamp_batch(&doc.ctx, tex, &requests);
-                    // Report the region the batch could touch, so the composite can
-                    // re-blend it instead of the whole canvas. Falls back to the
-                    // unbounded mark if any dab's bounds cannot be established.
-                    let (doc_w, doc_h) = doc.engine.size();
-                    match painted_bounds(&requests, doc_w, doc_h) {
-                        Some(rect) => doc.engine.mark_layer_painted_in(layer, rect),
-                        None => doc.engine.mark_layer_painted(layer),
-                    }
-                }
-                PaintTarget::LayerMask => {
-                    let Some(tex) = doc.engine.mask_texture(layer) else {
-                        return Err("layer mask texture missing".into());
-                    };
-                    doc.mask_stamper.stamp_batch(&doc.ctx, tex, &requests);
-                    doc.engine.mark_mask_painted(layer);
-                }
-            }
+            let requests = build_stamp_requests(dabs, target, params, clone_offset);
+            stamp_requests_into(doc, layer, target, &requests)?;
         }
 
         // Never blocking, on any dab. wgpu tracks the stamp→composite texture

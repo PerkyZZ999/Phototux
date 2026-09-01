@@ -72,6 +72,13 @@ Order = descriptor order (overflow when strip height is tight — see Interactiv
 | `tool.eyedropper` | Eyedropper | `eyedropper` | |
 | `tool.select.wand` | Magic Wand | `magic-wand` | Contiguous colour select |
 | `tool.select.color-range` | Color Range | `selection-foreground` | Global colour select |
+| `tool.clone` | Clone Stamp | `stamp` | Retouch |
+| `tool.dodge` | Dodge | `sun-dim` | Retouch |
+| `tool.burn` | Burn | `flame` | Retouch |
+| `tool.sponge` | Sponge | `drop` | Retouch |
+| `tool.blur` | Blur | `drop-half` | Retouch |
+| `tool.sharpen` | Sharpen | `sparkle` | Retouch |
+| `tool.smudge` | Smudge | `scribble` | Retouch |
 | `tool.text` | Text | `text-t` | |
 | `tool.shape` | Shape | `shapes` | Subtools are options, not strip primaries |
 | `tool.path-edit` | Path Edit | `pen-nib` | |
@@ -90,7 +97,6 @@ Order = descriptor order (overflow when strip height is tight — see Interactiv
 | Tool ID (reserved) | Suggested stem | Notes |
 |--------------------|----------------|-------|
 | `tool.pencil` | `pencil-simple` | Not in `default_tools()` yet |
-| `tool.clone` | `stamp` | Deferred |
 
 ---
 

@@ -8,6 +8,34 @@ Brush rendering is GPU-first, not GPU-only. wgpu compute and render pipelines ar
 
 This specification follows [00 — Introduction](00-Introduction.md), [10 — Document Model](10-Document-Model.md), [12 — Selection System](12-Selection-System.md), [13 — Mask System](13-Mask-System.md), and [20 — History and Undo](20-History-Undo.md). Normative terms follow [Requirement Keywords](Appendix/Requirement-Keywords.md).
 
+## Dab modes
+
+Every retouch tool is the same brush with a different **dab mode** — what a dab does to the pixels under it. The brush carried an `eraser: bool`, two states for a question with nine answers.
+
+| Mode | Tool | What a dab does |
+| --- | --- | --- |
+| Paint | `tool.brush` | Lay down the brush colour |
+| Erase | `tool.eraser` | Take alpha away |
+| Clone | `tool.clone` | Copy from an anchored offset |
+| Dodge | `tool.dodge` | Lighten toward white |
+| Burn | `tool.burn` | Darken toward black |
+| Sponge | `tool.sponge` | Push each channel away from the pixel's own luma |
+| Blur | `tool.blur` | Average with the 3×3 neighbourhood |
+| Sharpen | `tool.sharpen` | Push away from that same mean |
+| Smudge | `tool.smudge` | Pull colour from half a dab behind the stroke |
+
+`DabMode` owns the tool id, title, icon and accelerator, so the tool rail is *generated* from the mode list — a mode cannot arrive with no way to pick it. The host's paint gate asks `DabMode::is_dab_tool` rather than naming brush and eraser, which is what had silently refused all seven retouch tools the moment they existed.
+
+### Reading and writing the same layer
+
+Seven of the nine modes rework what is already there, so **every retouch mode answers with a target colour and alpha = coverage**, and the pipeline's ordinary alpha blend moves the pixel toward it. That is one shape for all of them, and it matches the CPU reference's `blend_toward`.
+
+Four modes read pixels other than the one they write. They cannot sample the layer they are drawing into — a pass may not do that, and even where the hardware allowed it a dab would feed on its own output, so a blur would keep blurring what it had already blurred. The stamper keeps a **copy of the layer**, taken once per batch. Per batch rather than per stroke is deliberate: a stroke's effect still builds up across input events, which is what a user expects from dragging a blur back and forth.
+
+Where each reads is `DabSource::offset`: zero for blur and sharpen, the anchored alignment for a clone, and the trailing stroke direction for a smudge. A clone's offset is fixed when the stroke *begins*, from the point the user alt-clicked — recomputing it per dab would make the copy chase the cursor instead of staying aligned with the original, which is the whole point of an aligned clone.
+
+A source-reading mode with no snapshot leaves the pixels alone rather than guessing: a blur that cannot see its neighbours has nothing to average, and inventing an answer is worse than declining. Retouching also never adds alpha — a transparent pixel has nothing to rework.
+
 ## Responsibilities
 
 The brush engine **MUST**:

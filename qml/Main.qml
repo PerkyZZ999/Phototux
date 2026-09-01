@@ -621,6 +621,15 @@ ApplicationWindow {
             return "subtract"
         return AppSession.selectionCombine
     }
+    /// Whether the active tool paints dabs — the brush, the eraser and every
+    /// retouch tool, which are all one brush with a different dab mode.
+    function isDabTool() {
+        var t = AppSession.activeTool
+        return t === "tool.brush" || t === "tool.eraser"
+                || t === "tool.clone" || t === "tool.dodge" || t === "tool.burn"
+                || t === "tool.sponge" || t === "tool.blur" || t === "tool.sharpen"
+                || t === "tool.smudge"
+    }
     function isSelectTool() {
         return AppSession.activeTool === "tool.select.rect"
                 || AppSession.activeTool === "tool.select.ellipse"
@@ -2413,6 +2422,7 @@ ApplicationWindow {
 
                 screenToDocX: root.screenToDocX
                 screenToDocY: root.screenToDocY
+                isDabTool: root.isDabTool
                 isSelectTool: root.isSelectTool
                 isLassoTool: root.isLassoTool
                 isPolygonTool: root.isPolygonTool

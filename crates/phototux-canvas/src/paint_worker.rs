@@ -10,6 +10,13 @@ use phototux_engine::{
 
 struct WorkerState {
     brush: BrushParams,
+    /// Where the clone stamp reads, relative to where it writes.
+    ///
+    /// Set once per stroke from the anchor the user alt-clicked, so the copy
+    /// stays aligned with the original instead of following the cursor.
+    clone_offset: (i32, i32),
+    /// The point the clone stamp was anchored to, if any.
+    clone_anchor: Option<(f32, f32)>,
     stroke: Option<StrokeBuilder>,
     layer: Option<LayerId>,
     target: Option<PaintTarget>,
@@ -111,6 +118,8 @@ impl Drop for PaintWorker {
 fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
     let mut st = WorkerState {
         brush: BrushParams::default(),
+        clone_offset: (0, 0),
+        clone_anchor: None,
         stroke: None,
         layer: None,
         target: None,
@@ -142,6 +151,7 @@ fn worker_loop(rx: Receiver<EngineCommand>, tx_ev: Sender<EngineEvent>) {
         match cmd {
             EngineCommand::Shutdown => break,
             EngineCommand::SetBrush(p) => apply_set_brush(&mut st, p),
+            EngineCommand::SetCloneAnchor { x, y } => st.clone_anchor = Some((x, y)),
             EngineCommand::BeginStroke {
                 layer,
                 target,
@@ -184,6 +194,17 @@ fn handle_begin_stroke(
     }
     st.layer = Some(layer);
     st.target = Some(target);
+    // Fix the clone offset for the whole stroke: an offset recomputed per dab
+    // would make the copy chase the cursor instead of staying aligned with the
+    // original, which is the entire point of an aligned clone.
+    st.clone_offset = st.clone_anchor.map_or((0, 0), |(ax, ay)| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "document coordinates, bounded by the canvas"
+        )]
+        let offset = ((ax - x) as i32, (ay - y) as i32);
+        offset
+    });
     st.first_input_ms = Some(t_ms);
     st.pending_dabs = false;
     st.last_composite = None;
@@ -273,7 +294,15 @@ fn apply_dabs(
     } else {
         None
     };
-    match super::document_gpu::stamp_dabs(layer, target, dabs, st.brush, t0, recomposite) {
+    match super::document_gpu::stamp_dabs_from(
+        layer,
+        target,
+        dabs,
+        st.brush,
+        st.clone_offset,
+        t0,
+        recomposite,
+    ) {
         Ok(ms) => {
             if recomposite {
                 st.pending_dabs = false;
@@ -342,6 +371,8 @@ mod tests {
     fn paced_state(pending: bool, last_composite: Option<Instant>) -> WorkerState {
         WorkerState {
             brush: BrushParams::default(),
+            clone_offset: (0, 0),
+            clone_anchor: None,
             stroke: None,
             layer: None,
             target: None,

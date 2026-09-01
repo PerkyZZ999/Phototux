@@ -29,6 +29,7 @@ MouseArea {
     /// Which tool is active, as the shell defines it. Five predicates rather
     /// than one tool string because the shell already answers these, and
     /// re-deriving them here would be a second definition.
+    required property var isDabTool
     required property var isSelectTool
     required property var isLassoTool
     required property var isPolygonTool
@@ -60,8 +61,7 @@ cursorShape: {
         return Qt.CrossCursor
     if (root.isTransformTool())
         return Qt.SizeAllCursor
-    if (AppSession.activeTool === "tool.brush"
-            || AppSession.activeTool === "tool.eraser")
+    if (root.isDabTool())
         return Qt.BlankCursor
     return Qt.ArrowCursor
 }
@@ -286,6 +286,16 @@ onPressed: function (mouse) {
         AppSession.fillActiveLayer()
         return
     }
+    // Alt-click with the clone stamp sets where it reads from, rather than
+    // starting a stroke — the standard gesture, and the only way to say where
+    // a clone comes from.
+    if (AppSession.activeTool === "tool.clone"
+            && (mouse.modifiers & Qt.AltModifier)) {
+        AppSession.setCloneAnchor(
+                    root.screenToDocX(mouse.x),
+                    root.screenToDocY(mouse.y))
+        return
+    }
     // The wand and colour range act on a click; the only difference between
     // them is whether the flood is contiguous.
     if (AppSession.activeTool === "tool.select.wand"
@@ -312,8 +322,7 @@ onPressed: function (mouse) {
         gradEndY = gradStartY
         return
     }
-    if (AppSession.activeTool === "tool.brush"
-            || AppSession.activeTool === "tool.eraser") {
+    if (root.isDabTool()) {
         painting = true
         AppSession.strokeBegin(mouse.x, mouse.y,
                                root.strokePressure())

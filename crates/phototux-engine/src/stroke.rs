@@ -1,5 +1,7 @@
 //! Brush parameters, stroke dab placement, and CPU stamp reference (handbook 14).
 
+use serde::{Deserialize, Serialize};
+
 /// Built-in tip texture kinds (DR-028 brush texture spine).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BrushTextureKind {
@@ -24,13 +26,212 @@ impl BrushTextureKind {
     }
 }
 
+/// What a dab does to the pixels under it.
+///
+/// The brush used to carry an `eraser: bool` — two states for a question that
+/// has nine answers. Every retouch tool is a brush whose dabs do something
+/// other than lay down colour, so this is the thing that varies, and it is one
+/// vocabulary rather than a flag per tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DabMode {
+    /// Lay down the brush colour.
+    #[default]
+    Paint,
+    /// Take alpha away.
+    Erase,
+    /// Lighten toward white.
+    Dodge,
+    /// Darken toward black.
+    Burn,
+    /// Push saturation up.
+    Sponge,
+    /// Average with the surrounding pixels.
+    Blur,
+    /// Push away from the local average.
+    Sharpen,
+    /// Drag colour from behind the dab.
+    Smudge,
+    /// Copy from an offset in the same layer.
+    Clone,
+}
+
+impl DabMode {
+    /// Every mode, in tool-shelf order.
+    pub const ALL: [Self; 9] = [
+        Self::Paint,
+        Self::Erase,
+        Self::Clone,
+        Self::Dodge,
+        Self::Burn,
+        Self::Sponge,
+        Self::Blur,
+        Self::Sharpen,
+        Self::Smudge,
+    ];
+
+    /// Stable wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Paint => "paint",
+            Self::Erase => "erase",
+            Self::Dodge => "dodge",
+            Self::Burn => "burn",
+            Self::Sponge => "sponge",
+            Self::Blur => "blur",
+            Self::Sharpen => "sharpen",
+            Self::Smudge => "smudge",
+            Self::Clone => "clone",
+        }
+    }
+
+    /// Parse a wire name; `None` when it names no mode.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.as_str() == name)
+    }
+
+    /// Whether this mode reads pixels other than the one it is writing.
+    ///
+    /// Blur and sharpen need the neighbourhood, smudge and clone need a point
+    /// elsewhere — and all four must read the layer *as it was when the stroke
+    /// began*, or a dab feeds on its own output and the effect runs away.
+    #[must_use]
+    pub fn reads_source(self) -> bool {
+        matches!(
+            self,
+            Self::Blur | Self::Sharpen | Self::Smudge | Self::Clone
+        )
+    }
+
+    /// Whether this mode uses the brush colour at all.
+    #[must_use]
+    pub fn uses_color(self) -> bool {
+        self == Self::Paint
+    }
+
+    /// The tool that selects this mode.
+    ///
+    /// Modes and retouch tools are the same list seen from two sides, so the
+    /// tool rail is generated from here rather than restating it — the shape
+    /// that had four adjustment kinds reachable from nothing.
+    #[must_use]
+    pub fn tool_id(self) -> &'static str {
+        match self {
+            Self::Paint => "tool.brush",
+            Self::Erase => "tool.eraser",
+            Self::Dodge => "tool.dodge",
+            Self::Burn => "tool.burn",
+            Self::Sponge => "tool.sponge",
+            Self::Blur => "tool.blur",
+            Self::Sharpen => "tool.sharpen",
+            Self::Smudge => "tool.smudge",
+            Self::Clone => "tool.clone",
+        }
+    }
+
+    /// Display name for the tool rail.
+    #[must_use]
+    pub fn tool_title(self) -> &'static str {
+        match self {
+            Self::Paint => "Brush",
+            Self::Erase => "Eraser",
+            Self::Dodge => "Dodge",
+            Self::Burn => "Burn",
+            Self::Sponge => "Sponge",
+            Self::Blur => "Blur",
+            Self::Sharpen => "Sharpen",
+            Self::Smudge => "Smudge",
+            Self::Clone => "Clone Stamp",
+        }
+    }
+
+    /// Icon stem; see `assets/icons/ICON_MAP.md`.
+    #[must_use]
+    pub fn icon_key(self) -> &'static str {
+        match self {
+            Self::Paint => "paint-brush",
+            Self::Erase => "eraser",
+            Self::Dodge => "sun-dim",
+            Self::Burn => "flame",
+            Self::Sponge => "drop",
+            Self::Blur => "drop-half",
+            Self::Sharpen => "sparkle",
+            Self::Smudge => "scribble",
+            Self::Clone => "stamp",
+        }
+    }
+
+    /// Default accelerator, following the conventional raster-editor letters.
+    #[must_use]
+    pub fn shortcut(self) -> &'static str {
+        match self {
+            Self::Paint => "B",
+            Self::Erase => "E",
+            Self::Dodge => "O",
+            Self::Burn => "Shift+O",
+            Self::Sponge => "Ctrl+Shift+O",
+            Self::Blur => "R",
+            Self::Sharpen => "Shift+R",
+            Self::Smudge => "Ctrl+Shift+R",
+            Self::Clone => "S",
+        }
+    }
+
+    /// The mode a tool selects; [`Self::Paint`] for anything else, because a
+    /// tool with no mode of its own paints when it paints at all.
+    #[must_use]
+    pub fn for_tool(tool: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|m| m.tool_id() == tool)
+            .unwrap_or(Self::Paint)
+    }
+
+    /// Whether this tool paints dabs at all.
+    ///
+    /// The brush, the eraser and every retouch tool are one brush with a
+    /// different dab mode, so the host's paint gate asks this rather than
+    /// naming two tool ids — which is what kept the retouch tools from
+    /// painting the moment they existed.
+    #[must_use]
+    pub fn is_dab_tool(tool: &str) -> bool {
+        Self::ALL.into_iter().any(|m| m.tool_id() == tool)
+    }
+
+    /// The seven modes that are their own tool beyond brush and eraser.
+    pub fn retouch_modes() -> impl Iterator<Item = Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|m| !matches!(m, Self::Paint | Self::Erase))
+    }
+}
+
+/// The pixels a source-reading dab samples, and where.
+///
+/// A snapshot of the layer taken when the stroke began. Sampling the live
+/// buffer instead would let each dab read the previous dab's output, so a blur
+/// would keep blurring what it had already blurred and a clone would smear its
+/// own copy.
+#[derive(Debug, Clone, Copy)]
+pub struct DabSource<'a> {
+    pub pixels: &'a [u8],
+    /// Added to a destination coordinate to find the point to read.
+    ///
+    /// Zero for blur and sharpen, the clone's alignment for a stamp, and the
+    /// trailing direction for a smudge.
+    pub offset: (i32, i32),
+}
+
 /// Solid brush / eraser parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BrushParams {
     pub size: f32,
     pub hardness: f32,
     pub color: [f32; 4],
-    pub eraser: bool,
+    /// What a dab does; see [`DabMode`].
+    pub mode: DabMode,
     /// Master opacity 0..1.
     pub opacity: f32,
     /// Per-dab flow 0..1 (multiplies opacity).
@@ -55,7 +256,7 @@ impl Default for BrushParams {
             size: 12.0,
             hardness: 0.85,
             color: [0.12, 0.14, 0.18, 1.0],
-            eraser: false,
+            mode: DabMode::Paint,
             opacity: 1.0,
             flow: 1.0,
             spacing_ratio: 0.25,
@@ -79,7 +280,7 @@ impl BrushParams {
                 self.color[2].clamp(0.0, 1.0),
                 self.color[3].clamp(0.0, 1.0),
             ],
-            eraser: self.eraser,
+            mode: self.mode,
             opacity: self.opacity.clamp(0.0, 1.0),
             flow: self.flow.clamp(0.0, 1.0),
             spacing_ratio: self.spacing_ratio.clamp(0.05, 2.0),
@@ -275,6 +476,21 @@ pub fn dab_coverage(dist: f32, radius: f32, hardness: f32) -> f32 {
 
 /// Stamp one dab into an RGBA8 buffer (premultiplied-friendly alpha-over / erase).
 pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, params: &BrushParams) {
+    stamp_dab_rgba_from(pixels, width, height, dab, params, None);
+}
+
+/// Stamp one dab, sampling `source` for the modes that read other pixels.
+///
+/// A source-reading mode with no snapshot leaves the pixel alone rather than
+/// guessing: a blur that cannot see its neighbours has nothing to average.
+pub fn stamp_dab_rgba_from(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    dab: Dab,
+    params: &BrushParams,
+    source: Option<DabSource<'_>>,
+) {
     let params = params.clamped();
     if width == 0 || height == 0 || pixels.len() < (width * height * 4) as usize {
         return;
@@ -304,6 +520,7 @@ pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, para
         alpha,
         use_noise,
         tex_s,
+        source,
     };
     for y in y0..=y1 {
         for x in x0..=x1 {
@@ -313,7 +530,7 @@ pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, para
 }
 
 #[derive(Clone, Copy)]
-struct DabStamp {
+struct DabStamp<'a> {
     cx: f32,
     cy: f32,
     radius: f32,
@@ -321,6 +538,8 @@ struct DabStamp {
     alpha: f32,
     use_noise: bool,
     tex_s: f32,
+    /// Pixels a source-reading mode samples; `None` for the rest.
+    source: Option<DabSource<'a>>,
 }
 
 fn stamp_dab_pixel(
@@ -328,7 +547,7 @@ fn stamp_dab_pixel(
     width: u32,
     x: i32,
     y: i32,
-    stamp: DabStamp,
+    stamp: DabStamp<'_>,
     params: &BrushParams,
 ) {
     let dx = x as f32 + 0.5 - stamp.cx;
@@ -343,10 +562,133 @@ fn stamp_dab_pixel(
         return;
     }
     let idx = ((y as u32 * width + x as u32) * 4) as usize;
-    if params.eraser {
-        stamp_erase_pixel(pixels, idx, cover);
-    } else {
-        stamp_paint_pixel(pixels, idx, cover, params);
+    match params.mode {
+        DabMode::Erase => stamp_erase_pixel(pixels, idx, cover),
+        DabMode::Paint => stamp_paint_pixel(pixels, idx, cover, params),
+        // Every other mode transforms the pixel that is already there, so it
+        // computes a target colour and the same `over` handles the coverage.
+        mode => {
+            let Some(target) = retouch_target(mode, pixels, idx, stamp, x, y, width) else {
+                return;
+            };
+            blend_toward(pixels, idx, cover, target);
+        }
+    }
+}
+
+/// The colour a retouch mode wants at this pixel, or `None` when it cannot
+/// answer — a source-reading mode with no snapshot, or a sample off the edge.
+fn retouch_target(
+    mode: DabMode,
+    pixels: &[u8],
+    idx: usize,
+    stamp: DabStamp<'_>,
+    x: i32,
+    y: i32,
+    width: u32,
+) -> Option<[f32; 3]> {
+    let here = [
+        f32::from(pixels[idx]) / 255.0,
+        f32::from(pixels[idx + 1]) / 255.0,
+        f32::from(pixels[idx + 2]) / 255.0,
+    ];
+    match mode {
+        DabMode::Paint | DabMode::Erase => None,
+        DabMode::Dodge => Some(here.map(|v| v + (1.0 - v) * DODGE_BURN_STRENGTH)),
+        DabMode::Burn => Some(here.map(|v| v * (1.0 - DODGE_BURN_STRENGTH))),
+        DabMode::Sponge => {
+            // Away from the pixel's own luma: saturating is pushing each
+            // channel further from grey, which needs no colour of its own.
+            let luma = 0.299 * here[0] + 0.587 * here[1] + 0.114 * here[2];
+            Some(here.map(|v| (luma + (v - luma) * (1.0 + SPONGE_STRENGTH)).clamp(0.0, 1.0)))
+        }
+        DabMode::Blur | DabMode::Sharpen => {
+            let source = stamp.source?;
+            let mean = neighbourhood_mean(source.pixels, width, x, y)?;
+            Some(match mode {
+                DabMode::Blur => mean,
+                // Push away from the local mean by the same amount blur would
+                // move toward it, so the two are each other's opposite.
+                _ => std::array::from_fn(|c| {
+                    (here[c] + (here[c] - mean[c]) * SHARPEN_STRENGTH).clamp(0.0, 1.0)
+                }),
+            })
+        }
+        DabMode::Smudge | DabMode::Clone => {
+            let source = stamp.source?;
+            sample_rgb(
+                source.pixels,
+                width,
+                x + source.offset.0,
+                y + source.offset.1,
+            )
+        }
+    }
+}
+
+/// How far a single dodge or burn dab moves a pixel toward its extreme.
+const DODGE_BURN_STRENGTH: f32 = 0.25;
+/// How far a single sponge dab pushes a pixel away from its own luma.
+const SPONGE_STRENGTH: f32 = 0.25;
+/// How far a sharpen dab pushes past the neighbourhood mean.
+const SHARPEN_STRENGTH: f32 = 1.0;
+
+/// Mean RGB of the 3×3 neighbourhood, `None` when the centre is off-buffer.
+fn neighbourhood_mean(pixels: &[u8], width: u32, x: i32, y: i32) -> Option<[f32; 3]> {
+    let mut sum = [0.0_f32; 3];
+    let mut n = 0.0_f32;
+    for oy in -1..=1 {
+        for ox in -1..=1 {
+            if let Some(rgb) = sample_rgb(pixels, width, x + ox, y + oy) {
+                for c in 0..3 {
+                    sum[c] += rgb[c];
+                }
+                n += 1.0;
+            }
+        }
+    }
+    if n < 1.0 {
+        return None;
+    }
+    Some(sum.map(|v| v / n))
+}
+
+/// Read one pixel's RGB, `None` outside the buffer.
+fn sample_rgb(pixels: &[u8], width: u32, x: i32, y: i32) -> Option<[f32; 3]> {
+    if x < 0 || y < 0 || width == 0 {
+        return None;
+    }
+    let idx = (y as usize)
+        .checked_mul(width as usize)?
+        .checked_add(x as usize)?
+        .checked_mul(4)?;
+    if x as u32 >= width || idx + 3 >= pixels.len() {
+        return None;
+    }
+    Some([
+        f32::from(pixels[idx]) / 255.0,
+        f32::from(pixels[idx + 1]) / 255.0,
+        f32::from(pixels[idx + 2]) / 255.0,
+    ])
+}
+
+/// Move the pixel toward `target` by `cover`, leaving its alpha alone.
+///
+/// Retouch modes rework what is already there rather than laying new coverage
+/// over it, so a fully transparent pixel stays transparent.
+fn blend_toward(pixels: &mut [u8], idx: usize, cover: f32, target: [f32; 3]) {
+    let t = cover.clamp(0.0, 1.0);
+    for c in 0..3 {
+        let here = f32::from(pixels[idx + c]) / 255.0;
+        let out = here + (target[c] - here) * t;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "RGB byte after clamp"
+        )]
+        {
+            pixels[idx + c] = (out.clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
     }
 }
 
@@ -415,13 +757,192 @@ pub fn paint_dabs_rgba(
     dabs: &[Dab],
     params: &BrushParams,
 ) {
+    paint_dabs_rgba_from(pixels, width, height, dabs, params, None);
+}
+
+/// Stamp many dabs, sampling `source` for the modes that read other pixels.
+pub fn paint_dabs_rgba_from(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    dabs: &[Dab],
+    params: &BrushParams,
+    source: Option<DabSource<'_>>,
+) {
     for dab in dabs {
-        stamp_dab_rgba(pixels, width, height, *dab, params);
+        stamp_dab_rgba_from(pixels, width, height, *dab, params, source);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    /// A mid-toned square with a fine chequer, so every retouch mode has room
+    /// to move in either direction *and* a neighbourhood that differs from the
+    /// pixel at its centre — a flat fill has nothing for blur to average.
+    fn grey_layer(w: u32, h: u32) -> Vec<u8> {
+        let mut px = vec![0_u8; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let o = ((y * w + x) * 4) as usize;
+                let lift = if (x + y).is_multiple_of(2) { 24 } else { 0 };
+                px[o..o + 4].copy_from_slice(&[128 + lift, 110 + lift, 90 + lift, 255]);
+            }
+        }
+        px
+    }
+
+    /// The RGB of one pixel, for assertions that name a colour rather than
+    /// printing a thousand bytes.
+    fn pixel(px: &[u8], w: u32, x: u32, y: u32) -> [u8; 3] {
+        let o = ((y * w + x) * 4) as usize;
+        [px[o], px[o + 1], px[o + 2]]
+    }
+
+    fn retouch_params(mode: DabMode) -> BrushParams {
+        BrushParams {
+            size: 8.0,
+            hardness: 1.0,
+            mode,
+            opacity: 1.0,
+            flow: 1.0,
+            ..BrushParams::default()
+        }
+    }
+
+    /// Every mode must move a pixel, or it is a tool that does nothing.
+    #[test]
+    fn every_dab_mode_changes_the_pixel_under_it() {
+        const W: u32 = 16;
+        const H: u32 = 16;
+        for mode in DabMode::ALL {
+            let before = grey_layer(W, H);
+            let mut after = before.clone();
+            // Clone and smudge need somewhere to read *from*, so the source
+            // carries an offset onto a differently coloured column.
+            let mut source_pixels = before.clone();
+            for y in 0..H {
+                let o = ((y * W) * 4) as usize;
+                source_pixels[o..o + 4].copy_from_slice(&[240, 20, 20, 255]);
+            }
+            let source = Some(DabSource {
+                pixels: &source_pixels,
+                offset: (-8, 0),
+            });
+            let dab = Dab {
+                x: 8.0,
+                y: 8.0,
+                radius: 4.0,
+                pressure: 1.0,
+            };
+            stamp_dab_rgba_from(&mut after, W, H, dab, &retouch_params(mode), source);
+            assert_ne!(
+                pixel(&before, W, 8, 8),
+                pixel(&after, W, 8, 8),
+                "{} left the pixel under the dab untouched",
+                mode.as_str()
+            );
+        }
+    }
+
+    /// Dodge lightens and burn darkens — opposite directions, or one of them
+    /// is mislabelled.
+    #[test]
+    fn dodge_lightens_and_burn_darkens() {
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let dab = Dab {
+            x: 8.0,
+            y: 8.0,
+            radius: 4.0,
+            pressure: 1.0,
+        };
+        let base = pixel(&grey_layer(W, H), W, 8, 8);
+
+        let mut lighter = grey_layer(W, H);
+        stamp_dab_rgba(&mut lighter, W, H, dab, &retouch_params(DabMode::Dodge));
+        assert!(
+            pixel(&lighter, W, 8, 8)[0] > base[0],
+            "dodge did not lighten"
+        );
+
+        let mut darker = grey_layer(W, H);
+        stamp_dab_rgba(&mut darker, W, H, dab, &retouch_params(DabMode::Burn));
+        assert!(pixel(&darker, W, 8, 8)[0] < base[0], "burn did not darken");
+    }
+
+    /// A source-reading mode with no snapshot leaves the pixels alone rather
+    /// than guessing: a blur that cannot see its neighbours has nothing to
+    /// average, and inventing an answer is worse than declining.
+    #[test]
+    fn a_source_reading_mode_without_a_source_does_nothing() {
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let dab = Dab {
+            x: 8.0,
+            y: 8.0,
+            radius: 4.0,
+            pressure: 1.0,
+        };
+        for mode in DabMode::ALL.into_iter().filter(|m| m.reads_source()) {
+            let before = grey_layer(W, H);
+            let mut after = before.clone();
+            stamp_dab_rgba(&mut after, W, H, dab, &retouch_params(mode));
+            assert_eq!(
+                pixel(&before, W, 8, 8),
+                pixel(&after, W, 8, 8),
+                "{} painted without a source",
+                mode.as_str()
+            );
+        }
+    }
+
+    /// Retouching reworks what is there; it does not lay down coverage. A
+    /// transparent pixel has nothing to rework and must stay transparent.
+    #[test]
+    fn retouching_never_adds_alpha() {
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let dab = Dab {
+            x: 8.0,
+            y: 8.0,
+            radius: 4.0,
+            pressure: 1.0,
+        };
+        for mode in DabMode::ALL {
+            if matches!(mode, DabMode::Paint | DabMode::Erase) {
+                continue;
+            }
+            let empty = vec![0_u8; (W * H * 4) as usize];
+            let mut after = empty.clone();
+            let source = DabSource {
+                pixels: &empty,
+                offset: (0, 0),
+            };
+            stamp_dab_rgba_from(&mut after, W, H, dab, &retouch_params(mode), Some(source));
+            let centre = ((8 * W + 8) * 4 + 3) as usize;
+            assert_eq!(after[centre], 0, "{} added alpha", mode.as_str());
+        }
+    }
+
+    /// Modes and retouch tools are one list seen from two sides; a mode with a
+    /// tool id nothing selects is a mode nobody can reach.
+    #[test]
+    fn every_mode_round_trips_through_its_tool_and_wire_name() {
+        let mut ids = Vec::new();
+        for mode in DabMode::ALL {
+            assert_eq!(DabMode::parse(mode.as_str()), Some(mode));
+            assert_eq!(DabMode::for_tool(mode.tool_id()), mode);
+            assert!(!mode.tool_title().is_empty());
+            assert!(!mode.shortcut().is_empty());
+            assert!(!ids.contains(&mode.tool_id()), "{mode:?} reuses a tool id");
+            ids.push(mode.tool_id());
+        }
+        assert_eq!(DabMode::parse("nonsense"), None);
+        // An unknown tool paints, because a tool with no mode of its own
+        // paints when it paints at all.
+        assert_eq!(DabMode::for_tool("tool.zoom"), DabMode::Paint);
+    }
+
     use super::*;
 
     /// Gaps between dab edges, in units of the local dab diameter. A stroke
@@ -660,7 +1181,7 @@ mod tests {
         let params = BrushParams {
             size: 12.0,
             hardness: 1.0,
-            eraser: true,
+            mode: DabMode::Erase,
             opacity: 1.0,
             flow: 1.0,
             ..Default::default()

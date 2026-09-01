@@ -107,6 +107,7 @@ mod tests {
     use super::*;
     fn dab_at(x: f32, y: f32, radius_px: f32) -> StampRequest {
         StampRequest {
+            source_offset: (0, 0),
             x,
             y,
             radius_px,
