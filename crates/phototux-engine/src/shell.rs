@@ -55,6 +55,14 @@ pub struct ToolDescriptor {
 }
 
 /// Built-in panel set shipped with the desktop shell.
+///
+/// Every entry here must be a panel the shell actually draws — a test holds the
+/// two in agreement. `panel.paths` and `panel.character` used to be declared
+/// here and rendered nowhere, so the Window menu offered two toggles that
+/// changed the persisted workspace and put nothing on screen. Their content
+/// lives as the `inspector.path` and `inspector.text` disclosure groups in
+/// Properties; promoting either to a dock of its own is a separate piece of
+/// work, and this list is where it would start.
 pub fn default_panels() -> Vec<PanelDescriptor> {
     vec![
         PanelDescriptor {
@@ -86,18 +94,6 @@ pub fn default_panels() -> Vec<PanelDescriptor> {
             title: "History".into(),
             default_region: "right".into(),
             visible_by_default: true,
-        },
-        PanelDescriptor {
-            id: "panel.paths".into(),
-            title: "Paths".into(),
-            default_region: "right".into(),
-            visible_by_default: false,
-        },
-        PanelDescriptor {
-            id: "panel.character".into(),
-            title: "Character".into(),
-            default_region: "right".into(),
-            visible_by_default: false,
         },
     ]
 }

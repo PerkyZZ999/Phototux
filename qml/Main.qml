@@ -511,22 +511,22 @@ ApplicationWindow {
             return AppSession.prefShowRulers
         case "action.view.toggle-snap":
             return AppSession.prefSnap
-        case "action.window.panel-navigator":
-        case "action.window.panel-swatches":
-        case "action.window.panel-layers":
-        case "action.window.panel-history":
-        case "action.window.panel-properties":
-        case "action.window.panel-paths":
-        case "action.window.panel-character":
-            // Every Window-menu panel toggle reads the one registry map, so a
-            // new panel needs no case of its own.
-            return root.panelIsVisible(actionId.replace("action.window.panel-",
-                                                        "panel."))
         case "action.layer.toggle-clip":
             return root.activeLayerClips
-        default:
-            return false
         }
+        // Every Window-menu panel toggle reads the one registry map, so a new
+        // panel needs no case of its own. It used to say that above a list of
+        // seven cases, two of which named panels this shell does not draw.
+        if (actionId.indexOf(root.panelActionPrefix) === 0)
+            return root.panelIsVisible(root.panelIdForAction(actionId))
+        return false
+    }
+
+    /// Window-menu panel toggles share this id prefix; see `panel_action_id`.
+    readonly property string panelActionPrefix: "action.window.panel-"
+
+    function panelIdForAction(actionId) {
+        return "panel." + actionId.substring(root.panelActionPrefix.length)
     }
 
     function applyCheckableAction(actionId, checked) {
@@ -543,21 +543,14 @@ ApplicationWindow {
         case "action.view.toggle-snap":
             AppSession.setSnapEnabled(checked)
             break
-        case "action.window.panel-navigator":
-        case "action.window.panel-swatches":
-        case "action.window.panel-layers":
-        case "action.window.panel-history":
-        case "action.window.panel-properties":
-        case "action.window.panel-paths":
-        case "action.window.panel-character":
-            AppSession.setPanelVisible(
-                        actionId.replace("action.window.panel-", "panel."), checked)
-            break
         case "action.layer.toggle-clip":
             AppSession.setClipsToBelowOnActive(checked)
             break
         default:
-            AppSession.invokeAction(actionId)
+            if (actionId.indexOf(root.panelActionPrefix) === 0)
+                AppSession.setPanelVisible(root.panelIdForAction(actionId), checked)
+            else
+                AppSession.invokeAction(actionId)
             break
         }
     }

@@ -10,6 +10,26 @@ The central rule is:
 
 > Users manipulate document objects through semantic actions presented in context. Views reveal state; they do not become state owners.
 
+## Panel Vocabulary
+
+`default_panels()` is the list of panels, and every entry must be one the shell
+actually draws. A test reads `qml/Main.qml` for the `panelShowsInDock` call
+naming each id and fails when one has no dock — the same shape as the test that
+holds submenus to the shell.
+
+That gap was real: `panel.paths` and `panel.character` were declared, offered as
+Window-menu toggles, and rendered nowhere. Toggling one changed the persisted
+workspace and put nothing on screen, with no feedback of any kind. Their content
+lives as the `inspector.path` and `inspector.text` disclosure groups in
+Properties; promoting either to a dock of its own is separate work, and
+`default_panels()` is where it would start.
+
+The Window menu's panel toggles are generated from that same list rather than
+written out beside it, so a panel cannot be offered unless it is declared, and
+cannot be declared unless it is drawn. The shell routes them by id prefix rather
+than by enumerating cases — it used to carry a comment saying "a new panel needs
+no case of its own" directly above seven such cases.
+
 ## Panel Placement
 
 Panels go where Photoshop puts them. The reasoning is not deference: panel

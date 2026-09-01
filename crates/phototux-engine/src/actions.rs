@@ -104,6 +104,12 @@ fn filter_action_id(kind: &str) -> String {
     format!("action.filter.{kind}")
 }
 
+/// Action id for one panel's Window-menu toggle: `panel.layers` →
+/// `action.window.panel-layers`.
+fn panel_action_id(panel_id: &str) -> String {
+    format!("action.window.{}", panel_id.replace('.', "-"))
+}
+
 /// Action id for one align-or-distribute entry.
 fn align_action_id(key: &str) -> String {
     format!("action.layer.align-{key}")
@@ -544,47 +550,6 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("inspector.collapse_all")
         .icon("arrows-in-line-vertical"),
         // Window
-        act(
-            "action.window.panel-navigator",
-            "Navigator",
-            "window",
-            "always",
-        )
-        .command(command_id::WORKSPACE_TOGGLE_PANEL)
-        .arg("panel.navigator"),
-        act(
-            "action.window.panel-swatches",
-            "Swatches",
-            "window",
-            "always",
-        )
-        .command(command_id::WORKSPACE_TOGGLE_PANEL)
-        .arg("panel.swatches"),
-        act("action.window.panel-layers", "Layers", "window", "always")
-            .command(command_id::WORKSPACE_TOGGLE_PANEL)
-            .arg("panel.layers"),
-        act("action.window.panel-history", "History", "window", "always")
-            .command(command_id::WORKSPACE_TOGGLE_PANEL)
-            .arg("panel.history"),
-        act(
-            "action.window.panel-properties",
-            "Properties",
-            "window",
-            "always",
-        )
-        .command(command_id::WORKSPACE_TOGGLE_PANEL)
-        .arg("panel.properties"),
-        act("action.window.panel-paths", "Paths", "window", "always")
-            .command(command_id::WORKSPACE_TOGGLE_PANEL)
-            .arg("panel.paths"),
-        act(
-            "action.window.panel-character",
-            "Character",
-            "window",
-            "always",
-        )
-        .command(command_id::WORKSPACE_TOGGLE_PANEL)
-        .arg("panel.character"),
         act("action.window.reset", "Reset Workspace", "window", "always")
             .command(command_id::WORKSPACE_RESET),
         act(
@@ -706,6 +671,23 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .arg(&tool.id)
         .key(&tool.shortcut)
         .icon(&tool.icon_key)
+    }));
+    // One Window-menu toggle per panel, generated from the panel vocabulary.
+    //
+    // These were seven hand-written entries restating `default_panels()`, and
+    // two of them named panels the shell does not draw — so the menu offered
+    // toggles that changed the persisted workspace and put nothing on screen.
+    // Generating them means a panel cannot be offered unless it is declared,
+    // and a companion test means it cannot be declared unless it is drawn.
+    actions.extend(crate::default_panels().into_iter().map(|panel| {
+        act(
+            &panel_action_id(&panel.id),
+            &panel.title,
+            "window",
+            "always",
+        )
+        .command(command_id::WORKSPACE_TOGGLE_PANEL)
+        .arg(&panel.id)
     }));
     // Align and Distribute, generated from `AlignOp`. Two submenus rather
     // than one, and directly under Layer, because that is where Photoshop
@@ -1244,6 +1226,66 @@ mod tests {
     /// A submenu the engine declares must be declared by the shell too. QML
     /// builds each menu from an explicit `actionsForMenu` call, so a submenu
     /// nobody instantiates is a set of actions with no way in.
+    /// A declared panel the shell does not draw is a menu entry that lies.
+    ///
+    /// `panel.paths` and `panel.character` were exactly that: declared here,
+    /// offered as Window-menu toggles, rendered nowhere. Toggling one changed
+    /// the persisted workspace and put nothing on screen, with no feedback of
+    /// any kind. The shell names the panels it draws in `panelShowsInDock`
+    /// calls, which is the only place that fact exists, so this reads them.
+    #[test]
+    fn every_declared_panel_is_drawn_by_the_qml_shell() {
+        let shell =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/Main.qml"))
+                .expect("qml/Main.qml is readable from the engine crate");
+        for panel in crate::default_panels() {
+            assert!(
+                shell.contains(&format!("panelShowsInDock(\"{}\")", panel.id)),
+                "{} is declared by the engine and drawn by no dock",
+                panel.id
+            );
+        }
+    }
+
+    #[test]
+    fn every_panel_has_exactly_one_window_menu_toggle() {
+        let toggles: Vec<&ActionDescriptor> = action_table()
+            .iter()
+            .filter(|a| a.command_id.as_deref() == Some(command_id::WORKSPACE_TOGGLE_PANEL))
+            .collect();
+        let panels = crate::default_panels();
+        assert_eq!(
+            toggles.len(),
+            panels.len(),
+            "the Window menu and the panel vocabulary disagree on how many panels exist"
+        );
+        for panel in &panels {
+            assert!(
+                toggles
+                    .iter()
+                    .any(|a| a.arg.as_deref() == Some(panel.id.as_str())),
+                "{} has no Window-menu toggle",
+                panel.id
+            );
+        }
+    }
+
+    #[test]
+    fn panel_toggle_ids_match_the_ones_that_shipped() {
+        // The shell switches on these literally, and a renamed action id drops
+        // a user's custom shortcut for it without saying so.
+        for (panel, action) in [
+            ("panel.layers", "action.window.panel-layers"),
+            ("panel.properties", "action.window.panel-properties"),
+            ("panel.navigator", "action.window.panel-navigator"),
+            ("panel.swatches", "action.window.panel-swatches"),
+            ("panel.history", "action.window.panel-history"),
+        ] {
+            assert_eq!(panel_action_id(panel), action);
+            assert!(action_by_id(action).is_some(), "{action} is missing");
+        }
+    }
+
     #[test]
     fn every_submenu_is_declared_by_the_qml_shell() {
         let shell =
