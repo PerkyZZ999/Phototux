@@ -830,3 +830,133 @@ fn a_single_layer_aligns_to_the_canvas() {
     let (dx, _) = translation(&s, ids[0]);
     assert!((dx - (1280.0 - 200.0) / 2.0).abs() < 0.5, "dx was {dx}");
 }
+
+// —— Blend If ——
+
+fn blend_if_of(s: &SessionState) -> crate::BlendIf {
+    let graph = s.graph.as_ref().expect("graph");
+    graph
+        .get(graph.active_id().expect("active"))
+        .expect("layer")
+        .blend_if
+}
+
+#[test]
+fn setting_blend_ranges_records_one_undo_entry_per_gesture() {
+    let (mut s, _) = session_with_layers(0);
+    let mut wanted = crate::BlendIf {
+        channel: crate::BlendIfChannel::Red,
+        this_layer: crate::BlendRange::from_stops([0.1, 0.2, 0.9, 1.0]),
+        underlying: crate::BlendRange::FULL,
+    };
+    s.invoke(
+        command_id::LAYER_SET_BLEND_IF,
+        CommandArgs::SetBlendIf { blend_if: wanted },
+    )
+    .expect("set blend if");
+    assert_eq!(blend_if_of(&s), wanted);
+
+    // A drag arrives as a run of commands. They must fold into the entry
+    // already on the stack, or one drag fills the timeline.
+    let before = s.history.rows_newest_first().len();
+    for step in 1..=5 {
+        wanted.this_layer.black_end = 0.2 + step as f32 * 0.05;
+        s.invoke(
+            command_id::LAYER_SET_BLEND_IF,
+            CommandArgs::SetBlendIf { blend_if: wanted },
+        )
+        .expect("drag step");
+    }
+    assert_eq!(
+        s.history.rows_newest_first().len(),
+        before,
+        "a slider drag stacked one history entry per step"
+    );
+
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+    assert!(
+        blend_if_of(&s).is_identity(),
+        "one undo must return to the ranges the gesture started from"
+    );
+}
+
+#[test]
+fn out_of_order_stops_are_sorted_before_they_reach_the_document() {
+    // The panel has four handles per range and does not stop them crossing;
+    // a stored range that inverts itself would hide the whole layer.
+    let (mut s, _) = session_with_layers(0);
+    s.invoke(
+        command_id::LAYER_SET_BLEND_IF,
+        CommandArgs::SetBlendIf {
+            blend_if: crate::BlendIf {
+                channel: crate::BlendIfChannel::Gray,
+                this_layer: crate::BlendRange::from_stops([0.9, 0.7, 0.3, 0.1]),
+                underlying: crate::BlendRange::FULL,
+            },
+        },
+    )
+    .expect("set blend if");
+    assert_eq!(
+        blend_if_of(&s).this_layer.stops(),
+        [0.1, 0.3, 0.7, 0.9],
+        "the stops reached the layer out of order"
+    );
+}
+
+#[test]
+fn setting_the_ranges_a_layer_already_has_is_refused() {
+    let (mut s, _) = session_with_layers(0);
+    let err = s
+        .invoke(
+            command_id::LAYER_SET_BLEND_IF,
+            CommandArgs::SetBlendIf {
+                blend_if: crate::BlendIf::default(),
+            },
+        )
+        .expect_err("an unchanged edit must not reach history");
+    assert!(matches!(err, CommandError::Rejected(_)), "{err:?}");
+}
+
+#[test]
+fn blend_ranges_survive_a_document_round_trip() {
+    // The field is `#[serde(default)]` so older documents still open; that
+    // also means a typo in the field name would round-trip as the default
+    // rather than failing, which is why this asserts the value came back.
+    let (mut s, _) = session_with_layers(0);
+    let wanted = crate::BlendIf {
+        channel: crate::BlendIfChannel::Blue,
+        this_layer: crate::BlendRange::from_stops([0.0, 0.25, 0.5, 0.75]),
+        underlying: crate::BlendRange::from_stops([0.1, 0.1, 1.0, 1.0]),
+    };
+    s.invoke(
+        command_id::LAYER_SET_BLEND_IF,
+        CommandArgs::SetBlendIf { blend_if: wanted },
+    )
+    .expect("set blend if");
+    let graph = s.graph.as_ref().expect("graph");
+    let json = serde_json::to_string(graph).expect("serialize");
+    let back: crate::DocumentGraph = serde_json::from_str(&json).expect("deserialize");
+    let id = graph.active_id().expect("active");
+    assert_eq!(back.get(id).expect("layer").blend_if, wanted);
+}
+
+#[test]
+fn a_layer_written_before_blend_if_existed_opens_with_no_ranges() {
+    let (s, _) = session_with_layers(0);
+    let graph = s.graph.as_ref().expect("graph");
+    let id = graph.active_id().expect("active");
+    let layer = graph.get(id).expect("layer");
+    let mut value = serde_json::to_value(layer).expect("serialize layer");
+    // Strip the field the way a document from an older build would lack it.
+    value
+        .as_object_mut()
+        .expect("layer object")
+        .remove("blend_if")
+        .expect("the field must be there to strip");
+    let back: crate::Layer = serde_json::from_value(value).expect("deserialize");
+    assert!(
+        back.blend_if.is_identity(),
+        "a layer with no blend ranges must open hiding nothing"
+    );
+}

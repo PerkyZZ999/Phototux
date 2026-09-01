@@ -13,7 +13,7 @@ Registered in `phototux_engine::command_id` and exercised via `SessionState::inv
 | Family | IDs |
 | --- | --- |
 | History | `history.undo`, `history.redo`, `history.jump` |
-| Layer | `layer.create`, `layer.create-fill`, `layer.set-fill-color`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.ungroup`, `layer.set-clip`, `layer.set-locks`, `layer.align` |
+| Layer | `layer.create`, `layer.create-fill`, `layer.set-fill-color`, `layer.delete`, `layer.set-active`, `layer.set-visibility`, `layer.set-opacity`, `layer.set-blend`, `layer.reorder`, `layer.group`, `layer.ungroup`, `layer.set-clip`, `layer.set-locks`, `layer.align`, `layer.set-blend-if` |
 | View | `view.zoom-to`, `view.zoom-to-fit`, `view.pan-to`, `view.pan-by`, `view.zoom-at`, `view.set-tool` |
 | Document | `document.new-preset`, `document.new-size`, `document.assign-profile`, `document.convert-profile`, `document.set-icc`, `document.set-soft-proof`, `document.crop`, `document.rotate-90` |
 | Selection | `selection.replace`, `selection.deselect`, `selection.invert`, `selection.select-all`, `selection.modify`, `selection.color-select`, `selection.to-mask` |
@@ -99,6 +99,7 @@ Sub-families:
 | Persistence | `document.save`, `document.save-as`, `document.revert` | Staged writes ([27](../27-File-Formats.md)) |
 | Layer structure | `layer.create`, `layer.delete`, `layer.reorder`, `layer.group`, `layer.ungroup` | Stable object IDs |
 | Layer placement | `layer.align` | One entry per gesture; a group moves as one object |
+| Layer blend ranges | `layer.set-blend-if` | Mergeable: a handle drag is one entry |
 | Layer attributes | `layer.set-opacity`, `layer.set-blend`, `layer.set-visibility`, `layer.set-lock` | Compositing inputs |
 | Raster edit | `raster.paint-stroke`, `raster.fill`, `raster.clear`, `raster.transform` | Tile-aware transactions |
 | Selection | `selection.replace`, `selection.union`, `selection.invert`, `selection.deselect` | Object vs pixel selection distinct |

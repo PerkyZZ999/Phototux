@@ -171,6 +171,7 @@ mod tests {
             visible: true,
             opacity: 1.0,
             blend: BlendMode::Normal,
+            blend_if: Default::default(),
             rgba: &buf,
         }];
         let snap = pubr

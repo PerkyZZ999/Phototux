@@ -22,6 +22,11 @@ pub const GRAPH_SCHEMA_VERSION: u32 = 3;
 pub struct DocumentGraph {
     pub schema_version: u32,
     /// Stable document identity for recovery / session.
+    ///
+    /// A `u128` wider than `u64::MAX`, which `serde_json::Value` cannot hold —
+    /// `to_value` on a graph fails with "number out of range". `.ptx` is
+    /// unaffected because it goes through `to_string`/`from_str`, which carry
+    /// the full width; only a detour through `Value` would truncate it.
     pub document_id: u128,
     pub size: DocumentSize,
     layers: Vec<Layer>,
@@ -349,6 +354,19 @@ impl DocumentGraph {
         let layer = self.get_mut(id)?;
         let prev = layer.mask.clone();
         layer.mask = mask;
+        self.bump();
+        Some(prev)
+    }
+
+    /// Replace a layer's blend ranges, returning the ones it had.
+    pub fn set_blend_if(
+        &mut self,
+        id: LayerId,
+        blend_if: crate::BlendIf,
+    ) -> Option<crate::BlendIf> {
+        let layer = self.get_mut(id)?;
+        let prev = layer.blend_if;
+        layer.blend_if = blend_if;
         self.bump();
         Some(prev)
     }

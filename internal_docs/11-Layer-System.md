@@ -280,6 +280,43 @@ Transform records state matrix convention, pivot semantics, interpolation policy
 
 Changing parent normally preserves either local transform or document-space appearance according to explicit command parameter. Drag-and-drop presentation must state which policy applies. Reparent preserving appearance computes a new local transform transactionally and rejects numeric instability.
 
+### Blend If
+
+A layer carries two four-stop ranges and the channel they read. The first hides
+the layer where *its own* pixels fall outside the range; the second hides it
+where the composite *underneath* falls outside. Each range is an independent
+reason to hide a pixel, so the two multiply.
+
+Four stops per range rather than two: with two, a range is a hard cut and the
+edge it leaves is aliased. The inner pair give the cut a ramp — Photoshop's
+split slider handles. A range whose stops coincide is still a hard cut, so
+nothing is lost by always carrying four, and an unsplit handle is the common
+case rather than a degenerate one.
+
+The two ends break their boundary tie in opposite directions, and that is the
+whole behaviour at a coincident pair: a pixel sitting exactly *on* a threshold
+is shown, at both ends. The dark ramp therefore tests its upper stop first and
+the light ramp tests its lower stop first. Getting either backwards makes the
+default range — whose black stops are both `0` and whose white stops are both
+`1` — hide pure black or pure white, on any layer whose other range is in use.
+
+Stops are stored normalised (`0..=1`) and sorted ascending. Sorting rather than
+rejecting, because the four values are four slider handles: dragging the white
+pair past the black pair means "swap them", not "refuse the drag". Sorting on
+the way into the command also covers values arriving from a file.
+
+`BlendIf::coverage` in `phototux_engine` is the reference the WGSL mirrors, and
+a device fixture composites a tonal ramp over a tonal ramp to hold the two
+together across every range shape the chrome can produce. Coverage scales the
+source's contribution exactly the way opacity does, so it multiplies into the
+same number rather than needing its own step in the blend. A layer whose ranges
+hide nothing reports channel `0`, which is the shader's "no blend range" — the
+branch costs nothing on the layers that do not use it, which is nearly all of
+them.
+
+The command is `layer.set-blend-if`, declared and implemented as mergeable, so
+dragging a handle is one history entry rather than one per step.
+
 ### Align and Distribute
 
 Aligning cannot mean aligning layer rectangles, because every raster layer in a

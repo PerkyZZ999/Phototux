@@ -92,6 +92,23 @@ ColumnLayout {
         }
     }
 
+    /// The active layer's blend ranges, on the 0–255 scale the sliders show.
+    readonly property var blendIf: {
+        try {
+            return JSON.parse(AppSession.blendIfJson || "{}")
+        } catch (e) {
+            return {}
+        }
+    }
+
+    readonly property var blendIfChannels: {
+        try {
+            return JSON.parse(AppSession.blendIfChannelsJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
+
     /// Display name of the gradient shape the tool will sweep.
     readonly property string gradientKindLabel: {
         try {
@@ -1211,6 +1228,117 @@ ColumnLayout {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Blend If — hide the layer where it, or what is under it, falls outside a
+    // channel range. Collapsed by default: eight handles would dominate the
+    // panel, and this is not the first control anyone reaches for. The two
+    // ranges are built from one component because they differ only in which
+    // pixels they read.
+    DisclosureGroup {
+        id: blendIfGroup
+        groupId: "inspector.blend-if"
+        title: qsTr("Blend If")
+        visible: AppSession.hasDocument
+        summary: root.blendIf.active ? qsTr("Active") : qsTr("Off")
+
+        component BlendRangeEditor: ColumnLayout {
+            id: rangeEditor
+            /// 0 = this layer, 1 = the underlying composite.
+            required property int side
+            required property string caption
+            required property var stops
+
+            Layout.fillWidth: true
+            spacing: 2
+
+            Label {
+                text: rangeEditor.caption
+                color: Theme.colorOnSurface
+                font.pixelSize: Theme.fontBodySm
+            }
+            Repeater {
+                model: root.blendIf.labels || []
+                delegate: RowLayout {
+                    id: stopRow
+                    required property string modelData
+                    required property int index
+
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceXs
+                    Label {
+                        text: stopRow.modelData
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabelSm
+                        Layout.preferredWidth: 74
+                    }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 255
+                        stepSize: 1
+                        value: rangeEditor.stops[stopRow.index]
+                        Accessible.name: qsTr("%1, %2")
+                                         .arg(rangeEditor.caption)
+                                         .arg(stopRow.modelData)
+                        onMoved: AppSession.setBlendIfStop(
+                                     rangeEditor.side, stopRow.index, value)
+                    }
+                    Label {
+                        text: Math.round(rangeEditor.stops[stopRow.index])
+                        color: Theme.primary
+                        font.pixelSize: Theme.fontMono
+                        font.family: "Noto Sans Mono"
+                        Layout.preferredWidth: 28
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spaceSm
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spaceXs
+                Label {
+                    text: qsTr("Channel")
+                    color: Theme.colorOnSurfaceMuted
+                    font.pixelSize: Theme.fontLabelSm
+                    Layout.preferredWidth: 74
+                }
+                ThemedComboBox {
+                    Layout.fillWidth: true
+                    model: root.blendIfChannels
+                    textRole: "label"
+                    valueRole: "id"
+                    currentIndex: Math.max(0, indexOfValue(root.blendIf.channel))
+                    Accessible.name: qsTr("Blend If channel")
+                    onActivated: AppSession.setBlendIfChannel(currentValue)
+                }
+                ChromeIconToolButton {
+                    icon.source: root.iconUrl("arrow-counter-clockwise")
+                    enabled: root.blendIf.active === true
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Reset blend ranges")
+                    Accessible.name: qsTr("Reset blend ranges")
+                    onClicked: AppSession.resetBlendIf()
+                }
+            }
+
+            BlendRangeEditor {
+                side: 0
+                caption: qsTr("This Layer")
+                stops: root.blendIf.thisLayer || [0, 0, 255, 255]
+            }
+            BlendRangeEditor {
+                side: 1
+                caption: qsTr("Underlying Layer")
+                stops: root.blendIf.underlying || [0, 0, 255, 255]
             }
         }
     }

@@ -879,6 +879,7 @@ fn composite_layers_rgba(
             visible: true,
             opacity: *opacity,
             blend: *blend,
+            blend_if: Default::default(),
             rgba: raster.pixels(),
         })
         .collect();

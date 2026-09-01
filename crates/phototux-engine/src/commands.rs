@@ -53,6 +53,7 @@ impl SessionState {
             command_id::LAYER_SET_CLIP => self.cmd_layer_set_clip(args),
             command_id::LAYER_SET_LOCKS => self.cmd_layer_set_locks(args),
             command_id::LAYER_ALIGN => self.cmd_layer_align(args),
+            command_id::LAYER_SET_BLEND_IF => self.cmd_layer_set_blend_if(args),
             command_id::VIEW_ZOOM_TO => self.cmd_view_zoom(args),
             command_id::VIEW_ZOOM_TO_FIT => {
                 self.zoom_to_fit();
@@ -393,6 +394,46 @@ impl SessionState {
         ids.sort_by_key(|id| graph.index_of(*id).unwrap_or(usize::MAX));
         ids.dedup();
         Ok(ids)
+    }
+
+    /// Replace the active layer's blend ranges.
+    ///
+    /// Declared mergeable and recorded through the coalescing push, so
+    /// dragging a slider handle is one history entry rather than one per step
+    /// — the same treatment opacity and the layer-style parameters get.
+    fn cmd_layer_set_blend_if(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::SetBlendIf { blend_if } = args else {
+            return Err(CommandError::InvalidArgument("expected blend ranges"));
+        };
+        let id = self.active_layer_id()?;
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        // Stops are sorted on the way in, so a panel that lets the white pair
+        // cross the black pair cannot store a range that inverts itself.
+        let next = crate::BlendIf {
+            channel: blend_if.channel,
+            this_layer: blend_if.this_layer.normalized(),
+            underlying: blend_if.underlying.normalized(),
+        };
+        let Some(prev) = graph.set_blend_if(id, next) else {
+            return Err(CommandError::Rejected("layer missing"));
+        };
+        if prev == next {
+            return Err(CommandError::Rejected("blend ranges unchanged"));
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        history.push_graph_mergeable(
+            crate::GraphCommand::SetBlendIf { id, prev, next },
+            "Blend If",
+            generation,
+        );
+        Ok(CommandEffects::document_edit(generation))
     }
 
     /// Align or distribute layers using boxes the host measured.

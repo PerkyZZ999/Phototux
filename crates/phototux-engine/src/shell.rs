@@ -288,6 +288,10 @@ pub fn default_disclosure_groups() -> Vec<DisclosureGroupDescriptor> {
         group("inspector.transform", "Transform and Crop", 2, true),
         group("inspector.adjustment", "Adjustment", 2, true),
         group("inspector.styles", "Layer Styles", 3, false),
+        // Level 3 and closed: Blend If is powerful and rarely the first thing
+        // anyone reaches for, and its eight handles would dominate the panel
+        // if they were open by default.
+        group("inspector.blend-if", "Blend If", 3, false),
         group("inspector.effects", "Effects", 3, false),
         group("inspector.color", "Color Management", 3, false),
         group("inspector.diagnostics", "Diagnostics", 4, false),

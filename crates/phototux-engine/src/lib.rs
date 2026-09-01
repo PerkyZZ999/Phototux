@@ -3,6 +3,7 @@
 mod actions;
 mod align;
 mod atspi_map;
+mod blend_if;
 mod brush_preset;
 mod budget_harness;
 mod camera;
@@ -57,6 +58,7 @@ pub use align::{
 pub use atspi_map::{
     AtspiProjectionNode, SemanticRole, project_semantic_tree, project_semantic_tree_json,
 };
+pub use blend_if::{BlendIf, BlendIfChannel, BlendRange, blend_if_channels_json};
 pub use brush_preset::{BrushPreset, BrushPresetLibrary};
 pub use budget_harness::{
     BudgetSample, measure_cpu_composite_8x256, measure_cpu_composite_10x512, run_soft_ci_suite,

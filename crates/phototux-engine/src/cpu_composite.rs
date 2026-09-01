@@ -13,6 +13,9 @@ pub struct CpuLayerRef<'a> {
     pub visible: bool,
     pub opacity: f32,
     pub blend: BlendMode,
+    /// Per-layer blend ranges. Default hides nothing, so a caller that does
+    /// not care can build this with `..Default::default()`.
+    pub blend_if: crate::BlendIf,
     /// Length must be `width * height * 4`.
     pub rgba: &'a [u8],
 }
@@ -65,7 +68,13 @@ pub fn composite_rgba8(
                 dst[o + 2] as f32 / 255.0,
                 dst[o + 3] as f32 / 255.0,
             ];
-            blend_over(&mut dst_px, src, opacity, layer.blend);
+            // Blend If scales the source's contribution, which is exactly
+            // what opacity does — so it multiplies into the same number
+            // rather than needing its own step in `blend_over`.
+            let coverage = layer
+                .blend_if
+                .coverage([src[0], src[1], src[2]], [dst_px[0], dst_px[1], dst_px[2]]);
+            blend_over(&mut dst_px, src, opacity * coverage, layer.blend);
             dst[o] = (dst_px[0] * 255.0).round().clamp(0.0, 255.0) as u8;
             dst[o + 1] = (dst_px[1] * 255.0).round().clamp(0.0, 255.0) as u8;
             dst[o + 2] = (dst_px[2] * 255.0).round().clamp(0.0, 255.0) as u8;
@@ -321,12 +330,14 @@ mod tests {
                     visible: true,
                     opacity: 1.0,
                     blend: BlendMode::Normal,
+                    blend_if: Default::default(),
                     rgba: &bottom,
                 },
                 CpuLayerRef {
                     visible: true,
                     opacity: 1.0,
                     blend: BlendMode::Normal,
+                    blend_if: Default::default(),
                     rgba: &top,
                 },
             ],
@@ -349,12 +360,14 @@ mod tests {
                     visible: true,
                     opacity: 1.0,
                     blend: BlendMode::Normal,
+                    blend_if: Default::default(),
                     rgba: &bottom,
                 },
                 CpuLayerRef {
                     visible: true,
                     opacity: 1.0,
                     blend: BlendMode::Multiply,
+                    blend_if: Default::default(),
                     rgba: &top,
                 },
             ],
@@ -378,12 +391,14 @@ mod tests {
                     visible: true,
                     opacity: 1.0,
                     blend: BlendMode::Normal,
+                    blend_if: Default::default(),
                     rgba: &bottom,
                 },
                 CpuLayerRef {
                     visible: false,
                     opacity: 1.0,
                     blend: BlendMode::Normal,
+                    blend_if: Default::default(),
                     rgba: &top,
                 },
             ],

@@ -67,6 +67,13 @@ pub enum GraphCommand {
         prev: bool,
         next: bool,
     },
+    /// Blend ranges — which tones of this layer, and of what is under it,
+    /// the layer is allowed to show through.
+    SetBlendIf {
+        id: LayerId,
+        prev: crate::BlendIf,
+        next: crate::BlendIf,
+    },
     /// Layer placement, written by align/distribute rather than by the gizmo.
     ///
     /// The free-transform gizmo commits by baking pixels and resetting the
@@ -177,6 +184,7 @@ impl GraphCommand {
                 graph.set_clips_to_below(*id, *next).is_some()
             }
             Self::SetTransform { id, next, .. } => graph.set_transform(*id, *next).is_some(),
+            Self::SetBlendIf { id, next, .. } => graph.set_blend_if(*id, *next).is_some(),
             Self::SetAdjustment { id, next, .. } => {
                 graph.set_adjustment(*id, next.clone()).is_some()
             }
@@ -282,6 +290,18 @@ impl GraphCommand {
                 prev: prev.clone(),
                 next: next.clone(),
             }),
+            // Blend If is four slider handles per range; a drag would
+            // otherwise leave one history entry per step of the drag.
+            (
+                Self::SetBlendIf { id, prev, .. },
+                Self::SetBlendIf {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetBlendIf {
+                id: *id,
+                prev: *prev,
+                next: *next,
+            }),
             _ => None,
         }
     }
@@ -347,6 +367,11 @@ impl GraphCommand {
                 next: *prev,
             },
             Self::SetTransform { id, prev, next } => Self::SetTransform {
+                id: *id,
+                prev: *next,
+                next: *prev,
+            },
+            Self::SetBlendIf { id, prev, next } => Self::SetBlendIf {
                 id: *id,
                 prev: *next,
                 next: *prev,

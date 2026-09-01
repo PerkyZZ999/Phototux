@@ -60,6 +60,29 @@ fn resolve_icon_root() -> String {
     "qrc:/qt/qml/PhotoTux/App/icons".to_owned()
 }
 
+/// The active layer's blend ranges, as the Properties panel reads them.
+///
+/// Stops are published as `0..=255` because that is the scale on Photoshop's
+/// Blend If sliders and the one a user reads a value back in; the engine keeps
+/// them normalised, and this is the only place the two meet.
+fn blend_if_state_json(blend_if: phototux_engine::BlendIf) -> String {
+    let stops = |range: phototux_engine::BlendRange| {
+        range
+            .stops()
+            .iter()
+            .map(|v| (v * 255.0).round())
+            .collect::<Vec<f32>>()
+    };
+    serde_json::json!({
+        "channel": blend_if.channel.as_str(),
+        "active": !blend_if.is_identity(),
+        "labels": phototux_engine::BlendRange::STOP_LABELS,
+        "thisLayer": stops(blend_if.this_layer),
+        "underlying": stops(blend_if.underlying),
+    })
+    .to_string()
+}
+
 fn local_path(value: &str) -> Result<PathBuf, String> {
     let encoded_path = if let Some(rest) = value.strip_prefix("file://") {
         if rest.starts_with('/') {
@@ -241,6 +264,8 @@ pub struct AppSession {
     filter_catalog_json: String,
     /// The active layer's styles and their editor descriptors.
     layer_styles_json: String,
+    blend_if_json: String,
+    blend_if_channels_json: String,
     /// JSON map of preference key → winning source (builtin/user/workspace/document).
     pref_effective_json: String,
     pref_safe_start_next: bool,
@@ -520,6 +545,8 @@ impl AppSession {
             adjustment_labels_json: phototux_engine::adjustment_labels_json(),
             filter_catalog_json: phototux_engine::filter_catalog_json(),
             layer_styles_json: "[]".into(),
+            blend_if_json: "{}".into(),
+            blend_if_channels_json: phototux_engine::blend_if_channels_json(),
             pref_effective_json: String::new(),
             pref_safe_start_next: false,
             pref_history_retention: 128,
@@ -992,6 +1019,8 @@ impl AppSession {
             self.set_adjustment_slot_values(&[]);
             self.has_gaussian_blur = false;
             self.gaussian_radius = 0.0;
+            let empty = blend_if_state_json(phototux_engine::BlendIf::default());
+            publish!(self, blend_if_json, empty, blend_if_json_changed);
             return;
         };
         // Copied out before publishing: the layer is borrowed from `self`, and
@@ -1004,6 +1033,8 @@ impl AppSession {
             )
         });
         let styles_json = phototux_engine::layer_styles_json(&layer.styles);
+        let blend_if = blend_if_state_json(layer.blend_if);
+        publish!(self, blend_if_json, blend_if, blend_if_json_changed);
         publish!(
             self,
             layer_styles_json,
@@ -2847,6 +2878,16 @@ impl AppSession {
         Notify = gradient_kinds_json_changed
     );
     qproperty!(
+        "blendIfJson",
+        Member = blend_if_json,
+        Notify = blend_if_json_changed
+    );
+    qproperty!(
+        "blendIfChannelsJson",
+        Member = blend_if_channels_json,
+        Notify = blend_if_channels_json_changed
+    );
+    qproperty!(
         "alignOpsJson",
         Member = align_ops_json,
         Notify = align_ops_json_changed
@@ -3531,6 +3572,10 @@ impl AppSession {
     fn filter_catalog_json_changed(&mut self);
     #[qsignal]
     fn layer_styles_json_changed(&mut self);
+    #[qsignal]
+    fn blend_if_json_changed(&mut self);
+    #[qsignal]
+    fn blend_if_channels_json_changed(&mut self);
     #[qsignal]
     fn pref_effective_json_changed(&mut self);
     #[qsignal]
@@ -6560,6 +6605,77 @@ impl AppSession {
         let _ = self.invoke_command(
             command_id::FILTER_SET_PARAMETERS,
             CommandArgs::FilterParameters { slots },
+        );
+    }
+
+    /// Move one Blend If handle, leaving the other seven alone.
+    ///
+    /// `range` is 0 for this layer and 1 for the underlying composite; `stop`
+    /// indexes `BlendRange::STOP_LABELS`. Values arrive on the 0–255 scale the
+    /// sliders show and are normalised here, which keeps the panel free of the
+    /// engine's units.
+    #[qslot]
+    fn set_blend_if_stop(&mut self, range: i32, stop: i32, value: f32) {
+        let Ok(stop) = usize::try_from(stop) else {
+            return;
+        };
+        if stop >= phototux_engine::BlendRange::STOP_LABELS.len() {
+            return;
+        }
+        let Some(mut blend_if) = self.active_blend_if() else {
+            return;
+        };
+        let target = if range == 0 {
+            &mut blend_if.this_layer
+        } else {
+            &mut blend_if.underlying
+        };
+        let mut stops = target.stops();
+        stops[stop] = (value / 255.0).clamp(0.0, 1.0);
+        *target = phototux_engine::BlendRange::from_stops(stops);
+        self.apply_blend_if(blend_if);
+    }
+
+    /// Choose which channel the blend ranges read.
+    #[qslot]
+    fn set_blend_if_channel(&mut self, channel: String) {
+        let Some(parsed) = phototux_engine::BlendIfChannel::parse(&channel) else {
+            self.set_status(format!("Unknown blend channel: {channel}"));
+            return;
+        };
+        let Some(mut blend_if) = self.active_blend_if() else {
+            return;
+        };
+        blend_if.channel = parsed;
+        self.apply_blend_if(blend_if);
+    }
+
+    /// Return the active layer to the ranges that hide nothing.
+    ///
+    /// Reachable in one click because Blend If is easy to leave half-set: two
+    /// handles nudged off their stops hide part of a layer with no other
+    /// symptom, and hunting eight sliders back to their ends is worse than a
+    /// button.
+    #[qslot]
+    fn reset_blend_if(&mut self) {
+        let Some(current) = self.active_blend_if() else {
+            return;
+        };
+        self.apply_blend_if(phototux_engine::BlendIf {
+            channel: current.channel,
+            ..Default::default()
+        });
+    }
+
+    fn active_blend_if(&self) -> Option<phototux_engine::BlendIf> {
+        let graph = self.engine.graph.as_ref()?;
+        graph.get(graph.active_id()?).map(|layer| layer.blend_if)
+    }
+
+    fn apply_blend_if(&mut self, blend_if: phototux_engine::BlendIf) {
+        let _ = self.invoke_command(
+            command_id::LAYER_SET_BLEND_IF,
+            CommandArgs::SetBlendIf { blend_if },
         );
     }
 

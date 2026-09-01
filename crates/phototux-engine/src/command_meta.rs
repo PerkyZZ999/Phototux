@@ -156,6 +156,7 @@ pub const ALL: &[CommandMeta] = &[
     doc_tx(command_id::LAYER_SET_CLIP),
     doc_tx(command_id::LAYER_SET_LOCKS),
     doc_tx(command_id::LAYER_ALIGN),
+    doc_merge(command_id::LAYER_SET_BLEND_IF),
     view_ephemeral(command_id::VIEW_ZOOM_TO),
     view_ephemeral(command_id::VIEW_ZOOM_TO_FIT),
     view_ephemeral(command_id::VIEW_PAN_TO),

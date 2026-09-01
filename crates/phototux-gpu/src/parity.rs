@@ -124,12 +124,14 @@ pub fn cpu_blend_fixture(mode: BlendMode) -> Result<Vec<u8>, String> {
                 visible: true,
                 opacity: 1.0,
                 blend: BlendMode::Normal,
+                blend_if: Default::default(),
                 rgba: &bottom,
             },
             CpuLayerRef {
                 visible: true,
                 opacity: 1.0,
                 blend: mode,
+                blend_if: Default::default(),
                 rgba: &top,
             },
         ],
@@ -161,12 +163,14 @@ pub fn cpu_blend_fixture_varied(mode: BlendMode) -> Result<Vec<u8>, String> {
                 visible: true,
                 opacity: 1.0,
                 blend: BlendMode::Normal,
+                blend_if: Default::default(),
                 rgba: &bottom,
             },
             CpuLayerRef {
                 visible: true,
                 opacity: 1.0,
                 blend: mode,
+                blend_if: Default::default(),
                 rgba: &top,
             },
         ],
@@ -291,12 +295,14 @@ mod gpu_tests {
                     visible: true,
                     opacity: 1.0,
                     blend: BlendMode::Normal,
+                    blend_if: Default::default(),
                     rgba: &bottom,
                 },
                 CpuLayerRef {
                     visible: true,
                     opacity: 1.0,
                     blend: mode,
+                    blend_if: Default::default(),
                     rgba: &top,
                 },
             ],
@@ -782,5 +788,150 @@ mod gpu_tests {
     fn gpu_cpu_sharpen_parity() {
         let (cpu, gpu) = gpu_filter_sharpen(0.8).expect("sharpen");
         assert_rgba8_within(&cpu, &gpu, 4.0, 2.0).expect("sharpen tolerance");
+    }
+
+    /// Composite a gradient over a gradient with `blend_if` on the top layer,
+    /// and hand back (CPU reference, GPU result).
+    ///
+    /// `BlendIf::coverage` is the reference the WGSL mirrors. Both inputs run
+    /// through the full tonal range so every stop in a range is exercised
+    /// somewhere in the frame — two solids would test one channel value and
+    /// pass however wrong the ramp was.
+    fn gpu_blend_if(blend_if: phototux_engine::BlendIf) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let mut graph = two_layer_graph(size);
+        let bottom_id = graph.layers()[0].id;
+        let top_id = graph.layers()[1].id;
+        if let Some(layer) = graph.get_mut(top_id) {
+            layer.blend_if = blend_if;
+        }
+        // Bottom ramps left to right, top ramps top to bottom, so every
+        // (this, underlying) pair in the tonal range appears somewhere.
+        let mut bottom = Vec::with_capacity((W * H * 4) as usize);
+        let mut top = Vec::with_capacity((W * H * 4) as usize);
+        for y in 0..H {
+            for x in 0..W {
+                let bx = ((x * 255) / (W - 1)) as u8;
+                let ty = ((y * 255) / (H - 1)) as u8;
+                bottom.extend_from_slice(&[bx, bx, bx, 255]);
+                top.extend_from_slice(&[ty, ty, ty, 255]);
+            }
+        }
+        let cpu = composite_rgba8(
+            W,
+            H,
+            &[
+                CpuLayerRef {
+                    visible: true,
+                    opacity: 1.0,
+                    blend: BlendMode::Normal,
+                    blend_if: Default::default(),
+                    rgba: &bottom,
+                },
+                CpuLayerRef {
+                    visible: true,
+                    opacity: 1.0,
+                    blend: BlendMode::Normal,
+                    blend_if,
+                    rgba: &top,
+                },
+            ],
+        )?;
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())?;
+        eng.write_layer_rgba(&ctx, bottom_id, &bottom)
+            .map_err(|e| e.to_string())?;
+        eng.write_layer_rgba(&ctx, top_id, &top)
+            .map_err(|e| e.to_string())?;
+        eng.composite(&ctx, graph.layers())?;
+        let gpu = eng.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+        Ok((cpu, gpu))
+    }
+
+    /// Every blend-if shape the chrome can produce, held to the CPU reference.
+    #[test]
+    fn gpu_cpu_blend_if_parity() {
+        use phototux_engine::{BlendIf, BlendIfChannel, BlendRange};
+        let hard = BlendRange {
+            black_start: 0.4,
+            black_end: 0.4,
+            ..BlendRange::FULL
+        };
+        let ramp = BlendRange {
+            black_start: 0.2,
+            black_end: 0.7,
+            ..BlendRange::FULL
+        };
+        let bright = BlendRange {
+            white_start: 0.3,
+            white_end: 0.8,
+            ..BlendRange::FULL
+        };
+        let cases = [
+            (
+                "this hard cut",
+                BlendIf {
+                    channel: BlendIfChannel::Gray,
+                    this_layer: hard,
+                    underlying: BlendRange::FULL,
+                },
+            ),
+            (
+                "this ramp",
+                BlendIf {
+                    channel: BlendIfChannel::Gray,
+                    this_layer: ramp,
+                    underlying: BlendRange::FULL,
+                },
+            ),
+            (
+                "underlying ramp",
+                BlendIf {
+                    channel: BlendIfChannel::Gray,
+                    this_layer: BlendRange::FULL,
+                    underlying: ramp,
+                },
+            ),
+            (
+                "both ends",
+                BlendIf {
+                    channel: BlendIfChannel::Gray,
+                    this_layer: bright,
+                    underlying: ramp,
+                },
+            ),
+            (
+                "red channel",
+                BlendIf {
+                    channel: BlendIfChannel::Red,
+                    this_layer: ramp,
+                    underlying: BlendRange::FULL,
+                },
+            ),
+            (
+                "blue channel",
+                BlendIf {
+                    channel: BlendIfChannel::Blue,
+                    this_layer: BlendRange::FULL,
+                    underlying: bright,
+                },
+            ),
+        ];
+        let baseline = gpu_blend_if(BlendIf::default()).expect("identity");
+        for (name, blend_if) in cases {
+            let (cpu, gpu) = gpu_blend_if(blend_if).expect(name);
+            assert_rgba8_within(&cpu, &gpu, 3.0, 1.0)
+                .unwrap_or_else(|e| panic!("blend if {name}: {e}"));
+            // A case that changes nothing would pass the comparison above
+            // while proving the shader never read the range at all.
+            let drift = rgba8_channel_errors(&baseline.1, &gpu).expect("vs identity");
+            assert!(
+                drift.iter().any(|e| e.mean > 1.0),
+                "blend if {name} did not change the picture"
+            );
+        }
     }
 }

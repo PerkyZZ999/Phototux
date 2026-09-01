@@ -37,6 +37,8 @@ pub mod command_id {
     /// differ only in which edge they read, and a per-operation command would
     /// need a constant, a router arm, a handler and a taxonomy row each.
     pub const LAYER_ALIGN: &str = "layer.align";
+    /// Replace the active layer's blend ranges ("Blend If").
+    pub const LAYER_SET_BLEND_IF: &str = "layer.set-blend-if";
 
     pub const VIEW_ZOOM_TO: &str = "view.zoom-to";
     pub const VIEW_ZOOM_TO_FIT: &str = "view.zoom-to-fit";
@@ -158,6 +160,7 @@ pub mod command_id {
         LAYER_SET_CLIP,
         LAYER_SET_LOCKS,
         LAYER_ALIGN,
+        LAYER_SET_BLEND_IF,
         VIEW_ZOOM_TO,
         VIEW_ZOOM_TO_FIT,
         VIEW_PAN_TO,
@@ -296,6 +299,13 @@ pub enum CommandArgs {
     AlignLayers {
         op: crate::AlignOp,
         targets: Vec<crate::AlignTarget>,
+    },
+    /// The active layer's blend ranges, whole. One argument rather than a
+    /// slot index and a value: the eight stops and the channel are read
+    /// together by the shader, and a partial update would have to reconstruct
+    /// the rest anyway.
+    SetBlendIf {
+        blend_if: crate::BlendIf,
     },
     Reorder {
         to_index: i32,

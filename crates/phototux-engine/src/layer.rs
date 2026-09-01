@@ -1453,6 +1453,11 @@ pub struct Layer {
     /// Photoshop-style clip to the nearest non-clipping layer below.
     #[serde(default)]
     pub clips_to_below: bool,
+    /// Blend ranges — hide this layer where it, or what is under it, falls
+    /// outside a channel range. `default` so documents written before this
+    /// existed open with the ranges that hide nothing.
+    #[serde(default)]
+    pub blend_if: crate::BlendIf,
     pub label_color: u8,
     pub text: Option<TextContent>,
     pub adjustment: Option<AdjustmentParams>,
@@ -1487,6 +1492,7 @@ impl Layer {
             mask: None,
             vector_mask: None,
             clips_to_below: false,
+            blend_if: crate::BlendIf::default(),
             label_color: 0,
             text: None,
             adjustment: None,

@@ -82,6 +82,7 @@ pub fn measure_cpu_composite_8x256() -> Result<BudgetSample, String> {
             visible: true,
             opacity: 1.0,
             blend: BlendMode::Normal,
+            blend_if: Default::default(),
             rgba,
         })
         .collect();

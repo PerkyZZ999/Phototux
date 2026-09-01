@@ -38,7 +38,10 @@ struct LayerParams {
     clips_to_below: u32,
     kind: u32,
     adj_op: u32,
-    _pad0: u32,
+    // Blend If's channel rides in what used to be pure padding: this struct is
+    // read once per layer per pixel at 4K, so its width is a cost, not a
+    // detail. `0` means no ranges, which is nearly every layer.
+    blend_if_channel: u32,
     p0: f32,
     p1: f32,
     p2: f32,
@@ -47,6 +50,10 @@ struct LayerParams {
     p5: f32,
     p6: f32,
     p7: f32,
+    // Four stops each, ascending: black start/end, white start/end. `p` ends on
+    // a 16-byte boundary, so these two vec4s need no padding in front of them.
+    blend_if_this: vec4<f32>,
+    blend_if_under: vec4<f32>,
 };
 
 struct Uniforms {
@@ -126,6 +133,46 @@ fn bl_set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
         return vec3<f32>(0.0);
     }
     return (c - vec3<f32>(mn)) * s / span;
+}
+
+// `0` below `lo`, `1` at and above `hi`, linear between; a step when equal.
+// Mirrors `phototux_engine::blend_if`'s `ramp_up`.
+// Dark end: 0 below `lo`, 1 at and above `hi`. Mirrors `ramp_up` in
+// `phototux_engine::blend_if`, including which test comes first — a pixel
+// exactly on a threshold is shown, and an unsplit handle is a coincident pair.
+fn bi_ramp_up(v: f32, lo: f32, hi: f32) -> f32 {
+    if (v >= hi) { return 1.0; }
+    if (v <= lo) { return 0.0; }
+    return (v - lo) / (hi - lo);
+}
+
+// Light end: 1 at and below `lo`, 0 at and above `hi`. The tie breaks the other
+// way, which is why this is not `1 - bi_ramp_up`.
+fn bi_ramp_down(v: f32, lo: f32, hi: f32) -> f32 {
+    if (v <= lo) { return 1.0; }
+    if (v >= hi) { return 0.0; }
+    return (hi - v) / (hi - lo);
+}
+
+// One four-stop range: hidden below `r.x`, hidden above `r.w`.
+fn bi_coverage(r: vec4<f32>, v: f32) -> f32 {
+    let dark = bi_ramp_up(v, r.x, r.y);
+    let light = bi_ramp_down(v, r.z, r.w);
+    return clamp(min(dark, light), 0.0, 1.0);
+}
+
+fn bi_channel(code: u32, rgb: vec3<f32>) -> f32 {
+    if (code == 2u) { return rgb.r; }
+    if (code == 3u) { return rgb.g; }
+    if (code == 4u) { return rgb.b; }
+    return 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+}
+
+// The two ranges multiply: each is an independent reason to hide the pixel.
+fn blend_if_factor(p: LayerParams, this_rgb: vec3<f32>, under_rgb: vec3<f32>) -> f32 {
+    let c = p.blend_if_channel;
+    return bi_coverage(p.blend_if_this, bi_channel(c, this_rgb))
+         * bi_coverage(p.blend_if_under, bi_channel(c, under_rgb));
 }
 
 fn blend_fn(mode: u32, b: vec3<f32>, o: vec3<f32>) -> vec3<f32> {
@@ -379,6 +426,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             over = textureSample(layers_tex, samp, src_uv, i32(i));
         }
         var oa = over.a * p.opacity * mask_f;
+        // Blend If reduces the source's contribution exactly the way opacity
+        // does, so it multiplies into the same number.
+        if (p.blend_if_channel != 0u) {
+            oa = oa * blend_if_factor(p, over.rgb, acc.rgb);
+        }
         if (p.clips_to_below != 0u) {
             oa = oa * clip_base;
         }
@@ -418,11 +470,19 @@ struct LayerParamsGpu {
     clips_to_below: u32,
     kind: u32,
     adj_op: u32,
-    _pad0: u32,
+    /// `0` when the layer has no blend ranges, which is the common case.
+    ///
+    /// In what used to be padding: this struct is read once per layer per
+    /// pixel, so at 4K across ten layers its width is measurable.
+    blend_if_channel: u32,
     // Index-aligned with `AdjustmentParams::slots`; `MAX_ADJUSTMENT_SLOTS`
     // wide, so raising that constant is a shader-layout change and fails the
     // test that pins the two together.
     p: [f32; MAX_ADJUSTMENT_SLOTS],
+    /// Four ascending stops each. `p` ends on a sixteen-byte boundary, which is
+    /// what lets these sit here with no padding — WGSL reads them as `vec4`.
+    blend_if_this: [f32; 4],
+    blend_if_under: [f32; 4],
 }
 
 #[repr(C)]
@@ -869,8 +929,10 @@ impl LayerCompositeEngine {
             clips_to_below: u32::from(layer.clips_to_below),
             kind,
             adj_op,
-            _pad0: 0,
+            blend_if_channel: layer.blend_if.gpu_channel(),
             p,
+            blend_if_this: layer.blend_if.this_layer.stops(),
+            blend_if_under: layer.blend_if.underlying.stops(),
         }
     }
 
@@ -1143,8 +1205,10 @@ impl LayerCompositeEngine {
                 clips_to_below: 0,
                 kind: 0,
                 adj_op: 0,
-                _pad0: 0,
+                blend_if_channel: 0,
                 p: [0.0; MAX_ADJUSTMENT_SLOTS],
+                blend_if_this: [0.0; 4],
+                blend_if_under: [0.0; 4],
             }; MAX_LAYERS],
         };
 
@@ -1887,6 +1951,33 @@ mod tests {
     use crate::GpuContext;
     use phototux_engine::DocumentGraph;
 
+    /// The uniform layout WGSL expects, asserted from the Rust side.
+    ///
+    /// A `vec4<f32>` member must sit on a sixteen-byte boundary, and the array
+    /// stride must be a multiple of sixteen. Get either wrong and the shader
+    /// still compiles and still runs — it reads the wrong words, which shows up
+    /// as blend ranges that respond to the wrong slider rather than as an
+    /// error. The three padding words before `blend_if_this` exist only to make
+    /// these numbers come out right, so they are worth stating.
+    #[test]
+    fn the_layer_uniform_keeps_its_vector_members_aligned() {
+        use std::mem::{offset_of, size_of};
+        assert_eq!(size_of::<LayerParamsGpu>() % 16, 0, "array stride");
+        assert_eq!(offset_of!(LayerParamsGpu, blend_if_this) % 16, 0);
+        assert_eq!(offset_of!(LayerParamsGpu, blend_if_under) % 16, 0);
+        assert_eq!(
+            offset_of!(LayerParamsGpu, blend_if_under),
+            offset_of!(LayerParamsGpu, blend_if_this) + 16,
+            "the two ranges must be adjacent vec4s"
+        );
+        // The whole block still has to fit a uniform buffer.
+        assert!(
+            size_of::<UniformsGpu>() <= 65536,
+            "uniform block is {} bytes",
+            size_of::<UniformsGpu>()
+        );
+    }
+
     #[test]
     fn composite_small_runs() {
         let ctx = GpuContext::new().expect("gpu");
@@ -2150,6 +2241,15 @@ mod tests {
         assert!(a(7) < a(8), "coverage still rises down the edge");
     }
 
+    /// DR-017's 10×4K composite budget.
+    ///
+    /// The margin here is thin and it is not the fault of any one feature: on
+    /// the development machine this measures 1.998 ms with an empty shader
+    /// path, so the gate has ~2 µs of real headroom before the declared 50 µs
+    /// of clock slack. Blend If cost about 30 µs of that when it was added
+    /// (all of it the per-pixel branch — widening the layer uniform measured
+    /// as noise). Anyone finding this failing should measure the baseline
+    /// before assuming their change caused it.
     #[test]
     fn composite_10x4k_under_2ms() {
         let ctx = GpuContext::new().expect("gpu");
