@@ -55,6 +55,7 @@ set(ICON_NAMES
     arrows-out-line-horizontal
     arrows-out-line-vertical
     caret-down
+    check
     caret-right
     caret-up
     circle-dashed

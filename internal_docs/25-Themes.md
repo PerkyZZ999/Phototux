@@ -8,6 +8,19 @@ Theme scope is presentation-only. Changing theme, contrast mode, icon set, densi
 
 The host may provide light/dark preference, high-contrast state, accent hints, reduced-motion state, text scaling, and fractional display scale. Linux-native adapters normalize these signals; portable theme core resolves a coherent token snapshot. No UI toolkit, CSS engine, icon library, font stack, runtime, or plugin ABI is selected here. Normative terms follow [Requirement Keywords](Appendix/Requirement-Keywords.md); canonical terms follow the [Glossary](Appendix/Glossary.md).
 
+## Translucent tokens are `#AARRGGBB`
+
+Qt parses an eight-digit hex colour with the **alpha first**; CSS parses the
+same string with the alpha last. Five of `Theme.qml`'s washes were written the
+CSS way and had shipped that way: the active tool, the selected panel tab and
+every accent highlight were drawing a pale green at a quarter opacity instead
+of the accent, and `scrimModal` — `#000000B8`, meaning black at 72% — parsed as
+alpha `0x00`, so modal dialogs had no scrim behind them at all.
+
+Every translucent token is written alpha-first, and a colour meant to be the
+accent at some opacity keeps the accent's own digits so the two can be compared
+by eye.
+
 ## Responsibilities
 
 The theme subsystem **MUST**:

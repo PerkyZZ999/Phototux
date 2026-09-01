@@ -28,17 +28,24 @@ QtObject {
     readonly property color success: "#2ECC71"
     readonly property color warning: "#FF9F1A"
     readonly property color error: "#DA4453"
-    readonly property color selection: "#3DAEE933"
+    /// Translucent tokens are **`#AARRGGBB`** — alpha first.
+    ///
+    /// That is Qt's order; CSS's eight-digit hex is `#RRGGBBAA`. All five of
+    /// these were written the CSS way, so the shell had been drawing its
+    /// accent washes as a pale green at a quarter opacity — the active tool,
+    /// the selected panel tab, the menu highlight — and the modal scrim as
+    /// pure transparency, which is to say no scrim at all.
+    readonly property color selection: "#333DAEE9"
     readonly property color canvasLetterbox: "#0C0C0E"
-    readonly property color toolActiveBg: "#3DAEE940"
+    readonly property color toolActiveBg: "#403DAEE9"
     /// Modal overlay scrim (welcome / dialogs).
-    readonly property color scrimModal: "#000000B8"
+    readonly property color scrimModal: "#B8000000"
     /// Soft primary wash for logo wells and selected chrome accents.
-    readonly property color primarySubtle: "#3DAEE91A"
+    readonly property color primarySubtle: "#1A3DAEE9"
     /// Inactive document tab fill (keeps dark shell coherent).
     readonly property color tabInactive: "#1A1A1E"
     /// Soft success wash for status chips (GPU path healthy).
-    readonly property color successSubtle: "#2ECC712E"
+    readonly property color successSubtle: "#2E2ECC71"
     /// Symbolic icons on dark chrome (white; ≥ 3:1 non-text).
     readonly property color iconOnSurface: "#FFFFFF"
     readonly property color iconDisabled: "#9A9AA3"
@@ -92,6 +99,33 @@ QtObject {
     readonly property int fontMono: Math.round(11 * densityScale)
 
     readonly property url logoUrl: "qrc:/qt/qml/PhotoTux/App/logo-ui.png"
+
+    /// A menu label with its mnemonic marker removed.
+    ///
+    /// The action registry writes accelerators the Qt way — `&File`, `Bake
+    /// &Text` — and the Basic style's private `IconLabel` was quietly stripping
+    /// them. Drawing a menu row by hand puts that back on the caller, and a bar
+    /// reading "&File &Edit &Image" is what it looks like when nobody does.
+    ///
+    /// `&&` is a literal ampersand, which is why this is a walk rather than a
+    /// regular expression: replacing `&x` with `x` first turns `&&` into `&`
+    /// and then eats the character after it.
+    function withoutMnemonic(text) {
+        if (!text || text.indexOf("&") < 0)
+            return text
+        var out = ""
+        for (var i = 0; i < text.length; ++i) {
+            if (text.charAt(i) !== "&") {
+                out += text.charAt(i)
+                continue
+            }
+            if (text.charAt(i + 1) === "&") {
+                out += "&"
+                ++i
+            }
+        }
+        return out
+    }
 
     function iconUrl(iconRoot, stem) {
         if (!iconRoot || iconRoot.length === 0)

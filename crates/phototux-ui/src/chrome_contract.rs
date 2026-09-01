@@ -141,6 +141,37 @@ mod tests {
         );
     }
 
+    /// Lines where `type {` opens a declaration of exactly that type.
+    ///
+    /// Not [`blocks_of`], which only matches a line that is *nothing but* the
+    /// opener. A control is just as unstyled when it is written inline —
+    /// `delegate: MenuItem {` is how the layer context menu kept its light
+    /// popup through a sweep that converted every other menu in the shell.
+    ///
+    /// The preceding character has to be a separator, or `ThemedButton {` and
+    /// `component LockButton: ...` would both count as bare buttons.
+    fn instantiations_of(text: &str, type_name: &str) -> Vec<usize> {
+        let opener = format!("{type_name} {{");
+        let mut out = Vec::new();
+        for (i, line) in text.lines().enumerate() {
+            let mut from = 0;
+            while let Some(at) = line[from..].find(&opener) {
+                let start = from + at;
+                let preceded_by_name = start > 0
+                    && line[..start]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_');
+                if !preceded_by_name {
+                    out.push(i + 1);
+                    break;
+                }
+                from = start + opener.len();
+            }
+        }
+        out
+    }
+
     /// A slider has no text of its own, so without a name it reaches assistive
     /// technology as an anonymous "slider".
     ///
@@ -196,15 +227,16 @@ mod tests {
                 ("SpinBox", "ThemedSpinBox"),
                 ("Slider", "ThemedSlider"),
                 ("TextField", "ThemedTextField"),
+                ("Menu", "ThemedMenu"),
+                ("MenuItem", "ThemedMenuItem"),
             ] {
                 // The themed component is allowed to *be* the bare control.
-                if name == format!("{themed}.qml") {
+                // `ThemedMenu` also names `ThemedMenuItem` as its delegate,
+                // which is the whole point of it.
+                if name == format!("{themed}.qml") || name.starts_with("Themed") {
                     continue;
                 }
-                let found: Vec<usize> = blocks_of(&text, bare)
-                    .into_iter()
-                    .map(|(line, _)| line)
-                    .collect();
+                let found = instantiations_of(&text, bare);
                 assert!(
                     found.is_empty(),
                     "{name} instantiates a bare {bare} at {found:?}, which the Basic \

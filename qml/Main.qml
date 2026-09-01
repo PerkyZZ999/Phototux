@@ -926,7 +926,7 @@ ApplicationWindow {
 
     Component {
         id: actionMenuItem
-        MenuItem {
+        ThemedMenuItem {
             required property var modelData
             // Shortcut activation is owned by the Instantiator below (yield-aware).
             // Show the chord in the native shortcut column for display only via Action
@@ -1001,12 +1001,12 @@ ApplicationWindow {
         menu.popup(Overlay.overlay, p.x, p.y)
     }
 
-    Menu {
+    ThemedMenu {
         id: layerContextMenu
         property int targetIndex: -1
         Instantiator {
             model: root.actionsForContext("layer")
-            delegate: MenuItem {
+            delegate: ThemedMenuItem {
                 required property var modelData
                 text: modelData.label
                 enabled: root.actionIsEnabled(modelData.id)
@@ -1023,7 +1023,7 @@ ApplicationWindow {
         }
     }
 
-    Menu {
+    ThemedMenu {
         id: canvasContextMenu
         Instantiator {
             model: root.actionsForContext("canvas")
@@ -1033,7 +1033,7 @@ ApplicationWindow {
         }
     }
 
-    Menu {
+    ThemedMenu {
         id: selectionContextMenu
         Instantiator {
             model: root.actionsForContext("selection")
@@ -1044,9 +1044,44 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
-        // Fusion paints a light menubar and ignores custom backgrounds here.
-        // Keep default dark labels (WCAG ≥ 4.5:1 on that light bar).
-        Menu {
+        id: mainMenuBar
+
+        // The comment here used to say Fusion paints the bar and ignores a
+        // custom background. The shell links only the **Basic** style plugin,
+        // which honours both — so the bar had been shipping as a light strip
+        // above dark chrome on the strength of a style it does not run.
+        delegate: MenuBarItem {
+            id: barItem
+            padding: Theme.spaceSm
+            leftPadding: Theme.spaceMd
+            rightPadding: Theme.spaceMd
+            background: Rectangle {
+                radius: Theme.radiusSm
+                color: barItem.highlighted || barItem.down
+                       ? Theme.toolActiveBg
+                       : (barItem.hovered ? Theme.surfaceContainerHigh : "transparent")
+            }
+            contentItem: Text {
+                text: Theme.withoutMnemonic(barItem.text)
+                font: barItem.font
+                color: barItem.enabled ? Theme.colorOnSurfaceEffective
+                                       : Theme.colorOnSurfaceDisabled
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceContainer
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.border
+            }
+        }
+
+        ThemedMenu {
             id: fileMenu
             title: qsTr("&File")
             Instantiator {
@@ -1056,7 +1091,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => fileMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: editMenu
             title: qsTr("&Edit")
             Instantiator {
@@ -1066,7 +1101,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => editMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: imageMenu
             title: qsTr("&Image")
             Instantiator {
@@ -1076,7 +1111,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => imageMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: layerMenu
             title: qsTr("&Layer")
             Instantiator {
@@ -1090,7 +1125,7 @@ ApplicationWindow {
             // them unreachable however correctly they rendered. Each is
             // declared here and populated from the engine; a submenu the
             // engine declares and this file does not is a test failure.
-            Menu {
+            ThemedMenu {
                 id: adjustmentMenu
                 title: qsTr("New &Adjustment Layer")
                 Instantiator {
@@ -1100,7 +1135,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => adjustmentMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: shapeMenu
                 title: qsTr("&Shape")
                 Instantiator {
@@ -1110,7 +1145,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => shapeMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: smartMenu
                 title: qsTr("Smart &Objects")
                 Instantiator {
@@ -1120,7 +1155,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => smartMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: booleanMenu
                 title: qsTr("&Combine Shapes")
                 Instantiator {
@@ -1130,7 +1165,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => booleanMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: styleMenu
                 title: qsTr("Layer St&yle")
                 Instantiator {
@@ -1142,7 +1177,7 @@ ApplicationWindow {
             }
             // Align and Distribute sit directly under Layer, next to each
             // other, the way Photoshop files them.
-            Menu {
+            ThemedMenu {
                 id: alignMenu
                 title: qsTr("Ali&gn")
                 Instantiator {
@@ -1152,7 +1187,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => alignMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: distributeMenu
                 title: qsTr("&Distribute")
                 Instantiator {
@@ -1162,7 +1197,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => distributeMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: maskMenu
                 title: qsTr("&Mask")
                 Instantiator {
@@ -1172,7 +1207,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => maskMenu.removeItem(object)
                 }
             }
-            Menu {
+            ThemedMenu {
                 id: lockMenu
                 title: qsTr("Loc&k")
                 Instantiator {
@@ -1187,7 +1222,7 @@ ApplicationWindow {
         // it. It used to be between Edit and Image, so anyone reaching for
         // Image by position opened Select instead — the exact relearning cost
         // matching Photoshop's layout is meant to remove.
-        Menu {
+        ThemedMenu {
             id: selectMenu
             title: qsTr("&Select")
             Instantiator {
@@ -1197,7 +1232,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => selectMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: filterMenu
             title: qsTr("Filte&r")
             Instantiator {
@@ -1207,7 +1242,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => filterMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: viewMenu
             title: qsTr("&View")
             Instantiator {
@@ -1217,7 +1252,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => viewMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: windowMenu
             title: qsTr("&Window")
             Instantiator {
@@ -1227,7 +1262,7 @@ ApplicationWindow {
                 onObjectRemoved: (index, object) => windowMenu.removeItem(object)
             }
         }
-        Menu {
+        ThemedMenu {
             id: helpMenu
             title: qsTr("&Help")
             Instantiator {
@@ -2738,7 +2773,10 @@ ApplicationWindow {
                 y: root.docToScreenY(AppSession.cropPreviewY)
                 width: Math.max(1, AppSession.cropPreviewW * AppSession.zoom)
                 height: Math.max(1, AppSession.cropPreviewH * AppSession.zoom)
-                color: "#3DAEE920"
+                // Accent at 12%, alpha first: an eight-digit hex is
+                // `#AARRGGBB` to Qt, so this had been a pale green fill inside
+                // a cyan border.
+                color: "#1F3DAEE9"
                 border.color: root.primary
                 border.width: 1
             }

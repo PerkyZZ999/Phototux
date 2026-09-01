@@ -1862,7 +1862,7 @@ ColumnLayout {
                                 spacing: 0
                                 Repeater {
                                     model: 3
-                                    delegate: Slider {
+                                    delegate: ThemedSlider {
                                         required property int index
                                         Layout.fillWidth: true
                                         implicitHeight: 16
