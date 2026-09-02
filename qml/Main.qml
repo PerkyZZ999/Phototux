@@ -1148,6 +1148,10 @@ ApplicationWindow {
         ThemedMenu {
             id: imageMenu
             title: qsTr("&Image")
+            // Declared submenus land after the instantiated entries, which is
+            // the order Photoshop uses: Image Size, then Image Rotation, then
+            // the colour-management group — eight flat entries until they were
+            // given a menu of their own.
             ThemedMenu {
                 id: imageRotationMenu
                 title: qsTr("Image &Rotation")
@@ -1158,10 +1162,20 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => imageRotationMenu.removeItem(object)
                 }
             }
+            ThemedMenu {
+                id: imageColorMenu
+                title: qsTr("&Color")
+                Instantiator {
+                    model: root.actionsForMenu("image.color")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => imageColorMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => imageColorMenu.removeItem(object)
+                }
+            }
             Instantiator {
                 model: root.actionsForMenu("image")
                 delegate: actionMenuItem
-                onObjectAdded: (index, object) => imageMenu.insertItem(index + 1, object)
+                onObjectAdded: (index, object) => imageMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => imageMenu.removeItem(object)
             }
         }
@@ -4135,6 +4149,15 @@ ApplicationWindow {
     // Select > Modify asks how far, because its entries are spelled with an
     // ellipsis and because the radius *is* the operation — a feather is
     // nothing but its radius.
+    LazyDialog {
+        id: imageSizeLoader
+        requested: AppSession.imageSizeOpen
+
+        ImageSizeDialog {
+            afterHostSlot: root.afterHostSlot
+        }
+    }
+
     LazyDialog {
         id: selectionModifyLoader
         requested: AppSession.selectionModifyOp.length > 0

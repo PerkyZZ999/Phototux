@@ -67,6 +67,8 @@ pub mod command_id {
     pub const DOCUMENT_SET_SOFT_PROOF: &str = "document.set-soft-proof";
     /// Embed or clear validated ICC profile bytes on the document.
     pub const DOCUMENT_SET_ICC: &str = "document.set-icc";
+    /// Resample every layer to a new pixel size (Image Size).
+    pub const DOCUMENT_RESIZE: &str = "document.resize";
     pub const DOCUMENT_CROP: &str = "document.crop";
     /// Rotate the canvas by a quarter-turn count (see `CommandArgs::Rotate`).
     pub const DOCUMENT_ROTATE: &str = "document.rotate";
@@ -207,6 +209,7 @@ pub mod command_id {
         DOCUMENT_CONVERT_PROFILE,
         DOCUMENT_SET_SOFT_PROOF,
         DOCUMENT_SET_ICC,
+        DOCUMENT_RESIZE,
         DOCUMENT_CROP,
         DOCUMENT_ROTATE,
         DOCUMENT_FLIP,
@@ -564,6 +567,11 @@ pub enum CommandArgs {
     /// entries Photoshop's Image Rotation submenu carries.
     Rotate {
         quarter_turns: u32,
+    },
+    /// New pixel dimensions for Image Size.
+    Resize {
+        width: u32,
+        height: u32,
     },
 }
 

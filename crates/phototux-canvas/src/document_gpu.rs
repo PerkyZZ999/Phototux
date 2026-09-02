@@ -856,6 +856,60 @@ pub fn flip_document(horizontal: bool, layers: &[Layer]) -> Result<f32, String> 
     })
 }
 
+/// Resample every layer to `size` and rebuild GPU state.
+///
+/// Image Size. Every layer is resampled, not only the active one, and the
+/// masks go with them — a mask left at the old resolution would be applied to
+/// a layer that no longer matches it.
+///
+/// # Errors
+/// Returns an error when readback, resampling or rebuild fails.
+pub fn resample_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let (ctx, resampled, masks) = {
+        let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+        let doc = guard
+            .as_mut()
+            .ok_or_else(|| "no document GPU state".to_owned())?;
+        // Not `with_document`: the shared queue guard is held across the
+        // reinstall below, so re-entering would take that lock twice.
+        doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
+        let (width, height) = doc.engine.size();
+        let mut resampled = Vec::new();
+        let mut masks = Vec::new();
+        for layer in &doc.layers_meta.clone() {
+            let pixels = doc
+                .engine
+                .read_layer_rgba(&doc.ctx, layer.id)
+                .map_err(|e| e.to_string())?;
+            let out = phototux_gpu::resize_rgba(&pixels, width, height, size.width, size.height)?;
+            resampled.push((layer.id, out));
+            if layer.mask.is_some()
+                && let Ok(mask) = doc.engine.read_mask_r8(&doc.ctx, layer.id)
+            {
+                masks.push((layer.id, resize_r8(&mask, width, height, size)?));
+            }
+        }
+        (Arc::clone(&doc.ctx), resampled, masks)
+    };
+    let ms = install_document(ctx, size, layers, &resampled)?;
+    for (id, mask) in masks {
+        write_mask_r8(id, &mask)?;
+    }
+    Ok(ms)
+}
+
+/// Resample a single-channel mask by widening it to RGBA and back.
+///
+/// One resampler rather than two: a second copy of the same box-average and
+/// bilinear logic, differing only in stride, is a second place for the edge
+/// handling to drift.
+fn resize_r8(mask: &[u8], width: u32, height: u32, size: DocumentSize) -> Result<Vec<u8>, String> {
+    let rgba: Vec<u8> = mask.iter().flat_map(|&v| [v, v, v, v]).collect();
+    let out = phototux_gpu::resize_rgba(&rgba, width, height, size.width, size.height)?;
+    Ok(out.chunks_exact(4).map(|px| px[0]).collect())
+}
+
 /// Rotate the entire document `quarter_turns` × 90° clockwise and rebuild GPU
 /// state.
 ///

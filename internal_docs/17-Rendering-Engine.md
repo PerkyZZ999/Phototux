@@ -180,6 +180,20 @@ layer must not change a single pixel;
 `adding_an_empty_layer_changes_no_pixel` (device-backed, `--features
 gpu-tests`) asserts it.
 
+### Resampling picks its filter per direction
+
+`resize_rgba` box-averages when an axis shrinks and samples bilinearly when it
+grows. Bilinear point-samples, so halving an image with it reads every other
+pixel and discards the rest — which is what turns a downscale into aliasing —
+while a box average covers the whole source footprint of each destination
+pixel. Growing has no footprint to average, so bilinear is the right filter
+there.
+
+The bilinear branch clamps its source coordinate to the edge. `sample_bilinear`
+treats outside the buffer as transparent, which is right for baking a transform
+— content genuinely leaves the canvas — and wrong for a resample, where it
+would fade the border of every upscale into nothing.
+
 ### Compositing a subset means hiding, not slicing
 
 `LayerCompositeEngine::composite` builds its uniforms from the slice it is

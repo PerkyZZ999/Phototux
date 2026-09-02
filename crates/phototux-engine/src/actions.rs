@@ -296,6 +296,15 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("raster.flip")
         .arg("v")
         .icon("flip-vertical"),
+        act(
+            "action.image.size",
+            "Image Si&ze…",
+            "image",
+            "has_document_io_idle",
+        )
+        .host("image.size")
+        .key("Ctrl+Alt+I")
+        .icon("frame-corners"),
         // Image > Image Rotation — the canvas. Photoshop's submenu, its order
         // and its names.
         act(
@@ -346,7 +355,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.assign-srgb",
             "Assign Profile: sRGB",
-            "image",
+            "image.color",
             "has_document",
         )
         .command(command_id::DOCUMENT_ASSIGN_PROFILE)
@@ -354,7 +363,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.assign-p3",
             "Assign Profile: Display-P3",
-            "image",
+            "image.color",
             "has_document",
         )
         .command(command_id::DOCUMENT_ASSIGN_PROFILE)
@@ -362,7 +371,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.convert-srgb",
             "Convert to sRGB",
-            "image",
+            "image.color",
             "has_document_io_idle",
         )
         .command(command_id::DOCUMENT_CONVERT_PROFILE)
@@ -370,7 +379,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.convert-p3",
             "Convert to Display-P3",
-            "image",
+            "image.color",
             "has_document_io_idle",
         )
         .command(command_id::DOCUMENT_CONVERT_PROFILE)
@@ -378,7 +387,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.soft-proof-p3",
             "Soft-Proof: Display-P3",
-            "image",
+            "image.color",
             "has_document",
         )
         .command(command_id::DOCUMENT_SET_SOFT_PROOF)
@@ -386,7 +395,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.soft-proof-off",
             "Soft-Proof: Off",
-            "image",
+            "image.color",
             "has_document",
         )
         .command(command_id::DOCUMENT_SET_SOFT_PROOF)
@@ -394,14 +403,14 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         act(
             "action.image.embed-icc",
             "Embed &ICC Profile…",
-            "image",
+            "image.color",
             "has_document_io_idle",
         )
         .host("document.embed_icc"),
         act(
             "action.image.clear-icc",
             "Clear Embedded ICC",
-            "image",
+            "image.color",
             "has_document",
         )
         .command(command_id::DOCUMENT_SET_ICC)

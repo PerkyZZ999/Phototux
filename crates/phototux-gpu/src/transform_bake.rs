@@ -109,6 +109,100 @@ pub fn rotate_rgba_90_cw(
     Ok((height, width, out))
 }
 
+/// Resample tightly packed RGBA8 to `(dest_width, dest_height)`.
+///
+/// Bilinear on the way up and a box average on the way down, chosen per axis:
+/// bilinear point-samples, so halving an image with it reads every other pixel
+/// and drops the rest, which is what turns a downscale into aliasing. The box
+/// covers the whole source footprint of each destination pixel.
+///
+/// # Errors
+/// Returns an error when dimensions or buffer length are invalid.
+pub fn resize_rgba(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    dest_width: u32,
+    dest_height: u32,
+) -> Result<Vec<u8>, String> {
+    if width == 0 || height == 0 || dest_width == 0 || dest_height == 0 {
+        return Err("resample needs a non-empty source and destination".to_owned());
+    }
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "dimension overflow".to_owned())?;
+    if pixels.len() < expected {
+        return Err("source buffer too small".to_owned());
+    }
+    let out_len = (dest_width as usize)
+        .checked_mul(dest_height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "dimension overflow".to_owned())?;
+    let mut out = vec![0_u8; out_len];
+    let sx = f64::from(width) / f64::from(dest_width);
+    let sy = f64::from(height) / f64::from(dest_height);
+    let shrinking = sx > 1.0 || sy > 1.0;
+    for y in 0..dest_height {
+        for x in 0..dest_width {
+            let dst = ((y as usize) * (dest_width as usize) + x as usize) * 4;
+            let rgba = if shrinking {
+                box_average(pixels, width, height, x, y, sx, sy)
+            } else {
+                // Sample the centre of the destination pixel mapped back into
+                // source space; the half-pixel shifts are what keep the image
+                // from creeping half a pixel toward the origin.
+                //
+                // Clamped to the edge because `sample_bilinear` treats outside
+                // as transparent — right for baking a transform, where content
+                // genuinely leaves the canvas, and wrong here, where it would
+                // fade the border of every upscale into nothing.
+                let fx = ((f64::from(x) + 0.5) * sx - 0.5).clamp(0.0, f64::from(width - 1));
+                let fy = ((f64::from(y) + 0.5) * sy - 0.5).clamp(0.0, f64::from(height - 1));
+                sample_bilinear(pixels, width, height, fx as f32, fy as f32)
+            };
+            out[dst..dst + 4].copy_from_slice(&rgba);
+        }
+    }
+    Ok(out)
+}
+
+/// Average the source footprint of destination pixel `(x, y)`.
+fn box_average(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    sx: f64,
+    sy: f64,
+) -> [u8; 4] {
+    let x0 = (f64::from(x) * sx).floor().max(0.0) as u32;
+    let y0 = (f64::from(y) * sy).floor().max(0.0) as u32;
+    let x1 = (((f64::from(x) + 1.0) * sx).ceil() as u32).clamp(x0 + 1, width);
+    let y1 = (((f64::from(y) + 1.0) * sy).ceil() as u32).clamp(y0 + 1, height);
+    let mut sum = [0_u64; 4];
+    let mut count = 0_u64;
+    for sy in y0..y1 {
+        for sx in x0..x1 {
+            let i = ((sy as usize) * (width as usize) + sx as usize) * 4;
+            for c in 0..4 {
+                sum[c] += u64::from(pixels[i + c]);
+            }
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return [0, 0, 0, 0];
+    }
+    [
+        (sum[0] / count) as u8,
+        (sum[1] / count) as u8,
+        (sum[2] / count) as u8,
+        (sum[3] / count) as u8,
+    ]
+}
+
 fn sample_bilinear(pixels: &[u8], width: u32, height: u32, x: f32, y: f32) -> [u8; 4] {
     let w = width as i32;
     let h = height as i32;
@@ -257,5 +351,57 @@ mod tests {
         let px = solid(3, 2, [7, 8, 9, 255]);
         let out = bake_affine_rgba(&px, 3, 2, LayerTransform::identity()).expect("bake");
         assert_eq!(out, px);
+    }
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::resize_rgba;
+
+    fn solid(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+        (0..(w * h)).flat_map(|_| rgba).collect()
+    }
+
+    #[test]
+    fn a_resize_keeps_a_flat_colour_flat() {
+        let src = solid(4, 4, [10, 200, 30, 255]);
+        for (w, h) in [(8, 8), (2, 2), (7, 3)] {
+            let out = resize_rgba(&src, 4, 4, w, h).expect("resize");
+            assert_eq!(out.len() as u32, w * h * 4);
+            assert!(
+                out.chunks_exact(4).all(|px| px == [10, 200, 30, 255]),
+                "{w}x{h} did not stay flat"
+            );
+        }
+    }
+
+    /// Halving must average, not point-sample.
+    ///
+    /// A one-pixel checkerboard reduced by point sampling reads every other
+    /// pixel and returns one of the two colours; averaged, it returns the
+    /// midpoint. This is the difference between a downscale and aliasing.
+    #[test]
+    fn shrinking_averages_rather_than_dropping_pixels() {
+        let mut src = Vec::new();
+        for y in 0..2 {
+            for x in 0..2 {
+                let v = if (x + y) % 2 == 0 { 0 } else { 255 };
+                src.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let out = resize_rgba(&src, 2, 2, 1, 1).expect("resize");
+        assert_eq!(out[0], 127, "expected the midpoint, got {}", out[0]);
+    }
+
+    #[test]
+    fn a_resize_rejects_an_empty_target() {
+        let src = solid(2, 2, [1, 2, 3, 4]);
+        assert!(resize_rgba(&src, 2, 2, 0, 4).is_err());
+        assert!(resize_rgba(&src, 2, 2, 4, 0).is_err());
+    }
+
+    #[test]
+    fn a_resize_rejects_a_short_buffer() {
+        assert!(resize_rgba(&[0; 4], 4, 4, 2, 2).is_err());
     }
 }

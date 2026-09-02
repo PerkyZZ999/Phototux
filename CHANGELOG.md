@@ -6,6 +6,10 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **Image Size.** `Ctrl+Alt+I` resamples the whole document — every layer and every mask, because a mask left at the old resolution would be applied to a layer that no longer matches it. The dialog constrains proportions from the aspect the document opened on rather than re-deriving it each keystroke, which is what stops a chain of integer round-trips from drifting.
+- The resampler box-averages when an axis shrinks and samples bilinearly when it grows: bilinear point-samples, so halving an image with it reads every other pixel and drops the rest. It clamps to the edge on the way up, because the shared bilinear sampler treats outside the buffer as transparent — right for baking a transform, wrong for a resample.
+- **The Image menu is three entries** — Image Size…, Image Rotation ▸, Color ▸ — where it was eleven flat ones, eight of them colour management.
+
 - **Merge Down and Merge Visible.** `Ctrl+E` and `Ctrl+Shift+E`, the last of the composition commands the Layer menu was missing. Both replace what they consume with one fresh layer and record a single undo step. They refuse groups and anything inside one — a group is a parent in a flat list, so merging across a boundary would move layers out of their group as a side effect — and Merge Down refuses a hidden layer, because merging something you cannot see is not an edit anyone can check by looking.
 - Export moved off `Ctrl+Shift+E` to `Ctrl+Alt+Shift+W`. That chord is Merge Visible in Photoshop and Export As is where Export has gone; a user pressing it expecting a merge should not get a file dialog.
 - **Compositing a subset means hiding, not slicing.** The first merge composited a two-element slice, and the shader reads texture-array slice *i* for uniform *i* — so it composited the bottom two layers of the document whichever two were asked for, and merging the top layer down produced the bottom layer's pixels. The engine tests passed the whole time; only looking at the canvas caught it.

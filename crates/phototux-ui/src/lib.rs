@@ -445,6 +445,8 @@ pub struct AppSession {
     shortcut_input_yield: bool,
     preferences_open: bool,
     filter_gallery_open: bool,
+    /// The Image Size dialog is open.
+    image_size_open: bool,
     /// Which selection-modify op the radius prompt is open for; empty when it
     /// is closed. The wire id (`expand`), not the label.
     selection_modify_op: String,
@@ -730,6 +732,7 @@ impl AppSession {
             shortcut_input_yield: false,
             preferences_open: false,
             filter_gallery_open: false,
+            image_size_open: false,
             selection_modify_op: String::new(),
             selection_modify_title: String::new(),
             selection_modify_radius: 2,
@@ -2302,6 +2305,7 @@ impl AppSession {
                 }
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
+            "image.size" => self.open_image_size(),
             "layer.duplicate" => self.duplicate_active_layer(),
             "layer.flatten" => self.flatten_image(),
             "layer.merge-down" => self.merge_layer_down(),
@@ -3672,6 +3676,11 @@ impl AppSession {
         Notify = filter_gallery_open_changed
     );
     qproperty!(
+        "imageSizeOpen",
+        Member = image_size_open,
+        Notify = image_size_open_changed
+    );
+    qproperty!(
         "selectionModifyOp",
         Member = selection_modify_op,
         Notify = selection_modify_op_changed
@@ -4124,6 +4133,8 @@ impl AppSession {
     #[qsignal]
     fn filter_gallery_open_changed(&mut self);
     #[qsignal]
+    fn image_size_open_changed(&mut self);
+    #[qsignal]
     fn selection_modify_op_changed(&mut self);
     #[qsignal]
     fn selection_modify_title_changed(&mut self);
@@ -4500,6 +4511,24 @@ impl AppSession {
         self.selection_modify_op_changed();
         self.selection_modify_title_changed();
         self.selection_modify_radius_changed();
+    }
+
+    #[qslot]
+    fn open_image_size(&mut self) {
+        if !self.engine.has_document || self.image_size_open {
+            return;
+        }
+        self.image_size_open = true;
+        self.image_size_open_changed();
+    }
+
+    #[qslot]
+    fn close_image_size(&mut self) {
+        if !self.image_size_open {
+            return;
+        }
+        self.image_size_open = false;
+        self.image_size_open_changed();
     }
 
     #[qslot]
@@ -8497,6 +8526,46 @@ impl AppSession {
                 command_id::RASTER_FLIP,
                 CommandArgs::RasterFlip { horizontal },
             );
+        }
+    }
+
+    /// Resample the whole document to a new pixel size (Image Size).
+    ///
+    /// Every layer and every mask is resampled, not only the active one: a
+    /// mask left at the old resolution would be applied to a layer that no
+    /// longer matches it.
+    #[qslot]
+    fn resize_image(&mut self, width: i32, height: i32) {
+        if !self.engine.has_document {
+            return;
+        }
+        let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
+            return;
+        };
+        let size = phototux_engine::DocumentSize::new(w.clamp(1, 32_768), h.clamp(1, 32_768));
+        if self.engine.size == size {
+            return;
+        }
+        // Pixels before the graph, the way the canvas rotation does it: the
+        // undo snapshot `commit_layer_edit` takes has to capture the document
+        // as it was, and the command is what moves `graph.size` to the new
+        // one. Snapshotting after would record a graph claiming the new size
+        // over pixels that are still the old.
+        if self
+            .commit_layer_edit("resize image", |layers| {
+                phototux_canvas::resample_document(size, layers).map(|ms| ((), ms))
+            })
+            .is_some()
+        {
+            self.clear_selection_stacks();
+            let _ = self.invoke_command(
+                command_id::DOCUMENT_RESIZE,
+                CommandArgs::Resize {
+                    width: size.width,
+                    height: size.height,
+                },
+            );
+            self.publish_pixel_snapshot_from_gpu();
         }
     }
 

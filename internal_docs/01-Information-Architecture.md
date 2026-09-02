@@ -189,6 +189,10 @@ operations Photoshop puts there: 180°, 90° CW, 90° CCW and the two canvas
 flips. A quarter-turn count rather than three commands, so any rotation is one
 undo step and one document rebuild.
 
+The Image menu is three entries — Image Size…, Image Rotation ▸, Color ▸ — in
+Photoshop's order. It was eleven flat ones, eight of them colour management,
+which is the depth of that menu rather than its first screen.
+
 Blend mode, opacity and the lock row live at the **top of the Layers panel**,
 not in Properties. They are the most-used control cluster in the application
 and the one a user reaches for without looking, and Properties is the panel
