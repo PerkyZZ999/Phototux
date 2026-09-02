@@ -324,6 +324,42 @@ mod tests {
         );
     }
 
+    /// The status bar states each fact once.
+    ///
+    /// `status_summary` is the engine's account of document state — size,
+    /// zoom, active layer, edit target, selection, layer count, tool — and it
+    /// reaches the bar as `statusText`. Four items to its right sat a second
+    /// label reading the zoom off `AppSession.zoom` and printing the same
+    /// number again. That cluster is per-frame metrics: composite time, frame
+    /// rate, the GPU badge, all of them things kept *out* of the summary
+    /// because they would churn its AT-SPI name every frame. Document state
+    /// does not belong in it twice.
+    #[test]
+    fn the_status_bar_does_not_repeat_the_document_summary() {
+        let main = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml is readable");
+        let (line, row) = blocks_of(&main, "RowLayout")
+            .into_iter()
+            .find(|(_, body)| body.contains("AppSession.statusText"))
+            .expect("the status bar is a RowLayout carrying statusText");
+        for field in [
+            "AppSession.zoom",
+            "AppSession.docWidth",
+            "AppSession.docHeight",
+            "AppSession.activeTool",
+            "AppSession.activeLayerName",
+        ] {
+            assert!(
+                !row.contains(field),
+                "the status bar at Main.qml:{line} reads {field}, which \
+                 `status_summary` already states — say it once, in the summary"
+            );
+        }
+    }
+
     /// File dialogs open where the user last was, never where they were built.
     ///
     /// Each `FileDialog` keeps its own `currentFolder`, so calling `open()`

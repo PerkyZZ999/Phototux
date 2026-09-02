@@ -6,6 +6,8 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **The status bar printed the zoom twice**, once in the document summary on the left and again four items to its right, in the cluster reserved for per-frame metrics. The duplicate is gone and a guard fails on any label there that reads a field the summary already states.
+
 - **There was no way to zoom in or out.** An image editor with a zoom tool, a Navigator and a zoom readout in the status bar had no Zoom In, no Zoom Out and no 100% — one Zoom to Fit on `Ctrl+Shift+J`, which is not a zoom binding in any editor. The View menu now opens on the four Photoshop puts first: Zoom In (`Ctrl+=`), Zoom Out (`Ctrl+-`), Actual Pixels (`Ctrl+1`) and Fit on Screen (`Ctrl+0`).
 - The steps walk a ladder rather than a multiplier, so zooming in and out again lands back on the number you started from and the ladder passes through 100% exactly instead of 99.6%. They anchor on the viewport centre, which needs no pan correction because the camera's pan *is* the world point drawn there; the wheel keeps anchoring on the pointer.
 - **`+` could not be typed into a shortcut.** The chord parser split on `+` and dropped the key along with the empty pieces either side of it, so a user rebinding Zoom In to `Ctrl++` — the binding Photoshop prints — silently got a bare `Ctrl`, which Qt cannot activate and nothing reported. Two empty tails now mean the key is `+`; one is still a dangling separator.

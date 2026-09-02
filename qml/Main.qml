@@ -1842,16 +1842,11 @@ ApplicationWindow {
                 }
             }
 
-            Label {
-                text: AppSession.hasDocument
-                      ? (qsTr("Zoom: %1%").arg(Math.round(AppSession.zoom * 100)))
-                      : ""
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontMono
-                font.family: "Noto Sans Mono"
-                Accessible.ignored: true
-            }
-
+            // Zoom is not repeated here. It is the second field of
+            // `statusText` on the left, which is where Photoshop puts it, and
+            // this cluster is per-frame metrics — the things deliberately kept
+            // out of the summary because they would churn its AT-SPI name on
+            // every frame.
             Label {
                 text: AppSession.compositeMs > 0
                       ? (qsTr("comp %1 ms").arg(AppSession.compositeMs.toFixed(2)))

@@ -90,6 +90,14 @@ erased whatever the user had not read, so a message was only seen by someone
 already looking at the footer. `nothing_writes_a_message_into_the_status_bar`
 keeps them apart.
 
+The summary is also the bar's *only* account of document state. To its right sit
+per-frame metrics — composite time, frame rate, the GPU badge — which are kept
+out of the summary precisely because they would churn its AT-SPI name on every
+frame. A second zoom readout had grown up in that cluster, printing the number
+the summary already carries four items to its left;
+`the_status_bar_does_not_repeat_the_document_summary` fails on any label there
+that reads a field the summary states.
+
 Severity is a vocabulary (`NoticeLevel`), not something the presenter infers
 from the text — inferring "error" by searching a message for the word "failed"
 is the same mistake as classifying a typed error by grepping its `Display`.
