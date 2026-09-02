@@ -6749,12 +6749,7 @@ impl AppSession {
             );
             return;
         };
-        let content = phototux_engine::SmartObjectContent::embedded(
-            name,
-            format!("smart-{}", id.0),
-            width,
-            height,
-        );
+        let content = phototux_engine::SmartObjectContent::embedded(name, width, height);
         // Stored before the command, not after: invoking it republishes the
         // inspector projection, which asks whether this layer's source is
         // held. Inserting afterwards meant the panel's first look at a brand

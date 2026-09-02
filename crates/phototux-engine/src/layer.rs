@@ -286,17 +286,15 @@ impl Default for ShapeContent {
 /// nothing, because the second placement is computed from the original pixels
 /// rather than from the shrunken ones.
 ///
-/// The source pixels are not here. The engine describes documents; pixel
-/// buffers live on the GPU and in `.ptx` assets, which is what `source_key`
-/// names — the same arrangement as [`Layer::asset_key`]. What the engine does
-/// need is the source's *size*, so a placement can be reasoned about (and
-/// reported) without the pixels being resident.
+/// The source pixels are not here. The engine describes documents; the host
+/// holds the buffer and `.ptx` stores it, both keyed by the **layer's own id**,
+/// the way masks already are. What the engine does need is the source's
+/// *size*, so a placement can be reasoned about — and reported — without the
+/// pixels being resident.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SmartObjectContent {
     /// What the source was, for the panel to name. Not an identifier.
     pub source_name: String,
-    /// Asset key for the source pixels, as `.ptx` and the host store them.
-    pub source_key: String,
     pub source_width: u32,
     pub source_height: u32,
     /// Applied to the source on every change. Never composed with itself.
@@ -306,15 +304,9 @@ pub struct SmartObjectContent {
 impl SmartObjectContent {
     /// Wrap a source of `width`×`height`, placed exactly where it already is.
     #[must_use]
-    pub fn embedded(
-        name: impl Into<String>,
-        key: impl Into<String>,
-        width: u32,
-        height: u32,
-    ) -> Self {
+    pub fn embedded(name: impl Into<String>, width: u32, height: u32) -> Self {
         Self {
             source_name: name.into(),
-            source_key: key.into(),
             source_width: width,
             source_height: height,
             placement: LayerTransform::default(),

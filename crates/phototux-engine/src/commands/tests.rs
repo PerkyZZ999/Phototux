@@ -647,9 +647,7 @@ fn session_with_a_smart_object() -> SessionState {
     s.invoke(
         command_id::SMART_CREATE,
         CommandArgs::SmartCreate {
-            content: Box::new(crate::SmartObjectContent::embedded(
-                "Layer 1", "smart-1", 64, 64,
-            )),
+            content: Box::new(crate::SmartObjectContent::embedded("Layer 1", 64, 64)),
         },
     )
     .expect("wrap");
@@ -754,7 +752,7 @@ fn only_a_pixel_layer_can_be_wrapped() {
         .invoke(
             command_id::SMART_CREATE,
             CommandArgs::SmartCreate {
-                content: Box::new(crate::SmartObjectContent::embedded("x", "k", 8, 8)),
+                content: Box::new(crate::SmartObjectContent::embedded("x", 8, 8)),
             },
         )
         .expect_err("double wrap");
@@ -767,7 +765,7 @@ fn only_a_pixel_layer_can_be_wrapped() {
         .invoke(
             command_id::SMART_CREATE,
             CommandArgs::SmartCreate {
-                content: Box::new(crate::SmartObjectContent::embedded("x", "k", 8, 8)),
+                content: Box::new(crate::SmartObjectContent::embedded("x", 8, 8)),
             },
         )
         .expect_err("wrap a shape");
