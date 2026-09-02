@@ -1445,6 +1445,29 @@ mod tests {
         }
     }
 
+    /// The shell reads `lastAnnounce` and says it out loud.
+    ///
+    /// Nineteen command handlers call `announce`, and the string reached QML
+    /// through a property that nothing was bound to — published, exposed, and
+    /// silent. The two halves that make it audible are a live region carrying
+    /// the text and an `Accessible.announce` call raising the event; a shell
+    /// that keeps one and drops the other is back to writing announcements
+    /// nobody hears. Handbook 29 — Events and Announcements.
+    #[test]
+    fn the_shell_speaks_the_engines_announcements() {
+        let shell =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/Main.qml"))
+                .expect("qml/Main.qml is readable from the engine crate");
+        assert!(
+            shell.contains("Accessible.name: AppSession.lastAnnounce"),
+            "no live region carries the announcement text"
+        );
+        assert!(
+            shell.contains("Accessible.announce("),
+            "the live region never raises an announcement event"
+        );
+    }
+
     #[test]
     fn every_panel_has_exactly_one_window_menu_toggle() {
         let toggles: Vec<&ActionDescriptor> = action_table()

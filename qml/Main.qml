@@ -1860,6 +1860,39 @@ ApplicationWindow {
                 Accessible.role: Accessible.StatusBar
             }
 
+            /// The accessibility live region.
+            ///
+            /// `AppSession.lastAnnounce` is the sentence a command wrote about
+            /// what it just did — "Grouped layers", "Merged Group — 1 hidden
+            /// layer discarded". The property was published and *nothing read
+            /// it*, so nineteen command handlers were writing announcements no
+            /// screen reader ever heard.
+            ///
+            /// It draws nothing but is not `visible: false`: Qt drops
+            /// invisible items from the accessibility tree, and a live region
+            /// nobody can see is the entire point. `Accessible.name` carries
+            /// the text so the region is inspectable from AT-SPI;
+            /// `announce()` is what raises the event a screen reader speaks.
+            Item {
+                id: liveRegion
+                objectName: "liveRegion"
+                implicitWidth: 1
+                implicitHeight: 1
+                opacity: 0
+                Accessible.role: Accessible.StaticText
+                Accessible.name: AppSession.lastAnnounce
+                Accessible.description: qsTr("Announcements")
+
+                Connections {
+                    target: AppSession
+                    function onLastAnnounceChanged() {
+                        const message = AppSession.lastAnnounce
+                        if (message.length > 0)
+                            liveRegion.Accessible.announce(message, Accessible.Polite)
+                    }
+                }
+            }
+
             ThemedButton {
                 visible: AppSession.gpuLost
                 text: qsTr("Recover")

@@ -2,6 +2,31 @@
 
 All notable decision milestones and project state changes.
 
+## [announcements] — 2026-09-02
+
+### Internal
+
+- **Nineteen command handlers were announcing to nobody.** `announce` writes a
+  sentence into `SessionState::last_announce`, and the pairing of
+  store-and-publish had been written at the handful of *slots* that announce
+  and never at the command path all nineteen go through — so "Grouped layers",
+  "Added fill layer", "Selection → layer mask" and the rest were stored and
+  dropped. `apply_command_effects` publishes now, which is the one place every
+  command passes through.
+- It publishes **only on change**, which is handbook 29's "do not repeat
+  unchanged status": most commands announce nothing, and an unconditional emit
+  would have the live region re-read the previous action after each of them.
+- **And nothing was reading the property anyway.** `lastAnnounce` was exposed
+  to QML and bound by no element, so even the four hand-published
+  announcements were inaudible. The status bar now carries a live region: an
+  item that draws nothing but is not `visible: false` — Qt drops invisible
+  items from the accessibility tree — holding the text as `Accessible.name`
+  and calling `Accessible.announce` with polite politeness.
+- `the_shell_speaks_the_engines_announcements` fails the build if the live
+  region loses either half. Verified through AT-SPI: grouping two layers puts
+  "Grouped layers" in the region, and a fill layer replaces it with "Added
+  fill layer".
+
 ## [merge-group] — 2026-09-02
 
 ### Internal

@@ -2473,6 +2473,12 @@ impl AppSession {
             self.graph_revision = effects.generation.min(i32::MAX as u64) as i32;
             self.graph_revision_changed();
         }
+        // Nineteen command handlers call `announce`, and until this line none
+        // of them reached QML: the pairing of store-and-publish had been done
+        // at the handful of *slots* that announce and never at the command
+        // path they all go through. Publishing here means a handler cannot
+        // write an announcement that nothing says.
+        self.publish_announcement();
     }
 
     fn apply_convert_pixels(&mut self, from: &str, to: &str) {
@@ -5931,7 +5937,15 @@ impl AppSession {
     /// every announcing slot. Pairing them here means an announcement cannot be
     /// stored without being published, which is the failure that leaves a screen
     /// reader describing the previous action.
+    ///
+    /// Emitting only on change is handbook 29's "do not repeat unchanged
+    /// status": this is called after every command now, and most commands
+    /// announce nothing, so an unconditional emit would have the live region
+    /// re-read the *previous* action on each of them.
     fn publish_announcement(&mut self) {
+        if self.last_announce == self.engine.last_announce {
+            return;
+        }
         self.last_announce = self.engine.last_announce.clone();
         self.last_announce_changed();
     }
