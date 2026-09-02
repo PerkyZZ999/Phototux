@@ -6,6 +6,9 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **Image ▸ Flip Horizontal flipped one layer.** The entry sat in the Image menu, where Photoshop's entry of that name mirrors the whole canvas, and mirrored the active layer instead — so on a three-layer document one stroke moved and the others stayed, which reads as a bug rather than a feature. The layer flips moved to **Edit ▸ Transform**, which is where Photoshop keeps a layer flip.
+- **Image ▸ Image Rotation** now carries what Photoshop puts there: 180°, 90° Clockwise, 90° Counter Clockwise, and canvas flips that mirror every layer at once. Rotation takes a quarter-turn count rather than being three separate commands, so 180° is one undo step and one document rebuild instead of two of each, and only an odd count swaps the canvas axes.
+
 - **Select ▸ Modify asks how far.** The five modify entries are spelled with an ellipsis, which promises the user gets to say how much, and each applied the registry's default the instant it was clicked instead — a 2px expand, a 4px feather. For feather especially the radius *is* the operation, so a fixed one was close to useless. They open a radius prompt now, and the action's argument is the value the prompt opens on rather than the value it applies.
 - **"Grow…" was the wrong name for Expand.** Photoshop has a Select ▸ Grow, and it extends a selection to neighbouring pixels of similar colour — nothing like a fixed dilation. The labels are Expand… and Contract…, and all five moved into a **Modify** submenu, which is where Photoshop keeps them and which leaves the Select menu's first screen to the five commands people actually reach for.
 

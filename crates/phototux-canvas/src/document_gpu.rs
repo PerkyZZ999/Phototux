@@ -778,11 +778,46 @@ pub fn crop_document(rect: CropRect, layers: &[Layer]) -> Result<(DocumentSize, 
     Ok((size, ms))
 }
 
-/// Rotate the entire document 90° clockwise and rebuild GPU state.
+/// Flip every layer of the document, in place.
+///
+/// A canvas flip rather than a layer flip: [`flip_layer`] mirrors one layer
+/// and leaves the rest where they were, which is the wrong operation for a
+/// menu entry that says "canvas". Read, mirror and write each layer, then
+/// composite once — a composite per layer would show the document half
+/// mirrored for a frame on a deep stack.
+///
+/// # Errors
+/// Returns an error when readback, writeback or composite fails.
+pub fn flip_document(horizontal: bool, layers: &[Layer]) -> Result<f32, String> {
+    with_document(|doc| {
+        let (width, height) = doc.engine.size();
+        for layer in &doc.layers_meta.clone() {
+            let mut pixels = doc
+                .engine
+                .read_layer_rgba(&doc.ctx, layer.id)
+                .map_err(|e| e.to_string())?;
+            flip_rgba(&mut pixels, width, height, horizontal);
+            doc.engine
+                .write_layer_rgba(&doc.ctx, layer.id, &pixels)
+                .map_err(|e| e.to_string())?;
+        }
+        doc.layers_meta = layers.to_vec();
+        let ms = with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(ms)
+    })
+}
+
+/// Rotate the entire document `quarter_turns` × 90° clockwise and rebuild GPU
+/// state.
+///
+/// The turns are applied to the read-back pixels before the single reinstall,
+/// so a 180° rotation is one undo step and one document rebuild rather than
+/// two of each.
 ///
 /// # Errors
 /// Returns an error when readback or rebuild fails.
-pub fn rotate_canvas_90_cw(layers: &[Layer]) -> Result<(DocumentSize, f32), String> {
+pub fn rotate_canvas(quarter_turns: u32, layers: &[Layer]) -> Result<(DocumentSize, f32), String> {
     let _queue_guard = super::SharedQueueGuard::lock();
     let (ctx, new_size, rotated) = {
         let guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
@@ -798,12 +833,19 @@ pub fn rotate_canvas_90_cw(layers: &[Layer]) -> Result<(DocumentSize, f32), Stri
         let mut rotated = Vec::new();
         let mut new_w = height;
         let mut new_h = width;
+        let turns = quarter_turns % 4;
         for layer in &doc.layers_meta {
-            let pixels = doc
+            let mut out = doc
                 .engine
                 .read_layer_rgba(&doc.ctx, layer.id)
                 .map_err(|e| e.to_string())?;
-            let (w, h, out) = rotate_rgba_90_cw(&pixels, width, height)?;
+            let (mut w, mut h) = (width, height);
+            for _ in 0..turns {
+                let (rw, rh, next) = rotate_rgba_90_cw(&out, w, h)?;
+                out = next;
+                w = rw;
+                h = rh;
+            }
             new_w = w;
             new_h = h;
             rotated.push((layer.id, out));

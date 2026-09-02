@@ -178,6 +178,17 @@ Select, Filter, View, Window, Help — `Select` sits between Layer and Filter, n
 between Edit and Image, because reaching for Image by position and opening
 Select is exactly the cost this rule exists to remove.
 
+The rule cuts both ways: an entry under the Photoshop menu it belongs to has
+to *be* the operation that menu implies. Flip Horizontal and Flip Vertical sat
+in the Image menu and mirrored the **active layer**, so on a five-layer
+document one layer moved and the rest did not — which reads as a bug, because
+Photoshop's Image ▸ Image Rotation ▸ Flip Canvas mirrors everything and its
+layer flip lives under Edit ▸ Transform. The layer flips moved to
+**Edit ▸ Transform**, and **Image ▸ Image Rotation** carries the canvas
+operations Photoshop puts there: 180°, 90° CW, 90° CCW and the two canvas
+flips. A quarter-turn count rather than three commands, so any rotation is one
+undo step and one document rebuild.
+
 Blend mode, opacity and the lock row live at the **top of the Layers panel**,
 not in Properties. They are the most-used control cluster in the application
 and the one a user reaches for without looking, and Properties is the panel

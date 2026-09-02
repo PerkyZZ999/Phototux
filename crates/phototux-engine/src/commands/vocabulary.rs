@@ -60,7 +60,10 @@ pub mod command_id {
     /// Embed or clear validated ICC profile bytes on the document.
     pub const DOCUMENT_SET_ICC: &str = "document.set-icc";
     pub const DOCUMENT_CROP: &str = "document.crop";
-    pub const DOCUMENT_ROTATE_90: &str = "document.rotate-90";
+    /// Rotate the canvas by a quarter-turn count (see `CommandArgs::Rotate`).
+    pub const DOCUMENT_ROTATE: &str = "document.rotate";
+    /// Mirror the whole canvas, every layer at once.
+    pub const DOCUMENT_FLIP: &str = "document.flip";
     pub const HISTORY_JUMP: &str = "history.jump";
 
     pub const SELECTION_REPLACE: &str = "selection.replace";
@@ -193,7 +196,8 @@ pub mod command_id {
         DOCUMENT_SET_SOFT_PROOF,
         DOCUMENT_SET_ICC,
         DOCUMENT_CROP,
-        DOCUMENT_ROTATE_90,
+        DOCUMENT_ROTATE,
+        DOCUMENT_FLIP,
         SELECTION_REPLACE,
         SELECTION_DESELECT,
         SELECTION_INVERT,
@@ -542,6 +546,12 @@ pub enum CommandArgs {
     },
     HistoryJump {
         entry_id: u64,
+    },
+    /// Clockwise quarter turns of the canvas: 1 is 90° CW, 2 is 180°, 3 is
+    /// 90° CCW. Counted rather than signed so one command covers the three
+    /// entries Photoshop's Image Rotation submenu carries.
+    Rotate {
+        quarter_turns: u32,
     },
 }
 

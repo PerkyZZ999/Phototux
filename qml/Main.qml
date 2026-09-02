@@ -1134,14 +1134,34 @@ ApplicationWindow {
                 onObjectAdded: (index, object) => editMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => editMenu.removeItem(object)
             }
+            ThemedMenu {
+                id: editTransformMenu
+                title: qsTr("&Transform")
+                Instantiator {
+                    model: root.actionsForMenu("edit.transform")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => editTransformMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => editTransformMenu.removeItem(object)
+                }
+            }
         }
         ThemedMenu {
             id: imageMenu
             title: qsTr("&Image")
+            ThemedMenu {
+                id: imageRotationMenu
+                title: qsTr("Image &Rotation")
+                Instantiator {
+                    model: root.actionsForMenu("image.rotation")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => imageRotationMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => imageRotationMenu.removeItem(object)
+                }
+            }
             Instantiator {
                 model: root.actionsForMenu("image")
                 delegate: actionMenuItem
-                onObjectAdded: (index, object) => imageMenu.insertItem(index, object)
+                onObjectAdded: (index, object) => imageMenu.insertItem(index + 1, object)
                 onObjectRemoved: (index, object) => imageMenu.removeItem(object)
             }
         }

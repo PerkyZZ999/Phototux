@@ -2131,7 +2131,6 @@ impl AppSession {
             | cid::VIEW_ZOOM_OUT
             | cid::VIEW_ZOOM_ACTUAL
             | cid::MASK_APPLY
-            | cid::DOCUMENT_ROTATE_90
             | cid::APP_SHOW_PREFERENCES
             | cid::APP_SHOW_FILTER_GALLERY
             | cid::FILTER_COMMIT
@@ -2302,7 +2301,16 @@ impl AppSession {
                 }
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
-            "document.rotate_90" => self.rotate_canvas_90_cw(),
+            "document.rotate" => match arg.and_then(|a| a.parse::<i32>().ok()) {
+                // Degrees in the registry, quarter turns on the wire: the
+                // argument is what the menu entry is called.
+                Some(degrees) => self.rotate_canvas(degrees / 90),
+                None => self.notify(
+                    NoticeLevel::Warning,
+                    format!("Unreadable rotation: {}", arg.unwrap_or_default()),
+                ),
+            },
+            "document.flip" => self.flip_canvas(arg != Some("v")),
             "text.bake" => self.bake_text_layer(),
             "layer.align" => self.align_layers(arg.unwrap_or_default().to_owned()),
             "shape.create" => self.add_shape_layer(arg.unwrap_or("rect").to_owned()),
@@ -8326,17 +8334,55 @@ impl AppSession {
         }
     }
 
+    /// Rotate the canvas `quarter_turns` × 90° clockwise.
+    ///
+    /// One command and one undo step whatever the count: the turns are folded
+    /// into the pixels before the document is rebuilt, so 180° is not two
+    /// rotations the user has to undo twice.
     #[qslot]
-    fn rotate_canvas_90_cw(&mut self) {
+    fn rotate_canvas(&mut self, quarter_turns: i32) {
+        if !self.engine.has_document {
+            return;
+        }
+        let Ok(turns) = u32::try_from(quarter_turns) else {
+            return;
+        };
+        if turns % 4 == 0 {
+            return;
+        }
+        if self
+            .commit_layer_edit("rotate canvas", |layers| {
+                phototux_canvas::rotate_canvas(turns, layers)
+            })
+            .is_some()
+        {
+            self.clear_selection_stacks();
+            let _ = self.invoke_command(
+                command_id::DOCUMENT_ROTATE,
+                CommandArgs::Rotate {
+                    quarter_turns: turns,
+                },
+            );
+        }
+    }
+
+    /// Mirror every layer of the document.
+    #[qslot]
+    fn flip_canvas(&mut self, horizontal: bool) {
         if !self.engine.has_document {
             return;
         }
         if self
-            .commit_layer_edit("rotate canvas", phototux_canvas::rotate_canvas_90_cw)
+            .commit_layer_edit("flip canvas", |layers| {
+                phototux_canvas::flip_document(horizontal, layers).map(|ms| ((), ms))
+            })
             .is_some()
         {
             self.clear_selection_stacks();
-            let _ = self.invoke_command(command_id::DOCUMENT_ROTATE_90, CommandArgs::None);
+            let _ = self.invoke_command(
+                command_id::DOCUMENT_FLIP,
+                CommandArgs::RasterFlip { horizontal },
+            );
         }
     }
 

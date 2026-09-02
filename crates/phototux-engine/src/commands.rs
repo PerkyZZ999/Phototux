@@ -82,7 +82,8 @@ impl SessionState {
             command_id::DOCUMENT_SET_SOFT_PROOF => self.cmd_document_set_soft_proof(args),
             command_id::DOCUMENT_SET_ICC => self.cmd_document_set_icc(args),
             command_id::DOCUMENT_CROP => self.cmd_document_crop(args),
-            command_id::DOCUMENT_ROTATE_90 => self.cmd_document_rotate_90(),
+            command_id::DOCUMENT_ROTATE => self.cmd_document_rotate(args),
+            command_id::DOCUMENT_FLIP => self.cmd_document_flip(args),
             command_id::SELECTION_REPLACE => self.cmd_selection_replace(args),
             command_id::SELECTION_DESELECT => self.cmd_selection_deselect(),
             command_id::SELECTION_INVERT => self.cmd_selection_invert(),
@@ -1161,12 +1162,22 @@ impl SessionState {
         Ok(effects)
     }
 
-    fn cmd_document_rotate_90(&mut self) -> Result<CommandEffects, CommandError> {
+    fn cmd_document_rotate(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::Rotate { quarter_turns } = args else {
+            return Err(CommandError::InvalidArgument("expected rotate"));
+        };
+        let turns = quarter_turns % 4;
+        if turns == 0 {
+            return Err(CommandError::Rejected("a full turn changes nothing"));
+        }
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let (w, h) = (graph.size.width, graph.size.height);
-        graph.size = crate::DocumentSize::new(h, w);
+        // Only an odd number of quarter turns swaps the axes.
+        if turns % 2 == 1 {
+            let (w, h) = (graph.size.width, graph.size.height);
+            graph.size = crate::DocumentSize::new(h, w);
+        }
         graph.revision = graph.revision.wrapping_add(1);
         self.size = graph.size;
         self.selection.clear();
@@ -1174,11 +1185,37 @@ impl SessionState {
             graph.bump_generation();
             graph.generation
         };
-        self.history.push_transform("Rotate 90° CW", generation);
+        self.history
+            .push_transform(rotation_label(turns), generation);
         self.zoom_to_fit();
         let mut effects = CommandEffects::document_edit(generation);
         effects.sync_selection = true;
         effects.sync_camera = true;
+        Ok(effects)
+    }
+
+    fn cmd_document_flip(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::RasterFlip { horizontal } = args else {
+            return Err(CommandError::InvalidArgument("expected flip"));
+        };
+        if !self.has_document {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        }
+        // Unlike a layer flip this does not ask whether the active layer is
+        // movable: the canvas is not a layer, and a locked layer no more
+        // exempts itself from a canvas flip than from a canvas rotation.
+        let generation = self.bump_document_generation();
+        self.history.push_transform(
+            if horizontal {
+                "Flip Canvas Horizontal"
+            } else {
+                "Flip Canvas Vertical"
+            },
+            generation,
+        );
+        self.selection.clear();
+        let mut effects = CommandEffects::document_edit(generation);
+        effects.sync_selection = true;
         Ok(effects)
     }
 
@@ -3042,3 +3079,15 @@ fn reparent_into_group(
 
 #[cfg(test)]
 mod tests;
+
+/// History label for a clockwise quarter-turn count.
+///
+/// Spelled the way the menu spells it, so the history row and the entry the
+/// user clicked say the same thing.
+fn rotation_label(turns: u32) -> &'static str {
+    match turns % 4 {
+        1 => "Rotate 90° CW",
+        2 => "Rotate 180°",
+        _ => "Rotate 90° CCW",
+    }
+}

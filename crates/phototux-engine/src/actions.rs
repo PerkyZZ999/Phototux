@@ -270,30 +270,76 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .host("clipboard.paste_mask")
         .icon("circle-half-tilt"),
-        // Image
+        // Edit > Transform — the *layer* flips. They used to sit in the Image
+        // menu, where Photoshop's entries of the same name mirror the whole
+        // canvas, so picking one on a five-layer document mirrored one layer
+        // and read as a bug. Photoshop keeps a layer flip under
+        // Edit > Transform, and so does this.
         act(
             "action.image.flip-h",
             "Flip &Horizontal",
-            "image",
+            "edit.transform",
             "has_document_io_idle",
         )
         .host("raster.flip")
-        .arg("h"),
+        .arg("h")
+        .icon("flip-horizontal"),
         act(
             "action.image.flip-v",
             "Flip &Vertical",
-            "image",
+            "edit.transform",
             "has_document_io_idle",
         )
         .host("raster.flip")
-        .arg("v"),
+        .arg("v")
+        .icon("flip-vertical"),
+        // Image > Image Rotation — the canvas. Photoshop's submenu, its order
+        // and its names.
         act(
-            "action.image.rotate-90",
-            "Rotate 90° &Clockwise",
-            "image",
+            "action.image.rotate-180",
+            "&180°",
+            "image.rotation",
             "has_document_io_idle",
         )
-        .host("document.rotate_90"),
+        .host("document.rotate")
+        .arg("180")
+        .icon("arrows-clockwise"),
+        act(
+            "action.image.rotate-90",
+            "90° &Clockwise",
+            "image.rotation",
+            "has_document_io_idle",
+        )
+        .host("document.rotate")
+        .arg("90")
+        .icon("arrow-clockwise"),
+        act(
+            "action.image.rotate-270",
+            "90° Counter Cloc&kwise",
+            "image.rotation",
+            "has_document_io_idle",
+        )
+        .host("document.rotate")
+        .arg("270")
+        .icon("arrow-counter-clockwise"),
+        act(
+            "action.image.flip-canvas-h",
+            "Flip Canvas &Horizontal",
+            "image.rotation",
+            "has_document_io_idle",
+        )
+        .host("document.flip")
+        .arg("h")
+        .icon("flip-horizontal"),
+        act(
+            "action.image.flip-canvas-v",
+            "Flip Canvas &Vertical",
+            "image.rotation",
+            "has_document_io_idle",
+        )
+        .host("document.flip")
+        .arg("v")
+        .icon("flip-vertical"),
         act(
             "action.image.assign-srgb",
             "Assign Profile: sRGB",
