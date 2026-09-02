@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="packaging/linux/io.github.PerkyZZ999.PhotoTux.svg" width="112" height="112" alt="">
+<img src="https://github.com/PerkyZZ999/Phototux/blob/main/assets/logo-ui.png" width="250" height="250">
 
 # PhotoTux
 
