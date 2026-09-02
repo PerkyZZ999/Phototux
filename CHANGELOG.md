@@ -6,6 +6,9 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **Baking text could not be undone**, which is the third command in the family found writing a kind change and a payload clear straight onto the graph with no history entry — after rasterizing a shape and rasterizing a smart object. Each discards the only copy of something a user cannot recreate: a layer's words, a shape's editable path, a smart object's original pixels. Two lines of help text around the Bake Text button had grown up around the defect, one of them advising the reader to leave the panel rather than press it; they are gone, and the button says undo brings the text back.
+- `every_conversion_to_pixels_can_be_undone` covers all three from one table — a fourth conversion has somewhere obvious to be added and fails there if it forgets. Verified by removing a history push and watching it fail.
+
 - **The transform tool silently threw away its own work on a smart object.** It baked the committed draft into the pixels while the placement went on saying something else, so the next nudge of the scale slider restored the source and discarded the transform. A commit on a smart object now folds into the placement instead: rotations add, scales multiply, offsets sum, and the result is applied to the pristine source — so a move, then a scale, comes back at full quality with both intact.
 
 - **Two documents open, both with a smart object, and the second showed the first one's pixels.** Layer ids restart at 1 in every graph, and the host held one map of smart-object sources across every open tab — so a second document's smart object at layer 3 read, displayed and *saved* the first document's source. Sources park and unpark with their document now, for the same reason the parked layer pixels already do, and closing a tab drops them: nothing did before, and each one is a whole document of pixels.

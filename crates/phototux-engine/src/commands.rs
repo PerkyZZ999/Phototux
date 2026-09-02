@@ -1598,6 +1598,12 @@ impl SessionState {
         })
     }
 
+    /// Bake a text layer down to pixels, dropping its editable text.
+    ///
+    /// Recorded in history, like every other command that discards the only
+    /// copy of something. It used to write the kind and the payload straight
+    /// onto the graph and push nothing, so baking type was permanent — which
+    /// the panel had ended up describing as if it were the design.
     fn cmd_text_bake(&mut self) -> Result<CommandEffects, CommandError> {
         let id = self.active_layer_id()?;
         let Some(graph) = self.graph.as_mut() else {
@@ -1609,13 +1615,30 @@ impl SessionState {
         if layer.kind != LayerKind::Text {
             return Err(CommandError::Rejected("this is not a text layer"));
         }
-        layer.kind = LayerKind::Raster;
-        layer.text = None;
+        let prev_text = layer.text.clone();
+        // A text layer carries no raster asset until it becomes one.
         if layer.asset_key.is_none() {
             layer.asset_key = Some(format!("layer-{}", id.0));
         }
-        graph.bump_generation();
-        Ok(CommandEffects::document_edit(graph.generation))
+        let command = crate::GraphCommand::Batch(vec![
+            crate::GraphCommand::SetKind {
+                id,
+                prev: LayerKind::Text,
+                next: LayerKind::Raster,
+            },
+            crate::GraphCommand::SetText {
+                id,
+                prev: prev_text,
+                next: None,
+            },
+        ]);
+        if !command.apply(graph) {
+            return Err(CommandError::Rejected("layer missing"));
+        }
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(command, "Bake text", generation);
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn cmd_shape_create(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {

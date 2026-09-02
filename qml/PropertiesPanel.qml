@@ -827,24 +827,21 @@ ColumnLayout {
                 enabled: AppSession.textLayerActive
                 onToggled: characterProps.pushText()
             }
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontLabelSm
-                text: qsTr("Keep editable until you bake. Bake Text converts to pixels and discards the editable text layer.")
-            }
             ThemedButton {
                 text: qsTr("Bake Text")
                 enabled: AppSession.textLayerActive && !AppSession.ioBusy
                 onClicked: AppSession.bakeTextLayer()
             }
+            // Two lines used to sit around this button warning that baking
+            // discards the editable text, one of them advising the reader to
+            // leave the panel rather than press it. Baking is a normal,
+            // undoable edit; the warning was describing a defect.
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 color: Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontLabelSm
-                text: qsTr("Keep editable: leave this panel; do not bake.")
+                text: qsTr("Converts the type to pixels so it can be painted on. Undo brings the text back.")
             }
             Connections {
                 target: AppSession

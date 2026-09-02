@@ -105,6 +105,13 @@ pub enum GraphCommand {
         prev: Option<ShapeContent>,
         next: Option<ShapeContent>,
     },
+    /// Editable text payload. Batched with [`Self::SetKind`] when a text
+    /// layer is baked, so the two never come apart on undo.
+    SetText {
+        id: LayerId,
+        prev: Option<crate::TextContent>,
+        next: Option<crate::TextContent>,
+    },
     /// Smart-object payload. Batched with [`Self::SetKind`] when a layer is
     /// wrapped or unwrapped, so the two never come apart on undo.
     SetSmart {
@@ -225,6 +232,9 @@ impl GraphCommand {
             Self::SetFill { id, next, .. } => graph.set_fill(*id, next.clone()).is_some(),
             Self::SetShape { id, next, .. } => {
                 write_layer(graph, *id, |layer| layer.shape = next.clone())
+            }
+            Self::SetText { id, next, .. } => {
+                write_layer(graph, *id, |layer| layer.text = next.clone())
             }
             Self::SetSmart { id, next, .. } => {
                 write_layer(graph, *id, |layer| layer.smart = next.clone())
@@ -413,6 +423,11 @@ impl GraphCommand {
                 next: prev.clone(),
             },
             Self::SetFill { id, prev, next } => Self::SetFill {
+                id: *id,
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetText { id, prev, next } => Self::SetText {
                 id: *id,
                 prev: next.clone(),
                 next: prev.clone(),

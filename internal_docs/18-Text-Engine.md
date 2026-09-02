@@ -445,7 +445,14 @@ Font parsing and subsetting execute in bounded workers with memory and time quot
 
 Diagnostics are privacy-preserving. Traces record counts, behavior versions, face fingerprints, script tags, bidi levels, line metrics, and error codes. They **MUST NOT** emit raw document text, personal names from font metadata when redaction policy applies, absolute filesystem paths, or clipboard-adjacent content. Accessibility trees expose semantic text to assistive technologies under user session control without writing that text into shared diagnostic sinks.
 
-Destructive conversion (text-to-path, text raster bake) is a named command path. Preparation may fail after allocating temporary outlines; authority remains semantic text until history inverse reservation and atomic commit succeed. Partial GPU uploads or atlas corruption roll back leases without inventing path layers. Security-relevant failures during conversion are indistinguishable in user messaging from resource failures insofar as both refuse commit; diagnostics distinguish them for developers under redaction rules.
+Destructive conversion (text-to-path, text raster bake) is a named command path
+and **MUST** record a history entry. The kind change and the payload clear go
+into that entry together, so an undo cannot restore one without the other and
+leave a raster layer still carrying its text — or a text layer with none.
+`text.bake` shipped writing both straight onto the graph and pushing nothing,
+which made discarding a layer's words permanent; the same defect was in
+`shape.rasterize` and `smartobject.rasterize`, and
+`every_conversion_to_pixels_can_be_undone` now covers the family. Preparation may fail after allocating temporary outlines; authority remains semantic text until history inverse reservation and atomic commit succeed. Partial GPU uploads or atlas corruption roll back leases without inventing path layers. Security-relevant failures during conversion are indistinguishable in user messaging from resource failures insofar as both refuse commit; diagnostics distinguish them for developers under redaction rules.
 
 ## Concurrency, Cancellation, and Consistency
 

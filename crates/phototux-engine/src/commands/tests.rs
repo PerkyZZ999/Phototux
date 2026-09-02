@@ -838,6 +838,84 @@ fn rasterizing_something_that_is_not_a_shape_is_refused() {
     assert!(error.is_user_correctable(), "{error:?}");
 }
 
+/// Every command that converts a layer to pixels must be undoable.
+///
+/// Each of these discards the only copy of something the user cannot recreate:
+/// a text layer's words, a shape's editable path, a smart object's original
+/// pixels. Three of them shipped writing the kind and the payload straight
+/// onto the graph and pushing no history entry at all, which made the edit
+/// permanent — one of them had even been written into the panel's help text as
+/// though it were the design.
+///
+/// A table rather than three tests, so a fourth conversion has somewhere
+/// obvious to be added and fails here if it forgets.
+#[test]
+fn every_conversion_to_pixels_can_be_undone() {
+    /// How to build a document whose active layer the command applies to.
+    type Fixture = fn() -> SessionState;
+
+    let cases: [(&str, Fixture); 3] = [
+        (command_id::TEXT_BAKE, || {
+            let mut s = SessionState::default();
+            s.apply_preset(SizePreset::P720);
+            s.invoke(
+                command_id::TEXT_CREATE,
+                CommandArgs::TextCreate {
+                    text: "Hello".into(),
+                },
+            )
+            .expect("text layer");
+            s
+        }),
+        (command_id::SHAPE_RASTERIZE, session_with_a_shape),
+        (command_id::SMART_RASTERIZE, session_with_a_smart_object),
+    ];
+
+    for (command, build) in cases {
+        let mut s = build();
+        let before = active_layer(&s);
+        assert_ne!(
+            before.kind,
+            crate::LayerKind::Raster,
+            "{command}: the fixture is already a pixel layer"
+        );
+        s.invoke(command, CommandArgs::None)
+            .unwrap_or_else(|e| panic!("{command}: {e:?}"));
+
+        let after = active_layer(&s);
+        assert_eq!(
+            after.kind,
+            crate::LayerKind::Raster,
+            "{command} did not convert the layer"
+        );
+        assert!(
+            after.asset_key.is_some(),
+            "{command} left the layer with nowhere to keep its pixels"
+        );
+
+        let SessionState { graph, history, .. } = &mut s;
+        assert!(
+            history.undo_next(graph.as_mut().expect("graph")).is_some(),
+            "{command} pushed no history entry — the conversion is permanent"
+        );
+        let restored = active_layer(&s);
+        assert_eq!(restored.kind, before.kind, "{command}: kind not restored");
+        assert_eq!(
+            (
+                restored.text.is_some(),
+                restored.shape.is_some(),
+                restored.smart.is_some()
+            ),
+            (
+                before.text.is_some(),
+                before.shape.is_some(),
+                before.smart.is_some()
+            ),
+            "{command}: the payload did not come back with the kind"
+        );
+    }
+}
+
 #[test]
 fn path_edit_round_trip_on_shape() {
     let mut s = SessionState::default();
