@@ -1,0 +1,38 @@
+---
+import { NAV, hrefFor } from "../nav";
+import Icon from "./Icon.astro";
+
+interface Props {
+  current: string;
+  id?: string;
+  class?: string;
+}
+
+const { current, id, class: className = "" } = Astro.props;
+---
+
+<nav id={id} class={className} aria-label="Documentation">
+  {
+    NAV.map((group) => (
+      <div class="sidebar-group">
+        <h2 class="sidebar-title">
+          <Icon name={group.icon} size="sm" />
+          {group.title}
+        </h2>
+        <ul class="sidebar-list">
+          {group.items.map((item) => (
+            <li>
+              <a
+                class="sidebar-link"
+                href={hrefFor(item.slug)}
+                aria-current={item.slug === current ? "page" : undefined}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))
+  }
+</nav>

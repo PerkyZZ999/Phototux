@@ -1,0 +1,189 @@
+---
+import { BRAND, REQUIREMENTS } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+---
+
+<section class="hero">
+  <div class="container hero-inner">
+    <img
+      class="hero-logo"
+      src="/brand/logo.png"
+      alt="The PhotoTux logo: Tux the penguin holding a paintbrush, trailing a stroke of blue pixels."
+      width="256"
+      height="256"
+      fetchpriority="high"
+      decoding="async"
+    />
+
+    <h1 class="hero-title">
+      <span class="hero-line">A GPU-accelerated image editor</span>{" "}
+      <span class="hero-title-accent">built for Linux and Wayland.</span>
+    </h1>
+
+    <p class="hero-lede">
+      Rust and Qt 6 QML. A zero-copy <span class="nowrap">wgpu/Vulkan</span> canvas
+      that never moves a pixel across the language boundary while you paint. A dense
+      workspace shaped after Photoshop and drawn in the idiom of KDE Plasma 6.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#install">
+        <Icon name="download-simple" size="sm" />
+        Get PhotoTux
+      </a>
+      <a class="btn btn-secondary" href={BRAND.docs}>
+        <Icon name="book-open-text" size="sm" />
+        Read the docs
+      </a>
+      <a class="btn btn-ghost" href={BRAND.repo} rel="noopener">
+        <Icon name="github-logo" size="sm" />
+        Source
+        <Icon name="arrow-up-right" size="sm" />
+      </a>
+    </div>
+
+    <ul class="hero-facts">
+      {
+        REQUIREMENTS.map((requirement) => (
+          <li>
+            <Icon name={requirement.icon} size="sm" />
+            {requirement.label}
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+
+  <div class="container hero-shot-wrap">
+    <figure class="frame hero-shot">
+      <div class="frame-bar" aria-hidden="true">
+        <span class="frame-dot"></span>
+        <span class="frame-dot"></span>
+        <span class="frame-dot"></span>
+        <span class="frame-title mono">dusk-ridge.png — PhotoTux</span>
+      </div>
+      <img
+        src="/screenshots/workspace.webp"
+        width="1600"
+        height="1000"
+        alt="The PhotoTux workspace. A vertical tool shelf runs down the left, an options bar sits under the menu bar, a dusk landscape fills the canvas with the words Last light set over it, and the Properties, Navigator and Layers docks are stacked on the right showing a text layer above a Vibrance adjustment layer above the photograph."
+        fetchpriority="high"
+        decoding="async"
+      />
+    </figure>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding-block-start: var(--s-8);
+    isolation: isolate;
+  }
+
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset-block-start: calc(var(--h-header) * -1);
+    inset-inline: 0;
+    block-size: 46rem;
+    z-index: -1;
+    background: var(--c-hero-wash);
+    pointer-events: none;
+  }
+
+  .hero-inner {
+    max-width: 60rem;
+    text-align: center;
+  }
+
+  .hero-logo {
+    width: clamp(7rem, 5rem + 7vw, 10rem);
+    height: auto;
+    /* Centred by its own auto inline margins: the parent's `text-align`
+       does nothing for a block-level image. */
+    margin-inline: auto;
+    margin-block-end: var(--s-5);
+    /* The mark is a transparent illustration with a lot of white in it; a
+       soft accent halo keeps it from reading as a sticker dropped on the
+       gradient. Decorative, so it goes nowhere near the alt text. */
+    filter: drop-shadow(0 12px 28px rgb(0 0 0 / 45%));
+  }
+
+  .hero-title {
+    margin-block-start: var(--s-5);
+    font-size: var(--t-5);
+    font-weight: var(--fw-bold);
+    letter-spacing: -0.032em;
+  }
+
+  .hero-title-accent {
+    color: var(--c-accent);
+  }
+
+  /* Break the two halves onto their own lines only where each fits; below
+     that they run on as one sentence and wrap wherever they must. A `<br>`
+     hidden with `display: none` would have taken the space between them with
+     it, which is how the phone came to read "image editorbuilt for". */
+  .hero-line {
+    display: inline;
+  }
+
+  @media (min-width: 48rem) {
+    .hero-line {
+      display: block;
+    }
+  }
+
+  .hero-lede {
+    max-width: 42rem;
+    margin: var(--s-5) auto 0;
+    color: var(--c-text-muted);
+    font-size: var(--t-1);
+    line-height: 1.55;
+    text-wrap: pretty;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--s-3);
+    margin-block-start: var(--s-6);
+  }
+
+  .hero-facts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--s-2) var(--s-5);
+    margin-block-start: var(--s-6);
+    padding: 0;
+    list-style: none;
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+  }
+
+  .hero-facts li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+  }
+
+  .hero-shot-wrap {
+    margin-block-start: var(--s-8);
+  }
+
+  .hero-shot {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  /* A faint accent halo, so the shot lifts off the wash instead of sitting
+     flat on it. Purely decorative and cheap — no filter, no blur layer. */
+  @media (min-width: 64rem) {
+    .hero-shot {
+      box-shadow: var(--c-shadow-3), var(--c-glow);
+    }
+  }
+</style>

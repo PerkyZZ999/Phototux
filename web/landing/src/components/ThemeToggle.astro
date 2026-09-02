@@ -1,0 +1,106 @@
+---
+/**
+ * Light / dark switch.
+ *
+ * Three states are possible on the page — explicit light, explicit dark, and
+ * "whatever the system says" — but only two are worth a control, so this
+ * toggles between light and dark and stamps the choice on `<html>`. The
+ * inline script in `Base.astro` applies the stored choice before first paint;
+ * without it the page flashes the system theme on every navigation.
+ *
+ * The icons are wrapped in spans this component owns, because a class handed
+ * to `<Icon>` lands inside `Icon.astro` and a scoped rule here cannot reach
+ * it.
+ */
+import Icon from "./Icon.astro";
+---
+
+<button
+  type="button"
+  class="theme-toggle btn btn-ghost btn-icon"
+  data-theme-toggle
+  aria-label="Switch to light theme"
+>
+  <span class="theme-face theme-face-moon"><Icon name="moon" /></span>
+  <span class="theme-face theme-face-sun"><Icon name="sun" /></span>
+</button>
+
+<style>
+  .theme-toggle {
+    border-radius: var(--r-2);
+  }
+
+  .theme-face {
+    display: none;
+  }
+
+  /* Whichever icon is showing is the mode you would switch *to*: a moon in
+     light mode, a sun in dark. Light is the base case; dark overrides. */
+  .theme-face-sun {
+    display: none;
+  }
+
+  .theme-face-moon {
+    display: block;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .theme-face-moon {
+      display: none;
+    }
+
+    :global(:root:not([data-theme="light"])) .theme-face-sun {
+      display: block;
+    }
+  }
+
+  :global(:root[data-theme="dark"]) .theme-face-moon {
+    display: none;
+  }
+
+  :global(:root[data-theme="dark"]) .theme-face-sun {
+    display: block;
+  }
+
+  :global(:root[data-theme="light"]) .theme-face-moon {
+    display: block;
+  }
+
+  :global(:root[data-theme="light"]) .theme-face-sun {
+    display: none;
+  }
+</style>
+
+<script>
+  const KEY = "phototux-theme";
+
+  function currentTheme(): "light" | "dark" {
+    const stamped = document.documentElement.dataset.theme;
+    if (stamped === "light" || stamped === "dark") return stamped;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  }
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-theme-toggle]",
+  )) {
+    const sync = () => {
+      const next = currentTheme() === "dark" ? "light" : "dark";
+      button.setAttribute("aria-label", `Switch to ${next} theme`);
+    };
+    sync();
+
+    button.addEventListener("click", () => {
+      const next = currentTheme() === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      try {
+        localStorage.setItem(KEY, next);
+      } catch {
+        // Private windows and blocked site data: the toggle still works for
+        // this page, it just will not be remembered.
+      }
+      sync();
+    });
+  }
+</script>

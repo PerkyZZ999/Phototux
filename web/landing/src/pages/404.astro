@@ -1,0 +1,60 @@
+---
+import Base from "../layouts/Base.astro";
+import Icon from "../components/Icon.astro";
+import { BRAND } from "@phototux/design/brand";
+---
+
+<Base title={`Page not found — ${BRAND.name}`} description="That page does not exist on phototux.xyz.">
+  <section class="notfound">
+    <div class="container notfound-inner">
+      <p class="eyebrow">Error 404</p>
+      <h1 class="notfound-title">That page is not here.</h1>
+      <p class="notfound-body">
+        The link may be out of date, or the page may have moved into the
+        documentation. Both are one click away.
+      </p>
+      <div class="notfound-actions">
+        <a class="btn btn-primary" href="/">
+          <Icon name="arrow-right" size="sm" />
+          Back to the front page
+        </a>
+        <a class="btn btn-secondary" href={BRAND.docs}>
+          <Icon name="book-open-text" size="sm" />
+          Documentation
+        </a>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .notfound {
+    display: grid;
+    place-items: center;
+    min-block-size: 60vh;
+    padding-block: var(--s-9);
+  }
+
+  .notfound-inner {
+    max-width: 36rem;
+    text-align: center;
+  }
+
+  .notfound-title {
+    margin-block-start: var(--s-3);
+    font-size: var(--t-4);
+  }
+
+  .notfound-body {
+    margin-block-start: var(--s-4);
+    color: var(--c-text-muted);
+  }
+
+  .notfound-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--s-3);
+    margin-block-start: var(--s-6);
+  }
+</style>

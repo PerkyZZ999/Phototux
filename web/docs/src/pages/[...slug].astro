@@ -1,0 +1,56 @@
+---
+/**
+ * Every documentation page.
+ *
+ * Routes come from the navigation rather than from the collection, so a file
+ * that is not in `nav.ts` fails the build instead of shipping as an orphan
+ * nobody can reach — and a nav entry with no file fails too.
+ */
+import { getCollection, render } from "astro:content";
+import { NAV_FLAT } from "../nav";
+import DocsLayout from "../layouts/DocsLayout.astro";
+
+export async function getStaticPaths() {
+  const docs = await getCollection("docs");
+  const byId = new Map(docs.map((doc) => [doc.id, doc]));
+
+  const missing = NAV_FLAT.filter((item) => !byId.has(item.slug));
+  if (missing.length) {
+    throw new Error(
+      `nav.ts lists pages with no file under src/content/docs: ` +
+        missing.map((item) => item.slug).join(", "),
+    );
+  }
+
+  const orphans = docs.filter(
+    (doc) => !NAV_FLAT.some((item) => item.slug === doc.id),
+  );
+  if (orphans.length) {
+    throw new Error(
+      `These pages exist but nothing links to them — add them to nav.ts: ` +
+        orphans.map((doc) => doc.id).join(", "),
+    );
+  }
+
+  return NAV_FLAT.map((item) => {
+    const doc = byId.get(item.slug)!;
+    return {
+      // `index` is the site root, which Astro spells as `undefined`.
+      params: { slug: item.slug === "index" ? undefined : item.slug },
+      props: { doc },
+    };
+  });
+}
+
+const { doc } = Astro.props;
+const { Content, headings } = await render(doc);
+---
+
+<DocsLayout
+  slug={doc.id}
+  title={doc.data.title}
+  description={doc.data.description}
+  headings={headings}
+>
+  <Content />
+</DocsLayout>

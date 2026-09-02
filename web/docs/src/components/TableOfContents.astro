@@ -1,0 +1,81 @@
+---
+/**
+ * On this page.
+ *
+ * Fed by Astro's `render()` headings rather than by parsing the HTML back
+ * out, so the ids here are always the ids `rehype-slug` actually wrote.
+ * Depth 4 and below is left out: a sidebar that mirrors every sub-sub-heading
+ * stops being a map.
+ */
+import type { MarkdownHeading } from "astro";
+
+interface Props {
+  headings: MarkdownHeading[];
+}
+
+const { headings } = Astro.props;
+const shown = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+{
+  shown.length > 1 && (
+    <aside class="toc" aria-labelledby="toc-title">
+      <h2 class="eyebrow toc-title" id="toc-title">
+        On this page
+      </h2>
+      <ul class="toc-list" data-toc>
+        {shown.map((heading) => (
+          <li>
+            <a class="toc-link" href={`#${heading.slug}`} data-depth={heading.depth}>
+              {heading.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  )
+}
+
+<script>
+  /* Highlight the heading the reader is actually at. The observer watches the
+     headings themselves and marks the last one to have crossed the top of the
+     viewport, so scrolling through a long section keeps that section lit
+     instead of blanking between headings. */
+  const list = document.querySelector<HTMLElement>("[data-toc]");
+  if (list) {
+    const links = [...list.querySelectorAll<HTMLAnchorElement>(".toc-link")];
+    const targets = links
+      .map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1))))
+      .filter((el): el is HTMLElement => el !== null);
+
+    if (targets.length) {
+      const seen = new Map<string, boolean>();
+
+      const paint = () => {
+        // The deepest heading whose top is above the fold wins.
+        let current = targets[0]?.id;
+        for (const target of targets) {
+          if (target.getBoundingClientRect().top <= 120) current = target.id;
+          else break;
+        }
+        for (const link of links) {
+          const id = decodeURIComponent(link.hash.slice(1));
+          if (id === current) link.setAttribute("aria-current", "true");
+          else link.removeAttribute("aria-current");
+        }
+      };
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) seen.set(entry.target.id, entry.isIntersecting);
+          paint();
+        },
+        { rootMargin: "-100px 0px -60% 0px" },
+      );
+      for (const target of targets) observer.observe(target);
+
+      paint();
+      window.addEventListener("scroll", paint, { passive: true });
+    }
+  }
+</script>

@@ -1,0 +1,317 @@
+---
+/**
+ * Sticky header: mark, section links, docs, GitHub, theme.
+ *
+ * Below 60 rem the section links collapse behind a disclosure rather than a
+ * hamburger with no name on it — "Menu" costs four characters and removes the
+ * guess.
+ */
+import { BRAND } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+import ThemeToggle from "./ThemeToggle.astro";
+
+const sections = [
+  { href: "#why", label: "Why" },
+  { href: "#features", label: "Features" },
+  { href: "#screenshots", label: "Screenshots" },
+  { href: "#install", label: "Install" },
+];
+---
+
+<header class="site-header">
+  <div class="container site-header-inner">
+    <a class="wordmark" href="/" aria-label={`${BRAND.name} home`}>
+      <img
+        src="/brand/logo.png"
+        alt=""
+        width="32"
+        height="32"
+        class="wordmark-mark"
+      />
+      <span class="wordmark-text">{BRAND.name}</span>
+    </a>
+
+    <nav class="site-nav" aria-label="Sections">
+      <ul class="site-nav-list" data-nav-list>
+        {
+          sections.map((item) => (
+            <li>
+              <a class="site-nav-link" href={item.href} data-nav-link>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="site-header-actions">
+      <a class="btn btn-ghost site-header-docs" href={BRAND.docs}>
+        <Icon name="book-open-text" size="sm" />
+        Docs
+      </a>
+      <a
+        class="btn btn-ghost btn-icon"
+        href={BRAND.repo}
+        aria-label={`${BRAND.name} on GitHub`}
+        rel="noopener"
+      >
+        <Icon name="github-logo" />
+      </a>
+      <ThemeToggle />
+      <button
+        type="button"
+        class="btn btn-ghost site-header-menu"
+        data-menu-toggle
+        aria-expanded="false"
+        aria-controls="site-menu"
+      >
+        <Icon name="list" size="sm" data-menu-open />
+        <Icon name="x" size="sm" data-menu-close />
+        <span>Menu</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="site-menu" id="site-menu" data-menu hidden>
+    <div class="container site-menu-inner">
+      {
+        sections.map((item) => (
+          <a class="site-menu-link" href={item.href} data-menu-link>
+            {item.label}
+          </a>
+        ))
+      }
+      <a class="site-menu-link" href={BRAND.docs}>
+        Documentation
+      </a>
+      <a class="site-menu-link" href={BRAND.repo} rel="noopener">
+        Source on GitHub
+      </a>
+    </div>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: var(--z-header);
+    border-block-end: 1px solid transparent;
+    background: color-mix(in srgb, var(--c-bg) 82%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    transition:
+      border-color var(--d-base) var(--e-out),
+      background-color var(--d-base) var(--e-out);
+  }
+
+  .site-header[data-scrolled] {
+    border-block-end-color: var(--c-border);
+    background: color-mix(in srgb, var(--c-bg) 94%, transparent);
+  }
+
+  .site-header-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    min-height: var(--h-header);
+  }
+
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--c-text);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+
+  .wordmark-mark {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .wordmark-text {
+    font-size: 1.0625rem;
+  }
+
+  .site-nav {
+    margin-inline-start: var(--s-4);
+    flex: 1;
+  }
+
+  .site-nav-list {
+    display: flex;
+    gap: var(--s-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .site-nav-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.25rem;
+    padding-inline: var(--s-3);
+    border-radius: var(--r-2);
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+    transition:
+      color var(--d-fast) var(--e-out),
+      background-color var(--d-fast) var(--e-out);
+  }
+
+  .site-nav-link:hover {
+    background: var(--c-surface-2);
+    color: var(--c-text);
+  }
+
+  .site-nav-link[aria-current="true"] {
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+  }
+
+  .site-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+    margin-inline-start: auto;
+  }
+
+  .site-header-docs {
+    padding-inline: var(--s-3);
+  }
+
+  .site-header-menu {
+    display: none;
+    gap: var(--s-2);
+    padding-inline: var(--s-3);
+  }
+
+  .site-header-menu [data-menu-close] {
+    display: none;
+  }
+
+  .site-header-menu[aria-expanded="true"] [data-menu-open] {
+    display: none;
+  }
+
+  .site-header-menu[aria-expanded="true"] [data-menu-close] {
+    display: block;
+  }
+
+  .site-menu {
+    border-block-start: 1px solid var(--c-border);
+    background: var(--c-bg);
+  }
+
+  .site-menu-inner {
+    display: flex;
+    flex-direction: column;
+    padding-block: var(--s-2) var(--s-4);
+  }
+
+  .site-menu-link {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--c-text-muted);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+  }
+
+  .site-menu-link + .site-menu-link {
+    border-block-start: 1px solid var(--c-border);
+  }
+
+  .site-menu-link:hover {
+    color: var(--c-text);
+  }
+
+  @media (max-width: 60rem) {
+    .site-nav,
+    .site-header-docs {
+      display: none;
+    }
+
+    .site-header-menu {
+      display: inline-flex;
+    }
+  }
+</style>
+
+<script>
+  const header = document.querySelector<HTMLElement>(".site-header");
+  const toggle = document.querySelector<HTMLButtonElement>("[data-menu-toggle]");
+  const menu = document.querySelector<HTMLElement>("[data-menu]");
+
+  /* A hairline under the header, but only once the page has actually moved —
+     over the hero it would be a rule floating in the middle of a gradient. */
+  if (header) {
+    const mark = () => {
+      header.toggleAttribute("data-scrolled", window.scrollY > 8);
+    };
+    mark();
+    window.addEventListener("scroll", mark, { passive: true });
+  }
+
+  if (toggle && menu) {
+    const setOpen = (open: boolean) => {
+      toggle.setAttribute("aria-expanded", String(open));
+      menu.hidden = !open;
+    };
+
+    toggle.addEventListener("click", () => {
+      setOpen(toggle.getAttribute("aria-expanded") !== "true");
+    });
+
+    for (const link of menu.querySelectorAll("a")) {
+      link.addEventListener("click", () => setOpen(false));
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") setOpen(false);
+    });
+
+    /* Reopening the desktop layout with the sheet still open would leave a
+       panel nailed under a nav bar that is showing the same links. */
+    const wide = window.matchMedia("(min-width: 60.0625rem)");
+    wide.addEventListener("change", (event) => {
+      if (event.matches) setOpen(false);
+    });
+  }
+
+  /* Scroll spy. IntersectionObserver rather than a scroll handler doing
+     getBoundingClientRect on five sections sixty times a second. */
+  const links = [...document.querySelectorAll<HTMLAnchorElement>("[data-nav-link]")];
+  const targets = links
+    .map((link) => document.querySelector(link.hash))
+    .filter((el): el is Element => el instanceof Element);
+
+  if (targets.length) {
+    const visible = new Set<string>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) visible.add(entry.target.id);
+          else visible.delete(entry.target.id);
+        }
+        // The topmost visible section wins, so scrolling down does not light
+        // up two links at the boundary.
+        const current = targets.find((t) => visible.has(t.id))?.id;
+        for (const link of links) {
+          if (current && link.hash === `#${current}`) {
+            link.setAttribute("aria-current", "true");
+          } else {
+            link.removeAttribute("aria-current");
+          }
+        }
+      },
+      { rootMargin: "-30% 0px -55% 0px" },
+    );
+    for (const target of targets) observer.observe(target);
+  }
+</script>

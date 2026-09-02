@@ -1,0 +1,183 @@
+---
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
+import "@phototux/design/tokens.css";
+import "@phototux/design/base.css";
+import "@phototux/design/prose.css";
+import "../styles/docs.css";
+
+import type { MarkdownHeading } from "astro";
+import { BRAND } from "@phototux/design/brand";
+import { NAV_FLAT, groupFor, hrefFor } from "../nav";
+import Icon from "../components/Icon.astro";
+import Sidebar from "../components/Sidebar.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import TableOfContents from "../components/TableOfContents.astro";
+
+interface Props {
+  slug: string;
+  title: string;
+  description: string;
+  headings: MarkdownHeading[];
+}
+
+const { slug, title, description, headings } = Astro.props;
+
+const group = groupFor(slug);
+const index = NAV_FLAT.findIndex((item) => item.slug === slug);
+const previous = index > 0 ? NAV_FLAT[index - 1] : undefined;
+const next = index >= 0 && index < NAV_FLAT.length - 1 ? NAV_FLAT[index + 1] : undefined;
+
+const canonical = new URL(hrefFor(slug), Astro.site ?? BRAND.docs);
+const pageTitle = slug === "index" ? `${BRAND.name} documentation` : `${title} — ${BRAND.name} docs`;
+const year = new Date().getFullYear();
+---
+
+<!doctype html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <link rel="icon" href="/brand/logo.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/brand/logo.png" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0e0e11" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)" />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content={`${BRAND.name} documentation`} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL("/screenshots/workspace.png", Astro.site ?? BRAND.docs)} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script
+      is:inline
+      set:html={`
+        try {
+          var t = localStorage.getItem("phototux-theme");
+          if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      `}
+    />
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <SiteHeader />
+
+    <div class="mobile-nav">
+      <button
+        type="button"
+        class="mobile-nav-toggle"
+        data-mobile-nav-toggle
+        aria-expanded="false"
+        aria-controls="mobile-nav-panel"
+      >
+        <Icon name="list" size="sm" />
+        <span>{group ? `${group.title} · ${title}` : title}</span>
+        <Icon name="caret-down" size="sm" />
+      </button>
+      <div class="mobile-nav-panel" id="mobile-nav-panel" data-mobile-nav-panel hidden>
+        <Sidebar current={slug} class="sidebar-inline" />
+      </div>
+    </div>
+
+    <div class="layout">
+      <Sidebar current={slug} class="sidebar" />
+
+      <main class="article" id="main">
+        <header class="article-head">
+          {group && <p class="article-eyebrow">{group.title}</p>}
+          <h1 class="article-title">{title}</h1>
+          <p class="article-description">{description}</p>
+        </header>
+
+        <div class="prose article-body">
+          <slot />
+        </div>
+
+        {
+          (previous || next) && (
+            <nav class="pager" aria-label="Documentation pages">
+              {previous && (
+                <a class="pager-link" href={hrefFor(previous.slug)} rel="prev">
+                  <Icon name="caret-left" size="sm" />
+                  <span>
+                    <span class="pager-label">Previous</span>
+                    <span class="pager-title">{previous.label}</span>
+                  </span>
+                </a>
+              )}
+              {next && (
+                <a class="pager-link pager-next" href={hrefFor(next.slug)} rel="next">
+                  <span>
+                    <span class="pager-label">Next</span>
+                    <span class="pager-title">{next.label}</span>
+                  </span>
+                  <Icon name="caret-right" size="sm" />
+                </a>
+              )}
+            </nav>
+          )
+        }
+
+        <footer class="doc-footer">
+          <p>
+            © {year} Charles W. (PerkyZZ999) and contributors. PhotoTux is free
+            software under the{" "}
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="license"
+              >GNU GPL v3 or later</a
+            >.
+          </p>
+          <p>
+            Something here wrong or missing?{" "}
+            <a href={`${BRAND.repo}/issues/new/choose`} rel="noopener">Open an issue</a>.
+          </p>
+        </footer>
+      </main>
+
+      <TableOfContents headings={headings} />
+    </div>
+
+    <script>
+      const toggle = document.querySelector<HTMLButtonElement>(
+        "[data-mobile-nav-toggle]",
+      );
+      const panel = document.querySelector<HTMLElement>("[data-mobile-nav-panel]");
+      if (toggle && panel) {
+        toggle.addEventListener("click", () => {
+          const open = toggle.getAttribute("aria-expanded") === "true";
+          toggle.setAttribute("aria-expanded", String(!open));
+          panel.hidden = open;
+        });
+      }
+    </script>
+
+    <style>
+      .doc-footer {
+        max-width: var(--w-prose);
+        margin-block-start: var(--s-6);
+        padding-block-start: var(--s-5);
+        border-block-start: 1px solid var(--c-border);
+        color: var(--c-text-subtle);
+        font-size: var(--t--1);
+      }
+
+      .doc-footer p + p {
+        margin-block-start: var(--s-2);
+      }
+
+      /* The same nav, rendered inside the mobile disclosure. It needs the
+         group and link rules the sidebar has, without the sticky column. */
+      .sidebar-inline {
+        display: block;
+      }
+    </style>
+  </body>
+</html>

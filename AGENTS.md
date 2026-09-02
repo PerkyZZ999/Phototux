@@ -33,7 +33,7 @@ One-time: `./scripts/install-git-hooks.sh`. Host packages, crate map, and the re
 ## How to work
 
 1. Before architecture, UX, or crate-boundary work, read the relevant handbook chapter and the Decision Register. Pick product slices from the [Handbook-Parity-Checklist](internal_docs/Appendix/Handbook-Parity-Checklist.md).
-2. Extend [`internal_docs/`](internal_docs/README.md). Do not add a second tree under `/docs/` (archive is history).
+2. Extend [`internal_docs/`](internal_docs/README.md). Do not add a second tree under `/docs/` (archive is history). User-facing behaviour also updates the page in [`web/docs`](web/docs) that describes it ([DR-033](internal_docs/Appendix/Decision-Register.md#dr-033--public-web-presence-is-two-static-astro-sites-not-a-second-handbook)) — handbook for contributors, site for users.
 3. After non-trivial Rust, `rust-tc quick` must pass. Add engine tests for engine logic you touch. Commit at your own judgement, whenever the work reaches a sensible commit point. Before finishing substantial work, `rust-tc doctor`.
 
 Cargo workspace: directories kebab-case, packages `phototux_*`. Ownership: Developer Guide [Rust Workspace Boundaries](internal_docs/32-Developer-Guide.md#rust-workspace-boundaries) and [DR-025](internal_docs/Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace).
@@ -104,6 +104,7 @@ Commits: atomic, conventional-ish (`feat:`, `fix:`, `docs:`, `chore:`). Referenc
 | Commands / undo | [08](internal_docs/08-Command-System.md), [20](internal_docs/20-History-Undo.md) |
 | GPU / present | [17](internal_docs/17-Rendering-Engine.md) |
 | Contributor workflow | [32](internal_docs/32-Developer-Guide.md) |
+| Websites (phototux.xyz, docs.phototux.xyz) | [`web/README.md`](web/README.md), [DR-033](internal_docs/Appendix/Decision-Register.md#dr-033--public-web-presence-is-two-static-astro-sites-not-a-second-handbook) |
 | GUI QA | [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md) |
 
 ---

@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "landing"
+  - "docs"
+
+# esbuild ships a prebuilt binary and its install script is how it lands in
+# node_modules. Astro will not build without it.
+allowBuilds:
+  esbuild: true

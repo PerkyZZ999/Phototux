@@ -1,0 +1,92 @@
+---
+/**
+ * The three claims the product actually rests on, before the feature list.
+ *
+ * A feature grid answers "what can it do"; nobody reaches that question until
+ * "why this one" has an answer.
+ */
+import Icon from "./Icon.astro";
+
+const pillars = [
+  {
+    icon: "lightning",
+    title: "Frame time is a feature",
+    body:
+      "Compositing happens on the GPU and stays there. Document pixels are written by wgpu and presented by Qt's Vulkan RHI on the same device, so nothing crosses the language boundary while you pan, zoom or paint — a 4K document with a stack of layers moves at the refresh rate of the monitor, not the speed of a memcpy.",
+  },
+  {
+    icon: "layout",
+    title: "Photoshop decides where",
+    body:
+      "The tool shelf is on the left, the options bar under the menu bar, and Layers, Properties and History on the right. Menu entries sit under the menu they belong to. Nobody moving across should have to relearn where anything lives, so nothing has been rearranged to be tidier.",
+  },
+  {
+    icon: "palette",
+    title: "Plasma decides how it looks",
+    body:
+      "Spacing, control shapes, focus and hover treatment follow KDE Plasma 6, drawn from one token file rather than a second palette invented per panel. A dense editor that belongs on the desktop it runs on, instead of a web app wearing a title bar.",
+  },
+];
+---
+
+<section class="section section-grid" id="why">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Why PhotoTux</p>
+      <h2 class="section-title">
+        Linux has capable image editors. It has fewer that treat latency as
+        part of the design.
+      </h2>
+    </div>
+
+    <div class="auto-grid auto-grid-wide pillars">
+      {
+        pillars.map((pillar) => (
+          <article class="card pillar">
+            <span class="pillar-icon">
+              <Icon name={pillar.icon} size="lg" />
+            </span>
+            <h3 class="pillar-title">{pillar.title}</h3>
+            <p class="pillar-body">{pillar.body}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .pillars {
+    margin-block-start: var(--s-6);
+  }
+
+  .pillar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    padding: var(--s-5);
+  }
+
+  .pillar-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 1px solid var(--c-accent-line);
+    border-radius: var(--r-2);
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+  }
+
+  .pillar-title {
+    font-size: var(--t-1);
+  }
+
+  .pillar-body {
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    line-height: 1.62;
+    text-wrap: pretty;
+  }
+</style>

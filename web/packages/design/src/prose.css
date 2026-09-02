@@ -1,0 +1,205 @@
+/*
+ * Long-form typography for Markdown-authored documentation.
+ *
+ * Scoped to `.prose` so it cannot leak into chrome. Measure is capped at
+ * roughly 70 characters; a full-width paragraph on a 1440 px display is a
+ * paragraph nobody finishes.
+ */
+
+.prose {
+  max-width: var(--w-prose);
+  font-size: var(--t-0);
+  line-height: var(--lh-body);
+  color: var(--c-text-muted);
+}
+
+.prose > * + * {
+  margin-block-start: var(--s-4);
+}
+
+.prose h2,
+.prose h3,
+.prose h4 {
+  color: var(--c-text);
+  scroll-margin-block-start: calc(var(--h-header) + var(--s-5));
+}
+
+.prose h2 {
+  margin-block-start: var(--s-7);
+  padding-block-end: var(--s-2);
+  border-block-end: 1px solid var(--c-border);
+  font-size: var(--t-2);
+  line-height: var(--lh-snug);
+}
+
+.prose h3 {
+  margin-block-start: var(--s-6);
+  font-size: var(--t-1);
+  line-height: var(--lh-snug);
+}
+
+.prose h4 {
+  margin-block-start: var(--s-5);
+  font-size: var(--t-0);
+  font-weight: var(--fw-semibold);
+}
+
+.prose strong {
+  color: var(--c-text);
+  font-weight: var(--fw-semibold);
+}
+
+.prose ul,
+.prose ol {
+  padding-inline-start: var(--s-5);
+}
+
+.prose li + li {
+  margin-block-start: var(--s-2);
+}
+
+.prose li::marker {
+  color: var(--c-text-subtle);
+}
+
+.prose blockquote {
+  padding-inline-start: var(--s-4);
+  border-inline-start: 3px solid var(--c-accent-line);
+  color: var(--c-text-muted);
+  font-style: normal;
+}
+
+.prose img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-3);
+  background: var(--c-bg-soft);
+}
+
+.prose figure {
+  margin-block: var(--s-6);
+}
+
+.prose figcaption {
+  margin-block-start: var(--s-2);
+  color: var(--c-text-subtle);
+  font-size: var(--t--1);
+  text-align: center;
+}
+
+.prose pre {
+  margin-block: var(--s-5);
+}
+
+/* Tables can be wider than the measure; give each one its own scroller so the
+   page never scrolls sideways. */
+.prose .table-wrap {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin-block: var(--s-5);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-3);
+}
+
+.prose .table-wrap > table {
+  min-width: 34rem;
+}
+
+.prose .table-wrap th {
+  position: sticky;
+  inset-block-start: 0;
+  background: var(--c-surface-2);
+}
+
+.prose .table-wrap :is(th, td):first-child {
+  padding-inline-start: var(--s-4);
+}
+
+.prose .table-wrap :is(th, td):last-child {
+  padding-inline-end: var(--s-4);
+}
+
+/* Heading anchors — visible on hover and always on keyboard focus, because a
+   link nobody can tab to is not a link. */
+.prose .heading-anchor {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 0.4em;
+  color: var(--c-text-subtle);
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--e-out);
+}
+
+.prose :is(h2, h3, h4):hover .heading-anchor,
+.prose .heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .prose .heading-anchor {
+    opacity: 1;
+  }
+}
+
+/* ---- Callouts --------------------------------------------------------- */
+/* Authored in Markdown as
+ *
+ *     <div class="callout callout-warning">
+ *     <p class="callout-title">Heading</p>
+ *     Body text.
+ *     </div>
+ *
+ * so a writer needs one class and no inline SVG. The kind is carried by the
+ * spine colour *and* by the title text, never by colour alone. */
+.callout {
+  margin-block: var(--s-5);
+  padding: var(--s-4);
+  border: 1px solid var(--c-border);
+  border-inline-start: 3px solid var(--c-border-strong);
+  border-radius: var(--r-2);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  font-size: var(--t--1);
+}
+
+.callout > * + * {
+  margin-block-start: var(--s-2);
+}
+
+.callout .callout-title {
+  color: var(--c-text);
+  font-weight: var(--fw-semibold);
+}
+
+.callout-note {
+  border-inline-start-color: var(--c-accent);
+}
+
+.callout-note .callout-title {
+  color: var(--c-accent);
+}
+
+.callout-tip {
+  border-inline-start-color: var(--c-success);
+}
+
+.callout-tip .callout-title {
+  color: var(--c-success);
+}
+
+.callout-warning {
+  border-inline-start-color: var(--c-warm);
+}
+
+.callout-warning .callout-title {
+  color: var(--c-warm);
+}
+
+.callout-danger {
+  border-inline-start-color: var(--c-danger);
+}
+
+.callout-danger .callout-title {
+  color: var(--c-danger);
+}

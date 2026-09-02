@@ -1,0 +1,209 @@
+---
+/**
+ * How it is put together, for the audience that will want to know before they
+ * clone it. Six crates and one sentence each.
+ */
+import { BRAND } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+
+const crates = [
+  {
+    name: "phototux_engine",
+    owns: "Document, commands, history, session semantics",
+    free: "Qt, wgpu",
+  },
+  {
+    name: "phototux_ui",
+    owns: "The qtbridge QObjects the QML shell binds to",
+    free: "wgpu",
+  },
+  {
+    name: "phototux_canvas",
+    owns: "Qt ↔ wgpu interop and the thin C++ shim",
+    free: "Handwritten C++ beyond that shim",
+  },
+  {
+    name: "phototux_gpu",
+    owns: "wgpu pipelines, shaders, compositing",
+    free: "Qt",
+  },
+  {
+    name: "phototux_io",
+    owns: ".ptx, raster codecs, the PSD subset",
+    free: "Qt, wgpu",
+  },
+  {
+    name: "phototux",
+    owns: "The binary and the ahead-of-time compiled QML module",
+    free: "Business logic",
+  },
+];
+
+const stack = [
+  { icon: "cpu", label: "Rust 2024", detail: "Six crates, boundaries enforced by test" },
+  { icon: "monitor", label: "Qt 6 QML", detail: "Via qtbridge, compiled ahead of time" },
+  { icon: "graphics-card", label: "wgpu / Vulkan", detail: "Zero-copy present, no CPU upload" },
+  { icon: "shield-check", label: "No network", detail: "No accounts, no telemetry, no cloud" },
+];
+---
+
+<section class="section section-grid" id="architecture">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Under the hood</p>
+      <h2 class="section-title">A small workspace with boundaries that are enforced, not suggested.</h2>
+      <p class="section-lede">
+        The core is portable and headless: the document, the command spine and
+        the history know nothing about Qt or the GPU, which is why they can be
+        tested without either.
+      </p>
+    </div>
+
+    <div class="arch">
+      <ul class="arch-stack">
+        {
+          stack.map((entry) => (
+            <li class="arch-stack-item">
+              <Icon name={entry.icon} />
+              <div>
+                <span class="arch-stack-label">{entry.label}</span>
+                <span class="arch-stack-detail">{entry.detail}</span>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+
+      <div class="arch-table-wrap scroll-x">
+        <table class="arch-table">
+          <caption class="visually-hidden">
+            The six crates of the PhotoTux workspace, what each owns, and what
+            each is kept free of.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Crate</th>
+              <th scope="col">Owns</th>
+              <th scope="col">Stays free of</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              crates.map((crate) => (
+                <tr>
+                  <th scope="row" class="mono arch-crate">
+                    {crate.name}
+                  </th>
+                  <td>{crate.owns}</td>
+                  <td class="arch-free">{crate.free}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="arch-note">
+      The reasoning behind each boundary is recorded in the project's decision
+      register — see{" "}
+      <a href={`${BRAND.repo}/blob/main/internal_docs/Appendix/Decision-Register.md`}
+        >DR-023 and DR-025</a
+      >{" "}
+      for the frozen stack and the crate topology.
+    </p>
+  </div>
+</section>
+
+<style>
+  .arch {
+    display: grid;
+    gap: var(--s-5);
+    margin-block-start: var(--s-6);
+    grid-template-columns: 1fr;
+  }
+
+  @media (min-width: 62rem) {
+    .arch {
+      grid-template-columns: 18rem 1fr;
+      align-items: start;
+    }
+  }
+
+  .arch-stack {
+    display: grid;
+    gap: var(--s-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .arch-stack-item {
+    display: flex;
+    gap: var(--s-3);
+    padding: var(--s-4);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-3);
+    background: var(--c-surface);
+  }
+
+  .arch-stack-item > :global(.icon) {
+    margin-block-start: 0.1em;
+    color: var(--c-accent);
+  }
+
+  .arch-stack-label {
+    display: block;
+    color: var(--c-text);
+    font-weight: var(--fw-semibold);
+    font-size: var(--t--1);
+  }
+
+  .arch-stack-detail {
+    display: block;
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+  }
+
+  .arch-table-wrap {
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-3);
+    background: var(--c-surface);
+  }
+
+  .arch-table {
+    min-width: 34rem;
+  }
+
+  .arch-table thead th {
+    background: var(--c-surface-2);
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+    font-weight: var(--fw-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .arch-table :is(th, td):first-child {
+    padding-inline-start: var(--s-4);
+  }
+
+  .arch-table :is(th, td):last-child {
+    padding-inline-end: var(--s-4);
+  }
+
+  .arch-crate {
+    color: var(--c-accent);
+    font-weight: var(--fw-medium);
+  }
+
+  .arch-free {
+    color: var(--c-text-subtle);
+  }
+
+  .arch-note {
+    margin-block-start: var(--s-4);
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+  }
+</style>

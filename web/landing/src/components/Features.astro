@@ -1,0 +1,188 @@
+---
+/**
+ * What is actually in the build.
+ *
+ * Eight groups rather than one list of forty, because a list of forty is a
+ * list nobody reads. The counts are real: 28 blend modes, 10 adjustments, 13
+ * filter kinds, 8 layer styles, all enumerated in the engine.
+ */
+import { BRAND } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+
+const features = [
+  {
+    icon: "stack",
+    title: "Layers",
+    items: [
+      "Raster, group, text, shape, fill, adjustment and smart-object layers",
+      "28 blend modes, grouped the way the Photoshop menu groups them",
+      "Opacity, clipping masks, locks and Blend If ranges per layer",
+      "Duplicate, Merge Down, Merge Visible, Flatten, Group, Align and Distribute",
+    ],
+  },
+  {
+    icon: "mask-happy",
+    title: "Masks and selections",
+    items: [
+      "Rectangular, elliptical, freehand, polygonal and by-colour selection",
+      "Add, subtract and intersect; Select All, Deselect, Inverse",
+      "Modify ▸ Expand, Contract, Feather, Border and Smooth — each asking for its radius",
+      "Layer masks, with mask ⇄ selection round-trips",
+    ],
+  },
+  {
+    icon: "sliders-horizontal",
+    title: "Non-destructive adjustment",
+    items: [
+      "Ten adjustment layers, each re-editable at any point",
+      "Levels, Brightness/Contrast, Exposure, Hue/Saturation, Vibrance",
+      "Black & White, White Balance, Threshold, Posterize, Invert",
+      "The pixels underneath are never touched",
+    ],
+  },
+  {
+    icon: "magic-wand",
+    title: "Filters",
+    items: [
+      "Thirteen effects: Gaussian, Box, Motion and Zoom blur; Sharpen and Unsharp Mask",
+      "High Pass, Clarity, Denoise, Emboss, Add Noise, Offset, Invert",
+      "A per-layer filter plan you can reorder and disable",
+      "A gallery that previews on the canvas and touches nothing until you commit",
+    ],
+  },
+  {
+    icon: "paint-brush",
+    title: "Painting and retouch",
+    items: [
+      "Brush, Clone Stamp, Eraser, Gradient and Paint Bucket",
+      "Blur, Sharpen and Smudge; Dodge, Burn and Sponge",
+      "Pressure-aware stroke path, built for tablet latency",
+      "Eyedropper, swatches and a colour picker that reads the composite",
+    ],
+  },
+  {
+    icon: "cube",
+    title: "Smart objects",
+    items: [
+      "Wrap a layer so a transform re-applies to the source instead of accumulating on it",
+      "Move, then scale, and both come back at full quality",
+      "Placement is re-editable; rasterize when you are done",
+      "Sources travel with the document and survive save and reopen",
+    ],
+  },
+  {
+    icon: "floppy-disk",
+    title: "Files",
+    items: [
+      ".ptx — the native layered document, with per-layer rasters and masks",
+      "Layered PSD import and export, with a compatibility report",
+      "PNG, JPEG, WebP, TIFF, BMP and GIF",
+      "ICC embed, assign, convert and soft-proof",
+    ],
+  },
+  {
+    icon: "squares-four",
+    title: "Workspace",
+    items: [
+      "Dockable Properties, Navigator, Swatches, Layers and History panels",
+      "Document tabs, workspace presets and a command palette",
+      "Rebindable shortcuts with conflict detection",
+      "Crash recovery for anything open when a session ends badly",
+    ],
+  },
+];
+---
+
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Features</p>
+      <h2 class="section-title">Everything an editing session needs, and no account to make.</h2>
+      <p class="section-lede">
+        No cloud, no telemetry, no sign-in. PhotoTux opens files on your disk
+        and writes them back.
+      </p>
+    </div>
+
+    <div class="auto-grid features">
+      {
+        features.map((feature) => (
+          <article class="card feature">
+            <h3 class="feature-title">
+              <Icon name={feature.icon} />
+              {feature.title}
+            </h3>
+            <ul class="feature-list">
+              {feature.items.map((item) => (
+                <li>
+                  <Icon name="check" size="sm" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+    </div>
+
+    <p class="features-more">
+      Every command in the editor also exists in the command palette
+      (<kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd>) and as a rebindable
+      action. The full list is in the{" "}
+      <a href={`${BRAND.docs}/reference/tools/`}>tool reference</a>.
+    </p>
+  </div>
+</section>
+
+<style>
+  .features {
+    margin-block-start: var(--s-6);
+  }
+
+  .feature {
+    padding: var(--s-5);
+  }
+
+  .feature-title {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding-block-end: var(--s-3);
+    border-block-end: 1px solid var(--c-border);
+    color: var(--c-text);
+    font-size: var(--t-0);
+  }
+
+  .feature-title :global(.icon) {
+    color: var(--c-accent);
+  }
+
+  .feature-list {
+    margin: var(--s-3) 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    line-height: 1.55;
+  }
+
+  .feature-list li {
+    display: flex;
+    gap: var(--s-2);
+  }
+
+  .feature-list li + li {
+    margin-block-start: var(--s-2);
+  }
+
+  .feature-list li > :global(.icon) {
+    margin-block-start: 0.28em;
+    color: var(--c-success);
+  }
+
+  .features-more {
+    margin-block-start: var(--s-5);
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+  }
+</style>

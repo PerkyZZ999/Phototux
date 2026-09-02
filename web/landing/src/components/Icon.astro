@@ -1,0 +1,49 @@
+---
+/**
+ * One Phosphor glyph, inlined.
+ *
+ * Decorative by default: `aria-hidden` with `focusable="false"`, because an
+ * icon that repeats the text beside it should not be read out twice. Pass
+ * `label` only when the icon *is* the label — and then the element that owns
+ * the click should carry the name, not this one.
+ */
+import { ICONS } from "@phototux/design/icons";
+
+interface Props {
+  name: keyof typeof ICONS | string;
+  size?: "sm" | "md" | "lg" | "xl";
+  label?: string;
+  class?: string;
+  [key: `data-${string}`]: string | boolean | undefined;
+}
+
+const { name, size = "md", label, class: className = "", ...rest } = Astro.props;
+
+const body = ICONS[name as keyof typeof ICONS];
+if (!body) {
+  throw new Error(
+    `Icon "${name}" is not in the bundle. Add its stem to WANTED in ` +
+      `web/packages/design/build-icons.mjs and re-run the script.`,
+  );
+}
+
+const sizeClass = { sm: "icon-sm", md: "", lg: "icon-lg", xl: "icon-xl" }[size];
+const classes = ["icon", sizeClass, className].filter(Boolean).join(" ");
+---
+
+{/*
+  A class passed in here lands on an element this component owns, so a caller's
+  *scoped* rule will not match it — style icons from the parent with a
+  `:global(.icon)` descendant selector, or wrap the icon in an element the
+  parent owns. `class` is still honoured for global utilities.
+*/}
+<svg
+  class={classes}
+  viewBox="0 0 256 256"
+  focusable="false"
+  aria-hidden={label ? undefined : "true"}
+  role={label ? "img" : undefined}
+  aria-label={label}
+  {...rest}
+  set:html={body}
+/>

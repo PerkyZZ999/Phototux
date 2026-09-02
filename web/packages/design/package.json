@@ -1,0 +1,23 @@
+{
+  "name": "@phototux/design",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared design tokens, base styles and brand data for the PhotoTux websites",
+  "exports": {
+    "./tokens.css": "./src/tokens.css",
+    "./base.css": "./src/base.css",
+    "./prose.css": "./src/prose.css",
+    "./icons": {
+      "types": "./src/icons.d.ts",
+      "default": "./src/icons.js"
+    },
+    "./brand": {
+      "types": "./src/brand.d.ts",
+      "default": "./src/brand.js"
+    }
+  },
+  "files": [
+    "src"
+  ]
+}

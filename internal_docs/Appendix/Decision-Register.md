@@ -375,6 +375,23 @@ When requirements conflict ([Requirement Keywords](Requirement-Keywords.md)):
 | Deferred | Linked sources (a smart object pointing at a file on disk), editing contents as a sub-document, smart filters, and per-instance sources shared between layers. Each is additive: `SmartObjectContent` gains fields with `#[serde(default)]`. |
 | Revisit | When linked sources or sub-document editing is scheduled, or when the memory cost of embedded sources needs a residency strategy. |
 
+## DR-033 — Public web presence is two static Astro sites, not a second handbook
+
+| Field | Content |
+| --- | --- |
+| Status | **Accepted** |
+| Date | 2026-09-02 |
+| Docs | [32](../32-Developer-Guide.md), [25](../25-Themes.md), [`web/README.md`](../../web/README.md) |
+| Context | Publishing the repository at `github.com/PerkyZZ999/Phototux` needs a public face: somewhere to say what PhotoTux is, and somewhere a *user* can read about the editor without meeting the engineering handbook. `internal_docs/` is normative, written for contributors, and mandated as the only documentation tree in the repository; pointing the public at it would either bury a reader in subsystem contracts or start a second tree that drifts against it. The user bought `phototux.xyz` and `docs.phototux.xyz`. |
+| Decision | Two **static** sites under `web/`, both Astro 7: `web/landing` for `phototux.xyz` and `web/docs` for `docs.phototux.xyz`. `web/docs` holds **user** documentation — install, tour, guides, tool and shortcut reference, troubleshooting. `internal_docs/` stays the authoritative **engineering** handbook and is unaffected. They are different documents for different readers, not two copies of one. |
+| Not a second `/docs/` tree | `AGENTS.md` forbids a second documentation tree under `/docs/`. `web/docs` is a *site*, not a tree of handbook chapters: it restates behaviour for users, cites the handbook rather than duplicating it, and carries no normative language. The prohibition stands. |
+| Shared design | One workspace package, `@phototux/design`, holds the tokens, base styles, icon bundle and brand facts both sites use. Its palette is **`qml/Theme.qml`'s**, so a screenshot of the editor belongs on the page it sits on, and a version number or repository URL is written once. Icons are the Phosphor set the editor already ships, generated from `assets/icons/phosphor/regular`. |
+| Assets | Each site keeps committed copies of the logo and screenshots in its own `public/`. A build-time sync from the repository root was tried and rejected: a site that reaches outside its own directory cannot be built, previewed or deployed on its own. The duplication is the price. |
+| Consequences | A Node toolchain enters the repository for the first time, confined to `web/` and to `pnpm`. It is not part of the Rust gate — `rust-tc doctor` neither builds nor checks the sites — so a broken website cannot block a Rust change and vice versa. Both sites are static output with no runtime, no database and no API, consistent with the product's no-network stance. |
+| Deferred | A blog or release-notes feed; localisation; a hosted search service (the docs index is built at compile time and filtered in the browser). |
+| Revisit | If the user documentation grows past what one person can keep in step with the editor, or if a release cadence makes generated release notes worth the machinery. |
+
+
 ## Open Deferred Cluster
 
 | Topic | Related DR | Blocking evidence |

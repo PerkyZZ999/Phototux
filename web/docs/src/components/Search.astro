@@ -1,0 +1,367 @@
+---
+/**
+ * Documentation search.
+ *
+ * A `<dialog>` over an index built at compile time and served as one small
+ * JSON file — seventeen pages and their headings come to a few kilobytes, so
+ * a search service would be machinery for nothing. Matching is substring over
+ * title, description and heading text, scored so a title hit outranks a
+ * heading hit.
+ *
+ * It is progressive: with JavaScript off the trigger is a plain link to the
+ * page index, which is a worse search but not a dead button.
+ */
+import Icon from "./Icon.astro";
+---
+
+<button type="button" class="search-trigger" data-search-open>
+  <Icon name="magnifying-glass" size="sm" />
+  <span class="search-trigger-label">Search the docs</span>
+  <kbd class="search-trigger-key">/</kbd>
+</button>
+
+<dialog class="search-dialog" data-search-dialog aria-label="Search the documentation">
+  <form class="search-form" method="dialog" role="search">
+    <div class="search-field">
+      <Icon name="magnifying-glass" size="sm" />
+      <input
+        type="search"
+        class="search-input"
+        data-search-input
+        placeholder="Search titles and headings…"
+        aria-label="Search the documentation"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button
+        type="button"
+        class="btn btn-ghost btn-icon search-close"
+        data-search-close
+        aria-label="Close search"
+      >
+        <Icon name="x" size="sm" />
+      </button>
+    </div>
+  </form>
+
+  <div class="search-results" data-search-results role="listbox" aria-label="Results">
+    <p class="search-empty">Type to search the documentation.</p>
+  </div>
+</dialog>
+
+<style>
+  .search-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.25rem;
+    max-width: 20rem;
+    flex: 1;
+    padding-inline: var(--s-3);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-2);
+    background: var(--c-surface);
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+    text-align: start;
+    cursor: pointer;
+    transition:
+      border-color var(--d-fast) var(--e-out),
+      color var(--d-fast) var(--e-out);
+  }
+
+  .search-trigger:hover {
+    border-color: var(--c-border-strong);
+    color: var(--c-text-muted);
+  }
+
+  .search-trigger-label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .search-trigger-key {
+    margin-inline-start: auto;
+  }
+
+  @media (max-width: 40rem) {
+    .search-trigger-label,
+    .search-trigger-key {
+      display: none;
+    }
+
+    .search-trigger {
+      flex: none;
+      min-width: 2.25rem;
+      justify-content: center;
+    }
+  }
+
+  .search-dialog {
+    width: min(40rem, calc(100vw - 2rem));
+    max-height: min(32rem, calc(100dvh - 6rem));
+    margin: 0 auto;
+    margin-block-start: 10vh;
+    padding: 0;
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--r-4);
+    background: var(--c-surface);
+    color: var(--c-text);
+    box-shadow: var(--c-shadow-3);
+    overflow: hidden;
+  }
+
+  .search-dialog::backdrop {
+    background: rgb(0 0 0 / 55%);
+    backdrop-filter: blur(2px);
+  }
+
+  .search-field {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
+    border-block-end: 1px solid var(--c-border);
+    color: var(--c-text-subtle);
+  }
+
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--c-text);
+    font-size: var(--t-0);
+    outline: none;
+  }
+
+  .search-input::-webkit-search-cancel-button {
+    display: none;
+  }
+
+  .search-close {
+    min-height: 2rem;
+    min-width: 2rem;
+  }
+
+  .search-results {
+    max-height: 24rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--s-2);
+    scrollbar-width: thin;
+  }
+
+  .search-empty {
+    padding: var(--s-5);
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+    text-align: center;
+  }
+
+  .search-hit {
+    display: block;
+    padding: var(--s-3);
+    border: 1px solid transparent;
+    border-radius: var(--r-2);
+    color: var(--c-text);
+    text-decoration: none;
+  }
+
+  .search-hit:hover,
+  .search-hit[data-active] {
+    border-color: var(--c-accent-line);
+    background: var(--c-accent-soft);
+    color: var(--c-text);
+  }
+
+  .search-hit-title {
+    display: block;
+    font-size: var(--t--1);
+    font-weight: var(--fw-medium);
+  }
+
+  .search-hit-context {
+    display: block;
+    margin-block-start: 0.15rem;
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+  }
+
+  .search-hit mark {
+    background: var(--c-warm-soft);
+    color: var(--c-text);
+    border-radius: 2px;
+  }
+</style>
+
+<script>
+  interface Doc {
+    slug: string;
+    href: string;
+    title: string;
+    description: string;
+    section: string;
+    headings: { text: string; id: string }[];
+  }
+
+  const dialog = document.querySelector<HTMLDialogElement>("[data-search-dialog]");
+  const input = document.querySelector<HTMLInputElement>("[data-search-input]");
+  const results = document.querySelector<HTMLElement>("[data-search-results]");
+  if (dialog && input && results) {
+    let index: Doc[] | null = null;
+    let active = -1;
+
+    async function load() {
+      if (index) return index;
+      const response = await fetch("/search-index.json");
+      index = (await response.json()) as Doc[];
+      return index;
+    }
+
+    function escapeHtml(value: string) {
+      return value.replace(
+        /[&<>"']/g,
+        (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
+      );
+    }
+
+    function mark(text: string, query: string) {
+      const at = text.toLowerCase().indexOf(query);
+      if (at === -1) return escapeHtml(text);
+      return (
+        escapeHtml(text.slice(0, at)) +
+        "<mark>" +
+        escapeHtml(text.slice(at, at + query.length)) +
+        "</mark>" +
+        escapeHtml(text.slice(at + query.length))
+      );
+    }
+
+    function render(query: string, docs: Doc[]) {
+      const q = query.trim().toLowerCase();
+      if (!q) {
+        results!.innerHTML =
+          '<p class="search-empty">Type to search the documentation.</p>';
+        active = -1;
+        return;
+      }
+
+      type Hit = { href: string; title: string; context: string; score: number };
+      const hits: Hit[] = [];
+
+      for (const doc of docs) {
+        // A title match beats a description match beats a heading match, and
+        // a match at the start of a title beats one in the middle.
+        const title = doc.title.toLowerCase();
+        if (title.includes(q)) {
+          hits.push({
+            href: doc.href,
+            title: doc.title,
+            context: doc.section,
+            score: title.startsWith(q) ? 100 : 80,
+          });
+          continue;
+        }
+        if (doc.description.toLowerCase().includes(q)) {
+          hits.push({
+            href: doc.href,
+            title: doc.title,
+            context: doc.description,
+            score: 60,
+          });
+          continue;
+        }
+        const heading = doc.headings.find((h) => h.text.toLowerCase().includes(q));
+        if (heading) {
+          hits.push({
+            href: `${doc.href}#${heading.id}`,
+            title: heading.text,
+            context: doc.title,
+            score: 40,
+          });
+        }
+      }
+
+      hits.sort((a, b) => b.score - a.score);
+
+      if (!hits.length) {
+        results!.innerHTML = `<p class="search-empty">Nothing matches “${escapeHtml(query)}”. Try a tool name, a menu entry or a shortcut.</p>`;
+        active = -1;
+        return;
+      }
+
+      results!.innerHTML = hits
+        .slice(0, 12)
+        .map(
+          (hit) =>
+            `<a class="search-hit" href="${hit.href}" role="option">` +
+            `<span class="search-hit-title">${mark(hit.title, q)}</span>` +
+            `<span class="search-hit-context">${escapeHtml(hit.context)}</span>` +
+            `</a>`,
+        )
+        .join("");
+      active = -1;
+    }
+
+    function move(step: number) {
+      const hits = [...results!.querySelectorAll<HTMLAnchorElement>(".search-hit")];
+      if (!hits.length) return;
+      hits[active]?.removeAttribute("data-active");
+      active = (active + step + hits.length) % hits.length;
+      hits[active].setAttribute("data-active", "");
+      hits[active].scrollIntoView({ block: "nearest" });
+    }
+
+    async function open() {
+      const docs = await load();
+      dialog!.showModal();
+      input!.focus();
+      render(input!.value, docs);
+    }
+
+    for (const trigger of document.querySelectorAll("[data-search-open]")) {
+      trigger.addEventListener("click", () => void open());
+    }
+    document
+      .querySelector("[data-search-close]")
+      ?.addEventListener("click", () => dialog.close());
+
+    input.addEventListener("input", () => {
+      if (index) render(input.value, index);
+    });
+
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        move(1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        move(-1);
+      } else if (event.key === "Enter") {
+        const hit = results.querySelector<HTMLAnchorElement>(".search-hit[data-active]");
+        if (hit) {
+          event.preventDefault();
+          window.location.href = hit.href;
+        }
+      }
+    });
+
+    // `/` opens search the way it does in every other documentation site, but
+    // not while the reader is typing into something else.
+    document.addEventListener("keydown", (event) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable;
+      if (typing || dialog.open) return;
+      if (event.key === "/" || ((event.metaKey || event.ctrlKey) && event.key === "k")) {
+        event.preventDefault();
+        void open();
+      }
+    });
+  }
+</script>

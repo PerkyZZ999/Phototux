@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://phototux.xyz/sitemap-index.xml

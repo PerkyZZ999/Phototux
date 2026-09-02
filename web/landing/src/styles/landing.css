@@ -1,0 +1,107 @@
+/*
+ * Layout primitives specific to phototux.xyz.
+ *
+ * Component-scoped styles live in their `.astro` files; what is here is the
+ * page rhythm every section shares, so the vertical spacing is decided once
+ * instead of eight times.
+ */
+
+.section {
+  padding-block: var(--s-9);
+}
+
+.section + .section {
+  padding-block-start: 0;
+}
+
+.section-head {
+  max-width: 46rem;
+}
+
+.section-head > * + * {
+  margin-block-start: var(--s-3);
+}
+
+.section-title {
+  font-size: var(--t-3);
+  line-height: var(--lh-snug);
+}
+
+.section-lede {
+  color: var(--c-text-muted);
+  font-size: var(--t-1);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* A hairline grid behind a section, so a band of the page reads as a surface
+   rather than as more background. Sits under the content, never over it. */
+.section-grid {
+  position: relative;
+  isolation: isolate;
+}
+
+.section-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(var(--c-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--c-grid-line) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+  mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
+}
+
+/* An auto-fit grid: the column count follows the space, not a breakpoint, and
+   `min()` stops a 300 px minimum from overflowing a 320 px phone. */
+.auto-grid {
+  display: grid;
+  gap: var(--s-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 1fr));
+}
+
+.auto-grid-wide {
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+}
+
+/* The frame the app screenshots sit in — a thin bezel with a title strip, so
+   a screenshot of a window reads as a window rather than as a floating
+   rectangle of UI. */
+.frame {
+  position: relative;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-4);
+  background: var(--c-bg-soft);
+  box-shadow: var(--c-shadow-3);
+  overflow: hidden;
+}
+
+.frame-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-block-end: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+.frame-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: var(--r-pill);
+  background: var(--c-border-strong);
+}
+
+.frame-title {
+  margin-inline: auto;
+  padding-inline-end: 2.4rem;
+  color: var(--c-text-subtle);
+  font-size: var(--t--1);
+}
+
+.frame img {
+  width: 100%;
+  height: auto;
+  display: block;
+}

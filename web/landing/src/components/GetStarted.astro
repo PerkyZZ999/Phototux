@@ -1,0 +1,349 @@
+---
+/**
+ * How to actually get it.
+ *
+ * There are no distribution packages yet, and pretending otherwise would cost
+ * a reader twenty minutes. The section says so first and then gives the four
+ * commands that do work.
+ */
+import { BRAND, BUILD_COMMAND, REQUIREMENTS } from "@phototux/design/brand";
+import CodeBlock from "./CodeBlock.astro";
+import Icon from "./Icon.astro";
+
+const distros = [
+  {
+    id: "arch",
+    name: "Arch, CachyOS, EndeavourOS",
+    command:
+      "sudo pacman -S --needed rust qt6-base qt6-declarative qt6-svg vulkan-icd-loader cmake",
+  },
+  {
+    id: "debian",
+    name: "Debian, Ubuntu",
+    command:
+      "sudo apt install qt6-base-dev qt6-declarative-dev qt6-svg-dev \\\n  libvulkan-dev cmake build-essential",
+  },
+  {
+    id: "fedora",
+    name: "Fedora",
+    command:
+      "sudo dnf install qt6-qtbase-devel qt6-qtdeclarative-devel \\\n  qt6-qtsvg-devel vulkan-loader-devel cmake",
+  },
+];
+---
+
+<section class="section" id="install">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Install</p>
+      <h2 class="section-title">Building from source is the way in.</h2>
+      <p class="section-lede">
+        There are no distribution packages yet — no AUR entry, no Flatpak, no
+        AppImage. When there are, they will be listed here first.
+      </p>
+    </div>
+
+    <div class="install">
+      <div class="install-main">
+        <h3 class="install-step">
+          <span class="install-num">1</span>
+          Install the build dependencies
+        </h3>
+        <div class="install-distros" data-distros>
+          <div class="install-tabs scroll-x" role="tablist" aria-label="Distribution">
+            {
+              distros.map((distro, index) => (
+                <button
+                  type="button"
+                  role="tab"
+                  id={`distro-tab-${distro.id}`}
+                  class="install-tab"
+                  aria-controls={`distro-panel-${distro.id}`}
+                  aria-selected={index === 0 ? "true" : "false"}
+                  tabindex={index === 0 ? 0 : -1}
+                >
+                  {distro.name}
+                </button>
+              ))
+            }
+          </div>
+          {
+            distros.map((distro) => (
+              <div
+                role="tabpanel"
+                id={`distro-panel-${distro.id}`}
+                aria-labelledby={`distro-tab-${distro.id}`}
+                tabindex="0"
+              >
+                <CodeBlock code={distro.command} label={distro.id} />
+              </div>
+            ))
+          }
+        </div>
+
+        <h3 class="install-step">
+          <span class="install-num">2</span>
+          Clone, point the build at Qt 6, and run
+        </h3>
+        <CodeBlock code={BUILD_COMMAND} label="build" />
+        <p class="install-note">
+          <Icon name="warning" size="sm" />
+          <span>
+            The <code>PATH</code> and <code>QMAKE</code> exports are not
+            optional on any distribution that puts Qt 5's <code>qmake</code>
+            first. The build links against whichever Qt that <code>qmake</code>
+            reports, so getting it wrong produces a link error that looks like a
+            missing symbol rather than a wrong Qt.
+          </span>
+        </p>
+
+        <h3 class="install-step">
+          <span class="install-num">3</span>
+          Make something
+        </h3>
+        <p class="install-body">
+          First launch opens <strong>New Document</strong> with 720p, 1080p, 2K
+          and 4K presets. The{" "}
+          <a href={`${BRAND.docs}/guides/tour/`}>tour of the workspace</a> walks
+          through where everything is, and the{" "}
+          <a href={`${BRAND.docs}/guides/installation/`}>installation guide</a>
+          {" "}covers the cases this page does not.
+        </p>
+      </div>
+
+      <aside class="install-aside">
+        <h3 class="install-aside-title">You will need</h3>
+        <ul class="install-reqs">
+          {
+            REQUIREMENTS.map((requirement) => (
+              <li>
+                <Icon name={requirement.icon} size="sm" />
+                <div>
+                  <span class="install-req-label">{requirement.label}</span>
+                  <span class="install-req-detail">{requirement.detail}</span>
+                </div>
+              </li>
+            ))
+          }
+        </ul>
+
+        <div class="install-status">
+          <p class="badge badge-warm">
+            <Icon name="warning-circle" size="sm" />
+            Pre-release
+          </p>
+          <p>
+            PhotoTux is at {BRAND.version} and has never been tagged as a
+            release. It opens, paints, composites, saves and reopens documents,
+            and it has not been through a public beta. The <code>.ptx</code>
+            format still moves between versions. Keep backups of anything you
+            care about.
+          </p>
+          <a class="btn btn-secondary install-status-link" href={BRAND.issues} rel="noopener">
+            <Icon name="lifebuoy" size="sm" />
+            Report a problem
+          </a>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<style>
+  .install {
+    display: grid;
+    gap: var(--s-6);
+    margin-block-start: var(--s-6);
+    grid-template-columns: 1fr;
+  }
+
+  @media (min-width: 62rem) {
+    .install {
+      grid-template-columns: minmax(0, 1fr) 20rem;
+      align-items: start;
+    }
+  }
+
+  .install-step {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    margin-block: var(--s-6) var(--s-3);
+    font-size: var(--t-1);
+  }
+
+  .install-main > .install-step:first-child {
+    margin-block-start: 0;
+  }
+
+  .install-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--c-accent-line);
+    border-radius: var(--r-pill);
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+    font-size: var(--t--1);
+    font-weight: var(--fw-semibold);
+  }
+
+  .install-tabs {
+    display: flex;
+    gap: var(--s-1);
+    margin-block-end: var(--s-3);
+    scrollbar-width: thin;
+  }
+
+  .install-tab {
+    min-height: 2.25rem;
+    padding-inline: var(--s-3);
+    border: 1px solid transparent;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    font-weight: var(--fw-medium);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .install-tab:hover {
+    background: var(--c-surface-2);
+    color: var(--c-text);
+  }
+
+  .install-tab[aria-selected="true"] {
+    border-color: var(--c-accent-line);
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+  }
+
+  .install-distros [role="tabpanel"][hidden] {
+    display: none;
+  }
+
+  .install-note {
+    display: flex;
+    gap: var(--s-3);
+    margin-block-start: var(--s-3);
+    padding: var(--s-4);
+    border: 1px solid var(--c-border);
+    border-inline-start: 3px solid var(--c-warm);
+    border-radius: var(--r-2);
+    background: var(--c-surface);
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+  }
+
+  .install-note :global(.icon) {
+    margin-block-start: 0.2em;
+    color: var(--c-warm);
+  }
+
+  .install-body {
+    color: var(--c-text-muted);
+  }
+
+  .install-aside {
+    padding: var(--s-5);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-3);
+    background: var(--c-surface);
+  }
+
+  .install-aside-title {
+    font-size: var(--t-0);
+  }
+
+  .install-reqs {
+    margin: var(--s-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .install-reqs li {
+    display: flex;
+    gap: var(--s-3);
+  }
+
+  .install-reqs li + li {
+    margin-block-start: var(--s-4);
+  }
+
+  .install-reqs li > :global(.icon) {
+    margin-block-start: 0.25em;
+    color: var(--c-accent);
+  }
+
+  .install-req-label {
+    display: block;
+    color: var(--c-text);
+    font-size: var(--t--1);
+    font-weight: var(--fw-semibold);
+  }
+
+  .install-req-detail {
+    display: block;
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    line-height: 1.5;
+  }
+
+  .install-status {
+    margin-block-start: var(--s-5);
+    padding-block-start: var(--s-5);
+    border-block-start: 1px solid var(--c-border);
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+  }
+
+  .install-status > * + * {
+    margin-block-start: var(--s-3);
+  }
+
+  .install-status-link {
+    width: 100%;
+  }
+</style>
+
+<script>
+  /* The distribution picker. Same tablist behaviour as the gallery, kept
+     local rather than abstracted: two call sites is not yet a pattern. */
+  for (const group of document.querySelectorAll<HTMLElement>("[data-distros]")) {
+    const tabs = [...group.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const panels = [...group.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+    if (tabs.length !== panels.length) continue;
+
+    const select = (index: number, focus = true) => {
+      tabs.forEach((tab, i) => {
+        const on = i === index;
+        tab.setAttribute("aria-selected", String(on));
+        tab.tabIndex = on ? 0 : -1;
+        panels[i].hidden = !on;
+      });
+      if (focus) tabs[index].focus();
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => select(index, false));
+      tab.addEventListener("keydown", (event) => {
+        const keys: Record<string, number> = {
+          ArrowRight: index + 1,
+          ArrowLeft: index - 1,
+          Home: 0,
+          End: tabs.length - 1,
+        };
+        const next = keys[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        select((next + tabs.length) % tabs.length);
+      });
+    });
+
+    select(0, false);
+  }
+</script>

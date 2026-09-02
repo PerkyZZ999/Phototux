@@ -54,7 +54,9 @@ Thumbs.db
 CLAUDE.local.md
 **/.claude/settings.local.json
 
-# Web presence (web/landing, web/docs) — Node toolchain artefacts
+# Web presence (web/landing, web/docs) — Node toolchain artefacts.
+# Committed under web/: the sources, the lockfile, and each site's own copies
+# of the logo and screenshots. Generated: everything below.
 node_modules/
 .astro/
 web/*/dist/

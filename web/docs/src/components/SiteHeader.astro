@@ -1,0 +1,116 @@
+---
+/**
+ * The documentation header.
+ *
+ * Deliberately the same mark, height and treatment as the product site's —
+ * moving between phototux.xyz and docs.phototux.xyz should feel like moving
+ * between two rooms in a building, not between two buildings.
+ */
+import { BRAND } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+import ThemeToggle from "./ThemeToggle.astro";
+import Search from "./Search.astro";
+---
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="wordmark" href="/" aria-label={`${BRAND.name} documentation home`}>
+      <img src="/brand/logo.png" alt="" width="32" height="32" />
+      <span class="wordmark-text">{BRAND.name}</span>
+      <span class="wordmark-tag">Docs</span>
+    </a>
+
+    <Search />
+
+    <div class="site-header-actions">
+      <a class="btn btn-ghost site-header-link" href={BRAND.site}>
+        <Icon name="arrow-square-out" size="sm" />
+        phototux.xyz
+      </a>
+      <a
+        class="btn btn-ghost btn-icon"
+        href={BRAND.repo}
+        aria-label={`${BRAND.name} on GitHub`}
+        rel="noopener"
+      >
+        <Icon name="github-logo" />
+      </a>
+      <ThemeToggle />
+    </div>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: var(--z-header);
+    border-block-end: 1px solid var(--c-border);
+    background: color-mix(in srgb, var(--c-bg) 88%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  .site-header-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    min-height: var(--h-header);
+    max-width: 90rem;
+    margin-inline: auto;
+    padding-inline: var(--s-5);
+  }
+
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--c-text);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+
+  .wordmark img {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .wordmark-text {
+    font-size: 1.0625rem;
+  }
+
+  .wordmark-tag {
+    padding: 0.05rem var(--s-2);
+    border: 1px solid var(--c-accent-line);
+    border-radius: var(--r-1);
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+    font-size: var(--t--1);
+    font-weight: var(--fw-medium);
+    letter-spacing: 0.02em;
+  }
+
+  @media (max-width: 30rem) {
+    .wordmark-text {
+      display: none;
+    }
+  }
+
+  .site-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+    margin-inline-start: auto;
+  }
+
+  .site-header-link {
+    padding-inline: var(--s-3);
+    font-size: var(--t--1);
+  }
+
+  @media (max-width: 48rem) {
+    .site-header-link {
+      display: none;
+    }
+  }
+</style>

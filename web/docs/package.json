@@ -1,0 +1,28 @@
+{
+  "name": "@phototux/docs",
+  "type": "module",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/markdown-satteri": "^0.4.0",
+    "@phototux/design": "workspace:*",
+    "astro": "^7.2.10",
+    "github-slugger": "^2.0.0"
+  },
+  "private": true,
+  "description": "docs.phototux.xyz — the PhotoTux user documentation",
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,0 +1,248 @@
+---
+/**
+ * The screenshot gallery.
+ *
+ * A tablist rather than a carousel: seven shots, all of them worth reaching
+ * directly, and a carousel would hide six of them behind an arrow. Every
+ * panel is in the HTML, so it works with JavaScript switched off — the script
+ * only adds the hiding.
+ */
+import Icon from "./Icon.astro";
+
+const shots = [
+  {
+    id: "workspace",
+    tab: "Workspace",
+    icon: "layout",
+    file: "workspace.webp",
+    caption:
+      "A document open with a text layer over a Vibrance adjustment over the photograph. The status bar carries the document size, zoom, active layer and the composite time for the last frame.",
+    alt: "The PhotoTux workspace: tool shelf on the left, options bar under the menus, a dusk landscape on the canvas with the words Last light set over it, and the Properties, Navigator and Layers docks on the right.",
+  },
+  {
+    id: "blend-modes",
+    tab: "Blend modes",
+    icon: "stack",
+    file: "blend-modes.webp",
+    caption:
+      "All 28 modes, banded by family — normal, darken, lighten, contrast, compare, component — so the list teaches the grouping rather than spelling it out.",
+    alt: "The layer blend-mode list open in the Layers panel, showing Normal and Pass Through, then Darken, Multiply, Color Burn, Linear Burn and Darker Color, then Lighten, Screen and Color Dodge.",
+  },
+  {
+    id: "filter-gallery",
+    tab: "Filter gallery",
+    icon: "magic-wand",
+    file: "filter-gallery.webp",
+    caption:
+      "Preview draws on the canvas without marking the document dirty. Nothing reaches the layer until Apply, and a stale preview is refused rather than committed.",
+    alt: "The Filter Gallery dialog over a dimmed canvas, with Gaussian Blur selected, a Radius slider, and Preview, Apply and Cancel buttons.",
+  },
+  {
+    id: "menu-layer",
+    tab: "Menus",
+    icon: "list",
+    file: "menu-layer.webp",
+    caption:
+      "The Layer menu, in Photoshop's order: New Layer, Duplicate, the merge family, groups, then the submenus for adjustments, shapes, smart objects, styles, align and masks.",
+    alt: "The Layer menu open, listing New Layer, Duplicate Layer, New Fill Layer, Merge Down, Merge Visible, Flatten Image, Delete Layer, New Group, Ungroup, Bake Text, Create Clipping Mask and submenus.",
+  },
+  {
+    id: "command-palette",
+    tab: "Command palette",
+    icon: "magnifying-glass",
+    file: "command-palette.webp",
+    caption:
+      "Every action in the application, filterable, with its menu and its chord. The same registry drives the menus, the palette and the shortcut editor.",
+    alt: "The command palette open over a dimmed canvas, listing New, Open, Save, Save As, Export, Close, Quit and Undo with their menus and keyboard shortcuts.",
+  },
+  {
+    id: "new-document",
+    tab: "New document",
+    icon: "plus-circle",
+    file: "new-document.webp",
+    caption:
+      "720p, 1080p, 2K and 4K presets with an editable size beside them. New documents open on an opaque white Background and zoom to fit.",
+    alt: "The New Document dialog showing 720p, 1080p, 2K and 4K preset cards, with Width and Height fields and Cancel and Create buttons.",
+  },
+  {
+    id: "preferences",
+    tab: "Preferences",
+    icon: "gear",
+    file: "preferences.webp",
+    caption:
+      "Guides, grid and rulers; UI density, high-contrast chrome, reduced motion and a safe-start switch; history retention.",
+    alt: "The Preferences dialog with General options for guides, grid, rulers and snapping, and Appearance and accessibility options for UI density, high contrast, reduced motion and history retention.",
+  },
+];
+---
+
+<section class="section" id="screenshots">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Screenshots</p>
+      <h2 class="section-title">The application, as it is today.</h2>
+      <p class="section-lede">
+        Captured from a real build on Wayland. The image being edited is
+        synthetic, so nothing here is a licence you would have to honour.
+      </p>
+    </div>
+
+    <div class="gallery" data-gallery>
+      <div class="gallery-tabs scroll-x" role="tablist" aria-label="Screenshots">
+        {
+          shots.map((shot, index) => (
+            <button
+              type="button"
+              role="tab"
+              id={`tab-${shot.id}`}
+              class="gallery-tab"
+              aria-controls={`panel-${shot.id}`}
+              aria-selected={index === 0 ? "true" : "false"}
+              tabindex={index === 0 ? 0 : -1}
+            >
+              <Icon name={shot.icon} size="sm" />
+              {shot.tab}
+            </button>
+          ))
+        }
+      </div>
+
+      {
+        shots.map((shot, index) => (
+          <div
+            role="tabpanel"
+            id={`panel-${shot.id}`}
+            class="gallery-panel"
+            aria-labelledby={`tab-${shot.id}`}
+            tabindex="0"
+            data-first={index === 0 ? "" : undefined}
+          >
+            <figure class="frame">
+              <div class="frame-bar" aria-hidden="true">
+                <span class="frame-dot" />
+                <span class="frame-dot" />
+                <span class="frame-dot" />
+                <span class="frame-title mono">PhotoTux</span>
+              </div>
+              <img
+                src={`/screenshots/${shot.file}`}
+                width="1600"
+                height="1000"
+                alt={shot.alt}
+                loading={index === 0 ? "eager" : "lazy"}
+                decoding="async"
+              />
+            </figure>
+            <p class="gallery-caption">{shot.caption}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .gallery {
+    margin-block-start: var(--s-6);
+  }
+
+  .gallery-tabs {
+    display: flex;
+    gap: var(--s-1);
+    padding-block-end: var(--s-3);
+    /* The row scrolls on a phone rather than wrapping into four ragged
+       lines; `scrollbar-width` keeps the bar from stealing a row of height. */
+    scrollbar-width: thin;
+  }
+
+  .gallery-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.5rem;
+    padding-inline: var(--s-3);
+    border: 1px solid transparent;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    font-weight: var(--fw-medium);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--d-fast) var(--e-out),
+      border-color var(--d-fast) var(--e-out),
+      color var(--d-fast) var(--e-out);
+  }
+
+  .gallery-tab:hover {
+    background: var(--c-surface-2);
+    color: var(--c-text);
+  }
+
+  /* Selected state carries a border and a wash as well as the colour: colour
+     alone is not a state indicator. */
+  .gallery-tab[aria-selected="true"] {
+    border-color: var(--c-accent-line);
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+  }
+
+  .gallery-panel[hidden] {
+    display: none;
+  }
+
+  .gallery-panel:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 4px;
+    border-radius: var(--r-4);
+  }
+
+  .gallery-caption {
+    max-width: 52rem;
+    margin-block-start: var(--s-4);
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    text-wrap: pretty;
+  }
+</style>
+
+<script>
+  for (const gallery of document.querySelectorAll<HTMLElement>("[data-gallery]")) {
+    const tabs = [...gallery.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const panels = [...gallery.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+    if (tabs.length !== panels.length) continue;
+
+    const select = (index: number, focus = true) => {
+      tabs.forEach((tab, i) => {
+        const on = i === index;
+        tab.setAttribute("aria-selected", String(on));
+        tab.tabIndex = on ? 0 : -1;
+        panels[i].hidden = !on;
+      });
+      if (focus) tabs[index].focus();
+      // Keep the chosen tab in view when the row is scrolling on a phone.
+      tabs[index].scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => select(index, false));
+      tab.addEventListener("keydown", (event) => {
+        const keys: Record<string, number> = {
+          ArrowRight: index + 1,
+          ArrowLeft: index - 1,
+          Home: 0,
+          End: tabs.length - 1,
+        };
+        const next = keys[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        select((next + tabs.length) % tabs.length);
+      });
+    });
+
+    // Only hide the others once the script is running — with no JS every
+    // panel stays on the page and the gallery reads as a list of figures.
+    select(0, false);
+  }
+</script>

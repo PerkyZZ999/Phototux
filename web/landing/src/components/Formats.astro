@@ -1,0 +1,174 @@
+---
+/**
+ * The format matrix, because "does it open my files" is the second question
+ * anyone asks about an image editor.
+ */
+import { BRAND } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+
+const formats = [
+  { name: ".ptx", read: true, write: true, note: "Native layered document — layers, masks, smart-object sources" },
+  { name: "PSD", read: true, write: true, note: "Layered subset, RGB 8-bit, with a compatibility report" },
+  { name: "PNG", read: true, write: true, note: "Flattened, with alpha" },
+  { name: "JPEG", read: true, write: true, note: "Flattened, quality 92 on export" },
+  { name: "WebP", read: true, write: true, note: "Flattened" },
+  { name: "TIFF", read: true, write: true, note: "Flattened" },
+  { name: "BMP", read: true, write: true, note: "Flattened" },
+  { name: "GIF", read: true, write: true, note: "First frame only" },
+];
+---
+
+<section class="section" id="formats">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Files</p>
+      <h2 class="section-title">Your work stays on your disk, in formats other tools can read.</h2>
+    </div>
+
+    <div class="formats">
+      <div class="formats-table-wrap scroll-x">
+        <table>
+          <caption class="visually-hidden">
+            File formats PhotoTux reads and writes.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Format</th>
+              <th scope="col">Open</th>
+              <th scope="col">Save</th>
+              <th scope="col">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              formats.map((format) => (
+                <tr>
+                  <th scope="row" class="mono formats-name">
+                    {format.name}
+                  </th>
+                  <td class="formats-mark">
+                    <Icon name="check" size="sm" label={format.read ? "Yes" : "No"} />
+                  </td>
+                  <td class="formats-mark">
+                    <Icon name="check" size="sm" label={format.write ? "Yes" : "No"} />
+                  </td>
+                  <td>{format.note}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="formats-side">
+        <article class="card formats-card">
+          <h3 class="formats-card-title">
+            <Icon name="palette" size="sm" />
+            Colour management
+          </h3>
+          <p>
+            ICC profiles can be embedded, assigned and converted, and a
+            soft-proof view shows what a document will look like through a
+            chosen output profile. Profile bytes are validated before they are
+            written into a document.
+          </p>
+        </article>
+        <article class="card formats-card">
+          <h3 class="formats-card-title">
+            <Icon name="clock-counter-clockwise" size="sm" />
+            Recovery
+          </h3>
+          <p>
+            Documents open when a session ends badly are written to a recovery
+            store and offered back at the next launch. Autosave runs while you
+            work and says so in the status area.
+          </p>
+        </article>
+        <p class="formats-note">
+          The container format and its versioning rules are documented in{" "}
+          <a href={`${BRAND.docs}/reference/file-formats/`}>the format reference</a>.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .formats {
+    display: grid;
+    gap: var(--s-5);
+    margin-block-start: var(--s-6);
+    grid-template-columns: 1fr;
+  }
+
+  @media (min-width: 62rem) {
+    .formats {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      align-items: start;
+    }
+  }
+
+  .formats-table-wrap {
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-3);
+    background: var(--c-surface);
+  }
+
+  .formats-table-wrap table {
+    min-width: 32rem;
+  }
+
+  .formats-table-wrap thead th {
+    background: var(--c-surface-2);
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .formats-table-wrap :is(th, td):first-child {
+    padding-inline-start: var(--s-4);
+  }
+
+  .formats-table-wrap :is(th, td):last-child {
+    padding-inline-end: var(--s-4);
+  }
+
+  .formats-name {
+    color: var(--c-accent);
+    font-weight: var(--fw-medium);
+  }
+
+  .formats-mark {
+    width: 1%;
+    color: var(--c-success);
+    white-space: nowrap;
+  }
+
+  .formats-side > * + * {
+    margin-block-start: var(--s-4);
+  }
+
+  .formats-card {
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+  }
+
+  .formats-card-title {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin-block-end: var(--s-2);
+    color: var(--c-text);
+    font-size: var(--t-0);
+  }
+
+  .formats-card-title :global(.icon) {
+    color: var(--c-accent);
+  }
+
+  .formats-note {
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+  }
+</style>

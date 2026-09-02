@@ -1,0 +1,211 @@
+/*
+ * PhotoTux — design tokens.
+ *
+ * The colours come from the editor's own `qml/Theme.qml`, which is why the
+ * accent here is Breeze's `#3DAEE9` rather than something chosen for a web
+ * page: a screenshot of the app should look like it belongs on the site it is
+ * sitting on. Two deliberate departures from the app palette:
+ *
+ *   1. The page ground is darker than the app's (`#0E0E11` against `#131317`)
+ *      so a screenshot reads as an object placed on the page instead of
+ *      dissolving into it.
+ *   2. There is a light theme. The editor is dark-only; a website is read in
+ *      daylight, on other people's machines, under other people's settings.
+ *
+ * Every colour is defined on bare `:root` first. The media query and the
+ * `[data-theme]` blocks only ever *re*define — a token whose sole definition
+ * lives inside one of them is a token that vanishes in the other mode.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Ground and surfaces ------------------------------------------- */
+  --c-bg: #0e0e11;
+  --c-bg-soft: #131317;
+  --c-surface: #17171b;
+  --c-surface-2: #1d1d22;
+  --c-surface-3: #24242a;
+  --c-border: #2b2b33;
+  --c-border-strong: #3b3b45;
+
+  /* ---- Ink ------------------------------------------------------------ */
+  --c-text: #eceef1;
+  --c-text-muted: #a4a7b0;
+  --c-text-subtle: #8a8d96;
+  --c-text-inverted: #0e0e11;
+
+  /* ---- Accent --------------------------------------------------------- */
+  --c-accent: #3daee9;
+  --c-accent-hover: #5cb8ed;
+  --c-accent-ink: #06131c;
+  --c-accent-soft: rgb(61 174 233 / 14%);
+  --c-accent-line: rgb(61 174 233 / 32%);
+
+  /* ---- Status --------------------------------------------------------- */
+  --c-warm: #f67400;
+  --c-warm-soft: rgb(246 116 0 / 14%);
+  --c-success: #2ecc71;
+  --c-danger: #da4453;
+
+  /* ---- Effects -------------------------------------------------------- */
+  --c-shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --c-shadow-2: 0 6px 18px -6px rgb(0 0 0 / 55%);
+  --c-shadow-3: 0 18px 48px -12px rgb(0 0 0 / 70%);
+  --c-glow: 0 0 0 1px var(--c-accent-line), 0 20px 60px -24px rgb(61 174 233 / 40%);
+  --c-hero-wash:
+    radial-gradient(58rem 32rem at 72% -12%, rgb(61 174 233 / 16%), transparent 62%),
+    radial-gradient(46rem 28rem at 8% 4%, rgb(246 116 0 / 8%), transparent 58%);
+  --c-grid-line: rgb(255 255 255 / 3.5%);
+
+  /* ---- Type ----------------------------------------------------------- */
+  --font-sans:
+    "InterVariable", "Inter", system-ui, -apple-system, "Segoe UI", "Noto Sans",
+    "Cantarell", sans-serif;
+  --font-mono:
+    "JetBrains MonoVariable", "JetBrains Mono", ui-monospace, "SFMono-Regular",
+    "Cascadia Mono", "Liberation Mono", monospace;
+
+  /* A 1.2 scale, fluid between a 360 px phone and a 1440 px desktop. The
+     lower bounds stay generous: this is a site people read, not chrome. */
+  --t--1: clamp(0.82rem, 0.79rem + 0.13vw, 0.875rem);
+  --t-0: clamp(0.96rem, 0.92rem + 0.18vw, 1.0625rem);
+  --t-1: clamp(1.1rem, 1.03rem + 0.31vw, 1.3rem);
+  --t-2: clamp(1.32rem, 1.19rem + 0.56vw, 1.66rem);
+  --t-3: clamp(1.55rem, 1.32rem + 1vw, 2.15rem);
+  --t-4: clamp(1.85rem, 1.42rem + 1.85vw, 2.95rem);
+  --t-5: clamp(2.05rem, 1.42rem + 2.8vw, 3.5rem);
+
+  --lh-tight: 1.14;
+  --lh-snug: 1.32;
+  --lh-body: 1.62;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* ---- Space — a 4 px grid, fluid at the top end ---------------------- */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: clamp(3rem, 2rem + 4vw, 5rem);
+  --s-9: clamp(4rem, 2.5rem + 6vw, 7.5rem);
+
+  /* ---- Shape ---------------------------------------------------------- */
+  /* 6–8 px: the technical end of the range, and the same radii the editor
+     draws its own panels with (Theme.radiusMd / radiusLg). */
+  --r-1: 3px;
+  --r-2: 6px;
+  --r-3: 8px;
+  --r-4: 12px;
+  --r-pill: 9999px;
+
+  /* ---- Layout --------------------------------------------------------- */
+  --w-page: 76rem;
+  --w-prose: 44rem;
+  --w-sidebar: 16rem;
+  --w-toc: 13rem;
+  --h-header: 3.75rem;
+
+  /* ---- Motion --------------------------------------------------------- */
+  --e-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --e-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --d-fast: 120ms;
+  --d-base: 200ms;
+  --d-slow: 360ms;
+
+  /* ---- Z scale — documented, so nothing needs 9999 -------------------- */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-header: 300;
+  --z-overlay: 400;
+  --z-toast: 500;
+}
+
+/* The light theme. `:not([data-theme="dark"])` so an explicit dark choice on
+   a light-preferring system still wins. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --c-bg: #fbfbfc;
+    --c-bg-soft: #f4f5f7;
+    --c-surface: #ffffff;
+    --c-surface-2: #f4f5f7;
+    --c-surface-3: #eaecef;
+    --c-border: #dfe1e6;
+    --c-border-strong: #c3c7ce;
+
+    --c-text: #16171a;
+    --c-text-muted: #545860;
+    --c-text-subtle: #6b6f78;
+    --c-text-inverted: #ffffff;
+
+    --c-accent: #17699a;
+    --c-accent-hover: #12557d;
+    --c-accent-ink: #ffffff;
+    --c-accent-soft: rgb(23 105 154 / 9%);
+    --c-accent-line: rgb(23 105 154 / 24%);
+
+    --c-warm: #a54e00;
+    --c-warm-soft: rgb(165 78 0 / 10%);
+    --c-success: #157f43;
+    --c-danger: #b3303e;
+
+    --c-shadow-1: 0 1px 2px rgb(16 20 28 / 8%);
+    --c-shadow-2: 0 6px 18px -6px rgb(16 20 28 / 14%);
+    --c-shadow-3: 0 18px 48px -12px rgb(16 20 28 / 20%);
+    --c-glow: 0 0 0 1px var(--c-accent-line), 0 20px 60px -28px rgb(23 105 154 / 28%);
+    --c-hero-wash:
+      radial-gradient(58rem 32rem at 72% -12%, rgb(23 105 154 / 10%), transparent 62%),
+      radial-gradient(46rem 28rem at 8% 4%, rgb(165 78 0 / 6%), transparent 58%);
+    --c-grid-line: rgb(16 20 28 / 4%);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --c-bg: #fbfbfc;
+  --c-bg-soft: #f4f5f7;
+  --c-surface: #ffffff;
+  --c-surface-2: #f4f5f7;
+  --c-surface-3: #eaecef;
+  --c-border: #dfe1e6;
+  --c-border-strong: #c3c7ce;
+
+  --c-text: #16171a;
+  --c-text-muted: #545860;
+  --c-text-subtle: #6b6f78;
+  --c-text-inverted: #ffffff;
+
+  --c-accent: #17699a;
+  --c-accent-hover: #12557d;
+  --c-accent-ink: #ffffff;
+  --c-accent-soft: rgb(23 105 154 / 9%);
+  --c-accent-line: rgb(23 105 154 / 24%);
+
+  --c-warm: #a54e00;
+  --c-warm-soft: rgb(165 78 0 / 10%);
+  --c-success: #157f43;
+  --c-danger: #b3303e;
+
+  --c-shadow-1: 0 1px 2px rgb(16 20 28 / 8%);
+  --c-shadow-2: 0 6px 18px -6px rgb(16 20 28 / 14%);
+  --c-shadow-3: 0 18px 48px -12px rgb(16 20 28 / 20%);
+  --c-glow: 0 0 0 1px var(--c-accent-line), 0 20px 60px -28px rgb(23 105 154 / 28%);
+  --c-hero-wash:
+    radial-gradient(58rem 32rem at 72% -12%, rgb(23 105 154 / 10%), transparent 62%),
+    radial-gradient(46rem 28rem at 8% 4%, rgb(165 78 0 / 6%), transparent 58%);
+  --c-grid-line: rgb(16 20 28 / 4%);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}

@@ -1,0 +1,196 @@
+---
+import { BRAND } from "@phototux/design/brand";
+import Icon from "./Icon.astro";
+
+const columns = [
+  {
+    title: "Product",
+    links: [
+      { href: "#why", label: "Why PhotoTux" },
+      { href: "#features", label: "Features" },
+      { href: "#screenshots", label: "Screenshots" },
+      { href: "#install", label: "Install" },
+    ],
+  },
+  {
+    title: "Documentation",
+    links: [
+      { href: `${BRAND.docs}/`, label: "Introduction" },
+      { href: `${BRAND.docs}/guides/installation/`, label: "Installation" },
+      { href: `${BRAND.docs}/reference/shortcuts/`, label: "Keyboard shortcuts" },
+      { href: `${BRAND.docs}/troubleshooting/`, label: "Troubleshooting" },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { href: BRAND.repo, label: "Source code" },
+      { href: BRAND.issues, label: "Issue tracker" },
+      { href: `${BRAND.repo}/blob/main/CONTRIBUTING.md`, label: "Contributing" },
+      { href: `${BRAND.repo}/blob/main/CHANGELOG.md`, label: "Changelog" },
+    ],
+  },
+];
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container site-footer-inner">
+    <div class="site-footer-brand">
+      <a class="wordmark" href="/" aria-label={`${BRAND.name} home`}>
+        <img src="/brand/logo.png" alt="" width="32" height="32" />
+        <span>{BRAND.name}</span>
+      </a>
+      <p class="muted site-footer-blurb">{BRAND.tagline}</p>
+      <p class="site-footer-licence">
+        Free software under the{" "}
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="license"
+          >GNU GPL v3 or later</a
+        >.
+      </p>
+    </div>
+
+    {
+      columns.map((column) => (
+        <nav class="site-footer-column" aria-label={column.title}>
+          <h2 class="eyebrow">{column.title}</h2>
+          <ul>
+            {column.links.map((link) => (
+              <li>
+                <a href={link.href}>{link.label}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ))
+    }
+  </div>
+
+  <div class="container site-footer-base">
+    <p class="muted">
+      © {year} Charles W. (PerkyZZ999) and contributors. Built with Claude/Cursor.
+    </p>
+    <p class="muted">
+      Icons by <a href="https://phosphoricons.com" rel="noopener">Phosphor</a>, MIT.
+    </p>
+    <a class="site-footer-top" href="#main">
+      Back to top
+      <Icon name="caret-up" size="sm" />
+    </a>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    /* No top margin: the last section already ends on a full `--s-9` of
+       padding, and stacking the two left a screenful of nothing above the
+       footer rule. */
+    border-block-start: 1px solid var(--c-border);
+    background: var(--c-bg-soft);
+    font-size: var(--t--1);
+  }
+
+  .site-footer-inner {
+    display: grid;
+    gap: var(--s-6);
+    padding-block: var(--s-8) var(--s-6);
+    grid-template-columns: 1fr;
+  }
+
+  @media (min-width: 40rem) {
+    .site-footer-inner {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .site-footer-brand {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .site-footer-inner {
+      grid-template-columns: 1.6fr repeat(3, 1fr);
+    }
+
+    .site-footer-brand {
+      grid-column: auto;
+    }
+  }
+
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--c-text);
+    font-size: 1.0625rem;
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+
+  .wordmark img {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .site-footer-blurb {
+    margin-block-start: var(--s-3);
+    max-width: 26rem;
+  }
+
+  .site-footer-licence {
+    margin-block-start: var(--s-2);
+    color: var(--c-text-subtle);
+  }
+
+  .site-footer-column h2 {
+    margin-block-end: var(--s-3);
+  }
+
+  .site-footer-column ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .site-footer-column li + li {
+    margin-block-start: var(--s-2);
+  }
+
+  .site-footer-column a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    color: var(--c-text-muted);
+    text-decoration: none;
+  }
+
+  .site-footer-column a:hover {
+    color: var(--c-accent);
+    text-decoration: underline;
+  }
+
+  .site-footer-base {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2) var(--s-5);
+    padding-block: var(--s-4) var(--s-6);
+    border-block-start: 1px solid var(--c-border);
+  }
+
+  .site-footer-top {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.25rem;
+    margin-inline-start: auto;
+    color: var(--c-text-muted);
+    text-decoration: none;
+  }
+
+  .site-footer-top:hover {
+    color: var(--c-accent);
+  }
+</style>

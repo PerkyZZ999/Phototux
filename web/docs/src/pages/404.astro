@@ -1,0 +1,21 @@
+---
+import { BRAND } from "@phototux/design/brand";
+import DocsLayout from "../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  slug="404"
+  title="Page not found"
+  description="That page does not exist in the PhotoTux documentation."
+  headings={[]}
+>
+  <p>
+    The link may be out of date, or the page may have moved. Try the navigation
+    on the left, or press <kbd>/</kbd> to search.
+  </p>
+  <p>
+    If you followed a link from somewhere on this site,
+    <a href={`${BRAND.repo}/issues/new/choose`} rel="noopener">tell us</a> —
+    a broken link in the documentation is a bug.
+  </p>
+</DocsLayout>

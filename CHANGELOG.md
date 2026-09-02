@@ -2,6 +2,45 @@
 
 All notable decision milestones and project state changes.
 
+## [public-release] — 2026-09-02
+
+### Public
+
+- **The repository is being published.** It was missing the things a reader
+  arriving from a link needs, starting with the licence: `Cargo.toml` has
+  declared `GPL-3.0-or-later` since the workspace was created and the text it
+  points at was never in the tree. That is now `LICENSE`, verbatim from the
+  FSF.
+- The README was written for whoever was already building it — problem
+  statement, MVP scope, a success-criteria table, a map of `internal_docs/`.
+  It now opens on what PhotoTux is, what it does, what it needs and how to
+  build it. `CONTRIBUTING.md`, `SECURITY.md` and a Contributor Covenant
+  `CODE_OF_CONDUCT.md` join it, along with issue forms, a pull-request
+  template and a CI workflow whose blocking job is the Qt-free half of the
+  workspace — `phototux_engine`, `phototux_io` and `phototux_gpu` compile and
+  test on a stock runner precisely because DR-025 keeps Qt out of them.
+- Authors are `Charles W. (PerkyZZ999)` and `Claude/Cursor`, inherited by
+  every member crate. AppStream metadata gained the description, screenshot,
+  categories and bug/help/vcs URLs a store listing is judged on, and the
+  desktop entry now claims the formats the application actually reads.
+
+- **Two websites** ([DR-033](internal_docs/Appendix/Decision-Register.md#dr-033--public-web-presence-is-two-static-astro-sites-not-a-second-handbook)):
+  `web/landing` for `phototux.xyz` and `web/docs` for `docs.phototux.xyz`,
+  both static Astro 7. `internal_docs/` stays the engineering handbook; the
+  docs site is the same behaviour restated for someone *using* the editor —
+  install, tour, first edit, seven guides, four reference tables and
+  troubleshooting.
+- The two share one design package whose palette is **`qml/Theme.qml`'s**, so
+  a screenshot of the editor belongs on the page it sits on, and whose icons
+  are the Phosphor set the editor already ships. A version number or a
+  repository URL is written once.
+- Each site keeps committed copies of the logo and screenshots in its own
+  `public/`. A build-time sync from the repository root was tried and
+  rejected: a site that reaches outside its own directory cannot be built,
+  previewed or deployed on its own.
+- The Node toolchain is confined to `web/` and is not part of the Rust gate,
+  so a broken website cannot block a Rust change and vice versa.
+
 ## [architecture-slices] — 2026-08-13
 
 ### Internal

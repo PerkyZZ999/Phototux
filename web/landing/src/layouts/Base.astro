@@ -1,0 +1,102 @@
+---
+/**
+ * The page shell for phototux.xyz.
+ *
+ * One page today, but the head, the theme bootstrap and the chrome belong in
+ * a layout rather than in `index.astro`: a download page or a changelog page
+ * would otherwise start by copying forty lines of `<head>`.
+ */
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
+import "@phototux/design/tokens.css";
+import "@phototux/design/base.css";
+import "../styles/landing.css";
+
+import { BRAND } from "@phototux/design/brand";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = `${BRAND.name} — ${BRAND.tagline}`,
+  description = BRAND.description,
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site ?? BRAND.site);
+const ogImage = new URL("/screenshots/workspace.png", Astro.site ?? BRAND.site);
+---
+
+<!doctype html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <link rel="icon" href="/brand/logo.png" type="image/png" sizes="256x256" />
+    <link rel="apple-touch-icon" href="/brand/logo.png" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0e0e11" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={BRAND.name} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1600" />
+    <meta property="og:image:height" content="1000" />
+    <meta
+      property="og:image:alt"
+      content="The PhotoTux workspace: a tool shelf on the left, the canvas in the centre, and the Properties, Navigator and Layers docks on the right."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script
+      is:inline
+      data-theme-bootstrap
+      set:html={`
+        try {
+          var t = localStorage.getItem("phototux-theme");
+          if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      `}
+    />
+
+    <script
+      type="application/ld+json"
+      is:inline
+      set:html={JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: BRAND.name,
+        applicationCategory: "MultimediaApplication",
+        applicationSubCategory: "Image editor",
+        operatingSystem: "Linux",
+        softwareVersion: BRAND.version,
+        license: "https://www.gnu.org/licenses/gpl-3.0.html",
+        url: BRAND.site,
+        downloadUrl: BRAND.repo,
+        description: BRAND.description,
+        author: { "@type": "Person", name: "Charles W. (PerkyZZ999)" },
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      })}
+    />
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <SiteHeader />
+    <main id="main">
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>

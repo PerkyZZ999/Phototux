@@ -1,0 +1,132 @@
+---
+/**
+ * A shell snippet with a copy button.
+ *
+ * The button carries the text in a data attribute rather than reading it back
+ * out of the DOM, so a prompt or a comment rendered into the block would not
+ * end up on the clipboard.
+ */
+import Icon from "./Icon.astro";
+
+interface Props {
+  code: string;
+  label?: string;
+  lang?: string;
+}
+
+const { code, label = "shell", lang = "bash" } = Astro.props;
+---
+
+<div class="codeblock">
+  <div class="codeblock-bar">
+    <span class="codeblock-label mono">{label}</span>
+    <button
+      type="button"
+      class="codeblock-copy"
+      data-copy={code}
+      aria-label="Copy the commands to the clipboard"
+    >
+      <span class="copy-face copy-idle"><Icon name="copy" size="sm" /></span>
+      <span class="copy-face copy-done"><Icon name="check" size="sm" /></span>
+      <span data-copy-text>Copy</span>
+    </button>
+  </div>
+  <pre data-lang={lang}><code>{code}</code></pre>
+</div>
+
+<style>
+  .codeblock {
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-3);
+    background: var(--c-bg-soft);
+    overflow: hidden;
+  }
+
+  .codeblock-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+    border-block-end: 1px solid var(--c-border);
+    background: var(--c-surface);
+  }
+
+  .codeblock-label {
+    color: var(--c-text-subtle);
+    font-size: var(--t--1);
+  }
+
+  .codeblock-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2rem;
+    margin-inline-start: auto;
+    padding-inline: var(--s-3);
+    border: 1px solid transparent;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--c-text-muted);
+    font-size: var(--t--1);
+    font-weight: var(--fw-medium);
+    cursor: pointer;
+    transition:
+      background-color var(--d-fast) var(--e-out),
+      color var(--d-fast) var(--e-out);
+  }
+
+  .codeblock-copy:hover {
+    background: var(--c-surface-2);
+    color: var(--c-text);
+  }
+
+  .codeblock-copy[data-copied] {
+    color: var(--c-success);
+  }
+
+  .copy-face {
+    display: inline-flex;
+  }
+
+  .copy-done,
+  .codeblock-copy[data-copied] .copy-idle {
+    display: none;
+  }
+
+  .codeblock-copy[data-copied] .copy-done {
+    display: inline-flex;
+  }
+
+  .codeblock pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+</style>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+    const text = button.dataset.copy ?? "";
+    const caption = button.querySelector<HTMLElement>("[data-copy-text]");
+    let reset: number | undefined;
+
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Insecure origin, or the user denied clipboard access. Say so rather
+        // than showing a tick for something that did not happen.
+        if (caption) caption.textContent = "Press Ctrl+C";
+        return;
+      }
+      button.setAttribute("data-copied", "");
+      if (caption) caption.textContent = "Copied";
+      window.clearTimeout(reset);
+      reset = window.setTimeout(() => {
+        button.removeAttribute("data-copied");
+        if (caption) caption.textContent = "Copy";
+      }, 2000);
+    });
+  }
+</script>

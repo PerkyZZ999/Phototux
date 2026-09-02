@@ -1,0 +1,301 @@
+/*
+ * Layout for docs.phototux.xyz.
+ *
+ * Three columns above 80 rem — sidebar, article, on-this-page — collapsing to
+ * two at 64 rem and one below that. The article column is capped at the prose
+ * measure rather than filling the space, so a 1440 px display gets wider
+ * margins instead of 120-character lines.
+ */
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  align-items: start;
+  max-width: 90rem;
+  margin-inline: auto;
+}
+
+@media (min-width: 64rem) {
+  .layout {
+    grid-template-columns: var(--w-sidebar) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 84rem) {
+  .layout {
+    grid-template-columns: var(--w-sidebar) minmax(0, 1fr) var(--w-toc);
+  }
+}
+
+/* ---- Sidebar ---------------------------------------------------------- */
+.sidebar {
+  position: sticky;
+  inset-block-start: var(--h-header);
+  max-block-size: calc(100dvh - var(--h-header));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s-6) var(--s-4) var(--s-8) var(--s-5);
+  scrollbar-width: thin;
+}
+
+@media (max-width: 63.99rem) {
+  .sidebar {
+    display: none;
+  }
+}
+
+.sidebar-group + .sidebar-group {
+  margin-block-start: var(--s-5);
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-block-end: var(--s-2);
+  color: var(--c-text-subtle);
+  font-size: var(--t--1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sidebar-title > .icon {
+  color: var(--c-text-subtle);
+}
+
+.sidebar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-inline-start: 1px solid var(--c-border);
+}
+
+.sidebar-link {
+  display: block;
+  padding: 0.42rem var(--s-3);
+  margin-inline-start: -1px;
+  border-inline-start: 1px solid transparent;
+  color: var(--c-text-muted);
+  font-size: var(--t--1);
+  line-height: 1.4;
+  text-decoration: none;
+  transition:
+    color var(--d-fast) var(--e-out),
+    border-color var(--d-fast) var(--e-out);
+}
+
+.sidebar-link:hover {
+  color: var(--c-text);
+  border-inline-start-color: var(--c-border-strong);
+}
+
+/* Current page: colour, weight and a rule on the spine. Three signals, so it
+   survives both colour blindness and a low-contrast display. */
+.sidebar-link[aria-current="page"] {
+  border-inline-start-color: var(--c-accent);
+  color: var(--c-accent);
+  font-weight: var(--fw-medium);
+}
+
+/* ---- Article ---------------------------------------------------------- */
+.article {
+  min-width: 0;
+  padding: var(--s-6) var(--s-5) var(--s-9);
+}
+
+@media (min-width: 48rem) {
+  .article {
+    padding-inline: var(--s-7);
+  }
+}
+
+.article-head {
+  padding-block-end: var(--s-5);
+  border-block-end: 1px solid var(--c-border);
+}
+
+.article-eyebrow {
+  color: var(--c-accent);
+  font-size: var(--t--1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.article-title {
+  margin-block-start: var(--s-2);
+  font-size: var(--t-4);
+  line-height: var(--lh-tight);
+}
+
+.article-description {
+  max-width: var(--w-prose);
+  margin-block-start: var(--s-3);
+  color: var(--c-text-muted);
+  font-size: var(--t-1);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.article-body {
+  margin-block-start: var(--s-6);
+}
+
+/* ---- Previous / next -------------------------------------------------- */
+.pager {
+  display: grid;
+  gap: var(--s-3);
+  max-width: var(--w-prose);
+  margin-block-start: var(--s-8);
+  padding-block-start: var(--s-6);
+  border-block-start: 1px solid var(--c-border);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 40rem) {
+  .pager {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.pager-link {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-3);
+  background: var(--c-surface);
+  color: var(--c-text);
+  text-decoration: none;
+  transition:
+    border-color var(--d-fast) var(--e-out),
+    background-color var(--d-fast) var(--e-out);
+}
+
+.pager-link:hover {
+  border-color: var(--c-accent-line);
+  background: var(--c-surface-2);
+  color: var(--c-text);
+}
+
+.pager-next {
+  justify-content: flex-end;
+  text-align: end;
+  grid-column: 2;
+}
+
+.pager-link > .icon {
+  color: var(--c-text-subtle);
+}
+
+.pager-label {
+  display: block;
+  color: var(--c-text-subtle);
+  font-size: var(--t--1);
+}
+
+.pager-title {
+  display: block;
+  font-size: var(--t--1);
+  font-weight: var(--fw-medium);
+}
+
+/* ---- On this page ----------------------------------------------------- */
+.toc {
+  position: sticky;
+  inset-block-start: var(--h-header);
+  max-block-size: calc(100dvh - var(--h-header));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s-6) var(--s-5) var(--s-8) var(--s-3);
+  scrollbar-width: thin;
+}
+
+@media (max-width: 83.99rem) {
+  .toc {
+    display: none;
+  }
+}
+
+.toc-title {
+  margin-block-end: var(--s-3);
+}
+
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-inline-start: 1px solid var(--c-border);
+}
+
+.toc-link {
+  display: block;
+  padding: 0.3rem var(--s-3);
+  margin-inline-start: -1px;
+  border-inline-start: 1px solid transparent;
+  color: var(--c-text-muted);
+  font-size: var(--t--1);
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.toc-link:hover {
+  color: var(--c-text);
+}
+
+.toc-link[data-depth="3"] {
+  padding-inline-start: var(--s-5);
+}
+
+.toc-link[aria-current="true"] {
+  border-inline-start-color: var(--c-accent);
+  color: var(--c-accent);
+}
+
+/* ---- Mobile navigation ------------------------------------------------ */
+.mobile-nav {
+  display: block;
+  border-block-end: 1px solid var(--c-border);
+  background: var(--c-bg-soft);
+}
+
+@media (min-width: 64rem) {
+  .mobile-nav {
+    display: none;
+  }
+}
+
+.mobile-nav-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: 3rem;
+  padding-inline: var(--s-5);
+  border: 0;
+  background: transparent;
+  color: var(--c-text);
+  font-size: var(--t--1);
+  font-weight: var(--fw-medium);
+  text-align: start;
+  cursor: pointer;
+}
+
+.mobile-nav-toggle > .icon:last-child {
+  margin-inline-start: auto;
+  transition: transform var(--d-base) var(--e-out);
+}
+
+.mobile-nav-toggle[aria-expanded="true"] > .icon:last-child {
+  transform: rotate(180deg);
+}
+
+.mobile-nav-panel {
+  padding: 0 var(--s-5) var(--s-5);
+  max-block-size: 60dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

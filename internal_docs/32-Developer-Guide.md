@@ -499,6 +499,32 @@ flowchart TD
     ADR --> Implement[Implement with checklist]
 ```
 
+### Public documentation is a separate document for a separate reader
+
+`internal_docs/` is the engineering handbook: normative, contributor-facing,
+authoritative. It is **not** what a user reads.
+
+The user documentation is a static site under [`web/docs`](../web/docs), and
+the product site is [`web/landing`](../web/landing)
+([DR-033](Appendix/Decision-Register.md#dr-033--public-web-presence-is-two-static-astro-sites-not-a-second-handbook)).
+They restate behaviour for people using the editor and cite the handbook
+rather than duplicating it; neither carries normative language. This is not
+the second `/docs/` tree the constitution forbids.
+
+A change to user-visible behaviour updates **both**: the handbook chapter that
+owns the contract, and the page in `web/docs` that describes it to a user. A
+shortcut moved, a menu entry renamed or a format newly supported is wrong in
+one of them within a release otherwise.
+
+The sites share `@phototux/design`, whose palette is `qml/Theme.qml`'s
+([25 — Themes](25-Themes.md)) and whose icons come from
+`assets/icons/phosphor/regular`. Do not start a second palette there.
+
+The Node toolchain is confined to `web/` and is **not** part of the Rust gate:
+`rust-tc doctor` neither builds nor checks the sites, so a broken website
+cannot block a Rust change. Build and check them with `pnpm` from `web/` —
+see [`web/README.md`](../web/README.md).
+
 ## Build, Check, and Test Commands
 
 Qt 6 must be on `PATH` (`/usr/lib/qt6/bin`; host `qmake` is often Qt 5). Set `QMAKE=/usr/lib/qt6/bin/qmake`. Agent-facing command summary: root [`AGENTS.md`](../AGENTS.md).
