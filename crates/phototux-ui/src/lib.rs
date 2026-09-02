@@ -2360,6 +2360,22 @@ impl AppSession {
         }
     }
 
+    /// Walk the history timeline by `steps`, forwards or back.
+    ///
+    /// One command repeated rather than a bulk move: each step has to reach
+    /// the GPU stroke and selection stacks the same way a keyboard undo does,
+    /// and those live here rather than in the engine.
+    fn walk_history(&mut self, steps: u32, forward: bool) {
+        let step = if forward {
+            command_id::HISTORY_REDO
+        } else {
+            command_id::HISTORY_UNDO
+        };
+        for _ in 0..steps {
+            let _ = self.invoke_command(step, CommandArgs::None);
+        }
+    }
+
     fn apply_command_effects(&mut self, effects: CommandEffects) {
         if let Some(host) = effects.host_history {
             self.apply_host_history(host);
@@ -2378,16 +2394,7 @@ impl AppSession {
             HostFollowUp::SelectionToMask => self.apply_selection_to_mask_host(),
             HostFollowUp::MaskToSelection => self.apply_mask_to_selection_host(),
             HostFollowUp::ApplyMask => self.apply_mask_host(),
-            HostFollowUp::HistoryJump { steps, forward } => {
-                let step = if forward {
-                    command_id::HISTORY_REDO
-                } else {
-                    command_id::HISTORY_UNDO
-                };
-                for _ in 0..steps {
-                    let _ = self.invoke_command(step, CommandArgs::None);
-                }
-            }
+            HostFollowUp::HistoryJump { steps, forward } => self.walk_history(steps, forward),
             HostFollowUp::ShapeBoolean { op, a, b, result } => {
                 self.apply_shape_boolean_host(op, a, b, result);
             }
