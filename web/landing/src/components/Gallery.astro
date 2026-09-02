@@ -220,9 +220,12 @@ const shots = [
         tab.tabIndex = on ? 0 : -1;
         panels[i].hidden = !on;
       });
+      // `focus()` already reveals the tab when the row is scrolling on a
+      // phone, which is all the reveal this needs. An unconditional
+      // `scrollIntoView` here also ran on the initial `select(0, false)`
+      // below, and `block: "nearest"` is not a no-op for an element that
+      // starts below the fold: the page opened part-scrolled to the gallery.
       if (focus) tabs[index].focus();
-      // Keep the chosen tab in view when the row is scrolling on a phone.
-      tabs[index].scrollIntoView({ block: "nearest", inline: "nearest" });
     };
 
     tabs.forEach((tab, index) => {
