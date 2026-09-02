@@ -170,9 +170,11 @@ Rectangle {
                         padding: 0
                         enabled: AppSession.hasDocument
                         onClicked: AppSession.saveCurrentBrushPreset("Custom")
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Save the current brush as a preset")
-                        Accessible.name: ToolTip.text
+                        Accessible.name: qsTr("Save the current brush as a preset")
+                        ThemedToolTip {
+                            visible: parent.hovered
+                            text: parent.Accessible.name
+                        }
                         contentItem: ThemedIcon {
                             anchors.centerIn: parent
                             source: Theme.iconUrl(AppSession.iconRoot, "plus")
@@ -248,8 +250,10 @@ Rectangle {
                             checked: AppSession.gradientKind === gradButton.modelData.id
                             enabled: AppSession.hasDocument
                             onClicked: AppSession.setGradientKind(gradButton.modelData.id)
-                            ToolTip.visible: hovered
-                            ToolTip.text: gradButton.modelData.label
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: gradButton.modelData.label
+                            }
                             Accessible.name: gradButton.modelData.label
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
@@ -293,8 +297,10 @@ Rectangle {
                             padding: 0
                             enabled: alignButton.available
                             onClicked: AppSession.alignLayers(alignButton.modelData.id)
-                            ToolTip.visible: hovered
-                            ToolTip.text: alignButton.modelData.label
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: alignButton.modelData.label
+                            }
                             Accessible.name: alignButton.modelData.label
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
@@ -336,12 +342,10 @@ Rectangle {
                             padding: 0
                             enabled: distributeButton.available
                             onClicked: AppSession.alignLayers(distributeButton.modelData.id)
-                            ToolTip.visible: hovered
-                            ToolTip.text: distributeButton.available
-                                          ? distributeButton.modelData.label
-                                          : qsTr("%1 — needs %2 layers")
-                                            .arg(distributeButton.modelData.label)
-                                            .arg(distributeButton.modelData.minTargets)
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: distributeButton.available ? distributeButton.modelData.label : qsTr("%1 — needs %2 layers").arg(distributeButton.modelData.label).arg(distributeButton.modelData.minTargets)
+                            }
                             Accessible.name: distributeButton.modelData.label
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
@@ -401,8 +405,10 @@ Rectangle {
                             checked: AppSession.selectionCombine === modelData.id
                             enabled: AppSession.hasDocument
                             onClicked: AppSession.setSelectionCombine(modelData.id)
-                            ToolTip.visible: hovered
-                            ToolTip.text: modelData.tip
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: modelData.tip
+                            }
                             Accessible.name: modelData.tip
                             // Address the button by id, not by `parent`: inside
                             // contentItem/background `parent` types as a plain

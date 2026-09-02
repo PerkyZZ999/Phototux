@@ -97,8 +97,10 @@ ListView {
             Accessible.name: layer_visible
                              ? qsTr("Hide %1").arg(name)
                              : qsTr("Show %1").arg(name)
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
+            ThemedToolTip {
+                visible: parent.hovered
+                text: parent.Accessible.name
+            }
         }
 
         RowLayout {
@@ -157,12 +159,17 @@ ListView {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
+                    // `containsMouse` is false without this, so the tip
+                    // below had never once appeared.
+                    hoverEnabled: true
                     onClicked: {
                         AppSession.setActiveLayer(stack_index)
                         AppSession.setMaskEditTarget(true)
                     }
-                    ToolTip.visible: containsMouse
-                    ToolTip.text: qsTr("Edit layer mask")
+                    ThemedToolTip {
+                        visible: parent.containsMouse
+                        text: qsTr("Edit layer mask")
+                    }
                 }
             }
 
@@ -176,14 +183,15 @@ ListView {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
+                    hoverEnabled: true
                     onClicked: {
                         AppSession.setActiveLayer(stack_index)
                         AppSession.setMaskEnabledOnActive(!maskEnabled)
                     }
-                    ToolTip.visible: containsMouse
-                    ToolTip.text: maskEnabled
-                                  ? qsTr("Disable layer mask")
-                                  : qsTr("Enable layer mask")
+                    ThemedToolTip {
+                        visible: parent.containsMouse
+                        text: maskEnabled ? qsTr("Disable layer mask") : qsTr("Enable layer mask")
+                    }
                 }
             }
 
@@ -193,8 +201,10 @@ ListView {
                 size: 14
                 color: Theme.primary
                 Accessible.name: qsTr("Clipped to layer below")
-                ToolTip.visible: clipHover.hovered
-                ToolTip.text: qsTr("Clipped to layer below — delete base releases clip")
+                ThemedToolTip {
+                    visible: clipHover.hovered
+                    text: qsTr("Clipped to layer below — delete base releases clip")
+                }
                 HoverHandler { id: clipHover }
             }
 

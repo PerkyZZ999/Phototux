@@ -231,6 +231,7 @@ mod tests {
                 ("MenuItem", "ThemedMenuItem"),
                 ("DialogButtonBox", "ThemedDialogFooter"),
                 ("ScrollBar", "ThemedScrollBar"),
+                ("ToolTip", "ThemedToolTip"),
             ] {
                 // The themed component is allowed to *be* the bare control.
                 // `ThemedMenu` also names `ThemedMenuItem` as its delegate,
@@ -245,6 +246,44 @@ mod tests {
                      style draws with a hardcoded light palette — use {themed}"
                 );
             }
+        }
+    }
+
+    /// The attached tool tip is the Basic style's, and it is light.
+    ///
+    /// `ToolTip.visible` / `ToolTip.text` on a control drive the **shared**
+    /// tool tip instance, which the Controls style builds — Basic, hardcoded
+    /// light palette. That is not a bare `ToolTip {` the check above would
+    /// catch: nothing is instantiated, so forty call sites popped pale grey
+    /// tips over dark chrome with nothing at the call site to show for it.
+    ///
+    /// The shared instance cannot be restyled from one place; assigning to
+    /// `ToolTip.toolTip.background` is accepted and does nothing, from an Item
+    /// or from the window. `ThemedToolTip` is a popup the call site owns.
+    #[test]
+    fn no_attached_tool_tips_reach_the_user() {
+        for (name, text) in qml_files() {
+            if name == "ThemedToolTip.qml" {
+                continue;
+            }
+            let found: Vec<usize> = text
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| {
+                    let t = line.trim_start();
+                    t.starts_with("ToolTip.visible")
+                        || t.starts_with("ToolTip.text")
+                        || t.starts_with("ToolTip.delay")
+                        || t.starts_with("ToolTip.timeout")
+                })
+                .map(|(i, _)| i + 1)
+                .collect();
+            assert!(
+                found.is_empty(),
+                "{name} drives the shared tool tip at {found:?}, which the Basic \
+                 style draws with a hardcoded light palette — declare a \
+                 ThemedToolTip inside the control instead"
+            );
         }
     }
 

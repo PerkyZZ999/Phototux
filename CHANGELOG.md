@@ -2,6 +2,31 @@
 
 All notable decision milestones and project state changes.
 
+## [themed-tooltips] — 2026-09-02
+
+### Internal
+
+- **Every tool tip in the shell was drawn by the Basic style**, which
+  hardcodes a light palette — pale grey popups over dark editor chrome, at
+  forty call sites. The unstyled-control guard could not see them: the
+  attached form, `ToolTip.visible` / `ToolTip.text` on a control, drives the
+  *shared* instance and instantiates nothing.
+- The shared instance cannot be restyled from one place. Assigning to
+  `ToolTip.toolTip.background` is accepted and has no effect, from an Item or
+  from the window; both were tried and reverted rather than left as dead code.
+  `ThemedToolTip` is a popup the call site owns, with a 450 ms delay — Qt's
+  default of 0 turns a row of icon buttons into a flicker of popups.
+- **Eight controls took their accessible name *from* the tool tip.** That pair
+  is now the other way round: the name is the source and the tip reads
+  `parent.Accessible.name`, which is the shape `PanelHeaderControls` already
+  used and leaves one string per control rather than two.
+- **Two tool tips in the Layers panel had never once appeared.** They keyed
+  off `containsMouse` on a `MouseArea` with no `hoverEnabled`, so the
+  condition was false whenever the pointer was not pressed. Both mask tips —
+  "Edit layer mask" and the enable/disable toggle — work now.
+- `no_attached_tool_tips_reach_the_user` fails the build on the attached form
+  in any shell file.
+
 ## [announcements] — 2026-09-02
 
 ### Internal

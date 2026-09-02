@@ -245,8 +245,10 @@ Dialog {
                 text: qsTr("Safe start next launch")
                 checked: AppSession.prefSafeStartNext
                 onToggled: AppSession.setPrefSafeStartNext(checked)
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Next launch uses essentials layout and ignores custom shortcuts (PHOTOTUX_SAFE_START=1 also works)")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: qsTr("Next launch uses essentials layout and ignores custom shortcuts (PHOTOTUX_SAFE_START=1 also works)")
+                }
                 Accessible.name: qsTr("Safe start next launch")
             }
             RowLayout {
@@ -271,8 +273,10 @@ Dialog {
                             AppSession.setPrefHistoryRetention(value)
                     }
                     Accessible.name: qsTr("History retention steps")
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Max undo steps retained (oldest dropped when over budget)")
+                    ThemedToolTip {
+                        visible: parent.hovered
+                        text: qsTr("Max undo steps retained (oldest dropped when over budget)")
+                    }
                 }
             }
             Label {
@@ -382,8 +386,10 @@ Dialog {
                         icon.width: Theme.iconMd
                         icon.height: Theme.iconMd
                         Accessible.name: qsTr("Delete workspace preset %1").arg(modelData.title || modelData.id)
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Delete user preset")
+                        ThemedToolTip {
+                            visible: parent.hovered
+                            text: qsTr("Delete user preset")
+                        }
                         contentItem: Item {
                             implicitWidth: Theme.iconMd
                             implicitHeight: Theme.iconMd
