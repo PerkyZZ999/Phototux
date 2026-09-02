@@ -275,6 +275,7 @@ The following catalog is normative for naming patterns and taxonomy placement. E
 | `layer.set-lock-flags` | |
 | `layer.rasterize` | Destructive disclosure |
 | `layer.merge-down` | Destructive disclosure |
+| `layer.merge-group` | Destructive disclosure |
 | `layer.flatten-visible` | Destructive disclosure |
 
 ### Selection and masks

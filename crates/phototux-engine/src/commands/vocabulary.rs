@@ -27,6 +27,8 @@ pub mod command_id {
     pub const LAYER_MERGE_DOWN: &str = "layer.merge-down";
     /// Composite every visible layer into one, keeping the hidden ones.
     pub const LAYER_MERGE_VISIBLE: &str = "layer.merge-visible";
+    /// Composite a group's contents into one layer and drop the group.
+    pub const LAYER_MERGE_GROUP: &str = "layer.merge-group";
     /// Composite every visible layer into one. Destructive by design.
     pub const LAYER_FLATTEN: &str = "layer.flatten";
     pub const LAYER_DELETE: &str = "layer.delete";
@@ -183,6 +185,7 @@ pub mod command_id {
         LAYER_DUPLICATE,
         LAYER_MERGE_DOWN,
         LAYER_MERGE_VISIBLE,
+        LAYER_MERGE_GROUP,
         LAYER_FLATTEN,
         LAYER_DELETE,
         LAYER_SET_ACTIVE,

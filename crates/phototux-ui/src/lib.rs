@@ -2106,6 +2106,7 @@ impl AppSession {
             "smart_object" => {
                 self.has_document && self.active_layer_kind == "smart-object" && !busy
             }
+            "group_selected" => self.has_document && self.active_layer_kind == "group" && !busy,
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
@@ -2314,6 +2315,7 @@ impl AppSession {
             "layer.flatten" => self.flatten_image(),
             "layer.merge-down" => self.merge_layer_down(),
             "layer.merge-visible" => self.merge_visible_layers(),
+            "layer.merge-group" => self.merge_group(),
             "document.rotate" => match arg.and_then(|a| a.parse::<i32>().ok()) {
                 // Degrees in the registry, quarter turns on the wire: the
                 // argument is what the menu entry is called.
@@ -6055,7 +6057,48 @@ impl AppSession {
         self.merge_into_one(&visible, command_id::LAYER_MERGE_VISIBLE);
     }
 
-    /// Shared body of the two merges: composite `keep`, replace those layers
+    /// Composite a group's contents into one layer and drop the group.
+    ///
+    /// The pixels come from the group's *visible* descendants composited
+    /// among themselves, which is what the group was drawing. The group
+    /// record itself contributes nothing to the composite — it owns no
+    /// texture — so it is not in the subset even though the command consumes
+    /// it.
+    #[qslot]
+    fn merge_group(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let Some(group_id) = graph.active_id() else {
+            return;
+        };
+        if graph.get(group_id).map(|l| l.kind) != Some(phototux_engine::LayerKind::Group) {
+            self.notify(NoticeLevel::Warning, "Select a group first".to_owned());
+            return;
+        }
+        let visible: Vec<_> = graph
+            .descendants_of(group_id)
+            .into_iter()
+            .filter(|id| graph.get(*id).is_some_and(|l| l.visible))
+            .collect();
+        if visible.is_empty() {
+            self.notify(
+                NoticeLevel::Warning,
+                "This group has nothing visible to merge".to_owned(),
+            );
+            return;
+        }
+        let discarded = graph.descendants_of(group_id).len() - visible.len();
+        self.merge_into_one(&visible, command_id::LAYER_MERGE_GROUP);
+        // A layer vanishing without a word is what erodes trust in a merge.
+        // The command authored the sentence for the accessibility channel;
+        // this puts the same one on screen rather than spelling it twice.
+        if discarded > 0 {
+            self.notify(NoticeLevel::Info, self.engine.last_announce.clone());
+        }
+    }
+
+    /// Shared body of the merges: composite `keep`, replace those layers
     /// with one, write the pixels into it.
     ///
     /// The pixels are read *before* the command, because afterwards the layers

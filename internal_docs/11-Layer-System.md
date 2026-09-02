@@ -209,8 +209,9 @@ transform entry so the stack and the pixels come back together.
 Both refuse a group, and refuse a layer inside one. A group is a parent in a
 flat list rather than a container of pixels, so merging across a group boundary
 would move layers out of their group as a side effect of an operation that
-never mentioned it — and merging a group itself is Photoshop's separate Merge
-Group, which is not implemented. Merge Down also refuses when either layer is
+never mentioned it. Each refusal names `layer.merge-group` instead: the two
+share `Ctrl+E` in Photoshop, so a dead end that says where to go is worth more
+than one that only says no. Merge Down also refuses when either layer is
 hidden: merging something you cannot see into something else you cannot see is
 not an edit anyone can check by looking at the canvas.
 
@@ -218,6 +219,41 @@ One caveat Photoshop carries too: the merged pixels are the pair composited
 over transparency, so if the *lower* layer's blend mode is not Normal it was
 blending against what is under the pair, and that backdrop is not part of the
 merge. The result can then differ from what was on screen.
+
+#### Merging a group
+
+`layer.merge-group` is the operation the other two refuse, and it is a whole
+operation with an obvious meaning: the group and everything inside it become
+one raster layer carrying the group's name, standing where the group stood,
+under the group's own parent.
+
+Membership is the **`parent` chain**, walked transitively by
+`DocumentGraph::descendants_of`, not a slice of the flat list. A nested group's
+children name the *inner* group as their parent, so anything that walked one
+level would leave them behind and anything that walked indices would take
+layers that merely happen to sit between the group and its neighbours. The walk
+is depth-capped, so a `parent` chain corrupted into a cycle by a malformed
+document returns what it has rather than hanging.
+
+`replace_with_merged_layer` inherits the parent of whatever sat lowest among
+the ids it consumes, which here is a child of the group being deleted. The
+merged layer's parent is corrected to the **group's** parent afterwards, so
+merging an inner group leaves the result inside the outer one and merging a
+top-level group produces a top-level layer.
+
+Hidden members are **discarded**, the way flatten discards what it cannot see,
+rather than refused the way Merge Down refuses a hidden layer. The distinction
+is what the canvas can tell you: after a group merge the canvas does not change
+— what the group was drawing is exactly what the merged layer draws — so the
+edit is checkable by looking, and refusing would block the ordinary case of a
+group holding one hidden variant. The count is both announced and raised as a
+notice, because a layer vanishing without a word is what erodes trust in a
+merge. A group with nothing visible in it, and a hidden group, are refused.
+
+The pixels come from the group's visible descendants composited among
+themselves. The group record itself is not in that subset: it owns no texture,
+so it contributes nothing — which is also why a group's own blend mode and
+opacity do not yet reach the canvas.
 
 #### Background layer
 

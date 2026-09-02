@@ -2,6 +2,40 @@
 
 All notable decision milestones and project state changes.
 
+## [merge-group] — 2026-09-02
+
+### Internal
+
+- **Merge Group.** The composition command the Layer menu was still missing,
+  and the one the other two merges have been naming in their refusals since
+  they were written. The group and everything inside it become one raster
+  layer carrying the group's name, standing where the group stood, under the
+  group's own parent.
+- **Membership is the `parent` chain, not a slice of the stack.** A nested
+  group's children name the *inner* group as their parent, so anything walking
+  one level would leave them behind and anything walking indices would take
+  layers that merely happen to sit between the group and its neighbours.
+  `DocumentGraph::descendants_of` walks it transitively, depth-capped so a
+  chain corrupted into a cycle returns what it has rather than hanging.
+- `replace_with_merged_layer` inherits the parent of whatever sat lowest,
+  which here is a child of the group being deleted — so the merged layer's
+  parent is corrected to the *group's* afterwards. Merging an inner group
+  leaves the result inside the outer one.
+- **Hidden members are discarded, not refused.** Merge Down refuses a hidden
+  layer because merging what you cannot see is not an edit you can check by
+  looking; a group merge is checkable by looking, because the canvas does not
+  change. Refusing would block the ordinary case of a group holding one hidden
+  variant. The count is announced *and* raised as a notice — a layer vanishing
+  without a word is what erodes trust in a merge.
+- **The refusals now name the way out.** Merge Down on a group said "a group
+  cannot be merged yet" and Merge Down on a layer inside one said much the
+  same; both now name Merge Group. The two share `Ctrl+E` in Photoshop, so
+  that is the message a user reaching for muscle memory will see, and a dead
+  end that says where to go is worth more than one that only says no.
+- Merge Group carries no chord of its own for the same reason: the registry
+  binds one chord to one action, and a chord that means two things is worse
+  than a menu entry that means one.
+
 ## [public-release] — 2026-09-02
 
 ### Public

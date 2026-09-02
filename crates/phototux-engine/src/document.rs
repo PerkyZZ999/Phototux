@@ -137,6 +137,35 @@ impl DocumentGraph {
         Some(id)
     }
 
+    /// Every layer inside `group`, transitively, in stack order.
+    ///
+    /// Membership is the `parent` chain rather than a range of indices: a
+    /// group is a parent in a flat list, and a nested group's children name
+    /// the *inner* group as their parent, so walking indices between the
+    /// group and its neighbours would either miss them or take layers that
+    /// merely happen to sit there. The walk is depth-capped, so a `parent`
+    /// chain corrupted into a cycle by a malformed document returns what it
+    /// has rather than hanging.
+    #[must_use]
+    pub fn descendants_of(&self, group: LayerId) -> Vec<LayerId> {
+        const MAX_DEPTH: usize = 64;
+        self.layers
+            .iter()
+            .filter(|layer| {
+                let mut parent = layer.parent;
+                for _ in 0..MAX_DEPTH {
+                    match parent {
+                        Some(id) if id == group => return true,
+                        Some(id) => parent = self.get(id).and_then(|l| l.parent),
+                        None => return false,
+                    }
+                }
+                false
+            })
+            .map(|layer| layer.id)
+            .collect()
+    }
+
     /// Replace the whole stack with one empty layer and return its id.
     ///
     /// The graph half of Flatten Image: the host holds the composited pixels

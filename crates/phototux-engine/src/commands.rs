@@ -45,6 +45,7 @@ impl SessionState {
             command_id::LAYER_DUPLICATE => self.cmd_layer_duplicate(),
             command_id::LAYER_MERGE_DOWN => self.cmd_layer_merge_down(),
             command_id::LAYER_MERGE_VISIBLE => self.cmd_layer_merge_visible(),
+            command_id::LAYER_MERGE_GROUP => self.cmd_layer_merge_group(),
             command_id::LAYER_FLATTEN => self.cmd_layer_flatten(),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
@@ -360,11 +361,13 @@ impl SessionState {
                 return Err(CommandError::Rejected("a layer went missing"));
             };
             if layer.kind == LayerKind::Group {
-                return Err(CommandError::Rejected("a group cannot be merged yet"));
+                return Err(CommandError::Rejected(
+                    "a group cannot be merged down — use Merge Group",
+                ));
             }
             if layer.parent.is_some() {
                 return Err(CommandError::Rejected(
-                    "a layer inside a group cannot be merged yet",
+                    "a layer inside a group cannot be merged — use Merge Group on its group",
                 ));
             }
         }
@@ -435,6 +438,86 @@ impl SessionState {
         let generation = graph.generation;
         self.history.push_transform("Merge Visible", generation);
         self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    /// Composite a group's contents into one layer and drop the group.
+    ///
+    /// Photoshop's Merge Group, and the reason the two other merges refuse a
+    /// group: merging *across* a group boundary would move layers out of
+    /// their group as a side effect, but merging the group itself is a whole
+    /// operation with an obvious meaning. The group and everything inside it
+    /// — nested groups included, which is why membership is the `parent`
+    /// chain rather than a slice of the stack — become one raster layer
+    /// carrying the group's name, in the group's place, under the group's own
+    /// parent.
+    ///
+    /// Hidden children are discarded rather than refused. Merge Down refuses
+    /// a hidden layer because merging what you cannot see is not an edit you
+    /// can check by looking; here the canvas is the check, and it does not
+    /// change: what the group was drawing is exactly what the merged layer
+    /// draws. The count is announced so the discard is not silent.
+    fn cmd_layer_merge_group(&mut self) -> Result<CommandEffects, CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(group_id) = graph.active_id() else {
+            return Err(CommandError::Rejected("no active layer"));
+        };
+        let Some(group) = graph.get(group_id) else {
+            return Err(CommandError::Rejected("no active layer"));
+        };
+        if group.kind != LayerKind::Group {
+            return Err(CommandError::Rejected("select a group first"));
+        }
+        if !group.visible {
+            return Err(CommandError::Rejected("a hidden group cannot be merged"));
+        }
+        if group.locks.all {
+            return Err(CommandError::Rejected(
+                "this group is locked — unlock it to change it",
+            ));
+        }
+        let name = group.name.clone();
+        let parent = group.parent;
+
+        let members = graph.descendants_of(group_id);
+        let visible: Vec<LayerId> = members
+            .iter()
+            .copied()
+            .filter(|id| graph.get(*id).is_some_and(|l| l.visible))
+            .collect();
+        if visible.is_empty() {
+            return Err(CommandError::Rejected(
+                "this group has nothing visible to merge",
+            ));
+        }
+        let hidden = members.len() - visible.len();
+
+        // The group record goes too, so the merged layer stands where the
+        // group stood rather than inside a container that no longer has
+        // anything in it.
+        let mut consumed = members;
+        consumed.push(group_id);
+        let Some(merged) = graph.replace_with_merged_layer(&consumed, &name) else {
+            return Err(CommandError::Rejected("a layer went missing"));
+        };
+        // `replace_with_merged_layer` inherits the parent of whatever sat
+        // lowest, which here is a child of the group being deleted. The
+        // merged layer belongs where the *group* belonged.
+        if let Some(layer) = graph.get_mut(merged) {
+            layer.parent = parent;
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_transform("Merge Group", generation);
+        self.sync_object_selection_to_active();
+        if hidden > 0 {
+            let plural = if hidden == 1 { "layer" } else { "layers" };
+            self.announce(format!(
+                "Merged {name} — {hidden} hidden {plural} discarded"
+            ));
+        }
         Ok(CommandEffects::document_edit(generation))
     }
 

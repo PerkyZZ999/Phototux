@@ -483,6 +483,19 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("layer.merge-visible")
         .key("Ctrl+Shift+E")
         .icon("stack-minus"),
+        // Photoshop shares `Ctrl+E` between Merge Down and Merge Group and
+        // decides by what is selected. The registry binds one chord to one
+        // action, so this one carries no chord and Merge Down's refusal names
+        // it instead — a dead end that says where to go is better than a
+        // chord that means two things.
+        act(
+            "action.layer.merge-group",
+            "Merge &Group",
+            "layer",
+            "group_selected",
+        )
+        .host("layer.merge-group")
+        .icon("folder-minus"),
         act(
             "action.layer.flatten",
             "Flatten &Image",

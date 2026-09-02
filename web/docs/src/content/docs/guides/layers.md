@@ -87,7 +87,8 @@ as a unit.
 **Merging does not cross a group boundary.** Merge Down and Merge Visible
 refuse groups and anything inside one: a group is a parent in a flat list, so
 merging across the boundary would move layers out of their group as a side
-effect. Ungroup first if that is what you want.
+effect. To flatten a group, use **Layer ▸ Merge Group** — Photoshop shares
+<kbd>Ctrl</kbd> <kbd>E</kbd> between the two, and the refusal here names it.
 
 </div>
 
@@ -154,6 +155,7 @@ recording a single undo step.
 |---|---|---|
 | **Merge Down** | <kbd>Ctrl</kbd> <kbd>E</kbd> | Composites the active layer onto the one below it. Refuses a hidden layer — merging something you cannot see is not an edit you can check by looking. |
 | **Merge Visible** | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd> | Composites every visible layer into one, keeping the hidden ones. |
+| **Merge Group** | — | Composites a group's contents into one layer named after the group. Nested groups go with it; hidden members are discarded, and it says how many. |
 | **Flatten Image** | — | Composites everything visible into one layer and discards the hidden ones. |
 | **Bake Text** | — | Turns a text layer into pixels. |
 | **Rasterize Shape** | — | Turns a shape layer's path into pixels. |
@@ -162,6 +164,13 @@ recording a single undo step.
 
 All of these are undoable, including the rasterize family: undo brings back
 the words, the editable path or the smart object's original pixels.
+
+**Merge Group** takes the group and everything inside it — nested groups
+included — and leaves one layer carrying the group's name, where the group
+stood. Hidden members are discarded, the way Flatten discards what it cannot
+see, and PhotoTux says how many; the canvas does not change, because what the
+group was drawing is what the merged layer draws. A group with nothing visible
+in it, and a hidden group, are refused.
 
 <div class="callout callout-warning">
 

@@ -1595,3 +1595,262 @@ fn merge_visible_needs_two_visible_layers() {
         .expect_err("one visible layer");
     assert!(error.user_message().contains("two"), "{error:?}");
 }
+
+/// A group with two layers in it becomes one layer where the group stood.
+#[test]
+fn merge_group_replaces_the_group_and_its_contents_with_one_layer() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack.clone();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let group = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("the group is active");
+    assert_eq!(
+        s.graph.as_ref().expect("graph").descendants_of(group).len(),
+        stack.len(),
+        "both layers went into the group"
+    );
+
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge group");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(graph.layer_count(), 1, "the group and its contents are one");
+    let merged = graph.active_id().expect("active");
+    assert_eq!(
+        graph.index_of(merged),
+        Some(0),
+        "it stands where they stood"
+    );
+    assert!(graph.get(group).is_none(), "the group record survived");
+    for id in stack {
+        assert!(graph.get(id).is_none(), "a member survived the merge");
+    }
+    assert_eq!(graph.get(merged).map(|l| l.kind), Some(LayerKind::Raster));
+    assert_eq!(
+        graph.get(merged).map(|l| l.parent),
+        Some(None),
+        "a top-level group merges to a top-level layer"
+    );
+}
+
+/// A group inside a group merges with the outer one.
+///
+/// Membership is the `parent` chain, so a nested group's children name the
+/// *inner* group and would be missed by anything that walked one level.
+#[test]
+fn merge_group_takes_a_nested_group_with_it() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+
+    // Inner group over the top two layers, then an outer group over that.
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack[1..].to_vec();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("inner group");
+    let inner = s.graph.as_ref().expect("graph").active_id().expect("inner");
+    s.selected_layer_ids = vec![inner];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("outer group");
+    let outer = s.graph.as_ref().expect("graph").active_id().expect("outer");
+    assert_eq!(
+        s.graph.as_ref().expect("graph").descendants_of(outer).len(),
+        stack.len(),
+        "the inner group and every layer it holds are inside the outer one"
+    );
+
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge group");
+    let graph = s.graph.as_ref().expect("graph");
+    assert!(graph.get(inner).is_none(), "the nested group survived");
+    assert!(graph.get(outer).is_none(), "the outer group survived");
+    assert_eq!(
+        graph.layer_count(),
+        2,
+        "the bottom layer plus one merged layer"
+    );
+}
+
+/// Merging the inner group leaves the merged layer inside the outer one.
+#[test]
+fn merging_a_nested_group_keeps_the_result_in_its_parent() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack.clone();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("inner group");
+    let inner = s.graph.as_ref().expect("graph").active_id().expect("inner");
+    s.selected_layer_ids = vec![inner];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("outer group");
+    let outer = s.graph.as_ref().expect("graph").active_id().expect("outer");
+
+    let inner_index = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .index_of(inner)
+        .expect("the inner group is in the stack");
+    s.invoke(
+        command_id::LAYER_SET_ACTIVE,
+        CommandArgs::LayerIndex(i32::try_from(inner_index).expect("index")),
+    )
+    .expect("select the inner group");
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge the inner group");
+
+    let graph = s.graph.as_ref().expect("graph");
+    let merged = graph.active_id().expect("active");
+    assert!(graph.get(outer).is_some(), "the outer group was consumed");
+    assert_eq!(
+        graph.get(merged).map(|l| l.parent),
+        Some(Some(outer)),
+        "the merged layer left the group it was inside"
+    );
+}
+
+/// Hidden members are discarded, the way Flatten discards what it cannot see.
+#[test]
+fn merge_group_discards_hidden_members() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    s.invoke(
+        command_id::LAYER_SET_VISIBILITY,
+        CommandArgs::SetVisibility {
+            index: 0,
+            visible: false,
+        },
+    )
+    .expect("hide the bottom one");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack.clone();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge group");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(graph.layer_count(), 1, "the hidden member was kept");
+    for id in stack {
+        assert!(graph.get(id).is_none());
+    }
+}
+
+/// A group whose contents are all hidden has nothing to merge.
+#[test]
+fn merge_group_refuses_a_group_with_nothing_visible() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let count = s.graph.as_ref().expect("graph").layer_count();
+    for index in 0..count {
+        s.invoke(
+            command_id::LAYER_SET_VISIBILITY,
+            CommandArgs::SetVisibility {
+                index: i32::try_from(index).expect("index"),
+                visible: false,
+            },
+        )
+        .expect("hide");
+    }
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack;
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let error = s
+        .invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect_err("nothing visible");
+    assert!(error.user_message().contains("visible"), "{error:?}");
+}
+
+/// Merge Group is for groups, and says so.
+#[test]
+fn merge_group_refuses_anything_that_is_not_a_group() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let error = s
+        .invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect_err("a raster layer is not a group");
+    assert!(error.user_message().contains("group"), "{error:?}");
+}
+
+/// Merge Down's refusal names the command that does the job.
+///
+/// A dead end that says where to go is worth more than one that says no: the
+/// two share `Ctrl+E` in Photoshop, so this is the message a user reaching
+/// for muscle memory will see.
+#[test]
+fn merge_down_names_merge_group_when_it_refuses_one() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack;
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let error = s
+        .invoke(command_id::LAYER_MERGE_DOWN, CommandArgs::None)
+        .expect_err("a group cannot merge down");
+    assert!(
+        error.user_message().contains("Merge Group"),
+        "the refusal should name Merge Group: {error:?}"
+    );
+}

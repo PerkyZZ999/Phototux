@@ -117,6 +117,7 @@ set(ICON_NAMES
     shapes
     sparkle
     stack-minus
+    folder-minus
     stack-simple
     stamp
     sun-dim
