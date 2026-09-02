@@ -168,6 +168,23 @@ A raster layer references an authoritative sparse pixel resource plus format, ex
 
 Transforms remain nondestructive by default. A destructive transform resamples pixels into a new authoritative resource and resets or composes transform according to explicit command semantics. “Apply Transform” and “Set Transform” are distinct commands.
 
+#### Background layer
+
+`DocumentGraph::new` seeds every document with a `Background` and a `Layer 1`,
+both ordinary raster layers — `Background` is a name and a position, not a
+distinct kind, so it can be painted, masked, reordered and deleted like any
+other. A newly created document is nonetheless not empty: the host writes opaque
+white into the bottom layer once, in `AppSession::open_new_gpu_document`, before
+the document is handed over. That matches Photoshop's File › New, and it keeps
+a first stroke, fill or flatten from compositing against nothing.
+
+The white lives in the pixels rather than in the graph because the engine owns
+no pixel buffers ([DR-025](Appendix/Decision-Register.md#dr-025--crate-topology-coarse-workspace)).
+It is therefore part of the document's initial state rather than an undoable
+step, it is read back from the GPU on save like any other raster, and it comes
+back with the file. Every *other* layer starts fully transparent — see
+[17 — A layer with no pixels contributes nothing](17-Rendering-Engine.md#a-layer-with-no-pixels-contributes-nothing).
+
 ### Adjustment layers
 
 An adjustment layer stores a deterministic operation descriptor and parameters. It consumes a defined input scope and emits transformed output without owning source pixels. Scope may be all eligible content below within the parent, a clipped base, or an explicit bounded group, but it cannot be an arbitrary hidden back-reference.

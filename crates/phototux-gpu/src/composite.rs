@@ -824,23 +824,10 @@ impl LayerCompositeEngine {
         if self.mask_tex.len() != before {
             self.mask_dirty = true;
         }
-        const PALETTE: [[f32; 4]; 8] = [
-            [0.15, 0.16, 0.20, 1.0],
-            [0.25, 0.45, 0.85, 0.85],
-            [0.90, 0.35, 0.25, 0.75],
-            [0.25, 0.75, 0.40, 0.70],
-            [0.85, 0.75, 0.20, 0.65],
-            [0.70, 0.30, 0.80, 0.70],
-            [0.20, 0.70, 0.75, 0.70],
-            [0.95, 0.55, 0.30, 0.65],
-        ];
         let mut pack_plans = HashMap::new();
         let mut mask_feather = HashMap::new();
-        for (i, layer) in layers.iter().enumerate() {
+        for layer in layers {
             match layer.kind {
-                LayerKind::Adjustment => {
-                    self.ensure_layer(ctx, layer.id, [0.0, 0.0, 0.0, 0.0]);
-                }
                 LayerKind::Fill => {
                     let color = layer
                         .fill
@@ -857,9 +844,15 @@ impl LayerCompositeEngine {
                         self.fill_colors.insert(layer.id, color);
                     }
                 }
+                // Transparent, like every other new layer. This used to seed
+                // each texture from a rotating palette so an empty stack was
+                // visible while the compositor was being built — which meant
+                // adding a layer to a finished image painted the whole canvas
+                // red, and an empty layer came back coloured after a save and
+                // reopen, because nothing writes pixels over a layer that has
+                // none. A new layer must not change a single pixel.
                 _ => {
-                    let color = PALETTE[i % PALETTE.len()];
-                    self.ensure_layer(ctx, layer.id, color);
+                    self.ensure_layer(ctx, layer.id, [0.0, 0.0, 0.0, 0.0]);
                 }
             }
             if let Some(mask) = layer.mask.as_ref() {
@@ -2370,6 +2363,55 @@ mod region_tests {
         assert!(
             differing.is_empty(),
             "bounded composite differs from full at (x, y, bounded, full): {differing:?}"
+        );
+    }
+
+    /// Adding an empty layer must not change one pixel of the image.
+    ///
+    /// Layer textures used to be seeded from a rotating palette so that an
+    /// empty stack was visible while the compositor was being built. The cost
+    /// was that `Add layer` repainted the whole canvas in the next palette
+    /// colour — red over a finished image — and that an empty layer came back
+    /// coloured after a save and reopen, since nothing writes pixels over a
+    /// layer that has none.
+    #[test]
+    fn adding_an_empty_layer_changes_no_pixel() {
+        let ctx = GpuContext::new().expect("gpu");
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new(size);
+        let mut engine = LayerCompositeEngine::new(&ctx, size);
+        engine
+            .sync_layers_from_graph(&ctx, graph.layers())
+            .expect("sync");
+
+        let bottom = graph.layers()[0].id;
+        let mut base = Vec::with_capacity((W * H * 4) as usize);
+        for _ in 0..(W * H) {
+            base.extend_from_slice(&[200u8, 40, 40, 255]);
+        }
+        engine.write_layer_rgba(&ctx, bottom, &base).expect("base");
+        engine.composite(&ctx, graph.layers()).expect("warm");
+        let before = engine.read_result_rgba(&ctx).expect("before");
+
+        graph.add_layer_top(None).expect("add layer");
+        engine
+            .sync_layers_from_graph(&ctx, graph.layers())
+            .expect("resync");
+        engine.composite(&ctx, graph.layers()).expect("composite");
+        let after = engine.read_result_rgba(&ctx).expect("after");
+
+        let differing: Vec<_> = before
+            .chunks_exact(4)
+            .zip(after.chunks_exact(4))
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, (a, b))| (i as u32 % W, i as u32 / W, a.to_vec(), b.to_vec()))
+            .take(4)
+            .collect();
+        assert!(
+            differing.is_empty(),
+            "adding an empty layer repainted the canvas at (x, y, before, after): \
+             {differing:?}"
         );
     }
 

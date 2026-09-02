@@ -2607,6 +2607,35 @@ impl AppSession {
         self.refresh_document_tabs_json();
     }
 
+    /// Open GPU resources for a *freshly created* document and paint its
+    /// background white.
+    ///
+    /// Photoshop's File > New starts on an opaque white Background, and so
+    /// does this — a stack that is transparent all the way down reads as
+    /// "nothing here" against the checkerboard, and every stroke, fill and
+    /// flatten would then composite against nothing. The white lives in the
+    /// pixels rather than in the graph because `DocumentGraph` owns no
+    /// buffers; it is written once, before the document is handed over, and
+    /// so is not an undoable step.
+    fn open_new_gpu_document(&mut self) {
+        self.open_gpu_document();
+        let Some((background, layers)) = self.engine.graph.as_ref().and_then(|graph| {
+            graph
+                .layers()
+                .first()
+                .map(|bottom| (bottom.id, graph.layers().to_vec()))
+        }) else {
+            return;
+        };
+        match phototux_canvas::fill_layer(background, [1.0, 1.0, 1.0, 1.0], &layers, false) {
+            Ok(ms) => {
+                self.record_composite(ms);
+                self.publish_pixel_snapshot_from_gpu();
+            }
+            Err(error) => self.report_gpu("new document background", &error),
+        }
+    }
+
     fn publish_pixel_snapshot_from_gpu(&mut self) {
         if let Ok((_w, _h, rgba)) = phototux_canvas::read_composite_rgba() {
             let _ = self.engine.publish_pixel_snapshot_rgba(rgba);
@@ -5357,7 +5386,7 @@ impl AppSession {
             )
             .is_ok()
         {
-            self.open_gpu_document();
+            self.open_new_gpu_document();
             self.document_name = "Untitled".to_owned();
             self.dirty = false;
             self.emit_doc_fields();
@@ -5383,7 +5412,7 @@ impl AppSession {
             )
             .is_ok()
         {
-            self.open_gpu_document();
+            self.open_new_gpu_document();
             self.document_name = "Untitled".to_owned();
             self.dirty = false;
             self.emit_doc_fields();

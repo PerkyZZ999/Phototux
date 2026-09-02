@@ -162,6 +162,29 @@ Composite operations use explicit linear/compositing color, premultiplication, a
 
 Conservative bounds propagate upward. A layer with unknown/unbounded procedural extent uses declared canvas/request bounds and is diagnosed. Opacity zero and hidden pure nodes can be culled because evaluation has no side effects. Locks and panel collapse do not affect rendering.
 
+### A layer with no pixels contributes nothing
+
+`LayerCompositeEngine::sync_layers_from_graph` allocates one texture per layer,
+and the clear colour it allocates with is what an *empty* layer composites as —
+nothing else ever writes to a layer that has no content. Every kind therefore
+clears to fully transparent. The single exception is `LayerKind::Fill`, whose
+colour is document data rather than a starting point.
+
+This used to seed each texture from a rotating eight-colour palette so that an
+empty stack was visible while the compositor was being built, and the cost was
+paid in the product: adding a layer to a finished image repainted the whole
+canvas in the next palette colour, a new document opened onto two coloured
+rectangles instead of a white page, and a saved document's empty layer came back
+coloured because the `.ptx` carried no raster to overwrite it with. Adding a
+layer must not change a single pixel;
+`adding_an_empty_layer_changes_no_pixel` (device-backed, `--features
+gpu-tests`) asserts it.
+
+A new document is not transparent all the way down, but that is a host decision
+rather than a compositor one: `AppSession::open_new_gpu_document` writes opaque
+white into the bottom layer once, before the document is handed over — see
+[11 — Layer System](11-Layer-System.md#background-layer).
+
 ## Tile Model
 
 Rendering partitions large regions into tiles while leaving exact dimensions provisional. Storage tiles, compute tiles, pyramid tiles, and surface damage rectangles may differ. Each tile address includes semantic plane, level, coordinates, border policy, and source identity.
