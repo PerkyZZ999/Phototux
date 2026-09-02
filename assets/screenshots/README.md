@@ -1,8 +1,10 @@
 # Screenshots
 
 Captured from a real build in an isolated 1920×1200 Wayland session, scaled to
-1600 px wide. `.webp` is what the README and the websites use; `workspace.png`
-exists as well because AppStream metadata wants PNG or JPEG.
+1600 px wide. `.webp` is what the README and the websites use; `workspace.png` exists as
+well because AppStream metadata wants PNG or JPEG. The link preview card the
+websites serve is `../og-card.png`, which is a different shape (1200×630) and
+is composed rather than captured.
 
 The image being edited in them is synthetic — a dusk landscape generated
 procedurally for this purpose, not a photograph — so there is no third-party

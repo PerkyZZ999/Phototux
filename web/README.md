@@ -64,9 +64,12 @@ under `public/`. They are not synced from the repository root at build time —
 each site has to build, preview and deploy on its own without reaching outside
 its directory.
 
-The sources are `assets/logo-ui.png` and `assets/screenshots/` at the
-repository root. When either changes, copy it into both
-`landing/public/` and `docs/public/`.
+The sources are `assets/logo-ui.png`, `assets/og-card.png` and
+`assets/screenshots/` at the repository root. When any of them changes, copy it
+into both `landing/public/` and `docs/public/`.
+
+`og-card.png` is the link preview, 1200×630 as Open Graph expects — a different
+shape from the screenshots, and composed rather than captured.
 
 ## Deploying
 
