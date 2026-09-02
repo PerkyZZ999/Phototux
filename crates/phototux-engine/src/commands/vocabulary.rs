@@ -42,6 +42,11 @@ pub mod command_id {
 
     pub const VIEW_ZOOM_TO: &str = "view.zoom-to";
     pub const VIEW_ZOOM_TO_FIT: &str = "view.zoom-to-fit";
+    /// Step one zoom stop in / out about the viewport centre.
+    pub const VIEW_ZOOM_IN: &str = "view.zoom-in";
+    pub const VIEW_ZOOM_OUT: &str = "view.zoom-out";
+    /// One image pixel per screen pixel.
+    pub const VIEW_ZOOM_ACTUAL: &str = "view.zoom-actual";
     pub const VIEW_PAN_TO: &str = "view.pan-to";
     pub const VIEW_PAN_BY: &str = "view.pan-by";
     pub const VIEW_ZOOM_AT: &str = "view.zoom-at";
@@ -174,6 +179,9 @@ pub mod command_id {
         LAYER_SET_BLEND_IF,
         VIEW_ZOOM_TO,
         VIEW_ZOOM_TO_FIT,
+        VIEW_ZOOM_IN,
+        VIEW_ZOOM_OUT,
+        VIEW_ZOOM_ACTUAL,
         VIEW_PAN_TO,
         VIEW_PAN_BY,
         VIEW_ZOOM_AT,

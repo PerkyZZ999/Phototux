@@ -2117,6 +2117,9 @@ impl AppSession {
             | cid::LAYER_GROUP
             | cid::LAYER_UNGROUP
             | cid::VIEW_ZOOM_TO_FIT
+            | cid::VIEW_ZOOM_IN
+            | cid::VIEW_ZOOM_OUT
+            | cid::VIEW_ZOOM_ACTUAL
             | cid::MASK_APPLY
             | cid::DOCUMENT_ROTATE_90
             | cid::APP_SHOW_PREFERENCES

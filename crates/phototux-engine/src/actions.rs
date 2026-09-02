@@ -507,14 +507,35 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .command(command_id::APP_SHOW_FILTER_GALLERY),
         // View
+        act("action.view.zoom-in", "Zoom &In", "view", "has_document")
+            .command(command_id::VIEW_ZOOM_IN)
+            // `Ctrl+=` rather than Photoshop's printed `Ctrl++`: the plus is
+            // a shifted key on most layouts, only one chord can be bound to
+            // an action, and this is the one people actually press. Photoshop
+            // accepts both.
+            .key("Ctrl+=")
+            .icon("magnifying-glass-plus"),
+        act("action.view.zoom-out", "Zoom &Out", "view", "has_document")
+            .command(command_id::VIEW_ZOOM_OUT)
+            .key("Ctrl+-")
+            .icon("magnifying-glass-minus"),
+        act(
+            "action.view.zoom-actual",
+            "&Actual Pixels",
+            "view",
+            "has_document",
+        )
+        .command(command_id::VIEW_ZOOM_ACTUAL)
+        .key("Ctrl+1")
+        .icon("frame-corners"),
         act(
             "action.view.zoom-fit",
-            "Zoom to &Fit",
+            "&Fit on Screen",
             "view",
             "has_document",
         )
         .command(command_id::VIEW_ZOOM_TO_FIT)
-        .key("Ctrl+Shift+J")
+        .key("Ctrl+0")
         .icon("corners-in"),
         act(
             "action.view.toggle-guides",
@@ -793,6 +814,9 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     );
     set_contexts(&mut actions, "action.edit.paste-layer", &["canvas"]);
     set_contexts(&mut actions, "action.view.zoom-fit", &["canvas"]);
+    set_contexts(&mut actions, "action.view.zoom-in", &["canvas"]);
+    set_contexts(&mut actions, "action.view.zoom-out", &["canvas"]);
+    set_contexts(&mut actions, "action.view.zoom-actual", &["canvas"]);
     set_contexts(&mut actions, "action.select.feather", &["selection"]);
     set_contexts(&mut actions, "action.select.expand", &["selection"]);
     set_contexts(&mut actions, "action.select.contract", &["selection"]);
@@ -872,33 +896,50 @@ pub fn context_actions_json(ctx: &str) -> String {
 
 /// Normalize a Qt-style shortcut chord (`ctrl+shift+z` → `Ctrl+Shift+Z`).
 pub fn normalize_shortcut(raw: &str) -> String {
-    raw.split('+')
-        .map(str::trim)
+    let parts: Vec<&str> = raw.split('+').map(str::trim).collect();
+    // `Ctrl++` means Ctrl plus the plus key, and splitting on '+' leaves two
+    // empty tails to say so. Without this case the key is filtered away with
+    // them and the chord collapses to a bare `Ctrl`, which binds nothing,
+    // reports nothing, and is what a user rebinding Zoom In would get.
+    let plus_is_the_key =
+        parts.len() >= 2 && parts[parts.len() - 1].is_empty() && parts[parts.len() - 2].is_empty();
+    let head = if plus_is_the_key {
+        &parts[..parts.len() - 2]
+    } else {
+        &parts[..]
+    };
+    let mut chord: Vec<String> = head
+        .iter()
         .filter(|p| !p.is_empty())
-        .map(|part| {
-            let lower = part.to_ascii_lowercase();
-            match lower.as_str() {
-                "ctrl" | "control" | "cmd" => "Ctrl".to_owned(),
-                "shift" => "Shift".to_owned(),
-                "alt" | "option" => "Alt".to_owned(),
-                "meta" | "super" | "win" => "Meta".to_owned(),
-                _ if part.len() == 1 => part.to_ascii_uppercase(),
-                _ => {
-                    let mut chars = part.chars();
-                    match chars.next() {
-                        Some(first) => {
-                            let mut s = first.to_ascii_uppercase().to_string();
-                            s.extend(chars);
-                            s
-                        }
-                        None => String::new(),
-                    }
+        .map(|part| normalize_chord_part(part))
+        .filter(|p| !p.is_empty())
+        .collect();
+    if plus_is_the_key {
+        chord.push("+".to_owned());
+    }
+    chord.join("+")
+}
+
+/// One `+`-separated piece of a chord, in the spelling the map is keyed by.
+fn normalize_chord_part(part: &str) -> String {
+    match part.to_ascii_lowercase().as_str() {
+        "ctrl" | "control" | "cmd" => "Ctrl".to_owned(),
+        "shift" => "Shift".to_owned(),
+        "alt" | "option" => "Alt".to_owned(),
+        "meta" | "super" | "win" => "Meta".to_owned(),
+        _ if part.len() == 1 => part.to_ascii_uppercase(),
+        _ => {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut s = first.to_ascii_uppercase().to_string();
+                    s.extend(chars);
+                    s
                 }
+                None => String::new(),
             }
-        })
-        .filter(|p| !p.is_empty())
-        .collect::<Vec<_>>()
-        .join("+")
+        }
+    }
 }
 
 /// Default chord → action id map from built-in descriptors.
@@ -1421,6 +1462,22 @@ mod tests {
         assert_eq!(normalize_shortcut("ctrl+z"), "Ctrl+Z");
         assert_eq!(normalize_shortcut("Ctrl+Shift+Z"), "Ctrl+Shift+Z");
         assert_eq!(normalize_shortcut("ctrl + shift + z"), "Ctrl+Shift+Z");
+    }
+
+    /// `+` is a key, not only a separator.
+    ///
+    /// Splitting on '+' used to throw the key away with the empty pieces
+    /// either side of it, so a user who bound Zoom In to `Ctrl++` — the
+    /// binding Photoshop prints — silently got `Ctrl`, which Qt cannot
+    /// activate and nothing reported.
+    #[test]
+    fn a_chord_can_end_on_the_plus_key() {
+        assert_eq!(normalize_shortcut("Ctrl++"), "Ctrl++");
+        assert_eq!(normalize_shortcut("ctrl+shift++"), "Ctrl+Shift++");
+        assert_eq!(normalize_shortcut("+"), "+");
+        // A dangling separator is still a dangling separator.
+        assert_eq!(normalize_shortcut("Ctrl+"), "Ctrl");
+        assert_eq!(normalize_shortcut(""), "");
     }
 
     #[test]

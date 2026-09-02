@@ -6,6 +6,10 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **There was no way to zoom in or out.** An image editor with a zoom tool, a Navigator and a zoom readout in the status bar had no Zoom In, no Zoom Out and no 100% — one Zoom to Fit on `Ctrl+Shift+J`, which is not a zoom binding in any editor. The View menu now opens on the four Photoshop puts first: Zoom In (`Ctrl+=`), Zoom Out (`Ctrl+-`), Actual Pixels (`Ctrl+1`) and Fit on Screen (`Ctrl+0`).
+- The steps walk a ladder rather than a multiplier, so zooming in and out again lands back on the number you started from and the ladder passes through 100% exactly instead of 99.6%. They anchor on the viewport centre, which needs no pan correction because the camera's pan *is* the world point drawn there; the wheel keeps anchoring on the pointer.
+- **`+` could not be typed into a shortcut.** The chord parser split on `+` and dropped the key along with the empty pieces either side of it, so a user rebinding Zoom In to `Ctrl++` — the binding Photoshop prints — silently got a bare `Ctrl`, which Qt cannot activate and nothing reported. Two empty tails now mean the key is `+`; one is still a dangling separator.
+
 - **Undoing a step deleted its row from the History panel.** The projection walked only the applied side of the timeline, so an undone edit left nothing to say what redo would bring back and nothing to click to get there — a history that only remembers where you stayed. Undone steps are listed now, dimmed above the cursor the way Photoshop greys the steps ahead of you, and clicking one walks *forward* to it: `history.jump` asks the applied side first and the redo side second, and carries the direction through to the host.
 - The panel stops reading "Brush stroke · stroke". A row's kind is taxonomy rather than a name, and it now sits in the same muted trailing column the command palette uses for an action's menu.
 

@@ -299,6 +299,22 @@ A canvas view owns:
 
 It does not own layers, selection content, masks, or history. Two views of one document MAY show different zoom, channels, overlays, or proofing while sharing mutations.
 
+#### Zoom commands (shipped)
+
+The View menu opens on the four Photoshop puts first, in that order: Zoom In
+(`Ctrl+=`), Zoom Out (`Ctrl+-`), Actual Pixels (`Ctrl+1`) and Fit on Screen
+(`Ctrl+0`). The step commands walk `Camera2D::ZOOM_STOPS`, a ladder rather than
+a multiplier, so zooming in and out again returns to the number you started
+from and the ladder passes through 100% exactly. They anchor on the viewport
+centre, which needs no pan correction because `pan` *is* the world point drawn
+there; the wheel and pinch keep using `view.zoom-at`, which anchors on the
+pointer.
+
+Zoom In is bound to `Ctrl+=` rather than the `Ctrl++` Photoshop prints: only
+one chord binds to an action, the plus is a shifted key on most layouts, and
+`=` is the key people actually press. Photoshop accepts both, and so does the
+chord parser — see [09 — Chord spelling](09-Shortcut-System.md#chord-spelling-shipped).
+
 ### Panels
 
 Panels expose object structure, properties, resources, navigation, history, and diagnostics. Panels MUST declare whether they follow:

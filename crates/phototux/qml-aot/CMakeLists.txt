@@ -92,6 +92,8 @@ set(ICON_NAMES
     lasso
     magic-wand
     magnifying-glass
+    magnifying-glass-minus
+    magnifying-glass-plus
     magnet
     minus
     minus-circle

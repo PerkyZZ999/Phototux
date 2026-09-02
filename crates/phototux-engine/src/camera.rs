@@ -51,8 +51,60 @@ impl Camera2D {
     pub const MIN_ZOOM: f32 = 0.05;
     pub const MAX_ZOOM: f32 = 32.0;
 
+    /// The stops Zoom In and Zoom Out walk, `MIN_ZOOM` to `MAX_ZOOM`.
+    ///
+    /// A ladder rather than a fixed multiplier, for two reasons a user can
+    /// feel: zooming in and back out again returns to the number you started
+    /// from, and the ladder passes through 100% exactly rather than 99.6%.
+    /// The stops are the familiar ones — halves and thirds below 100%, whole
+    /// multiples above it.
+    pub const ZOOM_STOPS: [f32; 17] = [
+        0.05,
+        1.0 / 12.0,
+        0.125,
+        1.0 / 6.0,
+        0.25,
+        1.0 / 3.0,
+        0.5,
+        2.0 / 3.0,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0,
+        6.0,
+        8.0,
+        16.0,
+        32.0,
+    ];
+
     pub fn set_zoom(&mut self, zoom: f32) {
         self.zoom = zoom.clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
+    }
+
+    /// The next stop above (or below) the current zoom.
+    ///
+    /// Current zoom is rarely *on* the ladder — a fit, a pinch or a wheel
+    /// zoom lands anywhere — so this takes the first stop strictly past it in
+    /// the requested direction rather than snapping to the nearest one first.
+    /// Snapping first would make the press after a fit do nothing visible
+    /// about half the time.
+    #[must_use]
+    pub fn stepped_zoom(self, zoom_in: bool) -> f32 {
+        // Wide enough to skip a stop the camera is already sitting on after
+        // float round-tripping, narrow enough not to skip a real neighbour:
+        // the closest pair on the ladder differ by about 0.03.
+        const EPSILON: f32 = 1e-3;
+        let mut stops = Self::ZOOM_STOPS.into_iter();
+        if zoom_in {
+            stops
+                .find(|&stop| stop > self.zoom + EPSILON)
+                .unwrap_or(Self::MAX_ZOOM)
+        } else {
+            stops
+                .rfind(|&stop| stop < self.zoom - EPSILON)
+                .unwrap_or(Self::MIN_ZOOM)
+        }
     }
 
     /// Pan by screen-space delta (drag gesture). Positive dx moves content right.
@@ -200,6 +252,90 @@ impl FpsTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A ladder that is unsorted or reaches past the clamp makes the step
+    /// commands skip stops or stall against `set_zoom`.
+    #[test]
+    fn the_zoom_ladder_is_sorted_and_within_the_clamp() {
+        let stops = Camera2D::ZOOM_STOPS;
+        assert!(stops.windows(2).all(|w| w[0] < w[1]), "{stops:?}");
+        assert_eq!(stops[0], Camera2D::MIN_ZOOM);
+        assert_eq!(stops[stops.len() - 1], Camera2D::MAX_ZOOM);
+        assert!(
+            stops.contains(&1.0),
+            "the ladder has to pass through 100% exactly"
+        );
+    }
+
+    /// Zoom in then out and you are back where you started.
+    ///
+    /// The reason for a ladder rather than a multiplier: a user who
+    /// overshoots by one press undoes it with one press.
+    #[test]
+    fn stepping_in_then_out_returns_to_the_same_stop() {
+        for &start in &Camera2D::ZOOM_STOPS {
+            let mut c = Camera2D {
+                zoom: start,
+                ..Camera2D::default()
+            };
+            if start == Camera2D::MAX_ZOOM {
+                continue;
+            }
+            c.set_zoom(c.stepped_zoom(true));
+            c.set_zoom(c.stepped_zoom(false));
+            assert!(
+                (c.zoom - start).abs() < 1e-4,
+                "from {start} went to {}",
+                c.zoom
+            );
+        }
+    }
+
+    /// A zoom that is not on the ladder still moves on the first press.
+    ///
+    /// Zoom-to-fit and the wheel land anywhere, and snapping to the nearest
+    /// stop first would make about half of those first presses do nothing.
+    #[test]
+    fn a_step_from_an_off_ladder_zoom_always_moves() {
+        for &zoom in &[0.37_f32, 0.99, 1.01, 5.2, 0.051] {
+            let c = Camera2D {
+                zoom,
+                ..Camera2D::default()
+            };
+            assert!(c.stepped_zoom(true) > zoom, "in from {zoom}");
+            assert!(c.stepped_zoom(false) < zoom, "out from {zoom}");
+        }
+    }
+
+    #[test]
+    fn stepping_stops_at_the_limits() {
+        let top = Camera2D {
+            zoom: Camera2D::MAX_ZOOM,
+            ..Camera2D::default()
+        };
+        assert_eq!(top.stepped_zoom(true), Camera2D::MAX_ZOOM);
+        let bottom = Camera2D {
+            zoom: Camera2D::MIN_ZOOM,
+            ..Camera2D::default()
+        };
+        assert_eq!(bottom.stepped_zoom(false), Camera2D::MIN_ZOOM);
+    }
+
+    /// A centre-anchored step leaves the middle of the view where it was.
+    #[test]
+    fn a_zoom_step_does_not_move_what_is_in_the_middle() {
+        let mut c = Camera2D {
+            pan_x: 120.0,
+            pan_y: 80.0,
+            zoom: 1.0,
+        };
+        let (vw, vh) = (800.0, 600.0);
+        let before = c.world_to_screen(c.pan_x, c.pan_y, vw, vh);
+        c.set_zoom(c.stepped_zoom(true));
+        let after = c.world_to_screen(c.pan_x, c.pan_y, vw, vh);
+        assert!((before.0 - after.0).abs() < 1e-3);
+        assert!((before.1 - after.1).abs() < 1e-3);
+    }
 
     #[test]
     fn zoom_clamped() {

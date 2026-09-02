@@ -57,9 +57,19 @@ impl SessionState {
             command_id::VIEW_ZOOM_TO => self.cmd_view_zoom(args),
             command_id::VIEW_ZOOM_TO_FIT => {
                 self.zoom_to_fit();
-                let mut e = CommandEffects::view_only();
-                e.generation = self.document_generation();
-                Ok(e)
+                Ok(self.view_changed())
+            }
+            command_id::VIEW_ZOOM_IN => {
+                self.zoom_step(true);
+                Ok(self.view_changed())
+            }
+            command_id::VIEW_ZOOM_OUT => {
+                self.zoom_step(false);
+                Ok(self.view_changed())
+            }
+            command_id::VIEW_ZOOM_ACTUAL => {
+                self.set_zoom(1.0);
+                Ok(self.view_changed())
             }
             command_id::VIEW_PAN_TO => self.cmd_view_pan(args),
             command_id::VIEW_PAN_BY => self.cmd_view_pan_by(args),
@@ -853,6 +863,13 @@ impl SessionState {
             },
         );
         Ok(CommandEffects::document_edit(graph.generation))
+    }
+
+    /// Effects for a command that moved the camera and nothing else.
+    fn view_changed(&self) -> CommandEffects {
+        let mut effects = CommandEffects::view_only();
+        effects.generation = self.document_generation();
+        effects
     }
 
     fn cmd_view_zoom(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {

@@ -461,6 +461,18 @@ impl SessionState {
         self.bump_overlay_view();
     }
 
+    /// Step the zoom one stop in or out, about the viewport centre.
+    ///
+    /// The pan needs no correction: `pan` *is* the world point drawn at the
+    /// viewport centre, so changing only the scale leaves whatever is in the
+    /// middle of the view in the middle of the view. That is what Photoshop's
+    /// Ctrl+= does, and it is why the step commands do not take an anchor the
+    /// way a wheel zoom does.
+    pub fn zoom_step(&mut self, zoom_in: bool) {
+        let next = self.camera.stepped_zoom(zoom_in);
+        self.set_zoom(next);
+    }
+
     pub fn zoom_to_fit(&mut self) {
         self.camera.zoom_to_fit(
             self.size.width as f32,

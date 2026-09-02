@@ -91,6 +91,20 @@ Bindings declare logical or physical identity. Logical bindings follow keyboard 
 
 Modifier normalization distinguishes primary platform command modifier, Control, Alt, Shift, Super/Meta, AltGraph, and lock states where relevant. The Linux host maps these without pretending one toolkit’s modifier flags are portable.
 
+### Chord spelling (shipped)
+
+`actions::normalize_shortcut` is the one spelling every chord is stored and
+looked up under — `ctrl + shift + z` and `Ctrl+Shift+Z` are the same binding,
+and the map is keyed by the normalized form on both sides so a default and a
+user override cannot disagree about capitalisation.
+
+`+` is a key as well as the separator. `Ctrl++` splits into `Ctrl`, `` and ``,
+and dropping the empty pieces used to drop the key with them and leave a bare
+`Ctrl` — a chord Qt cannot activate, produced silently, from the binding
+Photoshop prints next to Zoom In. Two empty tails now mean "the key is `+`";
+one trailing empty piece is still a dangling separator and is discarded.
+`a_chord_can_end_on_the_plus_key` covers both.
+
 ## Scope Model
 
 ```mermaid
