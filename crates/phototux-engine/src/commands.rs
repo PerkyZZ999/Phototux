@@ -42,6 +42,7 @@ impl SessionState {
             command_id::LAYER_CREATE => self.cmd_layer_create(),
             command_id::LAYER_CREATE_FILL => self.cmd_layer_create_fill(args),
             command_id::LAYER_SET_FILL_COLOR => self.cmd_layer_set_fill_color(args),
+            command_id::LAYER_DUPLICATE => self.cmd_layer_duplicate(),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
             command_id::LAYER_SET_VISIBILITY => self.cmd_layer_set_visibility(args),
@@ -314,6 +315,27 @@ impl SessionState {
                 )));
             }
             undo_actions::add_layer(graph, history, None)?;
+            graph.generation
+        };
+        self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    fn cmd_layer_duplicate(&mut self) -> Result<CommandEffects, CommandError> {
+        let generation = {
+            let SessionState { graph, history, .. } = self;
+            let Some(graph) = graph.as_mut() else {
+                return Err(CommandError::Document(DocumentError::NoDocument));
+            };
+            if graph.layer_count() >= MAX_LAYERS {
+                return Err(CommandError::Document(DocumentError::layer_limit(
+                    MAX_LAYERS,
+                )));
+            }
+            let Some(active) = graph.active_id() else {
+                return Err(CommandError::Rejected("no active layer"));
+            };
+            undo_actions::duplicate_layer(graph, history, active)?;
             graph.generation
         };
         self.sync_object_selection_to_active();

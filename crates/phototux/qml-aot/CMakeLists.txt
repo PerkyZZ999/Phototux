@@ -63,6 +63,7 @@ set(ICON_NAMES
     circle-half-tilt
     circle-notch
     clock-counter-clockwise
+    copy
     corners-in
     crop
     diamond

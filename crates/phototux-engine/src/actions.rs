@@ -413,6 +413,15 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .command(command_id::LAYER_CREATE)
         .key("Ctrl+Shift+N"),
         act(
+            "action.layer.duplicate",
+            "&Duplicate Layer",
+            "layer",
+            "has_document",
+        )
+        .host("layer.duplicate")
+        .key("Ctrl+J")
+        .icon("copy"),
+        act(
             "action.layer.new-fill",
             "New &Fill Layer",
             "layer",

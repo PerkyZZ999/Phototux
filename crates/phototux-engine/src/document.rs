@@ -108,6 +108,13 @@ impl DocumentGraph {
         Layer::new(id, name)
     }
 
+    /// A fresh layer record with an unused id, for callers that build the rest
+    /// of it themselves — duplicating a layer, chiefly, where every field but
+    /// the id and the name comes from the source.
+    pub fn alloc_layer_record(&mut self, name: &str) -> Layer {
+        self.alloc_layer(name)
+    }
+
     fn bump(&mut self) {
         self.revision = self.revision.wrapping_add(1);
     }

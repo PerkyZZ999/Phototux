@@ -168,6 +168,20 @@ A raster layer references an authoritative sparse pixel resource plus format, ex
 
 Transforms remain nondestructive by default. A destructive transform resamples pixels into a new authoritative resource and resets or composes transform according to explicit command semantics. “Apply Transform” and “Set Transform” are distinct commands.
 
+#### Duplicating a layer
+
+`Ctrl+J`, and the copy lands **directly above its source** rather than on top
+of the stack: a duplicate that jumps over four other layers composites
+differently from the one the user asked for. It carries everything the graph
+knows — opacity, blend mode, visibility, clipping, locks, the mask record —
+and the host copies the pixels and the mask channel to match, because a graph
+copy that claims a mask with an empty channel hides the layer entirely.
+
+The order matters on the host side too. The pixels are read *before* the
+command runs and written after: the command only adds the record, and the
+texture the copy writes into is allocated by the resync that the command's own
+recomposite performs.
+
 #### Background layer
 
 `DocumentGraph::new` seeds every document with a `Background` and a `Layer 1`,

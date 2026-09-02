@@ -2123,6 +2123,7 @@ impl AppSession {
             cid::HISTORY_UNDO
             | cid::HISTORY_REDO
             | cid::LAYER_CREATE
+            | cid::LAYER_DUPLICATE
             | cid::LAYER_DELETE
             | cid::LAYER_GROUP
             | cid::LAYER_UNGROUP
@@ -2301,6 +2302,7 @@ impl AppSession {
                 }
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
+            "layer.duplicate" => self.duplicate_active_layer(),
             "document.rotate" => match arg.and_then(|a| a.parse::<i32>().ok()) {
                 // Degrees in the registry, quarter turns on the wire: the
                 // argument is what the menu entry is called.
@@ -5901,6 +5903,50 @@ impl AppSession {
         if let Err(error) = self.invoke_command(command_id::LAYER_CREATE, CommandArgs::None) {
             self.report_action_error(&error);
         }
+    }
+
+    /// Photoshop's Ctrl+J: a copy of the active layer, directly above it.
+    ///
+    /// The pixels are read *before* the command runs and written after: the
+    /// command only adds the record, and the texture the copy writes into is
+    /// allocated by the resync the command's own recomposite performs. A mask
+    /// is carried across too — the graph copy already claims the layer has
+    /// one, and a mask record with an empty channel hides the layer entirely.
+    #[qslot]
+    fn duplicate_active_layer(&mut self) {
+        let Some(source) = self.active_id() else {
+            return;
+        };
+        let has_mask = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|g| g.get(source))
+            .is_some_and(|l| l.mask.is_some());
+        let Ok((_, _, pixels)) = phototux_canvas::read_layer_rgba(source) else {
+            return;
+        };
+        let mask = has_mask
+            .then(|| phototux_canvas::read_mask_r8(source).ok())
+            .flatten();
+        if let Err(error) = self.invoke_command(command_id::LAYER_DUPLICATE, CommandArgs::None) {
+            self.report_action_error(&error);
+            return;
+        }
+        let Some(copy) = self.active_id() else {
+            return;
+        };
+        if let Err(error) = phototux_canvas::write_layer_rgba(copy, &pixels) {
+            self.report_gpu("duplicate layer", &error);
+            return;
+        }
+        if let Some(mask) = mask
+            && let Err(error) = phototux_canvas::write_mask_r8(copy, &mask)
+        {
+            self.report_gpu("duplicate layer mask", &error);
+        }
+        self.recomposite();
+        self.publish_pixel_snapshot_from_gpu();
     }
 
     #[qslot]

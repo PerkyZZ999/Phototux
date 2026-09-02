@@ -21,6 +21,8 @@ pub mod command_id {
     pub const LAYER_CREATE: &str = "layer.create";
     pub const LAYER_CREATE_FILL: &str = "layer.create-fill";
     pub const LAYER_SET_FILL_COLOR: &str = "layer.set-fill-color";
+    /// Copy the active layer, record and pixels, directly above itself.
+    pub const LAYER_DUPLICATE: &str = "layer.duplicate";
     pub const LAYER_DELETE: &str = "layer.delete";
     pub const LAYER_SET_ACTIVE: &str = "layer.set-active";
     pub const LAYER_SET_VISIBILITY: &str = "layer.set-visibility";
@@ -168,6 +170,7 @@ pub mod command_id {
         LAYER_CREATE,
         LAYER_CREATE_FILL,
         LAYER_SET_FILL_COLOR,
+        LAYER_DUPLICATE,
         LAYER_DELETE,
         LAYER_SET_ACTIVE,
         LAYER_SET_VISIBILITY,

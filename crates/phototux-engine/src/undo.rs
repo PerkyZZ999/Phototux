@@ -639,6 +639,48 @@ pub mod actions {
         Ok(id)
     }
 
+    /// Insert a copy of `id` directly above it and make the copy active.
+    ///
+    /// Photoshop's Ctrl+J: the copy carries the source's opacity, blend mode,
+    /// visibility, clipping and mask *record* — everything the graph knows —
+    /// and the host copies the pixels and the mask channel to match. It goes
+    /// above the source rather than on top of the stack, because a duplicate
+    /// that jumps over four other layers is a different edit from the one the
+    /// user asked for.
+    pub fn duplicate_layer(
+        graph: &mut DocumentGraph,
+        history: &mut HistoryService,
+        id: LayerId,
+    ) -> Result<LayerId, crate::DocumentError> {
+        let index = graph
+            .index_of(id)
+            .ok_or(crate::DocumentError::LayerMissingAfterAdd)?;
+        let source = graph
+            .get(id)
+            .cloned()
+            .ok_or(crate::DocumentError::LayerMissingAfterAdd)?;
+        let mut copy = graph.alloc_layer_record(&format!("{} copy", source.name));
+        let new_id = copy.id;
+        let name = copy.name.clone();
+        copy = Layer {
+            id: new_id,
+            name,
+            ..source
+        };
+        graph.insert_layer_at(index + 1, copy.clone());
+        graph.bump_generation();
+        history.push_graph_applied(
+            GraphCommand::AddLayer {
+                id: new_id,
+                index: index + 1,
+                layer: copy,
+            },
+            "Duplicate Layer",
+            graph.generation,
+        );
+        Ok(new_id)
+    }
+
     pub fn delete_layer(
         graph: &mut DocumentGraph,
         history: &mut HistoryService,
@@ -774,6 +816,65 @@ mod tests {
         assert_eq!(g.layer_count(), n0);
         assert_eq!(h.redo_next(&mut g), Some(crate::HistoryKind::Graph));
         assert_eq!(g.layer_count(), n0 + 1);
+    }
+
+    /// A duplicate lands directly above its source, not on top of the stack.
+    ///
+    /// Photoshop's Ctrl+J, and the placement is the point: a copy that jumps
+    /// over four other layers composites differently from the one the user
+    /// asked for.
+    #[test]
+    fn a_duplicate_sits_directly_above_its_source() {
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let mut h = crate::HistoryService::new(64);
+        let top = actions::add_layer(&mut g, &mut h, Some("Top".into())).expect("add");
+        let source = g.layers()[0].id;
+        let copy = actions::duplicate_layer(&mut g, &mut h, source).expect("duplicate");
+
+        let order: Vec<_> = g.layers().iter().map(|l| l.id).collect();
+        assert_eq!(
+            order.iter().position(|&id| id == copy),
+            order.iter().position(|&id| id == source).map(|i| i + 1),
+            "the copy is not directly above its source: {order:?}"
+        );
+        assert_eq!(
+            *order.last().expect("layers"),
+            top,
+            "the duplicate should not have jumped over the top layer"
+        );
+        assert_eq!(g.active_id(), Some(copy), "the copy becomes active");
+    }
+
+    /// The copy is the source in every respect the graph knows about.
+    #[test]
+    fn a_duplicate_carries_the_layers_state() {
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let mut h = crate::HistoryService::new(64);
+        let source = g.layers()[0].id;
+        actions::set_visibility(&mut g, &mut h, source, false);
+        actions::set_opacity(&mut g, &mut h, source, 0.25);
+        let copy = actions::duplicate_layer(&mut g, &mut h, source).expect("duplicate");
+
+        let original = g.get(source).cloned().expect("source");
+        let made = g.get(copy).expect("copy");
+        assert_eq!(made.visible, original.visible);
+        assert!((made.opacity - original.opacity).abs() < f32::EPSILON);
+        assert_eq!(made.blend, original.blend);
+        assert_eq!(made.kind, original.kind);
+        assert_ne!(made.id, original.id, "a copy needs its own id");
+        assert_eq!(made.name, format!("{} copy", original.name));
+    }
+
+    #[test]
+    fn a_duplicate_can_be_undone() {
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let mut h = crate::HistoryService::new(64);
+        let before = g.layer_count();
+        let source = g.layers()[0].id;
+        actions::duplicate_layer(&mut g, &mut h, source).expect("duplicate");
+        assert_eq!(g.layer_count(), before + 1);
+        assert_eq!(h.undo_next(&mut g), Some(crate::HistoryKind::Graph));
+        assert_eq!(g.layer_count(), before);
     }
 
     #[test]

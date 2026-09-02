@@ -6,6 +6,8 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **There was no Duplicate Layer.** `Ctrl+J` is the shortcut most people reach for after New Layer, and the Layer menu had no entry for it at all. The copy lands directly above its source rather than on top of the stack — a duplicate that jumps over four layers composites differently from the one the user asked for — and it carries opacity, blend mode, visibility, clipping, locks and the mask, channel included.
+
 - **Image ▸ Flip Horizontal flipped one layer.** The entry sat in the Image menu, where Photoshop's entry of that name mirrors the whole canvas, and mirrored the active layer instead — so on a three-layer document one stroke moved and the others stayed, which reads as a bug rather than a feature. The layer flips moved to **Edit ▸ Transform**, which is where Photoshop keeps a layer flip.
 - **Image ▸ Image Rotation** now carries what Photoshop puts there: 180°, 90° Clockwise, 90° Counter Clockwise, and canvas flips that mirror every layer at once. Rotation takes a quarter-turn count rather than being three separate commands, so 180° is one undo step and one document rebuild instead of two of each, and only an odd count swaps the canvas axes.
 
