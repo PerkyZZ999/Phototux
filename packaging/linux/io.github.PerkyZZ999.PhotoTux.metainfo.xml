@@ -8,20 +8,70 @@
   <description>
     <p>
       PhotoTux is a dense desktop image editor built with Rust, Qt Quick,
-      Vulkan, and wgpu. Its interactive canvas keeps document pixels on the GPU.
+      Vulkan and wgpu. Its interactive canvas keeps document pixels on the GPU,
+      so large documents stay responsive: nothing crosses the language
+      boundary while you paint, pan or zoom.
     </p>
+    <p>
+      The workspace is shaped after Adobe Photoshop, so placements carry over,
+      and drawn in the idiom of KDE Plasma 6.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Raster, group, text, shape, fill, adjustment and smart-object layers</li>
+      <li>Layer masks, 28 blend modes and eight layer styles</li>
+      <li>Non-destructive adjustment layers and a per-layer filter plan</li>
+      <li>Selections by rectangle, ellipse, freehand, polygon and colour</li>
+      <li>Brush, clone stamp, eraser, gradient, dodge, burn and blur tools</li>
+      <li>Native layered .ptx documents, layered PSD import and export</li>
+      <li>PNG, JPEG, WebP, TIFF, BMP and GIF, with ICC colour management</li>
+    </ul>
   </description>
-  <url type="homepage">https://github.com/PerkyZZ999/PhotoTux</url>
+  <url type="homepage">https://phototux.xyz</url>
+  <url type="bugtracker">https://github.com/PerkyZZ999/Phototux/issues</url>
+  <url type="help">https://docs.phototux.xyz</url>
+  <url type="vcs-browser">https://github.com/PerkyZZ999/Phototux</url>
+  <url type="contribute">https://github.com/PerkyZZ999/Phototux/blob/main/CONTRIBUTING.md</url>
   <launchable type="desktop-id">io.github.PerkyZZ999.PhotoTux.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/PerkyZZ999/Phototux/main/assets/screenshots/workspace.png</image>
+      <caption>The editing workspace: tool shelf, options bar, canvas, and the layer docks</caption>
+    </screenshot>
+  </screenshots>
   <provides>
     <binary>phototux</binary>
   </provides>
   <supports>
     <control>pointing</control>
     <control>keyboard</control>
+    <control>tablet</control>
   </supports>
+  <requires>
+    <display_length compare="ge">1024</display_length>
+  </requires>
+  <categories>
+    <category>Graphics</category>
+    <category>2DGraphics</category>
+    <category>RasterGraphics</category>
+  </categories>
+  <keywords>
+    <keyword>image</keyword>
+    <keyword>editor</keyword>
+    <keyword>photo</keyword>
+    <keyword>paint</keyword>
+    <keyword>raster</keyword>
+    <keyword>layers</keyword>
+  </keywords>
   <content_rating type="oars-1.1"/>
   <developer id="io.github.perkyzz999">
-    <name>PhotoTux contributors</name>
+    <name>Charles W. (PerkyZZ999)</name>
   </developer>
+  <releases>
+    <release version="0.1.0" type="development" date="2026-09-02">
+      <description>
+        <p>Pre-release development build. Not yet tagged for distribution.</p>
+      </description>
+    </release>
+  </releases>
 </component>

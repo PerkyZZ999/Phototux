@@ -12,9 +12,13 @@ default-members = ["crates/phototux"]
 
 [workspace.package]
 edition = "2024"
+authors = ["Charles W. (PerkyZZ999)", "Claude/Cursor"]
 license = "GPL-3.0-or-later"
 version = "0.1.0"
 rust-version = "1.87"
+repository = "https://github.com/PerkyZZ999/Phototux"
+homepage = "https://phototux.xyz"
+documentation = "https://docs.phototux.xyz"
 
 [workspace.dependencies]
 qtbridge = "0.2.0"

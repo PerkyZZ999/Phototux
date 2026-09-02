@@ -53,3 +53,15 @@ Thumbs.db
 # Claude Code local overrides (auto memory stays in ~/.claude/)
 CLAUDE.local.md
 **/.claude/settings.local.json
+
+# Web presence (web/landing, web/docs) — Node toolchain artefacts
+node_modules/
+.astro/
+web/*/dist/
+web/*/.output/
+web/*/.vercel/
+web/*/.netlify/
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*

@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
 publish = false
 description = "Pure Rust document/session state for PhotoTux (no Qt)"
 

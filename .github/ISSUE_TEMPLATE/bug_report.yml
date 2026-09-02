@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in the editor behaves the wrong way.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Linux graphics bugs are environment bugs
+        until proven otherwise, so the environment section below matters as
+        much as the description.
+
+        Security problems go through a
+        [private advisory](https://github.com/PerkyZZ999/Phototux/security/advisories/new)
+        instead of this form.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what the editor did, and what you expected instead.
+      placeholder: |
+        1. Opened a 4K document
+        2. Added a layer and painted a stroke
+        3. Pressed Ctrl+Z — the stroke stayed and the layer disappeared
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PhotoTux version or commit
+      placeholder: "0.1.0, or the short commit hash you built"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: session
+    attributes:
+      label: Session type
+      options:
+        - Wayland
+        - X11
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Distribution and kernel, desktop and compositor, display scaling, GPU
+        and driver version, and your Qt 6 version.
+      placeholder: |
+        Distro:     CachyOS, kernel 6.17.2
+        Desktop:    KDE Plasma 6.5, KWin
+        Scaling:    150% on a 3840x2160 display
+        GPU:        AMD Radeon RX 7800 XT, Mesa 25.2.3 (radv)
+        Qt:         6.10.1
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: >
+        Anything the editor printed. Run it from a terminal, and add
+        `RUST_LOG=debug` if the failure is reproducible.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >
+        Screenshots, a document that reproduces it, or a note about how often
+        it happens.

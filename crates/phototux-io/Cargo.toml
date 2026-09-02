@@ -4,6 +4,8 @@ edition.workspace = true
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
 publish = false
 description = "Raster codecs and native .ptx document I/O for PhotoTux"
 

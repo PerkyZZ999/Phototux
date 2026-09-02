@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The portable half of the workspace. phototux_engine, phototux_io and
+  # phototux_gpu are Qt-free by construction (AGENTS.md, DR-025), so they
+  # compile and test on a stock runner with no Qt install at all — which is
+  # what makes this job fast and worth blocking a merge on.
+  core:
+    name: Core crates (no Qt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: core
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy -p phototux_engine -p phototux_io -p phototux_gpu --all-targets
+
+      - name: Test
+        run: cargo test -p phototux_engine -p phototux_io
+
+      - name: Doctests
+        run: cargo test --doc -p phototux_engine -p phototux_io
+
+  # The whole editor, Qt and all. Device-backed GPU tests stay out: runners
+  # have no Vulkan device, and `--features gpu-tests` is opt-in for that
+  # reason.
+  desktop:
+    name: Full workspace (Qt 6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libgl1-mesa-dev libvulkan-dev \
+            libxkbcommon-dev libwayland-dev
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.0'
+          modules: 'qtdeclarative qtsvg qtshadertools'
+          cache: true
+
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+
+      - name: Point the build at Qt 6
+        run: echo "QMAKE=$QT_ROOT_DIR/bin/qmake" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+  deny:
+    name: Licences and advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
