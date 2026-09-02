@@ -6,6 +6,8 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **The transform tool silently threw away its own work on a smart object.** It baked the committed draft into the pixels while the placement went on saying something else, so the next nudge of the scale slider restored the source and discarded the transform. A commit on a smart object now folds into the placement instead: rotations add, scales multiply, offsets sum, and the result is applied to the pristine source — so a move, then a scale, comes back at full quality with both intact.
+
 - **Two documents open, both with a smart object, and the second showed the first one's pixels.** Layer ids restart at 1 in every graph, and the host held one map of smart-object sources across every open tab — so a second document's smart object at layer 3 read, displayed and *saved* the first document's source. Sources park and unpark with their document now, for the same reason the parked layer pixels already do, and closing a tab drops them: nothing did before, and each one is a whole document of pixels.
 - **Rasterizing a smart object threw its source away, and rasterizing is undoable.** The undo put the kind and the payload back and the panel then described a source that no longer existed. A source now lives as long as its document, the way history holds the layer payloads it may need to put back.
 - **Rasterizing a shape could not be undone at all.** It wrote the kind and the payload straight onto the graph and pushed no history entry, so discarding a shape's editable path — the only copy of it — was permanent. The kind and the payload go into history as one entry, like a smart object's.

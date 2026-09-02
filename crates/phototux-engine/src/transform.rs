@@ -91,6 +91,32 @@ impl LayerTransform {
         self
     }
 
+    /// This transform with `later` applied on top of it.
+    ///
+    /// For a smart object, `self` is the placement the pixels on screen were
+    /// produced by and `later` is what the transform tool just committed
+    /// against them. Folding rather than baking is the whole point of the
+    /// kind: the result is applied to the pristine source, so nothing
+    /// accumulates resampling loss however many times it is adjusted.
+    ///
+    /// Rotations add, scales multiply, offsets sum. That is exact whenever at
+    /// most one of the two carries a rotation — which is every ordinary
+    /// sequence of drags — and approximate when both do, because `later`'s
+    /// offset is then stated in a frame `self` has already rotated. The
+    /// approximation is a position, it is visible, and Reset Placement puts it
+    /// back; the alternative is a matrix that this five-field representation
+    /// cannot store, and baking the pixels instead loses the source.
+    #[must_use]
+    pub fn folded_with(self, later: Self) -> Self {
+        Self {
+            translate_x: self.translate_x + later.translate_x,
+            translate_y: self.translate_y + later.translate_y,
+            scale_x: self.scale_x * later.scale_x,
+            scale_y: self.scale_y * later.scale_y,
+            rotation_deg: self.rotation_deg + later.rotation_deg,
+        }
+    }
+
     /// Smallest magnitude a draft scale may take.
     ///
     /// Zero collapses the layer to nothing, and once collapsed the gizmo has
@@ -339,5 +365,69 @@ mod tests {
         assert_eq!(c.y, 10);
         assert_eq!(c.width, 80);
         assert_eq!(c.height, 30);
+    }
+    #[test]
+    fn folding_leaves_an_identity_alone() {
+        let placed = LayerTransform {
+            translate_x: 12.0,
+            translate_y: -4.0,
+            scale_x: 0.5,
+            scale_y: 0.5,
+            rotation_deg: 30.0,
+        };
+        assert_eq!(placed.folded_with(LayerTransform::identity()), placed);
+        assert_eq!(LayerTransform::identity().folded_with(placed), placed);
+    }
+
+    /// The case the kind exists for: two scale-downs must land on the product,
+    /// applied once to the original, rather than on the second one alone.
+    #[test]
+    fn folded_scales_multiply_and_rotations_add() {
+        let first = LayerTransform {
+            scale_x: 0.5,
+            scale_y: 0.25,
+            rotation_deg: 20.0,
+            ..Default::default()
+        };
+        let second = LayerTransform {
+            scale_x: 0.5,
+            scale_y: 2.0,
+            rotation_deg: -50.0,
+            ..Default::default()
+        };
+        let folded = first.folded_with(second);
+        assert!((folded.scale_x - 0.25).abs() < 1e-6, "{folded:?}");
+        assert!((folded.scale_y - 0.5).abs() < 1e-6, "{folded:?}");
+        assert!((folded.rotation_deg - -30.0).abs() < 1e-6, "{folded:?}");
+    }
+
+    #[test]
+    fn folded_offsets_sum() {
+        let a = LayerTransform {
+            translate_x: 10.0,
+            translate_y: -5.0,
+            ..Default::default()
+        };
+        let b = LayerTransform {
+            translate_x: -3.0,
+            translate_y: 8.0,
+            ..Default::default()
+        };
+        let folded = a.folded_with(b);
+        assert!((folded.translate_x - 7.0).abs() < 1e-6, "{folded:?}");
+        assert!((folded.translate_y - 3.0).abs() < 1e-6, "{folded:?}");
+    }
+
+    /// A mirrored placement stays mirrored through a fold, because the signs
+    /// multiply rather than being taken as magnitudes.
+    #[test]
+    fn folding_preserves_a_mirror() {
+        let mirrored = LayerTransform::identity().flip_horizontal();
+        let scaled = LayerTransform {
+            scale_x: 2.0,
+            scale_y: 2.0,
+            ..Default::default()
+        };
+        assert!(mirrored.folded_with(scaled).scale_x < 0.0);
     }
 }

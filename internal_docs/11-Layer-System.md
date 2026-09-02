@@ -312,6 +312,14 @@ it in a `SRCE` chunk. `SmartObjectContent` carries what the engine does need —
 the source's name, its asset key, its dimensions, and the placement — so a
 placement can be reasoned about and reported without the pixels being resident.
 
+Committing the transform tool on a smart object **folds** into its placement
+instead of baking the pixels. Baking left the placement saying something else,
+and the next nudge of the scale restored the source and silently discarded the
+transform the user had just committed. Rotations add, scales multiply, offsets
+sum — exact whenever at most one of the two carries a rotation, and a visible,
+resettable position error when both do. The alternative is a matrix the
+five-field `LayerTransform` cannot store, and baking loses the source.
+
 A source lives as long as its **document**, not as long as the layer that
 references it. A deleted layer, or one rasterized back to pixels, can be
 restored by undo, and the restored smart object has to still work — dropping

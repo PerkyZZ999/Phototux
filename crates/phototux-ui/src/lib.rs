@@ -8068,6 +8068,51 @@ impl AppSession {
         self.composite_ms_changed();
     }
 
+    /// Fold a committed transform into a smart object's placement.
+    ///
+    /// Reports whether it did — the caller bakes only if it did not.
+    ///
+    /// A smart object exists so that a transform is re-applied to the original
+    /// pixels rather than accumulated on the result. Baking the tool's draft
+    /// into the layer instead left the placement saying something else, and
+    /// the next nudge of the scale slider restored the source and silently
+    /// discarded the transform the user had just committed.
+    fn fold_transform_into_placement(
+        &mut self,
+        session: &phototux_engine::TransformSession,
+    ) -> bool {
+        let Some(placement) = self
+            .engine
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.get(session.layer_id))
+            .filter(|layer| layer.kind == LayerKind::SmartObject)
+            .and_then(|layer| layer.smart.as_ref())
+            .map(|smart| smart.placement)
+        else {
+            return false;
+        };
+        // The compositor has been previewing the draft through the layer's own
+        // transform. Put that back before re-placing, or the folded placement
+        // is applied on top of a preview of itself.
+        if let Some(graph) = self.engine.graph.as_mut()
+            && let Some(layer) = graph.get_mut(session.layer_id)
+        {
+            layer.transform = session.baseline;
+        }
+        self.engine.transform_session = None;
+        if let Err(error) = self.invoke_command(
+            command_id::SMART_SET_PLACEMENT,
+            CommandArgs::SmartSetPlacement {
+                placement: placement.folded_with(session.draft),
+            },
+        ) {
+            self.report_action_error(&error);
+        }
+        self.sync_transform_fields();
+        true
+    }
+
     #[qslot]
     fn commit_transform(&mut self) {
         let Some(session) = self.engine.transform_session.clone() else {
@@ -8076,6 +8121,10 @@ impl AppSession {
         if session.draft.is_identity() {
             self.engine.transform_session = None;
             self.sync_transform_fields();
+            self.emit_transform_fields();
+            return;
+        }
+        if self.fold_transform_into_placement(&session) {
             self.emit_transform_fields();
             return;
         }
