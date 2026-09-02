@@ -167,7 +167,10 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "has_document_io_idle",
         )
         .host("document.export")
-        .key("Ctrl+Shift+E")
+        // Photoshop's Export As, and the move off `Ctrl+Shift+E` is
+        // deliberate: that chord is Merge Visible in Photoshop, and a user
+        // pressing it here expecting a merge should not get a file dialog.
+        .key("Ctrl+Alt+Shift+W")
         .icon("export"),
         act(
             "action.file.close",
@@ -428,6 +431,24 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "has_document",
         )
         .command(command_id::LAYER_CREATE_FILL),
+        act(
+            "action.layer.merge-down",
+            "&Merge Down",
+            "layer",
+            "has_multiple_layers",
+        )
+        .host("layer.merge-down")
+        .key("Ctrl+E")
+        .icon("arrows-in-line-vertical"),
+        act(
+            "action.layer.merge-visible",
+            "Merge &Visible",
+            "layer",
+            "has_multiple_layers",
+        )
+        .host("layer.merge-visible")
+        .key("Ctrl+Shift+E")
+        .icon("stack-minus"),
         act(
             "action.layer.flatten",
             "Flatten &Image",

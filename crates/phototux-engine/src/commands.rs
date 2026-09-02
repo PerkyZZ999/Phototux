@@ -43,6 +43,8 @@ impl SessionState {
             command_id::LAYER_CREATE_FILL => self.cmd_layer_create_fill(args),
             command_id::LAYER_SET_FILL_COLOR => self.cmd_layer_set_fill_color(args),
             command_id::LAYER_DUPLICATE => self.cmd_layer_duplicate(),
+            command_id::LAYER_MERGE_DOWN => self.cmd_layer_merge_down(),
+            command_id::LAYER_MERGE_VISIBLE => self.cmd_layer_merge_visible(),
             command_id::LAYER_FLATTEN => self.cmd_layer_flatten(),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
@@ -339,6 +341,97 @@ impl SessionState {
             undo_actions::duplicate_layer(graph, history, active)?;
             graph.generation
         };
+        self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    /// The layers a merge would consume, bottom-to-top, or a typed refusal.
+    ///
+    /// Both merges refuse a group, and refuse anything inside one. A group is
+    /// a parent in a flat list rather than a container of pixels, so merging
+    /// across a group boundary would move layers out of their group as a side
+    /// effect of an operation that never mentioned it — and merging a group
+    /// itself is Photoshop's separate "Merge Group".
+    fn merge_candidates(ids: &[LayerId], graph: &crate::DocumentGraph) -> Result<(), CommandError> {
+        for id in ids {
+            let Some(layer) = graph.get(*id) else {
+                return Err(CommandError::Rejected("a layer went missing"));
+            };
+            if layer.kind == LayerKind::Group {
+                return Err(CommandError::Rejected("a group cannot be merged yet"));
+            }
+            if layer.parent.is_some() {
+                return Err(CommandError::Rejected(
+                    "a layer inside a group cannot be merged yet",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn cmd_layer_merge_down(&mut self) -> Result<CommandEffects, CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(active) = graph.active_id() else {
+            return Err(CommandError::Rejected("no active layer"));
+        };
+        let Some(index) = graph.index_of(active) else {
+            return Err(CommandError::Rejected("no active layer"));
+        };
+        if index == 0 {
+            return Err(CommandError::Rejected("there is no layer below this one"));
+        }
+        let below = graph.layers()[index - 1].id;
+        Self::merge_candidates(&[below, active], graph)?;
+        // Hidden layers are refused rather than silently dropped: merging a
+        // layer you cannot see, into one you cannot see, is not an edit
+        // anyone can check by looking at the canvas.
+        if !graph.layers()[index].visible || !graph.layers()[index - 1].visible {
+            return Err(CommandError::Rejected("a hidden layer cannot be merged"));
+        }
+        let name = graph.layers()[index - 1].name.clone();
+        if graph
+            .replace_with_merged_layer(&[below, active], &name)
+            .is_none()
+        {
+            return Err(CommandError::Rejected("a layer went missing"));
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_transform("Merge Down", generation);
+        self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    fn cmd_layer_merge_visible(&mut self) -> Result<CommandEffects, CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let visible: Vec<LayerId> = graph
+            .layers()
+            .iter()
+            .filter(|l| l.visible)
+            .map(|l| l.id)
+            .collect();
+        if visible.len() < 2 {
+            return Err(CommandError::Rejected(
+                "there is nothing to merge — fewer than two layers are visible",
+            ));
+        }
+        Self::merge_candidates(&visible, graph)?;
+        let name = graph
+            .layers()
+            .iter()
+            .find(|l| l.visible)
+            .map(|l| l.name.clone())
+            .unwrap_or_else(|| "Merged".to_owned());
+        if graph.replace_with_merged_layer(&visible, &name).is_none() {
+            return Err(CommandError::Rejected("a layer went missing"));
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_transform("Merge Visible", generation);
         self.sync_object_selection_to_active();
         Ok(CommandEffects::document_edit(generation))
     }

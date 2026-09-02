@@ -2304,6 +2304,8 @@ impl AppSession {
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
             "layer.duplicate" => self.duplicate_active_layer(),
             "layer.flatten" => self.flatten_image(),
+            "layer.merge-down" => self.merge_layer_down(),
+            "layer.merge-visible" => self.merge_visible_layers(),
             "document.rotate" => match arg.and_then(|a| a.parse::<i32>().ok()) {
                 // Degrees in the registry, quarter turns on the wire: the
                 // argument is what the menu entry is called.
@@ -5945,6 +5947,86 @@ impl AppSession {
             && let Err(error) = phototux_canvas::write_mask_r8(copy, &mask)
         {
             self.report_gpu("duplicate layer mask", &error);
+        }
+        self.recomposite();
+        self.publish_pixel_snapshot_from_gpu();
+    }
+
+    /// Composite the active layer onto the one below it.
+    ///
+    /// Photoshop's Ctrl+E. The merged pixels are the pair composited over
+    /// transparency, so both layers' opacity, blend mode, mask and effects are
+    /// baked. The caveat Photoshop also carries: if the *lower* layer's blend
+    /// mode is not Normal it was blending against what is under the pair, and
+    /// that backdrop is not part of the merge, so the result can differ from
+    /// what was on screen.
+    #[qslot]
+    fn merge_layer_down(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let Some(active) = graph.active_id() else {
+            return;
+        };
+        let Some(index) = graph.index_of(active) else {
+            return;
+        };
+        if index == 0 {
+            self.notify(
+                NoticeLevel::Warning,
+                "There is no layer below this one".to_owned(),
+            );
+            return;
+        }
+        let pair = vec![graph.layers()[index - 1].id, active];
+        self.merge_into_one(&pair, command_id::LAYER_MERGE_DOWN);
+    }
+
+    /// Composite every visible layer into one, keeping the hidden ones.
+    #[qslot]
+    fn merge_visible_layers(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let visible: Vec<_> = graph
+            .layers()
+            .iter()
+            .filter(|l| l.visible)
+            .map(|l| l.id)
+            .collect();
+        self.merge_into_one(&visible, command_id::LAYER_MERGE_VISIBLE);
+    }
+
+    /// Shared body of the two merges: composite `keep`, replace those layers
+    /// with one, write the pixels into it.
+    ///
+    /// The pixels are read *before* the command, because afterwards the layers
+    /// they came from no longer exist; they are written *after* the resync,
+    /// because that is what allocates the merged layer's texture.
+    fn merge_into_one(&mut self, keep: &[LayerId], command: &str) {
+        let Some(all) = self.engine.graph.as_ref().map(|g| g.layers().to_vec()) else {
+            return;
+        };
+        let merged = match phototux_canvas::composite_subset_rgba(keep, &all) {
+            Ok(pixels) => pixels,
+            Err(error) => {
+                self.report_gpu("merge", &error);
+                return;
+            }
+        };
+        self.push_transform_snapshot();
+        if let Err(error) = self.invoke_command(command, CommandArgs::None) {
+            self.transform_undo.pop();
+            self.report_action_error(&error);
+            return;
+        }
+        self.recomposite();
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &merged) {
+            self.report_gpu("merge", &error);
+            return;
         }
         self.recomposite();
         self.publish_pixel_snapshot_from_gpu();

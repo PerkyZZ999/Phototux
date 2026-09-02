@@ -140,6 +140,8 @@ pub const ALL: &[CommandMeta] = &[
     doc_tx(command_id::LAYER_CREATE_FILL),
     doc_tx(command_id::LAYER_SET_FILL_COLOR),
     doc_tx(command_id::LAYER_DUPLICATE),
+    doc_tx(command_id::LAYER_MERGE_DOWN),
+    doc_tx(command_id::LAYER_MERGE_VISIBLE),
     doc_tx(command_id::LAYER_FLATTEN),
     doc_tx(command_id::LAYER_DELETE),
     meta(

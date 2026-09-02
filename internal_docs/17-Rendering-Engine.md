@@ -180,6 +180,23 @@ layer must not change a single pixel;
 `adding_an_empty_layer_changes_no_pixel` (device-backed, `--features
 gpu-tests`) asserts it.
 
+### Compositing a subset means hiding, not slicing
+
+`LayerCompositeEngine::composite` builds its uniforms from the slice it is
+handed, and the shader reads texture-array slice *i* for uniform *i*. The array
+is packed by the last `sync_layers_from_graph`, so the slice and the array only
+agree when the slice *is* the document's layer list, in order. Hand it two
+layers and it composites array slices 0 and 1 — the bottom two layers of the
+document, whichever two were asked for.
+
+That is why `composite_subset_rgba` takes the ids to keep and passes the full
+list with everything else marked invisible, rather than passing a shorter
+slice. The first version sliced, and merging the top layer down produced the
+bottom layer's pixels: the engine tests passed, because the graph half was
+right, and only looking at the canvas caught it. Re-syncing to the subset is
+not an alternative — `sync_layers_from_graph` retains textures only for the ids
+it is given, so it would drop every layer outside the merge.
+
 A new document is not transparent all the way down, but that is a host decision
 rather than a compositor one: `AppSession::open_new_gpu_document` writes opaque
 white into the bottom layer once, before the document is handed over — see

@@ -778,6 +778,54 @@ pub fn crop_document(rect: CropRect, layers: &[Layer]) -> Result<(DocumentSize, 
     Ok((size, ms))
 }
 
+/// Composite only the layers in `keep`, over transparency, and return the RGBA.
+///
+/// The merge half of Merge Down and Merge Visible.
+///
+/// It hides the other layers rather than passing a shorter slice, and that is
+/// the whole trick: the compositor packs its texture array from the last full
+/// sync and the shader reads slice *i* for uniform *i*, so a two-element slice
+/// composites array slices 0 and 1 — the bottom two layers of the document,
+/// whichever two were asked for. Merging the top layer down produced the
+/// bottom layer's pixels. A full-length list with the same order keeps the
+/// uniforms and the array in step, and `visible` is the one field that can
+/// take a layer out of the result.
+///
+/// The document's own composite is restored before returning: what this leaves
+/// in the result target is not what the canvas should be showing.
+///
+/// # Errors
+/// Returns an error when the composite or the readback fails.
+pub fn composite_subset_rgba(keep: &[LayerId], layers: &[Layer]) -> Result<Vec<u8>, String> {
+    let subset: Vec<Layer> = layers
+        .iter()
+        .map(|layer| {
+            let mut masked = layer.clone();
+            masked.visible = layer.visible && keep.contains(&layer.id);
+            masked
+        })
+        .collect();
+    with_document(|doc| {
+        // A bounded composite would cover only the last painted rectangle,
+        // and this one has to cover the canvas.
+        if let Some(first) = subset.first() {
+            doc.engine.mark_layer_painted(first.id);
+        }
+        doc.engine.composite(&doc.ctx, &subset)?;
+        let merged = doc
+            .engine
+            .read_result_rgba(&doc.ctx)
+            .map_err(|e| e.to_string())?;
+        if let Some(first) = layers.first() {
+            doc.engine.mark_layer_painted(first.id);
+        }
+        doc.layers_meta = layers.to_vec();
+        with_layers_meta(doc, |doc, layers| doc.engine.composite(&doc.ctx, layers))?;
+        publish_result(&doc.engine)?;
+        Ok(merged)
+    })
+}
+
 /// Flip every layer of the document, in place.
 ///
 /// A canvas flip rather than a layer flip: [`flip_layer`] mirrors one layer

@@ -198,8 +198,26 @@ history entry rather than a graph one, because the pixels change as well as the
 stack and only the host's document snapshot — which carries the graph *and*
 every layer's pixels — can put both back in a single undo.
 
-Merging two layers (Photoshop's Merge Down and Merge Visible) is not
-implemented; flatten is the only composition command.
+#### Merging
+
+`layer.merge-down` composites the active layer onto the one below it and
+`layer.merge-visible` composites every visible layer, keeping the hidden ones.
+Both replace the layers they consume with one fresh raster layer at the lowest
+of their positions, for the same id reason flatten uses, and both record a
+transform entry so the stack and the pixels come back together.
+
+Both refuse a group, and refuse a layer inside one. A group is a parent in a
+flat list rather than a container of pixels, so merging across a group boundary
+would move layers out of their group as a side effect of an operation that
+never mentioned it — and merging a group itself is Photoshop's separate Merge
+Group, which is not implemented. Merge Down also refuses when either layer is
+hidden: merging something you cannot see into something else you cannot see is
+not an edit anyone can check by looking at the canvas.
+
+One caveat Photoshop carries too: the merged pixels are the pair composited
+over transparency, so if the *lower* layer's blend mode is not Normal it was
+blending against what is under the pair, and that backdrop is not part of the
+merge. The result can then differ from what was on screen.
 
 #### Background layer
 

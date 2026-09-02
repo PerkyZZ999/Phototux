@@ -6,6 +6,10 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **Merge Down and Merge Visible.** `Ctrl+E` and `Ctrl+Shift+E`, the last of the composition commands the Layer menu was missing. Both replace what they consume with one fresh layer and record a single undo step. They refuse groups and anything inside one — a group is a parent in a flat list, so merging across a boundary would move layers out of their group as a side effect — and Merge Down refuses a hidden layer, because merging something you cannot see is not an edit anyone can check by looking.
+- Export moved off `Ctrl+Shift+E` to `Ctrl+Alt+Shift+W`. That chord is Merge Visible in Photoshop and Export As is where Export has gone; a user pressing it expecting a merge should not get a file dialog.
+- **Compositing a subset means hiding, not slicing.** The first merge composited a two-element slice, and the shader reads texture-array slice *i* for uniform *i* — so it composited the bottom two layers of the document whichever two were asked for, and merging the top layer down produced the bottom layer's pixels. The engine tests passed the whole time; only looking at the canvas caught it.
+
 - **There was no Flatten Image either.** The taxonomy has named `layer.flatten-visible` a destructive command since it was written and nothing implemented it. It bakes the composite already on screen, so opacity, blend modes, masks and effects come out exactly as they were drawn and hidden layers are discarded. The flattened layer takes a fresh id rather than reusing the bottom one's, and the whole thing is one undo step — the host's document snapshot carries the stack as well as the pixels. Merge Down and Merge Visible remain unimplemented.
 - **There was no Duplicate Layer.** `Ctrl+J` is the shortcut most people reach for after New Layer, and the Layer menu had no entry for it at all. The copy lands directly above its source rather than on top of the stack — a duplicate that jumps over four layers composites differently from the one the user asked for — and it carries opacity, blend mode, visibility, clipping, locks and the mask, channel included.
 

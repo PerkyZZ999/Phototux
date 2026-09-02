@@ -108,6 +108,35 @@ impl DocumentGraph {
         Layer::new(id, name)
     }
 
+    /// Replace `ids` with one fresh empty layer at the lowest of their
+    /// positions, and return its id.
+    ///
+    /// The graph half of Merge Down and Merge Visible: the host holds the
+    /// composited pixels and writes them into the layer this returns. The
+    /// merged layer is fresh rather than one of the originals reused, for the
+    /// reason [`Self::flatten_to_single_layer`] gives — it carries none of
+    /// their masks, blend modes or effects, because those are in the pixels
+    /// now.
+    ///
+    /// `None` when no id names a layer.
+    pub fn replace_with_merged_layer(&mut self, ids: &[LayerId], name: &str) -> Option<LayerId> {
+        let mut positions: Vec<usize> = ids.iter().filter_map(|id| self.index_of(*id)).collect();
+        if positions.is_empty() {
+            return None;
+        }
+        positions.sort_unstable();
+        let at = positions[0];
+        let parent = self.layers.get(at).and_then(|l| l.parent);
+        self.layers.retain(|l| !ids.contains(&l.id));
+        let mut layer = self.alloc_layer(name);
+        layer.parent = parent;
+        let id = layer.id;
+        self.layers.insert(at.min(self.layers.len()), layer);
+        self.active = Some(id);
+        self.bump();
+        Some(id)
+    }
+
     /// Replace the whole stack with one empty layer and return its id.
     ///
     /// The graph half of Flatten Image: the host holds the composited pixels

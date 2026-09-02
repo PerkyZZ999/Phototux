@@ -1483,3 +1483,115 @@ fn flatten_needs_a_document() {
             .is_err()
     );
 }
+
+/// Merge Down consumes the pair and leaves one layer where the lower was.
+#[test]
+fn merge_down_replaces_the_pair_with_one_layer() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let before = s.graph.as_ref().expect("graph").layer_count();
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    let active = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("active");
+    let index = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .index_of(active)
+        .expect("index");
+    let lower = stack[index - 1];
+
+    s.invoke(command_id::LAYER_MERGE_DOWN, CommandArgs::None)
+        .expect("merge down");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(graph.layer_count(), before - 1);
+    let merged = graph.active_id().expect("active");
+    assert!(
+        !stack.contains(&merged),
+        "the merged layer reused an id from the pair it replaced"
+    );
+    assert_eq!(
+        graph.index_of(merged),
+        Some(index - 1),
+        "it took the lower slot"
+    );
+    assert!(graph.get(lower).is_none() && graph.get(active).is_none());
+}
+
+/// The bottom layer has nothing to merge into.
+#[test]
+fn merge_down_refuses_at_the_bottom_of_the_stack() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let bottom = s.graph.as_ref().expect("graph").layers()[0].id;
+    s.invoke(command_id::LAYER_SET_ACTIVE, CommandArgs::LayerIndex(0))
+        .expect("select bottom");
+    assert_eq!(s.graph.as_ref().expect("graph").active_id(), Some(bottom));
+    let error = s
+        .invoke(command_id::LAYER_MERGE_DOWN, CommandArgs::None)
+        .expect_err("bottom layer");
+    assert!(error.user_message().contains("below"), "{error:?}");
+}
+
+/// Merge Visible keeps the layers it cannot see.
+#[test]
+fn merge_visible_leaves_hidden_layers_alone() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let hidden = s.graph.as_ref().expect("graph").layers()[0].id;
+    s.invoke(
+        command_id::LAYER_SET_VISIBILITY,
+        CommandArgs::SetVisibility {
+            index: 0,
+            visible: false,
+        },
+    )
+    .expect("hide");
+
+    s.invoke(command_id::LAYER_MERGE_VISIBLE, CommandArgs::None)
+        .expect("merge visible");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(
+        graph.layer_count(),
+        2,
+        "one merged layer plus the hidden one"
+    );
+    assert!(graph.get(hidden).is_some(), "the hidden layer was consumed");
+}
+
+/// One visible layer is not a merge.
+#[test]
+fn merge_visible_needs_two_visible_layers() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let count = s.graph.as_ref().expect("graph").layer_count();
+    for index in 1..count {
+        s.invoke(
+            command_id::LAYER_SET_VISIBILITY,
+            CommandArgs::SetVisibility {
+                index: i32::try_from(index).expect("index"),
+                visible: false,
+            },
+        )
+        .expect("hide");
+    }
+    let error = s
+        .invoke(command_id::LAYER_MERGE_VISIBLE, CommandArgs::None)
+        .expect_err("one visible layer");
+    assert!(error.user_message().contains("two"), "{error:?}");
+}

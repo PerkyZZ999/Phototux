@@ -23,6 +23,10 @@ pub mod command_id {
     pub const LAYER_SET_FILL_COLOR: &str = "layer.set-fill-color";
     /// Copy the active layer, record and pixels, directly above itself.
     pub const LAYER_DUPLICATE: &str = "layer.duplicate";
+    /// Composite the active layer onto the one below it. Destructive.
+    pub const LAYER_MERGE_DOWN: &str = "layer.merge-down";
+    /// Composite every visible layer into one, keeping the hidden ones.
+    pub const LAYER_MERGE_VISIBLE: &str = "layer.merge-visible";
     /// Composite every visible layer into one. Destructive by design.
     pub const LAYER_FLATTEN: &str = "layer.flatten";
     pub const LAYER_DELETE: &str = "layer.delete";
@@ -173,6 +177,8 @@ pub mod command_id {
         LAYER_CREATE_FILL,
         LAYER_SET_FILL_COLOR,
         LAYER_DUPLICATE,
+        LAYER_MERGE_DOWN,
+        LAYER_MERGE_VISIBLE,
         LAYER_FLATTEN,
         LAYER_DELETE,
         LAYER_SET_ACTIVE,

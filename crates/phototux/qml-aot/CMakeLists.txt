@@ -116,6 +116,7 @@ set(ICON_NAMES
     selection-plus
     shapes
     sparkle
+    stack-minus
     stack-simple
     stamp
     sun-dim
