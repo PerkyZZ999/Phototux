@@ -43,6 +43,7 @@ impl SessionState {
             command_id::LAYER_CREATE_FILL => self.cmd_layer_create_fill(args),
             command_id::LAYER_SET_FILL_COLOR => self.cmd_layer_set_fill_color(args),
             command_id::LAYER_DUPLICATE => self.cmd_layer_duplicate(),
+            command_id::LAYER_FLATTEN => self.cmd_layer_flatten(),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
             command_id::LAYER_SET_VISIBILITY => self.cmd_layer_set_visibility(args),
@@ -338,6 +339,24 @@ impl SessionState {
             undo_actions::duplicate_layer(graph, history, active)?;
             graph.generation
         };
+        self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    fn cmd_layer_flatten(&mut self) -> Result<CommandEffects, CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        if graph.layer_count() == 0 {
+            return Err(CommandError::Rejected("there is nothing to flatten"));
+        }
+        graph.flatten_to_single_layer("Background");
+        graph.bump_generation();
+        let generation = graph.generation;
+        // A transform entry rather than a graph one: the pixels change as
+        // well as the stack, and only the host's document snapshot can put
+        // both back in a single undo.
+        self.history.push_transform("Flatten Image", generation);
         self.sync_object_selection_to_active();
         Ok(CommandEffects::document_edit(generation))
     }

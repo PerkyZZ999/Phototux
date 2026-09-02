@@ -429,6 +429,14 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .command(command_id::LAYER_CREATE_FILL),
         act(
+            "action.layer.flatten",
+            "Flatten &Image",
+            "layer",
+            "has_multiple_layers",
+        )
+        .host("layer.flatten")
+        .icon("stack-simple"),
+        act(
             "action.layer.delete",
             "&Delete Layer",
             "layer",

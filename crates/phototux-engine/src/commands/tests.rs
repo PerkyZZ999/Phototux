@@ -1430,3 +1430,56 @@ fn every_rejection_the_command_layer_produces_survives_presentation() {
         "only {seen} commands rejected — the sweep is not running"
     );
 }
+
+/// Flatten leaves exactly one layer, and undo puts the stack back.
+///
+/// The graph half only — the pixels are the host's, and the same transform
+/// snapshot that restores them restores this stack, which is why flatten
+/// records a transform entry rather than a graph one.
+#[test]
+fn flatten_leaves_one_layer_and_can_be_undone() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let before: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    assert!(before.len() > 1, "need a stack to flatten");
+
+    s.invoke(command_id::LAYER_FLATTEN, CommandArgs::None)
+        .expect("flatten");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(graph.layer_count(), 1);
+    assert_eq!(graph.layers()[0].name, "Background");
+    assert_eq!(graph.active_id(), Some(graph.layers()[0].id));
+    assert!(
+        !before.contains(&graph.layers()[0].id),
+        "the flattened layer reused an id that other state may still name"
+    );
+
+    // Undo is the host's document snapshot, so the timeline entry is a
+    // transform rather than a graph command.
+    assert_eq!(
+        s.history
+            .rows_newest_first()
+            .first()
+            .map(|r| r.kind.clone()),
+        Some("transform".to_owned())
+    );
+}
+
+/// Flattening an empty document is refused rather than silently allowed.
+#[test]
+fn flatten_needs_a_document() {
+    let mut s = SessionState::default();
+    assert!(
+        s.invoke(command_id::LAYER_FLATTEN, CommandArgs::None)
+            .is_err()
+    );
+}

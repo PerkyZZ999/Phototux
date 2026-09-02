@@ -6,6 +6,7 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **There was no Flatten Image either.** The taxonomy has named `layer.flatten-visible` a destructive command since it was written and nothing implemented it. It bakes the composite already on screen, so opacity, blend modes, masks and effects come out exactly as they were drawn and hidden layers are discarded. The flattened layer takes a fresh id rather than reusing the bottom one's, and the whole thing is one undo step — the host's document snapshot carries the stack as well as the pixels. Merge Down and Merge Visible remain unimplemented.
 - **There was no Duplicate Layer.** `Ctrl+J` is the shortcut most people reach for after New Layer, and the Layer menu had no entry for it at all. The copy lands directly above its source rather than on top of the stack — a duplicate that jumps over four layers composites differently from the one the user asked for — and it carries opacity, blend mode, visibility, clipping, locks and the mask, channel included.
 
 - **Image ▸ Flip Horizontal flipped one layer.** The entry sat in the Image menu, where Photoshop's entry of that name mirrors the whole canvas, and mirrored the active layer instead — so on a three-layer document one stroke moved and the others stayed, which reads as a bug rather than a feature. The layer flips moved to **Edit ▸ Transform**, which is where Photoshop keeps a layer flip.

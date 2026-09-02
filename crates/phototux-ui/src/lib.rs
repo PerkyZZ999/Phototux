@@ -2303,6 +2303,7 @@ impl AppSession {
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
             "layer.duplicate" => self.duplicate_active_layer(),
+            "layer.flatten" => self.flatten_image(),
             "document.rotate" => match arg.and_then(|a| a.parse::<i32>().ok()) {
                 // Degrees in the registry, quarter turns on the wire: the
                 // argument is what the menu entry is called.
@@ -5944,6 +5945,43 @@ impl AppSession {
             && let Err(error) = phototux_canvas::write_mask_r8(copy, &mask)
         {
             self.report_gpu("duplicate layer mask", &error);
+        }
+        self.recomposite();
+        self.publish_pixel_snapshot_from_gpu();
+    }
+
+    /// Composite every visible layer into one, and keep it undoable.
+    ///
+    /// The pixels come from the composite already on screen, so hidden layers
+    /// are discarded and each layer's opacity, blend mode, mask and effects
+    /// are baked exactly as they were being drawn. The snapshot is pushed
+    /// before the graph is replaced: it carries the stack *and* every layer's
+    /// pixels, which is the only thing that can put a flatten back in one
+    /// step.
+    #[qslot]
+    fn flatten_image(&mut self) {
+        if !self.engine.has_document {
+            return;
+        }
+        let Ok((_, _, pixels)) = phototux_canvas::read_composite_rgba() else {
+            self.report_gpu("flatten", "could not read the composite");
+            return;
+        };
+        self.push_transform_snapshot();
+        if let Err(error) = self.invoke_command(command_id::LAYER_FLATTEN, CommandArgs::None) {
+            self.transform_undo.pop();
+            self.report_action_error(&error);
+            return;
+        }
+        // The resync allocates the single layer's texture; the pixels go in
+        // after it exists.
+        self.recomposite();
+        let Some(id) = self.active_id() else {
+            return;
+        };
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+            self.report_gpu("flatten", &error);
+            return;
         }
         self.recomposite();
         self.publish_pixel_snapshot_from_gpu();

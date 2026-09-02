@@ -108,6 +108,24 @@ impl DocumentGraph {
         Layer::new(id, name)
     }
 
+    /// Replace the whole stack with one empty layer and return its id.
+    ///
+    /// The graph half of Flatten Image: the host holds the composited pixels
+    /// and writes them into the layer this returns. A fresh id rather than
+    /// reusing the bottom layer's, because the flattened layer is not the
+    /// bottom layer with different pixels — it has no mask, no clipping, no
+    /// blend mode and no effects, and reusing the id would leave every
+    /// reference to the old one silently pointing at something else.
+    pub fn flatten_to_single_layer(&mut self, name: &str) -> LayerId {
+        let layer = self.alloc_layer(name);
+        let id = layer.id;
+        self.layers.clear();
+        self.layers.push(layer);
+        self.active = Some(id);
+        self.bump();
+        id
+    }
+
     /// A fresh layer record with an unused id, for callers that build the rest
     /// of it themselves — duplicating a layer, chiefly, where every field but
     /// the id and the name comes from the source.

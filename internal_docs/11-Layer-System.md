@@ -182,6 +182,25 @@ command runs and written after: the command only adds the record, and the
 texture the copy writes into is allocated by the resync that the command's own
 recomposite performs.
 
+#### Flattening
+
+`layer.flatten` replaces the whole stack with one raster layer named
+`Background`. The pixels are the composite already on screen, so each layer's
+opacity, blend mode, mask and effects are baked exactly as they were being
+drawn, and hidden layers are discarded — which is Photoshop's behaviour and is
+why the taxonomy files this under destructive.
+
+Two details are load-bearing. The flattened layer takes a **fresh id** rather
+than reusing the bottom layer's: it has no mask, no clipping, no blend mode and
+no effects, so reusing the id would leave every reference to the old layer
+silently pointing at something that is not it. And it records a **transform**
+history entry rather than a graph one, because the pixels change as well as the
+stack and only the host's document snapshot — which carries the graph *and*
+every layer's pixels — can put both back in a single undo.
+
+Merging two layers (Photoshop's Merge Down and Merge Visible) is not
+implemented; flatten is the only composition command.
+
 #### Background layer
 
 `DocumentGraph::new` seeds every document with a `Background` and a `Layer 1`,
