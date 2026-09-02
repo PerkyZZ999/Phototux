@@ -136,7 +136,7 @@ Dialog {
         return row ? row.slots : []
     }
 
-    footer: DialogButtonBox {
+    footer: ThemedDialogFooter {
         ThemedButton {
             text: qsTr("Preview")
             DialogButtonBox.buttonRole: DialogButtonBox.ActionRole

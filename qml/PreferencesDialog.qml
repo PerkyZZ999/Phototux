@@ -40,6 +40,7 @@ Dialog {
     modal: true
     title: qsTr("Preferences")
     header: ThemedDialogHeader { text: dialog.title }
+    footer: ThemedDialogFooter {}
     standardButtons: Dialog.Close
     width: 480
     // Grow into the window when there is room: the themed header and

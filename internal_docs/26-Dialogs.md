@@ -322,6 +322,27 @@ Export setup groups destination, format, dimensions/region, color/profile, alpha
 
 Overwrite confirmation belongs host/persistence policy. If native chooser confirms replacement, core still stages safely and handles destination identity changes. It must not show duplicate contradictory prompts unless consequence changed.
 
+### Where a chooser opens (shipped)
+
+`initial_location` is one policy across all four choosers — Open, Save As, Export
+and Embed ICC — resolved by `root.browseForFile(dialog)` in `Main.qml` in this
+order:
+
+1. the folder of the document that is open, from `AppSession.documentPath`;
+2. `root.lastBrowsedFolder`, recorded from `currentFolder` each time any chooser
+   is accepted;
+3. the writable Pictures location, which seeds `lastBrowsedFolder`.
+
+The folder is *assigned* before `open()` rather than bound, because navigating
+inside the chooser writes `currentFolder` and a live binding would drag the user
+back out of the folder they had just entered. Each `FileDialog` keeps its own
+`currentFolder`, so calling `open()` on one directly reopens wherever *that*
+chooser was last used — Open, Save As and Export each remembering somewhere
+different, and none of them the document in front of the user.
+`every_file_dialog_opens_where_the_user_last_was` in
+`crates/phototux-ui/src/chrome_contract.rs` fails the build on a direct
+`someFileDialog.open()`.
+
 ## Async Progress Dialogs and Task Handoff
 
 Progress model:

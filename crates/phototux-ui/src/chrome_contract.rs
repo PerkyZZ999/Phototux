@@ -229,6 +229,7 @@ mod tests {
                 ("TextField", "ThemedTextField"),
                 ("Menu", "ThemedMenu"),
                 ("MenuItem", "ThemedMenuItem"),
+                ("DialogButtonBox", "ThemedDialogFooter"),
             ] {
                 // The themed component is allowed to *be* the bare control.
                 // `ThemedMenu` also names `ThemedMenuItem` as its delegate,
@@ -293,5 +294,38 @@ mod tests {
             }
         }
         assert!(checked > 3, "found {checked} icon buttons — the scan broke");
+    }
+
+    /// File dialogs open where the user last was, never where they were built.
+    ///
+    /// Each `FileDialog` keeps its own `currentFolder`, so calling `open()`
+    /// directly reopens whichever folder *that* dialog last saw — Open, Save
+    /// As, Export and Embed ICC each remembering a different place, and none
+    /// of them the document the user has in front of them. `browseForFile`
+    /// resolves the folder for all four; a bare `open()` quietly opts out.
+    #[test]
+    fn every_file_dialog_opens_where_the_user_last_was() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            let dialogs: Vec<&str> = text
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("id: "))
+                .filter(|id| id.ends_with("FileDialog"))
+                .collect();
+            for id in dialogs {
+                checked += 1;
+                let bare = format!("{id}.open()");
+                assert!(
+                    !text.contains(&bare),
+                    "{name} calls {bare} directly — route it through \
+                     root.browseForFile({id}) so it opens in the document's \
+                     folder rather than wherever that dialog was last used"
+                );
+            }
+        }
+        assert!(
+            checked >= 4,
+            "found {checked} file dialogs — the scan broke rather than the shell"
+        );
     }
 }

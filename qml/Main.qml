@@ -20,6 +20,14 @@ ApplicationWindow {
            : qsTr("PhotoTux")
     color: Theme.neutral
     property string pendingDestructiveAction: ""
+    /// Where the next file dialog opens when there is no document to follow.
+    ///
+    /// Each `FileDialog` owns its own `currentFolder`, so four dialogs meant
+    /// four independent memories and none of them shared what the user had
+    /// just done: saving into `~/work` and then pressing Ctrl+O landed back in
+    /// Pictures. Photoshop follows the open document first and the last folder
+    /// second, and so does `browseForFile`.
+    property url lastBrowsedFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
     // The session answers for the active layer directly. These used to split
     // the whole stack's flags and index by activeLayerIndex, which could read
     // past the end of a string that had not caught up yet and silently report
@@ -661,6 +669,32 @@ ApplicationWindow {
     /// used to prefix-match a `"host:"` marker smuggled through the status-bar
     /// text, so the contract was ten string literals duplicated across two
     /// languages with nothing checking they agreed.
+    /// Open a file dialog where the user last was.
+    ///
+    /// The open document wins when there is one — that is the folder the next
+    /// Save As, Export or Open almost always means — and `lastBrowsedFolder`
+    /// carries the answer between documents. Assigned rather than bound,
+    /// because navigating inside the dialog writes `currentFolder` and a
+    /// binding would drag the user back out of the folder they just entered.
+    function browseForFile(dialog) {
+        var folder = root.documentFolder()
+        dialog.currentFolder = folder.length > 0 ? folder : root.lastBrowsedFolder
+        dialog.open()
+    }
+
+    /// The open document's folder as a `file:` url string, or `""`.
+    ///
+    /// `documentPath` is a plain filesystem path, so it has to be percent
+    /// encoded before it can stand in for a url — a folder with a space in it
+    /// otherwise produces a url the dialog cannot resolve and silently ignores.
+    function documentFolder() {
+        var path = AppSession.documentPath || ""
+        var cut = path.lastIndexOf("/")
+        if (cut <= 0)
+            return ""
+        return "file://" + encodeURI(path.substring(0, cut))
+    }
+
     function handleHostRequest(kind) {
         if (!kind)
             return
@@ -670,13 +704,13 @@ ApplicationWindow {
             break
         case "document.open":
             welcomeDialog.close()
-            openFileDialog.open()
+            root.browseForFile(openFileDialog)
             break
         case "document.save_as":
-            saveFileDialog.open()
+            root.browseForFile(saveFileDialog)
             break
         case "document.export":
-            exportFileDialog.open()
+            root.browseForFile(exportFileDialog)
             break
         case "document.close":
             root.requestDestructiveAction("close")
@@ -688,7 +722,7 @@ ApplicationWindow {
             aboutDialogLoader.open()
             break
         case "document.embed_icc":
-            embedIccFileDialog.open()
+            root.browseForFile(embedIccFileDialog)
             break
         case "palette.open":
             commandPaletteLoader.ensure().showPalette()
@@ -890,7 +924,7 @@ ApplicationWindow {
             root.openNewDocumentDialog()
         } else if (action === "open") {
             welcomeDialog.close()
-            openFileDialog.open()
+            root.browseForFile(openFileDialog)
         } else if (action === "close") {
             AppSession.closeDocument()
         } else if (action === "quit") {
@@ -1330,6 +1364,7 @@ ApplicationWindow {
             modal: true
             title: qsTr("Recover unsaved work")
             header: ThemedDialogHeader { text: recoveryDialog.title }
+            footer: ThemedDialogFooter {}
             width: 460
             standardButtons: Dialog.Close
             onClosed: {
@@ -3154,7 +3189,7 @@ ApplicationWindow {
                         activeLayerHasMask: root.activeLayerHasMask
                         activeMaskEnabled: root.activeMaskEnabled
                         gpuStatus: gpuCanvas.gpuStatus
-                        onEmbedIccRequested: embedIccFileDialog.open()
+                        onEmbedIccRequested: root.browseForFile(embedIccFileDialog)
                     }
                 }
 
@@ -3905,7 +3940,6 @@ ApplicationWindow {
     FileDialog {
         id: openFileDialog
         title: qsTr("Open Document")
-        currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
         fileMode: FileDialog.OpenFile
         nameFilters: [
             qsTr("All supported (*.ptx *.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.psd)"),
@@ -3913,7 +3947,10 @@ ApplicationWindow {
             qsTr("Image files (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif)"),
             qsTr("Photoshop (*.psd)")
         ]
-        onAccepted: AppSession.openRasterFile(selectedFile.toString())
+        onAccepted: {
+            root.lastBrowsedFolder = currentFolder
+            AppSession.openRasterFile(selectedFile.toString())
+        }
         onRejected: {
             if (!AppSession.hasDocument && !AppSession.ioBusy)
                 welcomeDialog.open()
@@ -3923,29 +3960,32 @@ ApplicationWindow {
     FileDialog {
         id: embedIccFileDialog
         title: qsTr("Embed ICC Profile")
-        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
         fileMode: FileDialog.OpenFile
         nameFilters: [
             qsTr("ICC profiles (*.icc *.icm)"),
             qsTr("All files (*)")
         ]
-        onAccepted: AppSession.embedIccFromFile(selectedFile.toString())
+        onAccepted: {
+            root.lastBrowsedFolder = currentFolder
+            AppSession.embedIccFromFile(selectedFile.toString())
+        }
     }
 
     FileDialog {
         id: saveFileDialog
         title: qsTr("Save PhotoTux Document")
-        currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
         fileMode: FileDialog.SaveFile
         nameFilters: [ qsTr("PhotoTux documents (*.ptx)") ]
         defaultSuffix: "ptx"
-        onAccepted: AppSession.saveDocument(selectedFile.toString())
+        onAccepted: {
+            root.lastBrowsedFolder = currentFolder
+            AppSession.saveDocument(selectedFile.toString())
+        }
     }
 
     FileDialog {
         id: exportFileDialog
         title: qsTr("Export Image")
-        currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
         fileMode: FileDialog.SaveFile
         nameFilters: [
             qsTr("PNG images (*.png)"),
@@ -3956,7 +3996,10 @@ ApplicationWindow {
         ]
         defaultSuffix: selectedNameFilter.extensions.length > 0
                        ? selectedNameFilter.extensions[0] : "png"
-        onAccepted: AppSession.exportRasterFile(selectedFile.toString())
+        onAccepted: {
+            root.lastBrowsedFolder = currentFolder
+            AppSession.exportRasterFile(selectedFile.toString())
+        }
     }
 
     LazyDialog {
@@ -3987,22 +4030,39 @@ ApplicationWindow {
                 font.pixelSize: Theme.fontBody
             }
 
-            footer: DialogButtonBox {
-                standardButtons: DialogButtonBox.Save | DialogButtonBox.Discard | DialogButtonBox.Cancel
-                onAccepted: {
-                    unsavedDialog.close()
-                    if (AppSession.documentPath && AppSession.documentPath.length > 0)
-                        AppSession.saveDocument("")
-                    else
-                        saveFileDialog.open()
+            // Written out rather than `standardButtons`, which builds its
+            // buttons from the Controls style and so cannot be told that
+            // saving is the commit and discarding is the destructive one.
+            footer: ThemedDialogFooter {
+                ThemedButton {
+                    text: qsTr("Save")
+                    prominence: "primary"
+                    DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                    onClicked: {
+                        unsavedDialog.close()
+                        if (AppSession.documentPath && AppSession.documentPath.length > 0)
+                            AppSession.saveDocument("")
+                        else
+                            root.browseForFile(saveFileDialog)
+                    }
                 }
-                onDiscarded: {
-                    unsavedDialog.close()
-                    root.discardAndContinue()
+                ThemedButton {
+                    text: qsTr("Discard")
+                    prominence: "danger"
+                    flat: true
+                    DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
+                    onClicked: {
+                        unsavedDialog.close()
+                        root.discardAndContinue()
+                    }
                 }
-                onRejected: {
-                    root.pendingDestructiveAction = ""
-                    unsavedDialog.close()
+                ThemedButton {
+                    text: qsTr("Cancel")
+                    DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                    onClicked: {
+                        root.pendingDestructiveAction = ""
+                        unsavedDialog.close()
+                    }
                 }
             }
         }
@@ -4019,6 +4079,7 @@ ApplicationWindow {
             modal: true
             title: qsTr("Compatibility report")
             header: ThemedDialogHeader { text: compatibilityDialog.title }
+            footer: ThemedDialogFooter {}
             standardButtons: Dialog.Ok
             width: 480
             visible: AppSession.compatibilityReport.length > 0
@@ -4050,6 +4111,7 @@ ApplicationWindow {
             modal: true
             title: qsTr("File operation failed")
             header: ThemedDialogHeader { text: ioErrorDialog.title }
+            footer: ThemedDialogFooter {}
             standardButtons: Dialog.Ok
             width: Math.min(560, parent ? parent.width - 48 : 560)
 
@@ -4127,6 +4189,7 @@ ApplicationWindow {
             modal: true
             title: qsTr("About PhotoTux")
             header: ThemedDialogHeader { text: aboutDialog.title }
+            footer: ThemedDialogFooter {}
             standardButtons: Dialog.Ok
             width: 400
 
@@ -4185,7 +4248,7 @@ ApplicationWindow {
         id: welcomeDialog
         anchors.centerIn: parent
         onRequestNew: root.openNewDocumentDialog()
-        onRequestOpen: openFileDialog.open()
+        onRequestOpen: root.browseForFile(openFileDialog)
     }
 
     NewDocumentDialog {
