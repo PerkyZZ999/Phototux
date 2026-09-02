@@ -24,6 +24,22 @@ All notable decision milestones and project state changes.
   categories and bug/help/vcs URLs a store listing is judged on, and the
   desktop entry now claims the formats the application actually reads.
 
+- **Three things a public repository should not ship.** The New Document
+  dialog told the reader to "choose a size (ADR-013)" — an internal decision
+  id in the first dialog anyone sees. Preferences carried a line reading
+  "Effective sources (debug): density/guides/soft-proof tracked", which is a
+  developer's note left in a shipped dialog. Both are gone.
+- **The Black & White adjustment reached the menu as "Black  White".** Qt
+  reads `&` as an accelerator marker and `&&` as a literal ampersand, and the
+  shell strips the markers itself now that it draws menu rows by hand — so a
+  lone `&` was eaten and the space it marked was left behind. The generated
+  action families take their labels from display vocabularies that know
+  nothing about accelerators, so each now goes through `as_menu_label`.
+  Escaping there rather than in the vocabulary keeps the ampersand in the
+  *layer* name, which is the same string seen without a menu around it.
+  `every_action_label_escapes_its_ampersands` fails on any label whose `&` is
+  neither a marker nor an escape; verified by taking the escape back out.
+
 - **Two websites** ([DR-033](internal_docs/Appendix/Decision-Register.md#dr-033--public-web-presence-is-two-static-astro-sites-not-a-second-handbook)):
   `web/landing` for `phototux.xyz` and `web/docs` for `docs.phototux.xyz`,
   both static Astro 7. `internal_docs/` stays the engineering handbook; the

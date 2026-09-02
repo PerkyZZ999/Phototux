@@ -165,7 +165,7 @@ Popup {
                         }
 
                         Label {
-                            text: qsTr("Choose a size (ADR-013). 1080p is recommended for most work.")
+                            text: qsTr("Choose a size. 1080p suits most work; every preset is editable on the right.")
                             color: Theme.colorOnSurfaceMuted
                             font.pixelSize: Theme.fontBodySm
                             wrapMode: Text.WordWrap

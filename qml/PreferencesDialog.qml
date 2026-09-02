@@ -276,15 +276,6 @@ Dialog {
                 }
             }
             Label {
-                visible: AppSession.prefEffectiveJson.length > 0
-                text: qsTr("Effective sources (debug): density/guides/soft-proof tracked")
-                color: Theme.colorOnSurfaceMuted
-                font.pixelSize: Theme.fontLabelSm
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-
-            Label {
                 Layout.topMargin: Theme.spaceSm
                 text: qsTr("Workspace panels")
                 color: Theme.colorOnSurface

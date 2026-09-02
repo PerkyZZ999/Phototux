@@ -39,6 +39,22 @@ pub struct ActionDescriptor {
 /// None, None` at the call site says nothing about which field is which, and
 /// the runs made most of this file duplicate text. Naming only what an action
 /// actually has is both readable and unique.
+/// A display name, escaped so a menu can carry it as a label.
+///
+/// Menu labels are Qt-style: `&` marks the next character as the accelerator
+/// and `&&` is a literal ampersand. Every hand-written label in this file
+/// spells its own accelerator, but the generated families take their labels
+/// from display vocabularies — `AdjustmentParams::label`, `ShapePreset::label`
+/// and their siblings — which know nothing about accelerators. `Black & White`
+/// went through the shell's mnemonic stripper and came out as `Black  White`,
+/// because a lone `&` is a marker and the space after it is what it marked.
+///
+/// Escaping here rather than in the vocabularies keeps the ampersand out of
+/// the *layer* name, which is the same string seen without a menu around it.
+fn as_menu_label(display: &str) -> String {
+    display.replace('&', "&&")
+}
+
 fn act(id: &str, label: &str, menu: &str, enablement: &str) -> ActionDescriptor {
     ActionDescriptor {
         id: id.into(),
@@ -770,7 +786,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::SelectionModifyOp::ALL.into_iter().map(|op| {
         act(
             &format!("action.select.{}", op.action_suffix()),
-            op.label(),
+            &as_menu_label(op.label()),
             "select.modify",
             "selection_active",
         )
@@ -785,7 +801,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::ShapePreset::ALL.into_iter().map(|preset| {
         act(
             &format!("action.layer.shape-{}", preset.as_str()),
-            preset.label(),
+            &as_menu_label(preset.label()),
             "layer.shape",
             "has_document",
         )
@@ -795,7 +811,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::BooleanOp::ALL.into_iter().map(|op| {
         act(
             &format!("action.layer.shape-{}", op.as_str()),
-            op.label(),
+            &as_menu_label(op.label()),
             "layer.boolean",
             "has_document_io_idle",
         )
@@ -812,7 +828,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::default_tools().into_iter().map(|tool| {
         act(
             &tool_action_id(&tool.id),
-            &tool.title,
+            &as_menu_label(&tool.title),
             "tools",
             "has_document",
         )
@@ -831,7 +847,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::default_panels().into_iter().map(|panel| {
         act(
             &panel_action_id(&panel.id),
-            &panel.title,
+            &as_menu_label(&panel.title),
             "window",
             "always",
         )
@@ -847,7 +863,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::AlignOp::ALL.into_iter().map(|op| {
         act(
             &align_action_id(op.as_str()),
-            op.label(),
+            &as_menu_label(op.label()),
             if op.is_distribute() {
                 "layer.distribute"
             } else {
@@ -870,7 +886,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::LayerStyle::ALL_KINDS.iter().map(|style| {
         act(
             &style_action_id(style.kind_key()),
-            style.label(),
+            &as_menu_label(style.label()),
             "layer.style",
             "has_document",
         )
@@ -883,7 +899,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::FilterParams::ALL_KINDS.iter().map(|params| {
         act(
             &filter_action_id(params.kind_key()),
-            params.label(),
+            &as_menu_label(params.label()),
             "filter",
             "has_document",
         )
@@ -899,7 +915,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
     actions.extend(crate::AdjustmentParams::ALL_KINDS.iter().map(|params| {
         act(
             &adjustment_action_id(params.kind_key()),
-            params.label(),
+            &as_menu_label(params.label()),
             ADJUSTMENT_SUBMENU,
             "has_document",
         )
@@ -1584,6 +1600,49 @@ mod tests {
         // A dangling separator is still a dangling separator.
         assert_eq!(normalize_shortcut("Ctrl+"), "Ctrl");
         assert_eq!(normalize_shortcut(""), "");
+    }
+
+    /// Every `&` in an action label is a mnemonic marker or an escaped literal.
+    ///
+    /// Qt reads `&` as "the next character is the accelerator" and `&&` as a
+    /// literal ampersand, and the shell strips the markers itself now that it
+    /// draws menu rows by hand. A lone `&` before a space is neither: the
+    /// stripper eats it *and* leaves the space, which is how the Black & White
+    /// adjustment reached the menu as "Black  White". Generated families take
+    /// their labels from display vocabularies that know nothing about
+    /// accelerators, so each goes through `as_menu_label`; this fails if a new
+    /// one forgets.
+    #[test]
+    fn every_action_label_escapes_its_ampersands() {
+        for action in action_table() {
+            let chars: Vec<char> = action.label.chars().collect();
+            let mut i = 0;
+            while i < chars.len() {
+                if chars[i] != '&' {
+                    i += 1;
+                    continue;
+                }
+                match chars.get(i + 1) {
+                    // An escaped literal.
+                    Some('&') => i += 2,
+                    // A mnemonic marks a character you can actually press.
+                    Some(next) if next.is_alphanumeric() => i += 2,
+                    other => panic!(
+                        "action {} has a stray `&` in {:?} (followed by {:?}). \
+                         Menu labels are Qt-style: `&x` marks an accelerator and \
+                         `&&` is a literal ampersand. A generated label should go \
+                         through `as_menu_label`.",
+                        action.id, action.label, other
+                    ),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_display_name_becomes_a_menu_label_with_its_ampersand_intact() {
+        assert_eq!(as_menu_label("Black & White"), "Black && White");
+        assert_eq!(as_menu_label("Levels"), "Levels");
     }
 
     #[test]
