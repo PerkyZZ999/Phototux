@@ -1429,7 +1429,7 @@ ApplicationWindow {
                     // Always on when there is more than fits: five rows out of
                     // twenty-three with no scrollbar reads as "eighteen are
                     // missing", not as "scroll for the rest".
-                    ScrollBar.vertical: ScrollBar {
+                    ScrollBar.vertical: ThemedScrollBar {
                         policy: recoveryList.contentHeight > recoveryList.height
                                 ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
                     }
@@ -3144,7 +3144,7 @@ ApplicationWindow {
                     // clipped a section's heading mid-word looked broken
                     // rather than scrollable — the one thing a dense dock has
                     // to say without being touched.
-                    ScrollBar.vertical: ScrollBar {
+                    ScrollBar.vertical: ThemedScrollBar {
                         policy: propertiesFlick.contentHeight > propertiesFlick.height
                                 ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
                     }
@@ -4124,6 +4124,7 @@ ApplicationWindow {
             contentItem: ScrollView {
                 clip: true
                 implicitHeight: Math.min(320, ioErrorLabel.implicitHeight + 16)
+                ScrollBar.vertical: ThemedScrollBar {}
                 Label {
                     id: ioErrorLabel
                     width: ioErrorDialog.availableWidth

@@ -250,7 +250,7 @@ Popup {
                     dialog.runSelected()
                 }
             }
-            ScrollBar.vertical: ScrollBar { }
+            ScrollBar.vertical: ThemedScrollBar { }
         }
 
         Label {

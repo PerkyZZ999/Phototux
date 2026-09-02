@@ -1767,6 +1767,12 @@ impl AppSession {
         self.dirty_changed();
         self.io_busy_changed();
         self.emit_layer_fields();
+        // The tab strip is a third view of `document_name` and `dirty`, and it
+        // is pushed rather than bound — so it goes stale wherever those two
+        // change and only the properties are re-emitted. Save As renamed the
+        // window title and left the tab reading "Untitled"; a save left the
+        // tab's dirty dot on. Refreshed here so a caller cannot forget.
+        self.refresh_document_tabs_json();
     }
 
     fn mark_dirty(&mut self) {

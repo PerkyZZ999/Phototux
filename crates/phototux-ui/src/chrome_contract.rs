@@ -230,6 +230,7 @@ mod tests {
                 ("Menu", "ThemedMenu"),
                 ("MenuItem", "ThemedMenuItem"),
                 ("DialogButtonBox", "ThemedDialogFooter"),
+                ("ScrollBar", "ThemedScrollBar"),
             ] {
                 // The themed component is allowed to *be* the bare control.
                 // `ThemedMenu` also names `ThemedMenuItem` as its delegate,
@@ -294,6 +295,33 @@ mod tests {
             }
         }
         assert!(checked > 3, "found {checked} icon buttons — the scan broke");
+    }
+
+    /// The tab strip is refreshed wherever the document fields are.
+    ///
+    /// A tab's label and dirty dot are `document_name` and `dirty` — the same
+    /// two values the window title binds to — but they reach QML through a
+    /// pushed JSON string rather than through those properties, so they go
+    /// stale wherever a caller re-emits the properties and forgets the strip.
+    /// Save As did exactly that: the window title took the new file name and
+    /// the tab went on reading "Untitled". `emit_doc_fields` is the one place
+    /// every such caller already goes through.
+    #[test]
+    fn the_tab_strip_is_refreshed_with_the_document_fields() {
+        let source = include_str!("lib.rs");
+        let start = source
+            .find("fn emit_doc_fields(&mut self) {")
+            .expect("emit_doc_fields exists");
+        let body_end = source[start..]
+            .find("\n    }")
+            .expect("emit_doc_fields is closed");
+        let body = &source[start..start + body_end];
+        assert!(
+            body.contains("self.refresh_document_tabs_json();"),
+            "emit_doc_fields no longer refreshes the tab strip, so every caller \
+             that renames or cleans a document leaves the tab reading the old \
+             name with the old dirty dot"
+        );
     }
 
     /// File dialogs open where the user last was, never where they were built.

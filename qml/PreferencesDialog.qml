@@ -132,7 +132,8 @@ Dialog {
         contentWidth: width
         contentHeight: prefsCol.implicitHeight
         focus: dialog.capturingActionId.length > 0
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: ThemedScrollBar {
+            id: prefsScroll
             policy: ScrollBar.AlwaysOn
             Accessible.name: qsTr("Preferences scroll")
         }
@@ -170,7 +171,10 @@ Dialog {
         ColumnLayout {
             id: prefsCol
             spacing: Theme.spaceMd
-            width: prefsFlick.width
+            // The scroll bar floats over the content rather than beside it, so
+            // the column keeps its width clear or the handle sits on top of
+            // the combo box and spin box on the right-hand edge.
+            width: prefsFlick.width - prefsScroll.implicitWidth
             Accessible.name: qsTr("Preferences content")
 
             Label {
