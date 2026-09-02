@@ -125,6 +125,24 @@ classDiagram
 
 The object store is indexed by `ObjectId`, not by presentation row or array offset. Ordered child collections contain IDs plus deterministic order information. Every contained object has exactly one owning document and, except the root, exactly one containment parent. Cross-links may target multiple objects but **MUST** declare whether target absence disables an operation, produces a preserved placeholder, or is invalid.
 
+### Resizing the document (shipped)
+
+Two commands, and they are not the same operation. `document.resize` (Image
+Size) resamples every layer and mask to a new pixel size; `document.canvas-size`
+(Canvas Size) changes the extent and resamples nothing, placing each layer into
+the new extent at an offset and clipping what falls outside.
+
+The offset comes from `CanvasAnchor`, Photoshop's nine-cell grid, and lives in
+the engine rather than the shell because it is arithmetic worth testing: a
+canvas grown by an odd number of pixels has to land somewhere, and the dialog
+and the resize disagreeing about where is the sort of half-pixel drift nobody
+notices until an edge is wrong. Centred anchors floor the difference, so
+growing by one and shrinking by one anchor consistently.
+
+Both clear the selection — it is in pixel coordinates that no longer describe
+the same part of the image — and both record a transform history entry, so one
+undo restores the size and the pixels together.
+
 Core conceptual records include:
 
 ```rust

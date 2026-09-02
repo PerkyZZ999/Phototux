@@ -447,6 +447,8 @@ pub struct AppSession {
     filter_gallery_open: bool,
     /// The Image Size dialog is open.
     image_size_open: bool,
+    /// The Canvas Size dialog is open.
+    canvas_size_open: bool,
     /// Which selection-modify op the radius prompt is open for; empty when it
     /// is closed. The wire id (`expand`), not the label.
     selection_modify_op: String,
@@ -733,6 +735,7 @@ impl AppSession {
             preferences_open: false,
             filter_gallery_open: false,
             image_size_open: false,
+            canvas_size_open: false,
             selection_modify_op: String::new(),
             selection_modify_title: String::new(),
             selection_modify_radius: 2,
@@ -2306,6 +2309,7 @@ impl AppSession {
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
             "image.size" => self.open_image_size(),
+            "image.canvas-size" => self.open_canvas_size(),
             "layer.duplicate" => self.duplicate_active_layer(),
             "layer.flatten" => self.flatten_image(),
             "layer.merge-down" => self.merge_layer_down(),
@@ -3681,6 +3685,11 @@ impl AppSession {
         Notify = image_size_open_changed
     );
     qproperty!(
+        "canvasSizeOpen",
+        Member = canvas_size_open,
+        Notify = canvas_size_open_changed
+    );
+    qproperty!(
         "selectionModifyOp",
         Member = selection_modify_op,
         Notify = selection_modify_op_changed
@@ -4135,6 +4144,8 @@ impl AppSession {
     #[qsignal]
     fn image_size_open_changed(&mut self);
     #[qsignal]
+    fn canvas_size_open_changed(&mut self);
+    #[qsignal]
     fn selection_modify_op_changed(&mut self);
     #[qsignal]
     fn selection_modify_title_changed(&mut self);
@@ -4520,6 +4531,24 @@ impl AppSession {
         }
         self.image_size_open = true;
         self.image_size_open_changed();
+    }
+
+    #[qslot]
+    fn open_canvas_size(&mut self) {
+        if !self.engine.has_document || self.canvas_size_open {
+            return;
+        }
+        self.canvas_size_open = true;
+        self.canvas_size_open_changed();
+    }
+
+    #[qslot]
+    fn close_canvas_size(&mut self) {
+        if !self.canvas_size_open {
+            return;
+        }
+        self.canvas_size_open = false;
+        self.canvas_size_open_changed();
     }
 
     #[qslot]
@@ -8560,6 +8589,48 @@ impl AppSession {
             self.clear_selection_stacks();
             let _ = self.invoke_command(
                 command_id::DOCUMENT_RESIZE,
+                CommandArgs::Resize {
+                    width: size.width,
+                    height: size.height,
+                },
+            );
+            self.publish_pixel_snapshot_from_gpu();
+        }
+    }
+
+    /// Give the document a new extent without resampling (Canvas Size).
+    ///
+    /// The anchor decides where the old image lands, and the offset is the
+    /// engine's arithmetic rather than the shell's: a canvas grown by an odd
+    /// number of pixels has to land somewhere, and the dialog and the resize
+    /// disagreeing about where is the sort of half-pixel drift nobody notices
+    /// until an edge is wrong.
+    #[qslot]
+    fn resize_canvas(&mut self, width: i32, height: i32, anchor: String) {
+        if !self.engine.has_document {
+            return;
+        }
+        let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
+            return;
+        };
+        let Some(anchor) = phototux_engine::CanvasAnchor::parse(&anchor) else {
+            self.notify(NoticeLevel::Warning, format!("Unknown anchor: {anchor}"));
+            return;
+        };
+        let size = phototux_engine::DocumentSize::new(w.clamp(1, 32_768), h.clamp(1, 32_768));
+        if self.engine.size == size {
+            return;
+        }
+        let (dx, dy) = anchor.offset(self.engine.size, size);
+        if self
+            .commit_layer_edit("canvas size", |layers| {
+                phototux_canvas::resize_canvas_document(size, dx, dy, layers).map(|ms| ((), ms))
+            })
+            .is_some()
+        {
+            self.clear_selection_stacks();
+            let _ = self.invoke_command(
+                command_id::DOCUMENT_CANVAS_SIZE,
                 CommandArgs::Resize {
                     width: size.width,
                     height: size.height,

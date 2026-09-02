@@ -870,3 +870,126 @@ mod tests {
         assert_eq!(g.layer_clips_joined(), "0|1");
     }
 }
+
+/// Where the existing image sits inside a resized canvas.
+///
+/// Photoshop's nine-cell anchor grid. The vocabulary is here rather than in
+/// the shell because the offset is arithmetic the engine can test: a canvas
+/// grown by an odd number of pixels has to land somewhere, and "somewhere"
+/// being different in the dialog and in the resize is exactly the kind of
+/// half-pixel drift nobody notices until an edge is wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CanvasAnchor {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    #[default]
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl CanvasAnchor {
+    /// Reading order, which is the order the dialog draws the grid in.
+    pub const ALL: [Self; 9] = [
+        Self::TopLeft,
+        Self::Top,
+        Self::TopRight,
+        Self::Left,
+        Self::Center,
+        Self::Right,
+        Self::BottomLeft,
+        Self::Bottom,
+        Self::BottomRight,
+    ];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TopLeft => "top-left",
+            Self::Top => "top",
+            Self::TopRight => "top-right",
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::BottomLeft => "bottom-left",
+            Self::Bottom => "bottom",
+            Self::BottomRight => "bottom-right",
+        }
+    }
+
+    /// Parse a wire id. `None` rather than a default, because anchoring
+    /// somewhere the user did not pick moves the whole image.
+    #[must_use]
+    pub fn parse(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.as_str() == id)
+    }
+
+    /// Offset of the old image's top-left corner inside the new canvas.
+    ///
+    /// Negative when the canvas shrinks and the image is centred or trailing —
+    /// the caller clips.
+    #[must_use]
+    pub fn offset(self, old: DocumentSize, new: DocumentSize) -> (i64, i64) {
+        let dx = i64::from(new.width) - i64::from(old.width);
+        let dy = i64::from(new.height) - i64::from(old.height);
+        let x = match self {
+            Self::TopLeft | Self::Left | Self::BottomLeft => 0,
+            Self::Top | Self::Center | Self::Bottom => dx.div_euclid(2),
+            Self::TopRight | Self::Right | Self::BottomRight => dx,
+        };
+        let y = match self {
+            Self::TopLeft | Self::Top | Self::TopRight => 0,
+            Self::Left | Self::Center | Self::Right => dy.div_euclid(2),
+            Self::BottomLeft | Self::Bottom | Self::BottomRight => dy,
+        };
+        (x, y)
+    }
+}
+
+#[cfg(test)]
+mod canvas_anchor_tests {
+    use super::{CanvasAnchor, DocumentSize};
+
+    #[test]
+    fn every_anchor_round_trips_through_its_wire_id() {
+        for anchor in CanvasAnchor::ALL {
+            assert_eq!(CanvasAnchor::parse(anchor.as_str()), Some(anchor));
+        }
+        assert_eq!(CanvasAnchor::parse("middle"), None);
+    }
+
+    #[test]
+    fn growing_places_the_image_where_the_anchor_says() {
+        let old = DocumentSize::new(100, 100);
+        let new = DocumentSize::new(200, 300);
+        assert_eq!(CanvasAnchor::TopLeft.offset(old, new), (0, 0));
+        assert_eq!(CanvasAnchor::Center.offset(old, new), (50, 100));
+        assert_eq!(CanvasAnchor::BottomRight.offset(old, new), (100, 200));
+        assert_eq!(CanvasAnchor::Top.offset(old, new), (50, 0));
+        assert_eq!(CanvasAnchor::Left.offset(old, new), (0, 100));
+    }
+
+    /// Shrinking is the same arithmetic with a negative difference, and the
+    /// centred case must floor rather than truncate toward zero — otherwise a
+    /// canvas grown by one pixel and one shrunk by one anchor differently.
+    #[test]
+    fn shrinking_offsets_are_negative_and_floor() {
+        let old = DocumentSize::new(100, 100);
+        assert_eq!(
+            CanvasAnchor::Center.offset(old, DocumentSize::new(99, 99)),
+            (-1, -1)
+        );
+        assert_eq!(
+            CanvasAnchor::Center.offset(old, DocumentSize::new(101, 101)),
+            (0, 0)
+        );
+        assert_eq!(
+            CanvasAnchor::BottomRight.offset(old, DocumentSize::new(50, 50)),
+            (-50, -50)
+        );
+    }
+}

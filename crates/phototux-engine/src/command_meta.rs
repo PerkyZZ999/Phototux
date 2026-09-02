@@ -196,6 +196,7 @@ pub const ALL: &[CommandMeta] = &[
     doc_tx(command_id::DOCUMENT_SET_ICC),
     doc_tx(command_id::DOCUMENT_CROP),
     doc_tx(command_id::DOCUMENT_RESIZE),
+    doc_tx(command_id::DOCUMENT_CANVAS_SIZE),
     doc_tx(command_id::DOCUMENT_ROTATE),
     doc_tx(command_id::DOCUMENT_FLIP),
     sel_tx(command_id::SELECTION_REPLACE),

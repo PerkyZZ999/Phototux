@@ -9,11 +9,11 @@ pub use document_gpu::{
     fill_layer, flip_document, flip_layer, has_document, last_composite_ms, last_stroke_latency_ms,
     open_document, open_raster_document, read_all_layer_rgba, read_all_mask_r8,
     read_composite_rgba, read_layer_rgba, read_mask_r8, redo_stroke, remove_mask,
-    resample_document, restore_document_layers, rotate_canvas, sample_composite_at,
-    sample_layer_at, selection_apply_ellipse, selection_apply_polygon, selection_apply_rect,
-    selection_clear, selection_color_select, selection_invert, selection_restore,
-    selection_select_all, selection_snapshot, snapshot_document_layers, stamp_dabs,
-    sync_and_composite, undo_stroke, write_layer_rgba, write_mask_r8,
+    resample_document, resize_canvas_document, restore_document_layers, rotate_canvas,
+    sample_composite_at, sample_layer_at, selection_apply_ellipse, selection_apply_polygon,
+    selection_apply_rect, selection_clear, selection_color_select, selection_invert,
+    selection_restore, selection_select_all, selection_snapshot, snapshot_document_layers,
+    stamp_dabs, sync_and_composite, undo_stroke, write_layer_rgba, write_mask_r8,
 };
 pub use paint_worker::PaintWorker;
 

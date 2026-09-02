@@ -4159,6 +4159,15 @@ ApplicationWindow {
     }
 
     LazyDialog {
+        id: canvasSizeLoader
+        requested: AppSession.canvasSizeOpen
+
+        CanvasSizeDialog {
+            afterHostSlot: root.afterHostSlot
+        }
+    }
+
+    LazyDialog {
         id: selectionModifyLoader
         requested: AppSession.selectionModifyOp.length > 0
 

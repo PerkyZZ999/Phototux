@@ -305,6 +305,15 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("image.size")
         .key("Ctrl+Alt+I")
         .icon("frame-corners"),
+        act(
+            "action.image.canvas-size",
+            "&Canvas Size…",
+            "image",
+            "has_document_io_idle",
+        )
+        .host("image.canvas-size")
+        .key("Ctrl+Alt+C")
+        .icon("arrows-out"),
         // Image > Image Rotation — the canvas. Photoshop's submenu, its order
         // and its names.
         act(

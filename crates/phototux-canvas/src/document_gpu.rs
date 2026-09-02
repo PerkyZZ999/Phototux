@@ -856,6 +856,76 @@ pub fn flip_document(horizontal: bool, layers: &[Layer]) -> Result<f32, String> 
     })
 }
 
+/// Give the document a new extent without resampling, and rebuild GPU state.
+///
+/// Canvas Size. Each layer and mask is placed into a buffer of the new size at
+/// `(offset_x, offset_y)`; what falls outside is clipped and the rest is left
+/// transparent. Not a resample: no pixel changes value, the image is simply
+/// given more or less room around it.
+///
+/// # Errors
+/// Returns an error when readback, placement or rebuild fails.
+pub fn resize_canvas_document(
+    size: DocumentSize,
+    offset_x: i64,
+    offset_y: i64,
+    layers: &[Layer],
+) -> Result<f32, String> {
+    let _queue_guard = super::SharedQueueGuard::lock();
+    let (ctx, placed, masks) = {
+        let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
+        let doc = guard
+            .as_mut()
+            .ok_or_else(|| "no document GPU state".to_owned())?;
+        // Not `with_document`: the shared queue guard is held across the
+        // reinstall below, so re-entering would take that lock twice.
+        doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
+        let (width, height) = doc.engine.size();
+        let mut placed = Vec::new();
+        let mut masks = Vec::new();
+        for layer in &doc.layers_meta.clone() {
+            let pixels = doc
+                .engine
+                .read_layer_rgba(&doc.ctx, layer.id)
+                .map_err(|e| e.to_string())?;
+            let out = phototux_gpu::place_rgba(
+                &pixels,
+                width,
+                height,
+                size.width,
+                size.height,
+                offset_x,
+                offset_y,
+            )?;
+            placed.push((layer.id, out));
+            if layer.mask.is_some()
+                && let Ok(mask) = doc.engine.read_mask_r8(&doc.ctx, layer.id)
+            {
+                let rgba: Vec<u8> = mask.iter().flat_map(|&v| [v, v, v, v]).collect();
+                let moved = phototux_gpu::place_rgba(
+                    &rgba,
+                    width,
+                    height,
+                    size.width,
+                    size.height,
+                    offset_x,
+                    offset_y,
+                )?;
+                masks.push((
+                    layer.id,
+                    moved.chunks_exact(4).map(|px| px[0]).collect::<Vec<u8>>(),
+                ));
+            }
+        }
+        (Arc::clone(&doc.ctx), placed, masks)
+    };
+    let ms = install_document(ctx, size, layers, &placed)?;
+    for (id, mask) in masks {
+        write_mask_r8(id, &mask)?;
+    }
+    Ok(ms)
+}
+
 /// Resample every layer to `size` and rebuild GPU state.
 ///
 /// Image Size. Every layer is resampled, not only the active one, and the

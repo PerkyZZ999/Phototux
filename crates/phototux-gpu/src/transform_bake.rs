@@ -109,6 +109,57 @@ pub fn rotate_rgba_90_cw(
     Ok((height, width, out))
 }
 
+/// Place tightly packed RGBA8 into a new `(dest_width, dest_height)` buffer at
+/// `(offset_x, offset_y)`, clipping what falls outside and leaving the rest
+/// transparent.
+///
+/// Canvas Size, which is not a resample: no pixel is resampled, the image is
+/// just given more or less room around it. Offsets are signed because
+/// shrinking with a centred anchor puts the old top-left outside the new
+/// canvas.
+///
+/// # Errors
+/// Returns an error when dimensions or buffer length are invalid.
+pub fn place_rgba(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    dest_width: u32,
+    dest_height: u32,
+    offset_x: i64,
+    offset_y: i64,
+) -> Result<Vec<u8>, String> {
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "dimension overflow".to_owned())?;
+    if pixels.len() < expected {
+        return Err("source buffer too small".to_owned());
+    }
+    let out_len = (dest_width as usize)
+        .checked_mul(dest_height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "dimension overflow".to_owned())?;
+    let mut out = vec![0_u8; out_len];
+    for sy in 0..i64::from(height) {
+        let dy = sy + offset_y;
+        if dy < 0 || dy >= i64::from(dest_height) {
+            continue;
+        }
+        // Clip the row once rather than testing every pixel in it.
+        let sx0 = (-offset_x).max(0);
+        let sx1 = i64::from(width).min(i64::from(dest_width) - offset_x);
+        if sx1 <= sx0 {
+            continue;
+        }
+        let span = ((sx1 - sx0) as usize) * 4;
+        let src = ((sy as usize) * (width as usize) + sx0 as usize) * 4;
+        let dst = ((dy as usize) * (dest_width as usize) + (sx0 + offset_x) as usize) * 4;
+        out[dst..dst + span].copy_from_slice(&pixels[src..src + span]);
+    }
+    Ok(out)
+}
+
 /// Resample tightly packed RGBA8 to `(dest_width, dest_height)`.
 ///
 /// Bilinear on the way up and a box average on the way down, chosen per axis:
@@ -351,6 +402,60 @@ mod tests {
         let px = solid(3, 2, [7, 8, 9, 255]);
         let out = bake_affine_rgba(&px, 3, 2, LayerTransform::identity()).expect("bake");
         assert_eq!(out, px);
+    }
+}
+
+#[cfg(test)]
+mod place_tests {
+    use super::place_rgba;
+
+    fn ramp(w: u32, h: u32) -> Vec<u8> {
+        (0..(w * h))
+            .flat_map(|i| {
+                let v = (i % 251) as u8;
+                [v, v, v, 255]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn growing_keeps_every_source_pixel_and_pads_the_rest() {
+        let src = ramp(2, 2);
+        let out = place_rgba(&src, 2, 2, 4, 4, 1, 1).expect("place");
+        assert_eq!(out.len(), 4 * 4 * 4);
+        // The 2×2 lands at (1, 1).
+        for y in 0..2_usize {
+            for x in 0..2_usize {
+                let s = (y * 2 + x) * 4;
+                let d = ((y + 1) * 4 + (x + 1)) * 4;
+                assert_eq!(&out[d..d + 4], &src[s..s + 4], "pixel {x},{y}");
+            }
+        }
+        // The border is untouched, which means transparent.
+        assert_eq!(&out[0..4], &[0, 0, 0, 0]);
+    }
+
+    /// A negative offset is a crop, not a panic.
+    #[test]
+    fn shrinking_clips_what_falls_outside() {
+        let src = ramp(4, 4);
+        let out = place_rgba(&src, 4, 4, 2, 2, -1, -1).expect("place");
+        assert_eq!(out.len(), 2 * 2 * 4);
+        // Destination (0, 0) is source (1, 1) in a 4-wide buffer.
+        let s = (4 + 1) * 4;
+        assert_eq!(&out[0..4], &src[s..s + 4]);
+    }
+
+    #[test]
+    fn an_offset_past_the_canvas_leaves_it_empty() {
+        let src = ramp(2, 2);
+        let out = place_rgba(&src, 2, 2, 2, 2, 5, 5).expect("place");
+        assert!(out.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn place_rejects_a_short_buffer() {
+        assert!(place_rgba(&[0; 4], 4, 4, 4, 4, 0, 0).is_err());
     }
 }
 

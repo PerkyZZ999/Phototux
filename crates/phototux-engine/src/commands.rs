@@ -87,6 +87,7 @@ impl SessionState {
             command_id::DOCUMENT_SET_ICC => self.cmd_document_set_icc(args),
             command_id::DOCUMENT_CROP => self.cmd_document_crop(args),
             command_id::DOCUMENT_RESIZE => self.cmd_document_resize(args),
+            command_id::DOCUMENT_CANVAS_SIZE => self.cmd_document_canvas_size(args),
             command_id::DOCUMENT_ROTATE => self.cmd_document_rotate(args),
             command_id::DOCUMENT_FLIP => self.cmd_document_flip(args),
             command_id::SELECTION_REPLACE => self.cmd_selection_replace(args),
@@ -1320,6 +1321,36 @@ impl SessionState {
             graph.generation
         };
         self.history.push_transform("Image Size", generation);
+        self.zoom_to_fit();
+        let mut effects = CommandEffects::document_edit(generation);
+        effects.sync_selection = true;
+        effects.sync_camera = true;
+        Ok(effects)
+    }
+
+    fn cmd_document_canvas_size(
+        &mut self,
+        args: CommandArgs,
+    ) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::Resize { width, height } = args else {
+            return Err(CommandError::InvalidArgument("expected canvas size"));
+        };
+        let size = crate::DocumentSize::new(width.clamp(1, 32_768), height.clamp(1, 32_768));
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        if graph.size == size {
+            return Err(CommandError::Rejected("the canvas is already that size"));
+        }
+        graph.size = size;
+        graph.revision = graph.revision.wrapping_add(1);
+        self.size = size;
+        self.selection.clear();
+        let generation = {
+            graph.bump_generation();
+            graph.generation
+        };
+        self.history.push_transform("Canvas Size", generation);
         self.zoom_to_fit();
         let mut effects = CommandEffects::document_edit(generation);
         effects.sync_selection = true;

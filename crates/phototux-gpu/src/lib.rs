@@ -34,7 +34,8 @@ pub use parity::{
 pub use phototux_engine::MAX_LAYERS;
 pub use selection::SelectionMask;
 pub use transform_bake::{
-    bake_affine_rgba, crop_rgba, flip_rgba, inverse_affine_coeffs, resize_rgba, rotate_rgba_90_cw,
+    bake_affine_rgba, crop_rgba, flip_rgba, inverse_affine_coeffs, place_rgba, resize_rgba,
+    rotate_rgba_90_cw,
 };
 
 use std::sync::Arc;
