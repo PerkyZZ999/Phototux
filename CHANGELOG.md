@@ -6,6 +6,9 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **Select ▸ Modify asks how far.** The five modify entries are spelled with an ellipsis, which promises the user gets to say how much, and each applied the registry's default the instant it was clicked instead — a 2px expand, a 4px feather. For feather especially the radius *is* the operation, so a fixed one was close to useless. They open a radius prompt now, and the action's argument is the value the prompt opens on rather than the value it applies.
+- **"Grow…" was the wrong name for Expand.** Photoshop has a Select ▸ Grow, and it extends a selection to neighbouring pixels of similar colour — nothing like a fixed dilation. The labels are Expand… and Contract…, and all five moved into a **Modify** submenu, which is where Photoshop keeps them and which leaves the Select menu's first screen to the five commands people actually reach for.
+
 - **The status bar printed the zoom twice**, once in the document summary on the left and again four items to its right, in the cluster reserved for per-frame metrics. The duplicate is gone and a guard fails on any label there that reads a field the summary already states.
 
 - **There was no way to zoom in or out.** An image editor with a zoom tool, a Navigator and a zoom readout in the status bar had no Zoom In, no Zoom Out and no 100% — one Zoom to Fit on `Ctrl+Shift+J`, which is not a zoom binding in any editor. The View menu now opens on the four Photoshop puts first: Zoom In (`Ctrl+=`), Zoom Out (`Ctrl+-`), Actual Pixels (`Ctrl+1`) and Fit on Screen (`Ctrl+0`).

@@ -140,15 +140,31 @@ impl SelectionModifyOp {
     }
 
     /// Display name for menus.
+    ///
+    /// Photoshop's names, and `Expand` in particular is not negotiable:
+    /// Photoshop *has* a Select > Grow, and it extends a selection to
+    /// neighbouring pixels of similar colour. Labelling a fixed 2px dilation
+    /// "Grow…" hands a Photoshop user the wrong command under the name of one
+    /// they know.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Feather => "Feather…",
-            Self::Expand => "Grow…",
-            Self::Contract => "Shrink…",
+            Self::Expand => "Expand…",
+            Self::Contract => "Contract…",
             Self::Smooth => "Smooth…",
             Self::Border => "Border…",
         }
+    }
+
+    /// The menu label without its ellipsis, for a dialog title or a button.
+    ///
+    /// Derived rather than a second table: a label and a title that can drift
+    /// is exactly how a dialog ends up saying "Expand" over a control that
+    /// contracts.
+    #[must_use]
+    pub fn short_label(self) -> &'static str {
+        self.label().trim_end_matches('…')
     }
 
     /// Parse a registry or QML label, `None` when it names no known op.

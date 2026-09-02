@@ -120,7 +120,7 @@ QML lives in `qml/` and ships through the AOT module built by `crates/phototux/b
 | | `ThemedDialogFooter` is the one to reach for whenever a `Dialog` sets `standardButtons`: that property builds its buttons from the Controls style, so a dialog that never writes a button down still ships light ones. `Dialog.standardButtons` forwards to a `DialogButtonBox` footer, so the declaration stays where it was and only the footer type changes. |
 | | `ThemedScrollBar` floats over content rather than sitting beside it, so a caller that cannot afford the overlap reserves `implicitWidth` at its right edge — the Properties panel and the Preferences dialog both do. |
 | `NewDocumentDialog.qml`, `WelcomeDialog.qml` | Entry dialogs |
-| `FilterGalleryDialog.qml`, `CommandPaletteDialog.qml`, `PreferencesDialog.qml` | Extracted shell dialogs |
+| `FilterGalleryDialog.qml`, `CommandPaletteDialog.qml`, `PreferencesDialog.qml`, `SelectionModifyDialog.qml` | Extracted shell dialogs |
 
 A component pulled out of `Main.qml` takes its dependencies as `required property` rather than reaching for ids in the shell's scope — that scope is what makes inline blocks unmovable, and declaring the seam is what makes an extraction reviewable. Measure the crossings in both directions before cutting: ids the body reads from outside, and ids outside the body that read into it. The latter are the ones greps miss, and each one needs a function or signal on the new component rather than a reach back.
 

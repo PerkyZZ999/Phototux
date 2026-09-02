@@ -445,6 +445,13 @@ pub struct AppSession {
     shortcut_input_yield: bool,
     preferences_open: bool,
     filter_gallery_open: bool,
+    /// Which selection-modify op the radius prompt is open for; empty when it
+    /// is closed. The wire id (`expand`), not the label.
+    selection_modify_op: String,
+    /// Title for that prompt, so QML does not restate the op's display name.
+    selection_modify_title: String,
+    /// Radius the prompt opens on — the registry's default for the op.
+    selection_modify_radius: i32,
     filter_preview_kind: String,
     filter_preview_p0: f32,
     filter_preview_p1: f32,
@@ -723,6 +730,9 @@ impl AppSession {
             shortcut_input_yield: false,
             preferences_open: false,
             filter_gallery_open: false,
+            selection_modify_op: String::new(),
+            selection_modify_title: String::new(),
+            selection_modify_radius: 2,
             filter_preview_kind: "gaussian".into(),
             filter_preview_p0: 4.0,
             filter_preview_p1: 0.0,
@@ -2279,7 +2289,7 @@ impl AppSession {
             "selection.deselect" => self.select_none(),
             "selection.invert" => self.invert_selection(),
             "selection.modify" => match arg.and_then(parse_selection_modify_arg) {
-                Some((op, radius)) => self.apply_selection_modify(op, radius),
+                Some((op, radius)) => self.open_selection_modify_prompt(op, radius),
                 None => {
                     // A registry entry the host cannot read is a wiring bug,
                     // not user error, so it names the argument that failed
@@ -3649,6 +3659,21 @@ impl AppSession {
         Notify = filter_gallery_open_changed
     );
     qproperty!(
+        "selectionModifyOp",
+        Member = selection_modify_op,
+        Notify = selection_modify_op_changed
+    );
+    qproperty!(
+        "selectionModifyTitle",
+        Member = selection_modify_title,
+        Notify = selection_modify_title_changed
+    );
+    qproperty!(
+        "selectionModifyRadius",
+        Member = selection_modify_radius,
+        Notify = selection_modify_radius_changed
+    );
+    qproperty!(
         "filterPreviewActive",
         Member = filter_preview_active,
         Notify = filter_preview_active_changed
@@ -4086,6 +4111,12 @@ impl AppSession {
     #[qsignal]
     fn filter_gallery_open_changed(&mut self);
     #[qsignal]
+    fn selection_modify_op_changed(&mut self);
+    #[qsignal]
+    fn selection_modify_title_changed(&mut self);
+    #[qsignal]
+    fn selection_modify_radius_changed(&mut self);
+    #[qsignal]
     fn filter_preview_active_changed(&mut self);
     #[qsignal]
     fn filter_preview_kind_changed(&mut self);
@@ -4440,6 +4471,31 @@ impl AppSession {
     fn close_preferences(&mut self) {
         self.preferences_open = false;
         self.preferences_open_changed();
+    }
+
+    /// Ask for a radius before running a selection-modify op.
+    ///
+    /// The Select > Modify entries are spelled with an ellipsis, which is a
+    /// promise that the user gets to say how much. They had been applying a
+    /// fixed radius from the registry the moment they were clicked — a 2px
+    /// expand, a 4px feather — which is both a broken promise and, for
+    /// feather especially, close to useless: the radius *is* the operation.
+    fn open_selection_modify_prompt(&mut self, op: SelectionModifyOp, radius: u32) {
+        self.selection_modify_op = op.as_str().to_owned();
+        self.selection_modify_title = format!("{} Selection", op.short_label());
+        self.selection_modify_radius = i32::try_from(radius).unwrap_or(2);
+        self.selection_modify_op_changed();
+        self.selection_modify_title_changed();
+        self.selection_modify_radius_changed();
+    }
+
+    #[qslot]
+    fn close_selection_modify_prompt(&mut self) {
+        if self.selection_modify_op.is_empty() {
+            return;
+        }
+        self.selection_modify_op.clear();
+        self.selection_modify_op_changed();
     }
 
     #[qslot]
@@ -7261,7 +7317,7 @@ impl AppSession {
                 );
                 self.notify(
                     NoticeLevel::Info,
-                    format!("Selection {} ({radius}px)", op.as_str()),
+                    format!("{} selection by {radius} px", op.short_label()),
                 );
             }
             Err(error) => self.report_gpu("modify selection", &error),

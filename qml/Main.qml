@@ -1265,6 +1265,16 @@ ApplicationWindow {
                 onObjectAdded: (index, object) => selectMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => selectMenu.removeItem(object)
             }
+            ThemedMenu {
+                id: selectModifyMenu
+                title: qsTr("&Modify")
+                Instantiator {
+                    model: root.actionsForMenu("select.modify")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => selectModifyMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => selectModifyMenu.removeItem(object)
+                }
+            }
         }
         ThemedMenu {
             id: filterMenu
@@ -4099,6 +4109,18 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+    }
+
+    // Select > Modify asks how far, because its entries are spelled with an
+    // ellipsis and because the radius *is* the operation — a feather is
+    // nothing but its radius.
+    LazyDialog {
+        id: selectionModifyLoader
+        requested: AppSession.selectionModifyOp.length > 0
+
+        SelectionModifyDialog {
+            afterHostSlot: root.afterHostSlot
         }
     }
 

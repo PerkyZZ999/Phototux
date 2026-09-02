@@ -31,6 +31,19 @@ Five ops, all on `SelectionModifyOp`, which owns its wire name, display label, m
 
 A conformance test refuses an op that no action can invoke, and it fired the moment Smooth and Border were added against three hand-written menu entries.
 
+Grow and Shrink above are the *morphology*. The **menu labels are Expand… and
+Contract…**, which is what Photoshop calls them, and the distinction matters:
+Photoshop also has a Select ▸ Grow, and it extends a selection to neighbouring
+pixels of similar colour. Labelling a fixed dilation "Grow…" hands a Photoshop
+user the wrong command under the name of one they already know.
+
+All five live in a **Select ▸ Modify** submenu, again Photoshop's placement, and
+each opens a radius prompt (`SelectionModifyDialog`) rather than applying the
+registry's default the instant it is clicked. The ellipsis in the label is a
+promise, and for feather the radius *is* the operation: a fixed 4px feather and
+a fixed 2px expand are close to useless. The action's argument is now the value
+the prompt opens on rather than the value it applies.
+
 ## Responsibilities
 
 The selection system **MUST**:

@@ -656,16 +656,20 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("app.recover_gpu")
         .icon("arrows-clockwise"),
     ];
-    // One Select-menu entry per modify op, generated from the vocabulary.
+    // One Select > Modify entry per modify op, generated from the vocabulary.
     //
     // A conformance test already refuses an op the user cannot invoke, and it
     // fired the moment Smooth and Border were added — three hand-written
     // entries against what is now a five-op vocabulary.
+    //
+    // They sit in a submenu because Photoshop's do, and because five entries
+    // that each open a radius prompt are the depth of the Select menu rather
+    // than its first screen.
     actions.extend(crate::SelectionModifyOp::ALL.into_iter().map(|op| {
         act(
             &format!("action.select.{}", op.action_suffix()),
             op.label(),
-            "select",
+            "select.modify",
             "selection_active",
         )
         .host("selection.modify")
