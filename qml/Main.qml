@@ -3852,24 +3852,63 @@ ApplicationWindow {
                         reuseItems: true
                         cacheBuffer: 88
                         model: AppSession.historyModel
-                        delegate: Label {
+                        delegate: Item {
+                            id: historyRow
                             // Roles from the model item's field names, which
                             // the derive leaves in snake_case.
                             required property string label
                             required property string kind
                             required property int entry_id
+                            required property bool undone
 
                             width: historyList.width
                             height: 22
-                            leftPadding: Theme.spaceSm
-                            text: kind.length > 0 ? (label + " · " + kind) : label
-                            color: Theme.colorOnSurfaceVariant
-                            font.pixelSize: Theme.fontBodySm
-                            elide: Text.ElideRight
-                            Accessible.name: text
-                            MouseArea {
+
+                            // An undone step is still on the timeline, and
+                            // clicking it walks forward to it. Dimmed rather
+                            // than hidden, the way Photoshop greys the steps
+                            // ahead of where you are.
+                            opacity: historyRow.undone ? 0.45 : 1.0
+
+                            Rectangle {
                                 anchors.fill: parent
-                                onClicked: AppSession.jumpHistoryEntry(entry_id)
+                                color: historyHover.hovered
+                                       ? Theme.surfaceContainerHigh : "transparent"
+                            }
+
+                            Label {
+                                anchors.left: parent.left
+                                anchors.right: historyKind.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: Theme.spaceSm
+                                anchors.rightMargin: Theme.spaceSm
+                                text: historyRow.label
+                                color: Theme.colorOnSurfaceVariant
+                                font.pixelSize: Theme.fontBodySm
+                                elide: Text.ElideRight
+                            }
+                            // The kind is taxonomy, not a name: inline it read
+                            // "Brush stroke · stroke". Set to one side, in the
+                            // same muted trailing column the command palette
+                            // uses for an action's menu.
+                            Label {
+                                id: historyKind
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.rightMargin: Theme.spaceSm
+                                text: historyRow.kind
+                                color: Theme.colorOnSurfaceMuted
+                                font.pixelSize: Theme.fontLabelSm
+                            }
+
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: historyRow.undone
+                                             ? qsTr("%1 (undone)").arg(historyRow.label)
+                                             : historyRow.label
+
+                            HoverHandler { id: historyHover }
+                            TapHandler {
+                                onTapped: AppSession.jumpHistoryEntry(historyRow.entry_id)
                             }
                         }
                     }

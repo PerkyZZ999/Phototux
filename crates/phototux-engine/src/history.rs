@@ -240,25 +240,44 @@ impl HistoryService {
         self.undo.iter().rev().map(|e| e.kind.as_str()).collect()
     }
 
-    /// The history panel's rows, newest first.
+    /// Number of redo steps needed to make `entry_id` the newest applied entry.
+    ///
+    /// Returns `None` when the id is not on the redo side. `redo` is ordered
+    /// so its *last* element is the next step forward, which is why the count
+    /// runs from the end.
+    #[must_use]
+    pub fn redo_steps_to_entry(&self, entry_id: u64) -> Option<usize> {
+        let pos = self.redo.iter().position(|e| e.id == entry_id)?;
+        Some(self.redo.len() - pos)
+    }
+
+    /// The history panel's rows, newest first — undone steps included.
     ///
     /// One walk of the timeline instead of three. The label, kind and id of an
     /// entry were built by three separate passes returning three lists that the
     /// panel then re-associated by index — which is only correct as long as all
     /// three are rebuilt together, a property nothing checked.
+    ///
+    /// The redo side is part of the timeline, not a separate thing: a panel
+    /// that lists only what is currently applied erases a step the moment it
+    /// is undone, so there is nothing to see and nothing to click back to.
+    /// Undone rows come first because they are the future — `redo` holds the
+    /// furthest-forward step at index 0.
     #[must_use]
     pub fn rows_newest_first(&self) -> Vec<HistoryRow> {
-        self.undo
+        // i64 rather than u64: this is the id the panel hands back to
+        // `jumpHistoryEntry`, which takes a signed value because QML has no
+        // unsigned integer type.
+        let row = |e: &HistoryEntry, undone: bool| HistoryRow {
+            entry_id: i64::try_from(e.id).unwrap_or(i64::MAX),
+            label: e.label.clone(),
+            kind: e.kind.as_str().to_owned(),
+            undone,
+        };
+        self.redo
             .iter()
-            .rev()
-            .map(|e| HistoryRow {
-                // i64 rather than u64: this is the id the panel hands back to
-                // `jumpHistoryEntry`, which takes a signed value because QML
-                // has no unsigned integer type.
-                entry_id: i64::try_from(e.id).unwrap_or(i64::MAX),
-                label: e.label.clone(),
-                kind: e.kind.as_str().to_owned(),
-            })
+            .map(|e| row(e, true))
+            .chain(self.undo.iter().rev().map(|e| row(e, false)))
             .collect()
     }
 }
@@ -270,6 +289,8 @@ pub struct HistoryRow {
     pub label: String,
     /// `graph`, `stroke`, `selection` or `transform`.
     pub kind: String,
+    /// The step has been undone and is waiting on the redo side.
+    pub undone: bool,
 }
 
 impl Default for HistoryService {
@@ -301,5 +322,69 @@ mod tests {
         assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Graph));
         assert_eq!(g.layer_count(), 2);
         let _ = actions::add_layer;
+    }
+
+    /// An undone step is still part of the timeline.
+    ///
+    /// The panel listed only the applied side, so undoing a step erased the
+    /// row for it: nothing showed what redo would bring back, and there was
+    /// nothing to click to get there.
+    #[test]
+    fn an_undone_step_stays_on_the_timeline() {
+        let mut g = DocumentGraph::new(DocumentSize::new(8, 8));
+        let mut h = HistoryService::new(64);
+        h.push_stroke("First", 1);
+        h.push_stroke("Second", 2);
+        h.push_stroke("Third", 3);
+        assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Stroke));
+        assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Stroke));
+
+        let rows = h.rows_newest_first();
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.label.as_str(), r.undone))
+                .collect::<Vec<_>>(),
+            vec![("Third", true), ("Second", true), ("First", false)],
+            "the future comes first and is marked as such"
+        );
+    }
+
+    /// A new edit replaces the branch, and the undone rows go with it.
+    #[test]
+    fn a_new_edit_drops_the_steps_it_replaced() {
+        let mut g = DocumentGraph::new(DocumentSize::new(8, 8));
+        let mut h = HistoryService::new(64);
+        h.push_stroke("First", 1);
+        h.push_stroke("Second", 2);
+        assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Stroke));
+        h.push_stroke("Instead", 3);
+        assert_eq!(
+            h.rows_newest_first()
+                .iter()
+                .map(|r| r.label.clone())
+                .collect::<Vec<_>>(),
+            vec!["Instead".to_owned(), "First".to_owned()]
+        );
+    }
+
+    /// Clicking an undone row redoes forward to it.
+    #[test]
+    fn a_step_on_the_redo_side_is_counted_forwards() {
+        let mut g = DocumentGraph::new(DocumentSize::new(8, 8));
+        let mut h = HistoryService::new(64);
+        h.push_stroke("First", 1);
+        h.push_stroke("Second", 2);
+        h.push_stroke("Third", 3);
+        let ids: Vec<u64> = h.entries_undo().iter().map(|e| e.id).collect();
+        assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Stroke));
+        assert_eq!(h.undo_next(&mut g), Some(HistoryKind::Stroke));
+
+        // Second is one step forward, Third is two.
+        assert_eq!(h.redo_steps_to_entry(ids[1]), Some(1));
+        assert_eq!(h.redo_steps_to_entry(ids[2]), Some(2));
+        // First is behind, so it is an undo target and not a redo one.
+        assert_eq!(h.redo_steps_to_entry(ids[0]), None);
+        assert_eq!(h.undo_steps_to_entry(ids[0]), Some(0));
+        assert_eq!(h.redo_steps_to_entry(9_999), None);
     }
 }

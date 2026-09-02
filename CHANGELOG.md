@@ -6,6 +6,9 @@ All notable decision milestones and project state changes.
 
 ### Internal
 
+- **Undoing a step deleted its row from the History panel.** The projection walked only the applied side of the timeline, so an undone edit left nothing to say what redo would bring back and nothing to click to get there — a history that only remembers where you stayed. Undone steps are listed now, dimmed above the cursor the way Photoshop greys the steps ahead of you, and clicking one walks *forward* to it: `history.jump` asks the applied side first and the redo side second, and carries the direction through to the host.
+- The panel stops reading "Brush stroke · stroke". A row's kind is taxonomy rather than a name, and it now sits in the same muted trailing column the command palette uses for an action's menu.
+
 - **Save As renamed the window title and left the tab reading "Untitled".** A tab's label and dirty dot are `document_name` and `dirty` — the two values the title binds to — but they reach QML as a pushed JSON string rather than as those properties, so the strip went stale wherever a caller re-emitted the properties and forgot it. Saving also left the dirty dot on. The push now sits inside `emit_doc_fields`, which every such caller already goes through, and `the_tab_strip_is_refreshed_with_the_document_fields` fails if it is taken back out.
 - **Scroll bars are themed.** The Basic style draws its handle in `palette.mid` and, under `AlwaysOn`, leaves a hairline track behind it — a pale grey blob on a white rule, which in the Preferences dialog ran straight down through the UI-density combo box and the history-retention spin box. `ThemedScrollBar` is a quiet overlay bar that thickens under the pointer, and the two surfaces that pin theirs on now reserve its width instead of letting the handle land on the control beneath it.
 

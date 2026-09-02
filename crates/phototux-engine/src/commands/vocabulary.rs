@@ -271,9 +271,12 @@ pub enum HostFollowUp {
     MaskToSelection,
     /// Bake active layer mask into layer pixels, then clear mask (GPU host).
     ApplyMask,
-    /// Undo `steps` times to jump the history timeline (host applies stroke/selection stacks).
+    /// Move `steps` along the history timeline (host applies stroke/selection
+    /// stacks). `forward` redoes rather than undoes: the panel lists undone
+    /// steps too, so a click can land on either side of the present.
     HistoryJump {
         steps: u32,
+        forward: bool,
     },
     /// Rasterize two shape layers, boolean-combine, write into `result` raster layer.
     ShapeBoolean {

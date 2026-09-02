@@ -2378,9 +2378,14 @@ impl AppSession {
             HostFollowUp::SelectionToMask => self.apply_selection_to_mask_host(),
             HostFollowUp::MaskToSelection => self.apply_mask_to_selection_host(),
             HostFollowUp::ApplyMask => self.apply_mask_host(),
-            HostFollowUp::HistoryJump { steps } => {
+            HostFollowUp::HistoryJump { steps, forward } => {
+                let step = if forward {
+                    command_id::HISTORY_REDO
+                } else {
+                    command_id::HISTORY_UNDO
+                };
                 for _ in 0..steps {
-                    let _ = self.invoke_command(command_id::HISTORY_UNDO, CommandArgs::None);
+                    let _ = self.invoke_command(step, CommandArgs::None);
                 }
             }
             HostFollowUp::ShapeBoolean { op, a, b, result } => {

@@ -247,16 +247,25 @@ impl SessionState {
         let CommandArgs::HistoryJump { entry_id } = args else {
             return Err(CommandError::InvalidArgument("expected HistoryJump"));
         };
-        let steps = self
-            .history
-            .undo_steps_to_entry(entry_id)
-            .ok_or(CommandError::Rejected("history entry not found"))?;
+        // Either side of the present is a legal target: the panel lists the
+        // undone steps as well, and clicking one of those means redo.
+        let (steps, forward) = match self.history.undo_steps_to_entry(entry_id) {
+            Some(steps) => (steps, false),
+            None => (
+                self.history
+                    .redo_steps_to_entry(entry_id)
+                    .ok_or(CommandError::Rejected("history entry not found"))?,
+                true,
+            ),
+        };
         if steps == 0 {
             return Err(CommandError::Rejected("already at history entry"));
         }
-        self.announce(format!("Jump history (−{steps})"));
+        let sign = if forward { '+' } else { '−' };
+        self.announce(format!("Jump history ({sign}{steps})"));
         Ok(CommandEffects::host_chrome(HostFollowUp::HistoryJump {
             steps: u32::try_from(steps).unwrap_or(u32::MAX),
+            forward,
         }))
     }
 

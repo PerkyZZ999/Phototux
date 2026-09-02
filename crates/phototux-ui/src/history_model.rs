@@ -31,6 +31,8 @@ pub struct HistoryItem {
     /// Signed because QML has no unsigned integer type, and this is handed
     /// back to `jumpHistoryEntry` unchanged.
     pub entry_id: i64,
+    /// The step is undone, and clicking it redoes forward to it.
+    pub undone: bool,
 }
 
 impl From<phototux_engine::HistoryRow> for HistoryItem {
@@ -39,6 +41,7 @@ impl From<phototux_engine::HistoryRow> for HistoryItem {
             label: row.label,
             kind: row.kind,
             entry_id: row.entry_id,
+            undone: row.undone,
         }
     }
 }
@@ -133,11 +136,13 @@ mod tests {
             entry_id: 42,
             label: "Paint stroke".to_owned(),
             kind: "stroke".to_owned(),
+            undone: true,
         };
         let item = HistoryItem::from(row.clone());
         assert_eq!(item.entry_id, row.entry_id);
         assert_eq!(item.label, row.label);
         assert_eq!(item.kind, row.kind);
+        assert_eq!(item.undone, row.undone);
     }
 
     /// The delegate binds these by hand, and `entry_id` is the one that has
@@ -150,6 +155,6 @@ mod tests {
             .into_values()
             .collect();
         names.sort();
-        assert_eq!(names, vec!["entry_id", "kind", "label"]);
+        assert_eq!(names, vec!["entry_id", "kind", "label", "undone"]);
     }
 }
