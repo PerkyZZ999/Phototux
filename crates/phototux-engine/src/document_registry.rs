@@ -32,7 +32,27 @@ pub struct ParkedDocument {
     pub session: SessionState,
     /// Layer RGBA8 buffers for GPU rehydrate (`recover_gpu_document`).
     pub layer_pixels: Vec<(LayerId, Vec<u8>)>,
+    /// Smart-object sources belonging to this document (DR-032).
+    ///
+    /// They park here for the same reason `layer_pixels` does — the host holds
+    /// exactly one document's worth of them, and layer ids restart at 1 in
+    /// every graph. Left in the host, a second document's smart object at
+    /// layer 3 would read, show and save the *first* document's pixels.
+    pub smart_sources: Vec<(LayerId, SmartSource)>,
     pub dirty: bool,
+}
+
+/// A smart object's pristine source pixels.
+///
+/// A named triple rather than a bare one: a buffer that does not match its own
+/// dimensions is the kind of thing that reaches the rasterizer and produces a
+/// shape with no pixels and no explanation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SmartSource {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height * 4` bytes.
+    pub pixels: Vec<u8>,
 }
 
 /// Registry of open documents; at most one is active in the host engine slot.
@@ -97,6 +117,7 @@ impl DocumentRegistry {
         title: String,
         session: SessionState,
         layer_pixels: Vec<(LayerId, Vec<u8>)>,
+        smart_sources: Vec<(LayerId, SmartSource)>,
         dirty: bool,
     ) {
         self.parked.push(ParkedDocument {
@@ -104,6 +125,7 @@ impl DocumentRegistry {
             title,
             session,
             layer_pixels,
+            smart_sources,
             dirty,
         });
         if self.active_id == Some(id) {
@@ -166,12 +188,57 @@ mod tests {
         let mut reg = DocumentRegistry::new();
         let id = reg.begin_active("A").expect("open");
         assert_eq!(reg.open_count(), 1);
-        reg.park_active(id, "A".into(), SessionState::default(), Vec::new(), true);
+        reg.park_active(
+            id,
+            "A".into(),
+            SessionState::default(),
+            Vec::new(),
+            Vec::new(),
+            true,
+        );
         assert_eq!(reg.open_count(), 1);
         assert!(reg.active_id().is_none());
         let taken = reg.take_parked(id).expect("parked");
         assert!(taken.dirty);
         assert_eq!(reg.open_count(), 0);
+    }
+
+    /// Layer ids restart at 1 in every graph, so a source left behind by one
+    /// document is a source the next one will read under the same id.
+    #[test]
+    fn a_documents_smart_sources_park_and_come_back_with_it() {
+        let mut reg = DocumentRegistry::new();
+        let a = reg.begin_active("A").expect("open");
+        let source = SmartSource {
+            width: 1,
+            height: 1,
+            pixels: vec![7, 7, 7, 255],
+        };
+        reg.park_active(
+            a,
+            "A".into(),
+            SessionState::default(),
+            Vec::new(),
+            vec![(LayerId(3), source.clone())],
+            false,
+        );
+        let b = reg.begin_active("B").expect("open");
+        reg.park_active(
+            b,
+            "B".into(),
+            SessionState::default(),
+            Vec::new(),
+            Vec::new(),
+            false,
+        );
+        assert!(
+            reg.take_parked(b).expect("B").smart_sources.is_empty(),
+            "B was handed A's sources"
+        );
+        assert_eq!(
+            reg.take_parked(a).expect("A").smart_sources,
+            vec![(LayerId(3), source)]
+        );
     }
 
     #[test]
@@ -184,6 +251,7 @@ mod tests {
                 id,
                 format!("D{i}"),
                 SessionState::default(),
+                Vec::new(),
                 Vec::new(),
                 false,
             );

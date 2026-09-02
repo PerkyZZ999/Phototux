@@ -312,6 +312,14 @@ it in a `SRCE` chunk. `SmartObjectContent` carries what the engine does need —
 the source's name, its asset key, its dimensions, and the placement — so a
 placement can be reasoned about and reported without the pixels being resident.
 
+A source lives as long as its **document**, not as long as the layer that
+references it. A deleted layer, or one rasterized back to pixels, can be
+restored by undo, and the restored smart object has to still work — dropping
+its pixels at the moment of the edit left the panel describing a source that no
+longer existed. Sources park and unpark with their document for the same
+reason `layer_pixels` does: layer ids restart at 1 in every graph, so sources
+left behind by one document are sources the next one reads under the same ids.
+
 Only a **pixel** layer can be wrapped. A group, text, shape, adjustment or fill
 layer describes itself rather than owning a buffer, so there is nothing to
 capture; wrapping one would mean flattening it first, which is a separate

@@ -399,7 +399,7 @@ pub struct AppSession {
     /// re-applies the whole transform, so nothing is ever composed twice —
     /// which is the entire behaviour that separates a smart object from a
     /// layer someone transformed.
-    smart_sources: HashMap<LayerId, (u32, u32, Vec<u8>)>,
+    smart_sources: HashMap<LayerId, phototux_engine::SmartSource>,
     /// Inactive open documents (active session is [`Self::engine`]).
     doc_registry: DocumentRegistry,
     active_doc_id: Option<OpenDocumentId>,
@@ -795,7 +795,11 @@ impl AppSession {
         for (id, source) in parts.sources {
             self.smart_sources.insert(
                 LayerId(id),
-                (source.width(), source.height(), source.pixels().to_vec()),
+                phototux_engine::SmartSource {
+                    width: source.width(),
+                    height: source.height(),
+                    pixels: source.pixels().to_vec(),
+                },
             );
         }
         match phototux_canvas::open_document(graph.size, graph.layers()) {
@@ -2635,11 +2639,16 @@ impl AppSession {
         let title = self.document_name.clone();
         let dirty = self.dirty;
         let session = std::mem::take(&mut self.engine);
+        // Layer ids restart at 1 in every graph, so leaving these behind would
+        // hand the next document this one's sources under the same ids.
+        let smart_sources: Vec<_> = std::mem::take(&mut self.smart_sources)
+            .into_iter()
+            .collect();
         phototux_canvas::close_document();
         self.clear_selection_stacks();
         self.clear_transform_stacks();
         self.doc_registry
-            .park_active(id, title, session, layer_pixels, dirty);
+            .park_active(id, title, session, layer_pixels, smart_sources, dirty);
         self.active_doc_id = None;
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
@@ -2679,6 +2688,7 @@ impl AppSession {
         let viewport_height = self.engine.viewport_h;
         self.engine = parked.session;
         self.engine.set_viewport(viewport_width, viewport_height);
+        self.smart_sources = parked.smart_sources.into_iter().collect();
         self.document_name = parked.title;
         self.dirty = parked.dirty;
         self.active_doc_id = Some(id);
@@ -5480,10 +5490,14 @@ impl AppSession {
         self.smart_sources
             .iter()
             .filter(|(id, _)| graph.get(**id).is_some_and(|l| l.smart.is_some()))
-            .filter_map(|(id, (width, height, pixels))| {
-                Raster::new(*width, *height, pixels.clone().into_boxed_slice())
-                    .ok()
-                    .map(|raster| (id.0, raster))
+            .filter_map(|(id, source)| {
+                Raster::new(
+                    source.width,
+                    source.height,
+                    source.pixels.clone().into_boxed_slice(),
+                )
+                .ok()
+                .map(|raster| (id.0, raster))
             })
             .collect()
     }
@@ -5647,6 +5661,9 @@ impl AppSession {
         self.clear_transform_stacks();
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
+        // Nothing parks these on the way out, and each one is a whole document
+        // of pixels: closing tabs without this leaks one per smart object.
+        self.smart_sources.clear();
         self.active_doc_id = None;
         self.doc_registry.set_active_id(None);
         self.selection_preview_active = false;
@@ -6742,7 +6759,14 @@ impl AppSession {
         // inspector projection, which asks whether this layer's source is
         // held. Inserting afterwards meant the panel's first look at a brand
         // new smart object reported its original pixels missing.
-        self.smart_sources.insert(id, (width, height, pixels));
+        self.smart_sources.insert(
+            id,
+            phototux_engine::SmartSource {
+                width,
+                height,
+                pixels,
+            },
+        );
         match self.invoke_command(
             command_id::SMART_CREATE,
             CommandArgs::SmartCreate {
@@ -6806,13 +6830,15 @@ impl AppSession {
         };
         match self.invoke_command(command_id::SMART_RASTERIZE, CommandArgs::None) {
             Ok(()) => {
-                // The source is dropped only once the command has landed. An
-                // undo puts the kind and the payload back, and the panel would
-                // then describe a source the host had already thrown away.
-                self.smart_sources.remove(&id);
+                // The source is deliberately *not* dropped. Rasterizing is
+                // undoable, and an undo puts the kind and the payload back —
+                // throwing the pixels away here left the restored smart object
+                // describing a source that no longer existed. It goes when the
+                // document does, like the layer payloads history holds.
+                let _ = id;
                 self.notify(
                     NoticeLevel::Info,
-                    "Rasterized — the original pixels are no longer kept.",
+                    "Rasterized to pixels. Undo restores the smart object.",
                 );
             }
             Err(error) => self.report_action_error(&error),
@@ -6825,7 +6851,7 @@ impl AppSession {
     /// compose this placement with the last one, which is what an ordinary
     /// layer does and what a smart object exists not to do.
     fn place_smart_object(&mut self, id: LayerId) {
-        let Some((_, _, pixels)) = self.smart_sources.get(&id).cloned() else {
+        let Some(source) = self.smart_sources.get(&id).cloned() else {
             self.notify(
                 NoticeLevel::Warning,
                 "This smart object's original pixels are missing, so it cannot be re-placed.",
@@ -6842,7 +6868,7 @@ impl AppSession {
         else {
             return;
         };
-        if let Err(error) = phototux_canvas::write_layer_rgba(id, &pixels) {
+        if let Err(error) = phototux_canvas::write_layer_rgba(id, &source.pixels) {
             self.report_gpu("smart object restore", &error);
             return;
         }

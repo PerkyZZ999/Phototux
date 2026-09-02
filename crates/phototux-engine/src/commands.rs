@@ -1645,6 +1645,14 @@ impl SessionState {
         Ok(effects)
     }
 
+    /// Bake a shape layer down to pixels, dropping its geometry.
+    ///
+    /// Recorded in history. It used to write the kind and the payload straight
+    /// onto the graph and push nothing, so discarding a shape's editable path
+    /// — the only copy of it — could not be taken back. The kind and the
+    /// payload move as one entry for the same reason a smart object's do: a
+    /// graph with one undone and the other not is a raster layer still
+    /// carrying a path, or a shape layer with none.
     fn cmd_shape_rasterize(&mut self) -> Result<CommandEffects, CommandError> {
         let id = self.active_layer_id()?;
         let Some(graph) = self.graph.as_mut() else {
@@ -1656,13 +1664,30 @@ impl SessionState {
         if layer.kind != LayerKind::Shape {
             return Err(CommandError::Rejected("this is not a shape layer"));
         }
-        layer.kind = LayerKind::Raster;
-        layer.shape = None;
+        let prev_shape = layer.shape.clone();
+        // A shape layer carries no raster asset until it becomes one.
         if layer.asset_key.is_none() {
             layer.asset_key = Some(format!("layer-{}", id.0));
         }
-        graph.bump_generation();
-        Ok(CommandEffects::document_edit(graph.generation))
+        let command = crate::GraphCommand::Batch(vec![
+            crate::GraphCommand::SetKind {
+                id,
+                prev: LayerKind::Shape,
+                next: LayerKind::Raster,
+            },
+            crate::GraphCommand::SetShape {
+                id,
+                prev: prev_shape,
+                next: None,
+            },
+        ]);
+        if !command.apply(graph) {
+            return Err(CommandError::Rejected("layer missing"));
+        }
+        let generation = self.bump_document_generation();
+        self.history
+            .push_graph_applied(command, "Rasterize shape", generation);
+        Ok(CommandEffects::document_edit(generation))
     }
 
     fn resolve_boolean_shape_pair(&self) -> Result<(LayerId, LayerId), CommandError> {

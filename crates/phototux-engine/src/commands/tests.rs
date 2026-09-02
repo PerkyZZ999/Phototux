@@ -800,6 +800,44 @@ fn rasterizing_something_that_is_not_a_smart_object_is_refused() {
     assert!(error.is_user_correctable(), "{error:?}");
 }
 
+/// Rasterizing a shape discards the only copy of its editable path, so it has
+/// to be recoverable. It used to write the kind and the payload straight onto
+/// the graph and push nothing.
+#[test]
+fn rasterizing_a_shape_undoes() {
+    let mut s = session_with_a_shape();
+    let before = active_shape(&s);
+    s.invoke(command_id::SHAPE_RASTERIZE, CommandArgs::None)
+        .expect("rasterize");
+    let layer = active_layer(&s);
+    assert_eq!(layer.kind, crate::LayerKind::Raster);
+    assert!(layer.shape.is_none());
+    assert!(
+        layer.asset_key.is_some(),
+        "a rasterized shape needs somewhere to keep its pixels"
+    );
+
+    let SessionState { graph, history, .. } = &mut s;
+    history.undo_next(graph.as_mut().expect("graph"));
+    let layer = active_layer(&s);
+    assert_eq!(layer.kind, crate::LayerKind::Shape);
+    assert_eq!(
+        layer.shape.as_ref().map(|c| &c.path),
+        Some(&before.path),
+        "undo did not bring the geometry back"
+    );
+}
+
+#[test]
+fn rasterizing_something_that_is_not_a_shape_is_refused() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let error = s
+        .invoke(command_id::SHAPE_RASTERIZE, CommandArgs::None)
+        .expect_err("raster layer");
+    assert!(error.is_user_correctable(), "{error:?}");
+}
+
 #[test]
 fn path_edit_round_trip_on_shape() {
     let mut s = SessionState::default();

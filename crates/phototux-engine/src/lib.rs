@@ -86,7 +86,8 @@ pub use cpu_composite::{CpuLayerRef, blend_rgb, composite_rgba8};
 pub use dock::{DockTopology, FloatingPanelPlacement, ScreenRect};
 pub use document::{DocumentGraph, ExtensionBlob, GRAPH_SCHEMA_VERSION, MAX_LAYERS};
 pub use document_registry::{
-    DocumentRegistry, MAX_OPEN_DOCUMENTS, OpenDocumentId, ParkedDocument, max_open_documents,
+    DocumentRegistry, MAX_OPEN_DOCUMENTS, OpenDocumentId, ParkedDocument, SmartSource,
+    max_open_documents,
 };
 pub use effective_pref::{PrefSource, resolve_layered, values_are_mixed};
 pub use error::DocumentError;
