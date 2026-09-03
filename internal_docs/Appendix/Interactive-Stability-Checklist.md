@@ -104,20 +104,17 @@ Handbook: [01](../01-Information-Architecture.md), [06](../06-Toolbar-System.md)
 ### 2.3 Shortcuts
 
 - [~] Ctrl+N / O / S / Z / Shift+Z / W / Q behave as mapped — N/W/Z exercised
-- [!] Ctrl+Shift+P opens command palette — regressed since the pass that recorded it; see T-034
+- [x] Ctrl+Shift+P opens command palette — T-034 and T-035 both fixed; re-verified 2026-09-03
 - [x] Shortcuts yield while text field / on-canvas TextEdit focused — T-018; New Document open blocks Ctrl+Shift+P; TextField/SpinBox/TextEdit detection + hex/FG handlers
 - [x] Custom keymap in Preferences persists across restart — T-019; Save→F9 in prefs.json survives relaunch with same XDG config
 - [x] Conflict detection UI surfaces duplicate chords — steal clears prior binding (Open→None when Export took Ctrl+O); hint path present
 
 ### 2.4 Command palette
 
-**Blocked by T-034:** the palette does not open at all, so the rows below record
-the last pass that could exercise them rather than current behaviour.
-
 - [x] Palette opens (Ctrl+Shift+P or Edit → Command Palette…) — T-034 fixed; rows legible since T-035
-- [~] Fuzzy filter finds actions by label — typed `about` (last verified before T-034)
-- [~] Enter invokes selected action (last verified before T-034)
-- [~] Escape closes without mutation — Esc returns to Welcome; no doc created (last verified before T-034)
+- [x] Fuzzy filter finds actions by label — typed `bring`, matched both Arrange entries with their chords
+- [x] Enter invokes selected action — Bring Forward on the top layer returned "This is already the top layer."
+- [x] Escape closes without mutation — palette dismissed, status bar unchanged (2 layers, no selection)
 - [x] Rejected commands show status / error (not silent) — Ctrl+S → `Action unavailable: Save (no document open)` (T-015)
 
 ### 2.5 Context menus
@@ -415,6 +412,7 @@ Mark `[N]` unless Decision Register amends:
 | T-032 | med | §3 | Hiding the raised tab of a dock group blanked the whole group — its siblings vanished too. `DockTopology` records which tab was last raised but has no view of panel visibility, so the stored selection was used even once hidden | Window → uncheck Navigator | **fixed** — `WorkspaceState::effective_active_tab` falls through to the first visible sibling; three engine tests, two of which fail against the old behaviour |
 | T-033 | high | §2.5 | Undo after Mask → Selection did nothing. Twelve call sites took the pre-edit snapshot before mutating; `apply_mask_to_selection_host` took it after, so the snapshot captured the state the undo was meant to reverse | Add a layer mask → Mask to Selection → Ctrl+Z | **fixed** — `commit_selection_edit` / `commit_layer_edit` own the ordering; no call site snapshots directly |
 | T-034 | high | §2.4 | The command palette never opened. `LazyDialog` wraps a `Loader`, whose default property is `data`, not `sourceComponent` — so every dialog written inside one became a plain child object, `sourceComponent` stayed null, and `item` was null forever. Dialogs driven by a `visible:` binding worked anyway (as eager children), hiding the fault; the palette reaches its API through `ensure()` and got null | Ctrl+Shift+P | **fixed** — `LazyDialog` declares `default property Component dialog` and binds `sourceComponent` to it. Every dialog is now genuinely lazy, which is what the type existed for |
+| T-036 | low | §2.3–2.4 | The checklist still marked the command palette `[!]` and carried a **Blocked by T-034** banner over §2.4, while the issues log recorded T-034 and T-035 as fixed. The document — which is this project's GUI QA authority — claimed a working feature was broken, and three rows below it were held at `[~]` for a blocker that no longer existed | Ctrl+Shift+P | **fixed** — palette re-verified end to end (opens, filters, Enter invokes and surfaces the refusal, Escape closes without mutation); rows and banner corrected |
 | T-035 | med | §2.4 | Command palette rows showed menu and shortcut but no label. It *was* the Basic-style contrast fault after all: the delegate had no background, so the style's light plate showed through under `colorOnSurface` text — near-white on near-white. The grey menu and blue chord survived because they are darker | Ctrl+Shift+P with a document open | **fixed** — opaque themed delegate background; text flips to `primaryOn` when highlighted |
 
 Severity guide: **blocker** = no window / data loss / crash on smoke; **high** = core workflow broken; **med** = feature wrong or a11y gap; **low** = polish; **info** = expected rejection.
