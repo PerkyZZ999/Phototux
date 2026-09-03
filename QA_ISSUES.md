@@ -23,6 +23,7 @@ the entry says so rather than inventing one.
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
+| [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
 
 ---
 
@@ -276,5 +277,61 @@ Two coherent answers:
 Either way the fix is one table, not two, with the other derived from it — and
 a test asserting every slot's `editor_slots` range is exactly what `clamped()`
 enforces, so they cannot drift again.
+
+**Resolution.** *(pending)*
+
+---
+
+## QA-005 — A selection entirely off-canvas reports itself as a selection
+
+| | |
+|---|---|
+| **Severity** | low |
+| **Area** | `phototux_engine` — `commands.rs`; `qml/CanvasInput.qml` |
+| **Checklist item** | [E-08](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** A rectangular marquee dragged entirely in the letterbox area
+beside the document is accepted. `selection.active` becomes true, the status
+bar reads `pixel selection`, and the marching ants draw — over a region that
+contains no document pixels. Every command that needs a selection then runs and
+does nothing.
+
+A zero-area drag is correctly refused (`"the selection is empty"`). A drag that
+runs *past* the edge is correctly kept whole, since the useful behaviour is to
+intersect with the canvas. Only the entirely-outside case is wrong.
+
+**Steps to reproduce.**
+1. New document. The canvas is letterboxed, so there is dark chrome on both
+   sides of the white page.
+2. Pick the Rectangular Marquee and drag a box wholly within that dark area.
+3. The status bar reads `pixel selection`.
+4. Fill (Paint Bucket, or Edit ▸ Fill) does nothing, and reports nothing.
+
+Headless equivalent: `selection.replace` with `rect { x: 5000, y: 5000, width:
+10, height: 10 }` on a 1280×720 document returns `Ok` and leaves
+`selection.active == true`.
+
+**Root cause.** `cmd_selection_replace` rejects a rect whose *own* area is zero
+but never intersects it with the document, so "empty" means "empty rectangle"
+rather than "selects no pixels". `CanvasInput.qml` does not clamp either: the
+marquee commit converts raw pointer coordinates through `screenToDocX` /
+`screenToDocY` with no bound, which is what makes the letterbox reachable.
+
+**Why this is not a quick fix.** The correct rule is a judgement, and the two
+answers differ in what the user sees:
+
+- **Refuse when the intersection is empty.** Matches Photoshop, and matches the
+  existing "the selection is empty" refusal — arguably it is the same rule
+  stated properly. But "empty" must then be computed against the document,
+  which means the command needs the document size at that point.
+- **Clamp the rect to the canvas.** Simpler, but changes the past-the-edge case
+  too: the stored bounds would no longer be what the user dragged, and anything
+  that later re-derives from those bounds (a transform, an expand) would work
+  from the clamped rect rather than the intended one.
+
+Whichever is chosen, the GPU mask is the real authority on coverage and the
+engine's `bounds` is bookkeeping — so the fix should make the two agree about
+what "active" means, rather than only tightening the rect.
 
 **Resolution.** *(pending)*

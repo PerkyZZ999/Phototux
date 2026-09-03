@@ -601,4 +601,51 @@ mod tests {
             );
         }
     }
+    /// The degenerate ends of a marquee, which the pointer can reach.
+    ///
+    /// A zero-area drag is refused. A rect that runs past the canvas is kept
+    /// whole, which is right — Photoshop lets you drag past the edge and
+    /// intersects. A rect *entirely* outside is also kept, and that is
+    /// QA-005: the shell then reports "pixel selection" for a selection
+    /// covering no pixels.
+    #[test]
+    fn a_marquee_that_covers_nothing_is_refused() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let replace = |x, y, width, height| CommandArgs::SelectionReplace {
+            shape: crate::SelectionShape::Rect,
+            combine: crate::SelectionCombine::Replace,
+            rect: crate::SelectionRect {
+                x,
+                y,
+                width,
+                height,
+            },
+            polygon: Vec::new(),
+            label: "test".to_owned(),
+        };
+
+        assert!(
+            session
+                .invoke(command_id::SELECTION_REPLACE, replace(10, 10, 0, 0))
+                .is_err(),
+            "a zero-area drag selects nothing and must say so"
+        );
+        assert!(!session.selection.active);
+
+        session
+            .invoke(command_id::SELECTION_REPLACE, replace(10, 10, 1, 1))
+            .expect("one pixel is a selection");
+        assert!(session.selection.active);
+
+        // Past the edge is kept whole and intersected downstream.
+        session
+            .invoke(command_id::SELECTION_REPLACE, replace(0, 0, 99_999, 99_999))
+            .expect("a drag past the edge is a selection");
+        assert_eq!(
+            session.selection.bounds.map(|b| (b.width, b.height)),
+            Some((99_999, 99_999)),
+            "the rect is kept, not clamped"
+        );
+    }
 }

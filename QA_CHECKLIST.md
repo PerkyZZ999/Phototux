@@ -133,8 +133,8 @@ they had.
 - [!] **E-05** Every adjustment slot at both ends of its declared range — **two findings**. A NaN slot produced NaN pixels in all ten kinds; fixed at the command and in `clamped()`. And three slots' editor ranges are narrower than what `clamped()` keeps ([QA-004](QA_ISSUES.md#qa-004--an-adjustments-editor-range-and-its-clamp-disagree))
 - [x] **E-06** Blur radius at `MAX_BLUR_RADIUS` and at 0 — both ends accepted, and the command refuses without a blur effect present
 - [x] **E-07** Opacity at 0 and 1; zoom at min and max — opacity clamps at the layer, including out-of-range input. Zoom **failed**: `f32::clamp` propagates NaN, so `set_zoom(NaN)` stored NaN and the camera could not be recovered. Fixed at all three camera entries
-- [ ] **E-08** Selection of zero area, and one covering the whole canvas
-- [ ] **E-09** Undo stacks at their bounds (64 selection, 32 transform) — the oldest step falls off, nothing panics
+- [!] **E-08** Selection of zero area, and one covering the whole canvas — zero area refused, one pixel and whole-canvas accepted, past-the-edge kept whole. **A marquee entirely off-canvas reports a selection covering no pixels** ([QA-005](QA_ISSUES.md#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection))
+- [x] **E-09** Undo stacks at their bounds (64 selection, 32 transform) — the oldest step falls off, nothing panics — `the_oldest_step_falls_off_the_bottom` covers it on the shared `HostUndoStack`
 - [x] **E-10** Text with an empty body, and with a very long single word — both accepted, 100 000 characters included
 
 ## 2.2 External-dependency failures (the "network" analogue)
@@ -145,8 +145,8 @@ they had.
 - [x] **E-14** Disk full during save → atomic replace leaves the previous file intact — covered by `a_failed_write_leaves_the_previous_contents_intact` and `a_failed_write_leaves_no_temporary_behind`; a genuine ENOSPC was not simulated
 - [x] **E-15** Open a file deleted between the dialog and the read — refused with `No such file or directory`. **Found alongside**: a 0-edge raster was refused as "dimensions exceed the 32,768 pixel limit". Fixed
 - [ ] **E-16** Portal file dialog cancelled at every point it can be
-- [ ] **E-17** `fc-list` unavailable → font list falls back rather than hanging
-- [ ] **E-18** colord unavailable → display profile falls back to sRGB
+- [x] **E-17** `fc-list` unavailable → font list falls back rather than hanging — a spawn failure and a non-zero exit both return `FALLBACK_FONTS`
+- [x] **E-18** colord unavailable → display profile falls back to sRGB — the probe is wrapped in `timeout 1s` so a stuck session bus cannot hang startup, then falls through env → xdg → tagged sRGB
 - [x] **E-19** A long save can be cancelled, and cancelling leaves no partial file — cancel is wired through `CancelToken` and guarded by `a_running_file_operation_can_be_cancelled`; the atomic-write tests cover the no-partial-file half
 
 ## 2.3 Malformed and missing state
