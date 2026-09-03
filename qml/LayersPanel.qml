@@ -286,9 +286,12 @@ ListView {
                 source: root.iconUrl("arrow-elbow-down-right")
                 size: 14
                 color: Theme.primary
-                // `visible: false` is not enough on its own here — the item
-                // still reached the AT-SPI tree as a zero-sized node named
-                // "Clipped to layer below", on layers that are not clipped.
+                // Tidy-up, not a correctness fix: `visible: false` already
+                // leaves this node marked neither `visible` nor `showing`, so
+                // a conforming screen reader skips it. It is still *in* the
+                // tree though, one zero-sized "Clipped to layer below" per
+                // unclipped row, and a marker that only ever means one thing
+                // when it is showing may as well not be there when it is not.
                 Accessible.ignored: !clips_to_below
                 Accessible.name: qsTr("Clipped to layer below")
                 ThemedToolTip {
