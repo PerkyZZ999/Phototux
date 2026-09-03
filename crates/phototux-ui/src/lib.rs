@@ -508,7 +508,10 @@ impl Default for AppSession {
         if let Some(path) = std::env::var_os("PHOTOTUX_DESKTOP_OPEN") {
             let path = PathBuf::from(path);
             session.io_busy = true;
-            session.status_text = format!("Opening {}…", path.display());
+            session.queue_notice_before_proxy(
+                NoticeLevel::Info,
+                format!("Opening {}…", path.display()),
+            );
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -799,13 +802,17 @@ impl AppSession {
         let display = display_icc::discover_display_profile();
         out.display_profile_tag = display.soft_proof_tag();
         out.display_profile_name = display.name;
-        if let Some(error) = out.worker.start_error() {
-            out.status_text = error.to_owned();
-            out.io_error = error.to_owned();
+        // Copied out first: `start_error` borrows the worker, which lives in
+        // `out`, and queueing the notice needs `out` mutably.
+        let worker_error = out.worker.start_error().map(str::to_owned);
+        if let Some(error) = worker_error {
+            out.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
+            out.io_error = error;
         }
-        if let Some(error) = out.file_worker.start_error() {
-            out.status_text = error.to_owned();
-            out.io_error = error.to_owned();
+        let file_worker_error = out.file_worker.start_error().map(str::to_owned);
+        if let Some(error) = file_worker_error {
+            out.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
+            out.io_error = error;
         }
         out
     }
@@ -932,6 +939,24 @@ impl AppSession {
     fn notify(&mut self, level: NoticeLevel, text: impl Into<String>) {
         self.notices.post(level, text);
         self.publish_notices();
+    }
+
+    /// Queue a notice during construction, when nothing may be emitted.
+    ///
+    /// `notify` ends in `publish_notices`, which raises `notices_json_changed`
+    /// — and qtbridge attaches the QObject proxy only *after* `Default`
+    /// returns, so emitting there aborts the process with "No proxy". Three
+    /// startup messages worked around that by assigning `status_text`
+    /// directly, which put an event in the field that carries state: the
+    /// status bar went on reading "Opening …" after the open had failed,
+    /// because nothing refreshes the summary while no document is open.
+    ///
+    /// Filling the queue and its JSON without notifying costs nothing — QML
+    /// reads the property when it first binds, which is after the proxy
+    /// exists.
+    fn queue_notice_before_proxy(&mut self, level: NoticeLevel, text: impl Into<String>) {
+        self.notices.post(level, text);
+        self.notices_json = self.notices.to_json();
     }
 
     fn publish_notices(&mut self) {

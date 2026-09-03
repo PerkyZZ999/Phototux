@@ -55,9 +55,9 @@ they had.
 
 ## 1.1 Document lifecycle
 
-- [ ] **H-01** Cold start with no document → Welcome dialog offers New / Open and lists recent files
-- [ ] **H-02** New Document at each preset (720p / 1080p / 2K / 4K) creates a document of that size, zoomed to fit
-- [ ] **H-03** New Document at a custom size within limits creates it
+- [x] **H-01** Cold start with no document → Welcome dialog offers New / Open and lists recent files
+- [x] **H-02** New Document at each preset (720p / 1080p / 2K / 4K) creates a document of that size, zoomed to fit — all four presets present with correct dimensions; 1080p created 1920×1080 at 53% fit
+- [x] **H-03** New Document at a custom size within limits creates it — and typing 99999 clamps to 8192, deselecting the preset (E-01 through the GUI)
 - [ ] **H-04** Open a PNG → canvas shows it, layer list shows it, title carries the filename
 - [ ] **H-05** Open a `.ptx` → layers, masks, styles and adjustments all return
 - [ ] **H-06** Open a layered PSD → layers import, compatibility report discloses what was dropped
@@ -83,7 +83,7 @@ they had.
 
 ## 1.3 Layers and masks
 
-- [ ] **H-23** New / Duplicate / Delete layer
+- [x] **H-23** New / Duplicate / Delete layer — Ctrl+Shift+N and Ctrl+J both land, layer count follows
 - [ ] **H-24** Reorder via Layer ▸ Arrange (all four entries and chords)
 - [ ] **H-25** Group and Ungroup; a group hides its children when hidden
 - [ ] **H-26** Opacity and blend mode apply, and are visible on canvas
@@ -106,7 +106,7 @@ they had.
 ## 1.5 History, workspace, colour
 
 - [ ] **H-39** Undo/redo across every mutating command, including the two host-side stacks
-- [ ] **H-40** History panel lists entries and jumping to one restores that state
+- [x] **H-40** History panel lists entries and jumping to one restores that state — entries carry their scope, the undone one is dimmed, and clicking "Add layer" returned the document to 3 layers
 - [ ] **H-41** Workspace presets apply; Reset Workspace restores defaults
 - [ ] **H-42** Panels toggle, tear off, re-dock, auto-hide and resize; state survives restart
 - [ ] **H-43** Preferences persist across restart
@@ -186,12 +186,12 @@ they had.
 
 ## 3.1 State indicators
 
-- [ ] **U-01** Every panel has an empty state — never a blank rectangle
+- [x] **U-01** Every panel has an empty state — never a blank rectangle — Properties, Layers, History and Welcome/recent all carry one
 - [ ] **U-02** Long operations show a busy indicator and a cancel affordance
-- [ ] **U-03** Errors reach a toast that does not auto-dismiss; info and warnings fade
+- [x] **U-03** Errors reach a toast that does not auto-dismiss; info and warnings fade — an I/O failure raises a modal "File operation failed" naming the cause; the info toast carries a dismiss control
 - [ ] **U-04** Disabled controls look disabled and say why on hover where non-obvious
-- [ ] **U-05** The dirty marker appears on the first edit and clears on save
-- [ ] **U-06** No message is written into the status bar, which carries state only
+- [~] **U-05** The dirty marker appears on the first edit and clears on save — appears: title `Untitled*`, tab `* Untitled`, status `Unsaved`. Clear-on-save not exercised (portal dialog)
+- [x] **U-06** No message is written into the status bar, which carries state only — **failed**: three startup writers assigned through local bindings the guard could not see, so after a failed startup open the bar kept reading "Opening …". Fixed, and the guard widened to any binding
 
 ## 3.2 Layout and density
 

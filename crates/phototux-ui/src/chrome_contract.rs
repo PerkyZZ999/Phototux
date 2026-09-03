@@ -628,16 +628,29 @@ mod tests {
         let mut assignments = 0;
         for (i, line) in source.lines().enumerate() {
             let trimmed = line.trim();
-            let Some(rhs) = trimmed.strip_prefix("self.status_text = ") else {
+            // Any binding, not just `self`. Matching only `self.status_text`
+            // missed three writers: `Default` builds the session in locals
+            // named `session` and `out`, and all three of those assignments
+            // were messages — including an "Opening …" the status bar went on
+            // showing after the open had failed.
+            let Some((binding, rhs)) = trimmed.split_once(".status_text = ") else {
                 continue;
             };
+            if !binding
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+                || binding.is_empty()
+            {
+                continue;
+            }
             assignments += 1;
             assert_eq!(
                 rhs,
-                "self.engine.status_summary();",
+                format!("{binding}.engine.status_summary();"),
                 "lib.rs:{} assigns something other than the summary to the status \
-                 bar — messages belong in `notify`, which the next summary \
-                 refresh cannot erase",
+                 bar — messages belong in `notify`, or in \
+                 `queue_notice_before_proxy` when the QObject proxy does not \
+                 exist yet, because the next summary refresh erases the status bar",
                 i + 1
             );
         }
