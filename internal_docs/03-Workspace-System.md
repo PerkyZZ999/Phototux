@@ -6,7 +6,7 @@ A workspace is a local presentation arrangement for documents, canvas views, too
 
 ### Accepted v1 (shipping)
 
-Per [DR-015](Appendix/Decision-Register.md#dr-015--workspace-state-separate-from-documents) and [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) / [DR-024](Appendix/Decision-Register.md#dr-024--single-document-session-v1):
+Per [DR-015](Appendix/Decision-Register.md#dr-015--workspace-state-separate-from-documents) and [DR-023](Appendix/Decision-Register.md#dr-023--tech-stack-frozen-to-shipping-codebase) / [DR-024](Appendix/Decision-Register.md#dr-024--document-session-model):
 
 | Surface | v1 reality | Target (later) |
 | --- | --- | --- |

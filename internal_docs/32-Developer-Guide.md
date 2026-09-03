@@ -956,3 +956,25 @@ Future local automation may invoke stable command schemas under explicit capabil
 - Root [`AGENTS.md`](../AGENTS.md) — agent constitution (commands, crate boundaries, quality gate).
 - [Glossary](Appendix/Glossary.md) — canonical terminology.
 - [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.
+\n
+
+### Documentation links
+
+```bash
+python3 scripts/check-docs-links.py
+```
+
+Checks every internal link in `internal_docs/` and in `web/docs` — that the
+file or route exists, and that a `#fragment` matches a heading on the page it
+lands on. A cross-reference that misses is invisible: the browser scrolls to
+the top of the page it *did* find and the reader takes that for the section.
+DR-024 was renamed from "Single document session v1" to "Document session
+model" and five handbook pages went on pointing at the old anchor, quietly
+sending anyone who followed them to the top of the Decision Register.
+
+The two roots resolve differently — the handbook links relative files, the
+Astro site links routes — and heading slugs follow GitHub's rule, where each
+space becomes its own hyphen. That is why `## DR-023 — Tech stack` is
+`#dr-023--tech-stack`: the em dash is dropped and both spaces around it
+survive. Collapsing them is the mistake that makes this check report a hundred
+links broken when none are.

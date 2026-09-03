@@ -24,6 +24,7 @@ rust-tc doctor                          # full local Rust-Toolchain gate
 ./scripts/check-rust.sh --full          # rust-tc doctor + SonarQube
 CHECK_SONAR=0 ./scripts/check-rust.sh --full   # rust-tc doctor only
 ./scripts/check-sonar.sh                # Clippy JSON + scanner + quality gate
+python3 scripts/check-docs-links.py      # internal_docs + web/docs link check
 ```
 
 One-time: `./scripts/install-git-hooks.sh`. Host packages, crate map, and the rest of the quality matrix: [32 — Developer Guide](internal_docs/32-Developer-Guide.md#build-check-and-test-commands).
