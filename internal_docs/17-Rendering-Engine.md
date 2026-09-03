@@ -720,3 +720,30 @@ Conformance evidence **MUST** record tested device tier, budget configuration, g
 - [20 — History and Undo](20-History-Undo.md)
 - [Glossary](Appendix/Glossary.md)
 - [Requirement Keywords](Appendix/Requirement-Keywords.md)
+
+## The document size the compositor can hold
+
+Every layer is a texture of the document's size, so the largest document the
+editor can composite is `wgpu::Limits::default().max_texture_dimension_2d` —
+**8192 px on each edge**, published as `phototux_engine::MAX_DOCUMENT_DIMENSION`
+and as `AppSession.maxDocumentDimension` for the dialogs to bound their spin
+boxes with.
+
+Past that limit the failure is silent, which is why the constant exists. wgpu
+declines the allocation, the compositor's result texture stays invalid, and
+every frame afterwards logs `Texture with 'comp-result' label is invalid` while
+the canvas draws nothing. A 20000-pixel document opened, listed its layers,
+reported its size in the status bar and rendered a blank rectangle, with no
+message of any kind — and the three size dialogs all offered up to 32768, a
+ceiling with no relation to anything.
+
+`DocumentError::check_size` is the one refusal, used by New Document, Image
+Size, Canvas Size and all three open paths (`.ptx`, PSD and raster). It is
+classified user-correctable, because typing a smaller number is the fix.
+`SessionState::apply_size` still clamps as a last line, so a caller that forgets
+gets a document that draws rather than one that logs.
+
+The number lives in the engine rather than in `phototux_gpu` because the
+dialogs and the commands are what have to refuse, and they must be able to say
+so without a device (DR-022). `the_requested_limit_is_the_one_the_engine_promises`
+in `phototux_gpu` fails the build if the two ever disagree.

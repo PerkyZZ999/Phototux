@@ -86,7 +86,7 @@ Dialog {
             ThemedSpinBox {
                 id: widthSpin
                 from: 1
-                to: 32768
+                to: AppSession.maxDocumentDimension
                 editable: true
                 Layout.fillWidth: true
                 Accessible.name: qsTr("Width in pixels")
@@ -111,7 +111,7 @@ Dialog {
             ThemedSpinBox {
                 id: heightSpin
                 from: 1
-                to: 32768
+                to: AppSession.maxDocumentDimension
                 editable: true
                 Layout.fillWidth: true
                 Accessible.name: qsTr("Height in pixels")

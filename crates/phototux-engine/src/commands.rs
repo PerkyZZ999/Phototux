@@ -1270,7 +1270,9 @@ impl SessionState {
         let CommandArgs::NewSize { width, height } = args else {
             return Err(CommandError::InvalidArgument("expected size"));
         };
-        self.apply_size(crate::DocumentSize::new(width, height));
+        let size = crate::DocumentSize::new(width.max(1), height.max(1));
+        DocumentError::check_size(size).map_err(CommandError::Document)?;
+        self.apply_size(size);
         if let Some(graph) = self.graph.as_mut() {
             graph.generation = 1;
         }
@@ -1456,7 +1458,11 @@ impl SessionState {
         let CommandArgs::Resize { width, height } = args else {
             return Err(CommandError::InvalidArgument("expected resize"));
         };
-        let size = crate::DocumentSize::new(width.clamp(1, 32_768), height.clamp(1, 32_768));
+        // Was `clamp(1, 32_768)`, a ceiling with no relation to anything: the
+        // compositor cannot allocate past `MAX_DOCUMENT_DIMENSION`, so a
+        // clamped 32768 was a silently broken document rather than a refusal.
+        let size = crate::DocumentSize::new(width.max(1), height.max(1));
+        DocumentError::check_size(size).map_err(CommandError::Document)?;
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
@@ -1489,7 +1495,8 @@ impl SessionState {
         let CommandArgs::Resize { width, height } = args else {
             return Err(CommandError::InvalidArgument("expected canvas size"));
         };
-        let size = crate::DocumentSize::new(width.clamp(1, 32_768), height.clamp(1, 32_768));
+        let size = crate::DocumentSize::new(width.max(1), height.max(1));
+        DocumentError::check_size(size).map_err(CommandError::Document)?;
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };

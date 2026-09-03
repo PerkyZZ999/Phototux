@@ -385,6 +385,8 @@ pub struct AppSession {
     gaussian_radius: f32,
     effects_joined: String,
     icon_root: String,
+    /// Mirrors `phototux_engine::MAX_DOCUMENT_DIMENSION`; never changes.
+    max_document_dimension: i32,
     document_name: String,
     dirty: bool,
     io_busy: bool,
@@ -692,6 +694,8 @@ impl AppSession {
             gaussian_radius: 0.0,
             effects_joined: String::new(),
             icon_root,
+            max_document_dimension: i32::try_from(phototux_engine::MAX_DOCUMENT_DIMENSION)
+                .unwrap_or(i32::MAX),
             document_name: "Untitled".to_owned(),
             dirty: false,
             io_busy: false,
@@ -817,6 +821,10 @@ impl AppSession {
                     pixels: source.pixels().to_vec(),
                 },
             );
+        }
+        if let Err(error) = phototux_engine::DocumentError::check_size(graph.size) {
+            self.fail_io("Open", &error.to_string());
+            return;
         }
         match phototux_canvas::open_document(graph.size, &graph.layers_resolved()) {
             Ok(ms) => {
@@ -3599,6 +3607,14 @@ impl AppSession {
         Notify = effects_joined_changed
     );
     qproperty!("iconRoot", Member = icon_root, Notify = icon_root_changed);
+    // The largest document edge the compositor can hold. Published so the three
+    // size dialogs bound their spin boxes to the same number the commands
+    // enforce: they used to stop at 32768, which is not a limit of anything.
+    qproperty!(
+        "maxDocumentDimension",
+        Member = max_document_dimension,
+        Notify = max_document_dimension_changed
+    );
     qproperty!(
         "documentName",
         Member = document_name,
@@ -4115,6 +4131,11 @@ impl AppSession {
     fn effects_joined_changed(&mut self);
     #[qsignal]
     fn icon_root_changed(&mut self);
+    // Never emitted: the limit is a build-time constant. The property needs a
+    // notifier to exist at all, and a binding that reads a constant is
+    // evaluated once, which is exactly right.
+    #[qsignal]
+    fn max_document_dimension_changed(&mut self);
     #[qsignal]
     fn document_name_changed(&mut self);
     #[qsignal]
@@ -5332,6 +5353,15 @@ impl AppSession {
 
     fn handle_raster_opened(&mut self, path: PathBuf, raster: Raster) {
         let size = DocumentSize::new(raster.width(), raster.height());
+        // A photograph from a scanner or a stitched panorama really is bigger
+        // than the compositor can hold, and opening it anyway produced a
+        // document that listed its layers and drew nothing while every frame
+        // logged a validation error. Saying so is the only honest answer until
+        // the compositor tiles.
+        if let Err(error) = phototux_engine::DocumentError::check_size(size) {
+            self.fail_io("Open", &error.to_string());
+            return;
+        }
         let layer_name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -5380,6 +5410,10 @@ impl AppSession {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Imported.psd".into());
+        if let Err(error) = phototux_engine::DocumentError::check_size(graph.size) {
+            self.fail_io("Open", &error.to_string());
+            return;
+        }
         if let Err(error) = self.prepare_new_document_tab(&title) {
             self.fail_io("Open", &error);
             return;
@@ -8657,7 +8691,14 @@ impl AppSession {
         let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.clamp(1, 32_768), h.clamp(1, 32_768));
+        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        // Refused, not clamped to 32768: the compositor allocates a texture per
+        // layer at this size, and past the device limit wgpu fails it and every
+        // frame after logs a validation error over a canvas that draws nothing.
+        if let Err(error) = phototux_engine::DocumentError::check_size(size) {
+            self.notify(NoticeLevel::Warning, error.to_string());
+            return;
+        }
         if self.engine.size == size {
             return;
         }
@@ -8703,7 +8744,11 @@ impl AppSession {
             self.notify(NoticeLevel::Warning, format!("Unknown anchor: {anchor}"));
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.clamp(1, 32_768), h.clamp(1, 32_768));
+        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        if let Err(error) = phototux_engine::DocumentError::check_size(size) {
+            self.notify(NoticeLevel::Warning, error.to_string());
+            return;
+        }
         if self.engine.size == size {
             return;
         }

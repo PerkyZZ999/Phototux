@@ -2083,3 +2083,86 @@ fn undoing_an_arrange_puts_the_order_back() {
         .expect("undo");
     assert_eq!(stack_of(&s), before);
 }
+
+/// A document bigger than the compositor can hold has to be refused.
+///
+/// The dialogs stopped at 32768, which is not a limit of anything: past
+/// `MAX_DOCUMENT_DIMENSION` wgpu declines the layer textures, the result
+/// texture stays invalid, and the editor shows a populated layers panel over a
+/// canvas that draws nothing while every frame logs a validation error. A
+/// 20000-pixel document did exactly that, with no message of any kind.
+#[test]
+fn a_document_larger_than_the_gpu_can_hold_is_refused() {
+    let mut s = SessionState::default();
+    let too_wide = crate::MAX_DOCUMENT_DIMENSION + 1;
+    let err = s
+        .invoke(
+            command_id::DOCUMENT_NEW_SIZE,
+            CommandArgs::NewSize {
+                width: too_wide,
+                height: 1080,
+            },
+        )
+        .expect_err("the compositor cannot hold it");
+    assert!(
+        matches!(
+            err,
+            CommandError::Document(crate::DocumentError::DimensionTooLarge { .. })
+        ),
+        "got {err:?}"
+    );
+    assert!(!s.has_document, "and no half-made document is left behind");
+}
+
+/// The refusal has to say the number the user typed and the number they can.
+#[test]
+fn the_refusal_names_both_numbers() {
+    let err = crate::DocumentError::check_size(crate::DocumentSize::new(20000, 1080))
+        .expect_err("too wide");
+    let message = err.to_string();
+    assert!(message.contains("20000"), "{message}");
+    assert!(
+        message.contains(&crate::MAX_DOCUMENT_DIMENSION.to_string()),
+        "{message}"
+    );
+    assert!(
+        CommandError::Document(err).is_user_correctable(),
+        "typing a smaller number fixes it, so it belongs in front of the user"
+    );
+}
+
+#[test]
+fn the_largest_supported_document_is_still_allowed() {
+    let mut s = SessionState::default();
+    let edge = crate::MAX_DOCUMENT_DIMENSION;
+    s.invoke(
+        command_id::DOCUMENT_NEW_SIZE,
+        CommandArgs::NewSize {
+            width: edge,
+            height: edge,
+        },
+    )
+    .expect("the limit itself is a size that works");
+    assert_eq!(s.size.width, edge);
+    assert_eq!(s.size.height, edge);
+}
+
+#[test]
+fn resizing_the_canvas_past_the_limit_is_refused() {
+    let (mut s, _) = session_with_layers(1);
+    let before = s.size;
+    let err = s
+        .invoke(
+            command_id::DOCUMENT_CANVAS_SIZE,
+            CommandArgs::Resize {
+                width: crate::MAX_DOCUMENT_DIMENSION + 1,
+                height: 1080,
+            },
+        )
+        .expect_err("too wide");
+    assert!(matches!(
+        err,
+        CommandError::Document(crate::DocumentError::DimensionTooLarge { .. })
+    ));
+    assert_eq!(s.size, before, "and the canvas did not move");
+}

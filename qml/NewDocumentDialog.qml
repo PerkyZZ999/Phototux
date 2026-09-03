@@ -322,7 +322,7 @@ Popup {
                             id: spinW
                             Layout.fillWidth: true
                             from: 1
-                            to: 32768
+                            to: AppSession.maxDocumentDimension
                             editable: true
                             Accessible.name: qsTr("Document width")
                             // Avoid `value: dialog.customW` binding — it fights editable typing.
@@ -340,7 +340,7 @@ Popup {
                             id: spinH
                             Layout.fillWidth: true
                             from: 1
-                            to: 32768
+                            to: AppSession.maxDocumentDimension
                             editable: true
                             Accessible.name: qsTr("Document height")
                             Component.onCompleted: value = dialog.customH
