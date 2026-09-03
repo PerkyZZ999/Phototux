@@ -95,10 +95,10 @@ they had.
 
 ## 1.4 Selection and transform
 
-- [ ] **H-32** Each selection tool makes a selection (rect, ellipse, lasso, polygon, wand, colour range)
-- [ ] **H-33** Combine modes: replace, add, subtract, intersect
+- [~] **H-32** Each selection tool makes a selection (rect, ellipse, lasso, polygon, wand, colour range) — rect and ellipse verified; the remaining four not exercised
+- [x] **H-33** Combine modes: replace, add, subtract, intersect — Shift-drag unions the rects and the Mode row switches to Add live, with the "Shift add · Alt subtract" hint shown
 - [x] **H-34** Select All / Deselect / Invert — Ctrl+A, Ctrl+Shift+I and Ctrl+D all land
-- [ ] **H-35** Modify: expand, contract, feather, border
+- [!] **H-35** Modify: expand, contract, feather, border — the prompt opens with the registry's default radius and Expand applies correctly. **Typing a radius and confirming hangs the window** ([QA-006](QA_ISSUES.md#qa-006--typing-into-a-spin-box-then-confirming-wedges-the-window))
 - [ ] **H-36** Selection ↔ mask conversion both ways
 - [ ] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel
 - [ ] **H-38** Crop commits and discards the outside
