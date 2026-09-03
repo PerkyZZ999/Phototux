@@ -698,6 +698,13 @@ impl SessionState {
     }
 
     /// The active layer, if there is a document and it has one.
+    /// The active layer's lock flags, or none when there is no layer.
+    fn active_lock_flags(&self) -> crate::LockFlags {
+        self.active_layer()
+            .map(|layer| layer.locks)
+            .unwrap_or_default()
+    }
+
     fn active_layer(&self) -> Option<&crate::layer::Layer> {
         self.graph
             .as_ref()

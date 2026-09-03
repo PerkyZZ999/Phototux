@@ -83,6 +83,61 @@ mod tests {
     /// Driving the loop off the taxonomy makes the declaration a claim the
     /// suite checks: mark a command ephemeral and it must leave the generation
     /// and the dirty flag alone, or this fails naming it.
+    /// Every registry action builds arguments its command will accept.
+    ///
+    /// An action carries a command id and an optional string; the router
+    /// destructures a specific [`CommandArgs`] variant. `args_for_action` maps
+    /// one to the other and ends in a catch-all that answers
+    /// `CommandArgs::None` — so an action naming a command whose variant it
+    /// does not build sends `None`, the command refuses with
+    /// `InvalidArgument`, and from the shell that is a menu entry that does
+    /// nothing. The wiring was written in three places and checked in none.
+    ///
+    /// `InvalidArgument` is the only error this rejects. A command refusing
+    /// because there is no document, no active layer or nothing selected is
+    /// answering correctly — that is a *precondition*, and the enablement tags
+    /// are what keep it off the screen. Only "you handed me the wrong shape"
+    /// is a wiring bug.
+    ///
+    /// Two sessions, because the two halves of the registry disagree about
+    /// what must exist: an empty one catches a command that refuses its own
+    /// arguments before it looks at the document, and one with a document and
+    /// a layer reaches the arms that destructure first.
+    #[test]
+    fn every_action_builds_arguments_its_command_accepts() {
+        let mut checked = 0_usize;
+        for empty in [true, false] {
+            let mut session = SessionState::default();
+            if !empty {
+                session.apply_preset(SizePreset::P720);
+            }
+            for action in crate::default_actions() {
+                let Some(id) = action.command_id.as_deref() else {
+                    continue;
+                };
+                let args = match session.args_for_action(id, action.arg.as_deref()) {
+                    Ok(args) => args,
+                    Err(error) => panic!(
+                        "{} carries arg {:?}, which args_for_action refuses for {id}: {error:?}",
+                        action.id, action.arg
+                    ),
+                };
+                if let Err(CommandError::InvalidArgument(why)) = session.invoke(id, args) {
+                    panic!(
+                        "{} sends {id} arguments it will not take ({why}) — the menu \
+                         entry would do nothing",
+                        action.id
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 40,
+            "walked {checked} actions — the registry scan broke, not the wiring"
+        );
+    }
+
     #[test]
     fn commands_that_claim_not_to_touch_the_document_do_not() {
         let non_document: Vec<&'static str> = command_meta::ALL

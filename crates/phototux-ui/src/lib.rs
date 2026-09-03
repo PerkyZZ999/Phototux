@@ -2128,126 +2128,6 @@ impl AppSession {
         }
     }
 
-    fn active_lock_flags(&self) -> phototux_engine::LockFlags {
-        self.active_id()
-            .and_then(|id| self.engine.graph.as_ref()?.get(id))
-            .map(|layer| layer.locks)
-            .unwrap_or_default()
-    }
-
-    fn command_args_for_action(
-        &self,
-        command_id: &str,
-        arg: Option<&str>,
-    ) -> Result<CommandArgs, CommandError> {
-        use phototux_engine::command_id as cid;
-        match command_id {
-            cid::HISTORY_UNDO
-            | cid::HISTORY_REDO
-            | cid::LAYER_CREATE
-            | cid::LAYER_DUPLICATE
-            | cid::LAYER_DELETE
-            | cid::LAYER_GROUP
-            | cid::LAYER_UNGROUP
-            | cid::VIEW_ZOOM_TO_FIT
-            | cid::VIEW_ZOOM_IN
-            | cid::VIEW_ZOOM_OUT
-            | cid::VIEW_ZOOM_ACTUAL
-            | cid::MASK_APPLY
-            | cid::APP_SHOW_PREFERENCES
-            | cid::APP_SHOW_FILTER_GALLERY
-            | cid::FILTER_COMMIT
-            | cid::FILTER_CANCEL_PREVIEW
-            | cid::WORKSPACE_RESET
-            | cid::MASK_CREATE_VECTOR
-            | cid::SELECTION_TO_MASK
-            | cid::MASK_TO_SELECTION => Ok(CommandArgs::None),
-            cid::STYLE_ADD => Ok(CommandArgs::LayerStyleKind {
-                kind: arg.unwrap_or("drop-shadow").to_owned(),
-            }),
-            cid::LAYER_CREATE_FILL => Ok(CommandArgs::FillCreate {
-                color_rgba: [
-                    self.engine.colors.foreground[0],
-                    self.engine.colors.foreground[1],
-                    self.engine.colors.foreground[2],
-                    1.0,
-                ],
-            }),
-            cid::LAYER_ARRANGE => Ok(CommandArgs::Arrange {
-                op: arg.unwrap_or("forward").to_owned(),
-            }),
-            cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
-                panel_id: arg.unwrap_or("panel.layers").to_owned(),
-            }),
-            cid::WORKSPACE_APPLY_PRESET => Ok(CommandArgs::ApplyWorkspacePreset {
-                preset_id: arg.unwrap_or("workspace.preset.essentials").to_owned(),
-            }),
-            cid::DOCUMENT_ASSIGN_PROFILE => Ok(CommandArgs::AssignProfile {
-                profile: arg.unwrap_or("sRGB").to_owned(),
-            }),
-            cid::DOCUMENT_CONVERT_PROFILE => Ok(CommandArgs::ConvertProfile {
-                profile: arg.unwrap_or("sRGB").to_owned(),
-            }),
-            cid::DOCUMENT_SET_SOFT_PROOF => {
-                let raw = arg.unwrap_or(":relative");
-                let (profile, intent) = match raw.split_once(':') {
-                    Some((p, i)) => (p.to_owned(), i.to_owned()),
-                    None => (raw.to_owned(), "relative".to_owned()),
-                };
-                Ok(CommandArgs::SoftProof { profile, intent })
-            }
-            cid::DOCUMENT_SET_ICC => {
-                if arg == Some("clear") {
-                    Ok(CommandArgs::SetIcc { bytes: None })
-                } else {
-                    Err(CommandError::InvalidArgument(
-                        "document.set-icc requires clear or host embed",
-                    ))
-                }
-            }
-            cid::FILTER_ADD_ADJUSTMENT => Ok(CommandArgs::FilterAdjustment {
-                kind: arg.unwrap_or("brightness").to_owned(),
-            }),
-            cid::FILTER_ADD_EFFECT => Ok(CommandArgs::FilterEffect {
-                kind: arg.unwrap_or("gaussian").to_owned(),
-            }),
-            cid::FILTER_PREVIEW => Ok(CommandArgs::FilterPreview {
-                kind: arg.unwrap_or("gaussian").to_owned(),
-            }),
-            cid::SHAPE_BOOLEAN => Ok(CommandArgs::ShapeBoolean {
-                op: arg.unwrap_or("union").to_owned(),
-            }),
-            cid::RASTER_FLIP => Ok(CommandArgs::RasterFlip {
-                horizontal: arg != Some("v"),
-            }),
-            cid::LAYER_SET_LOCKS => {
-                let mut locks = self.active_lock_flags();
-                match arg {
-                    Some("pixels") => locks.pixels = !locks.pixels,
-                    Some("position") => locks.position = !locks.position,
-                    Some("all") => locks.all = !locks.all,
-                    Some("alpha") => locks.alpha = !locks.alpha,
-                    _ => locks.all = !locks.all,
-                }
-                Ok(CommandArgs::SetLocks {
-                    pixels: locks.pixels || locks.all,
-                    position: locks.position || locks.all,
-                    all: locks.all,
-                    alpha: locks.alpha || locks.all,
-                })
-            }
-            _ => {
-                if arg.is_none() {
-                    Ok(CommandArgs::None)
-                } else {
-                    Err(CommandError::InvalidArgument(
-                        "unsupported command args for action",
-                    ))
-                }
-            }
-        }
-    }
-
     fn dispatch_host_op(&mut self, op: &str, arg: Option<&str>) {
         match op {
             "document.new" => {
@@ -4466,7 +4346,7 @@ impl AppSession {
             return;
         }
         if let Some(cid) = action.command_id.as_deref() {
-            match self.command_args_for_action(cid, action.arg.as_deref()) {
+            match self.engine.args_for_action(cid, action.arg.as_deref()) {
                 Ok(args) => {
                     if let Err(error) = self.invoke_command(cid, args) {
                         self.report_action_error(&error);
