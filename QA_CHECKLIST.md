@@ -197,22 +197,22 @@ they had.
 
 - [ ] **U-07** All three densities (Compact, Comfortable, Dense) render without clipping or overlap
 - [ ] **U-08** The shell holds together from 1280×720 up to 4K
-- [ ] **U-09** No dialog pins itself to a pixel width
+- [x] **U-09** No dialog pins itself to a pixel width — `no_dialog_pins_itself_to_a_pixel_width` green
 - [ ] **U-10** Every dialog is reachable, dismissable by Escape, and returns focus
 - [ ] **U-11** Panel resize seams behave at their extremes
 - [ ] **U-12** High-contrast and reduced-motion preferences take effect
 
 ## 3.3 Visual language
 
-- [ ] **U-13** No unstyled Qt Controls reach the user
-- [ ] **U-14** Every icon resolves; no blank buttons
-- [ ] **U-15** Colours come from `Theme.qml`; no second palette
+- [x] **U-13** No unstyled Qt Controls reach the user — `no_unstyled_controls_reach_the_user` and `no_attached_tool_tips_reach_the_user` both green
+- [x] **U-14** Every icon resolves; no blank buttons — `every_icon_key_is_packaged_into_the_qrc` checks both directions, panels included
+- [~] **U-15** Colours come from `Theme.qml`; no second palette — panel chrome is tokenised. Six canvas-overlay colours are literals ([QA-003](QA_ISSUES.md#qa-003--canvas-overlay-colours-are-a-second-palette)); not swapped mechanically because none is an exact substitute and doing so would change what the user sees
 - [ ] **U-16** Photoshop-consistent placement for every panel, tool and menu entry
-- [ ] **U-17** Every user-facing string is `qsTr(...)` and free of internal jargon
+- [x] **U-17** Every user-facing string is `qsTr(...)` and free of internal jargon — no untranslated `text:`/`title:`/`placeholderText:` literals in `qml/`
 
 ## 3.4 Accessibility basics
 
-- [ ] **U-18** Every interactive control has an accessible name
+- [x] **U-18** Every interactive control has an accessible name — icon-only tool buttons, sliders and combo boxes each have a guard; AT-SPI queries in this pass returned named elements throughout
 - [ ] **U-19** Keyboard-only operation reaches every primary flow
 - [ ] **U-20** Focus is always visible and its order follows the layout
 - [ ] **U-21** Live regions announce without flooding
@@ -232,4 +232,4 @@ they had.
 
 | Date | Scope | Result |
 |---|---|---|
-| 2026-09-03 | §1.6 non-GUI surfaces | 4/4 pass; H-48 failed first and was fixed |
+| 2026-09-03 | §1.6, §2.1–2.4, parts of §1.1/1.3/1.5 and §3 | 35 pass · 3 partial · 1 fail · 78 not yet run |

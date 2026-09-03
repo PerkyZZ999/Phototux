@@ -21,6 +21,7 @@ the entry says so rather than inventing one.
 |---|---|---|---|---|
 | [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | open |
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
+| [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
 
 ---
 
@@ -155,5 +156,64 @@ prevents. There is no equivalent guard for command *arguments* — nothing asser
 that every `arg` string an `args_for_action` arm matches is one some action
 supplies. That guard would have found this, and is worth adding whichever
 resolution is chosen.
+
+**Resolution.** *(pending)*
+
+---
+
+## QA-003 — Canvas overlay colours are a second palette
+
+| | |
+|---|---|
+| **Severity** | low |
+| **Area** | `qml/Main.qml`, `qml/Theme.qml` |
+| **Checklist item** | [U-15](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** Six colours are written as hex literals in `Main.qml` rather than
+taken from `Theme.qml`:
+
+| Line | Value | What it paints |
+|---|---|---|
+| 2511 | `#40FFFFFF` | grid lines |
+| 2565 | `#E0FF6A00` | a guide |
+| 2599 | `#22000000` | selection-preview fill |
+| 2866 | `#000000` | the marching-ants shape stroke |
+| 2919 | `#1F3DAEE9` | crop-preview fill |
+| 3424 | `#2a2a2e` / `#222226` | navigator transparency checkerboard |
+
+`.claude/rules/qml.md` says tokens come from `Theme.qml` and "do not invent a
+second palette". These are one.
+
+**Steps to reproduce.** `grep -n '"#[0-9A-Fa-f]\{6,8\}"' qml/Main.qml`. The
+swatch palette at 3773–3775 and the shape fill/stroke defaults in
+`PropertiesPanel.qml` are *document* colours, not chrome, and are correctly
+excluded.
+
+**Root cause.** `Theme.qml` has tokens for panel chrome and none for canvas
+overlays, so each overlay picked its own value at the point of use. Nothing
+checks, because the guard family covers controls, icons and dialog widths but
+not colour literals.
+
+**Why this is not a quick fix, and why it should not be done mechanically.**
+None of the six is a safe swap:
+
+- `#1F3DAEE9` is the accent at 12%; the nearest token, `primarySubtle`, is the
+  accent at 10%. Substituting changes what the user sees.
+- `#2a2a2e` matches `surfaceContainerHigh` exactly, but its partner `#222226`
+  matches nothing — replacing one half of a checkerboard and not the other is
+  worse than leaving both.
+- The remaining four have no token at all.
+
+The fix is to *name* six overlay tokens in `Theme.qml`, which is a theme design
+decision, not a refactor.
+
+**Why it is worth doing.** The trap has already fired here. The comment above
+line 2919 records it: *"Accent at 12%, alpha first: an eight-digit hex is
+`#AARRGGBB` to Qt, so this had been a pale green fill inside a cyan border."*
+An eight-digit literal at the point of use is exactly where that mistake is
+invisible; a token named once is where it is not. A `no_colour_literals_in_qml`
+guard, with the document-colour sites listed as the exceptions they are, would
+keep the count from growing.
 
 **Resolution.** *(pending)*
