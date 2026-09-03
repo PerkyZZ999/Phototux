@@ -139,7 +139,7 @@ they had.
 
 ## 2.2 External-dependency failures (the "network" analogue)
 
-- [ ] **E-11** GPU device lost mid-session → document survives, Recover restores the canvas
+- [x] **E-11** GPU device lost mid-session → document survives, Recover restores the canvas — the painted stroke, layers and dirty state all survive; a red error toast names the loss, the Recover control appears in the status bar, and using it announces "Graphics recovered — canvas restored" and hides itself again
 - [x] **E-12** Save to a read-only directory → refused with a message, document stays dirty, no partial file — `Permission denied (os error 13)` carried through, no temp left behind
 - [x] **E-13** Save to a path whose parent does not exist — refused with the OS reason
 - [x] **E-14** Disk full during save → atomic replace leaves the previous file intact — covered by `a_failed_write_leaves_the_previous_contents_intact` and `a_failed_write_leaves_no_temporary_behind`; a genuine ENOSPC was not simulated
@@ -187,7 +187,7 @@ they had.
 ## 3.1 State indicators
 
 - [x] **U-01** Every panel has an empty state — never a blank rectangle — Properties, Layers, History and Welcome/recent all carry one
-- [ ] **U-02** Long operations show a busy indicator and a cancel affordance
+- [~] **U-02** Long operations show a busy indicator and a cancel affordance — `a_running_file_operation_can_be_cancelled` guards the call and its `ioBusy` gate; not exercised against a genuinely slow operation
 - [x] **U-03** Errors reach a toast that does not auto-dismiss; info and warnings fade — an I/O failure raises a modal "File operation failed" naming the cause; the info toast carries a dismiss control
 - [x] **U-04** Disabled controls look disabled and say why on hover where non-obvious — greyed entries throughout the Layer menu, matching the active layer's kind and state
 - [~] **U-05** The dirty marker appears on the first edit and clears on save — appears: title `Untitled*`, tab `* Untitled`, status `Unsaved`. Clear-on-save not exercised (portal dialog)

@@ -917,6 +917,13 @@ impl AppSession {
     /// [`Self::report_action_error`], which does not run the device-lost check
     /// on text that can never name a device.
     fn report_gpu(&mut self, operation: &str, error: &str) {
+        // Logged before the branch, not after it. Every failure that arrives
+        // while the device is already lost was routed to `enter_gpu_lost` and
+        // returned, dropping the operation and the reason — so a failed
+        // *recovery* was indistinguishable from the loss it was trying to fix,
+        // and clicking Recover again produced the same toast and no new
+        // information anywhere, log included.
+        tracing::warn!(operation, %error, "GPU operation failed");
         let lower = error.to_ascii_lowercase();
         if lower.contains("device lost")
             || lower.contains("surface lost")
@@ -926,7 +933,6 @@ impl AppSession {
             return;
         }
         self.notify(NoticeLevel::Error, format!("{operation} failed: {error}"));
-        tracing::warn!(operation, %error, "operation failed");
     }
 
     /// Post a message to the toast channel.
