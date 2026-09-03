@@ -1816,7 +1816,7 @@ ApplicationWindow {
 
             Item { Layout.fillWidth: true }
 
-            BusyIndicator {
+            ThemedBusyIndicator {
                 visible: AppSession.ioBusy
                 running: visible
                 Layout.preferredWidth: 18
@@ -1828,6 +1828,26 @@ ApplicationWindow {
                 text: qsTr("Working…")
                 color: Theme.primary
                 font.pixelSize: Theme.fontBodySm
+            }
+
+            // Saving a large PSD or exporting a 4K composite is the one thing
+            // in this editor that takes long enough to regret starting, and
+            // the worker has honoured a cancel token the whole time — nothing
+            // ever offered the user a way to set it. It only appears while
+            // there is something to cancel.
+            ChromeIconToolButton {
+                visible: AppSession.ioBusy
+                implicitWidth: 24
+                implicitHeight: 24
+                icon.source: root.iconUrl("x")
+                icon.width: 14
+                icon.height: 14
+                onClicked: AppSession.cancelIo()
+                Accessible.name: qsTr("Cancel the file operation")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
 
             ChromeIconToolButton {

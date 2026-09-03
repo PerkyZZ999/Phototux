@@ -232,6 +232,12 @@ mod tests {
                 ("DialogButtonBox", "ThemedDialogFooter"),
                 ("ScrollBar", "ThemedScrollBar"),
                 ("ToolTip", "ThemedToolTip"),
+                // Basic draws this one with `pen: palette.dark`, so the
+                // status bar's "Working…" spinner was a dark grey smudge on
+                // dark chrome — and Basic's own `padding: 6` around a
+                // 48-pixel contentItem left about six pixels of it inside the
+                // eighteen the status bar allows.
+                ("BusyIndicator", "ThemedBusyIndicator"),
             ] {
                 // The themed component is allowed to *be* the bare control.
                 // `ThemedMenu` also names `ThemedMenuItem` as its delegate,
@@ -247,6 +253,45 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A long file operation must be stoppable.
+    ///
+    /// `cancel_io` sets a token the worker checks between layers, and `send`
+    /// resets it before every command, so cancelling has always worked and
+    /// has never poisoned the next save. Nothing called the slot. Saving a
+    /// large PSD or exporting a 4K composite is the one thing here that takes
+    /// long enough to regret starting, and the status bar showed a spinner
+    /// and the word "Working…" with no way out of it.
+    ///
+    /// Pinned as a pair: the call and the `ioBusy` guard. A cancel button that
+    /// is always on screen offers to stop something that is not running.
+    #[test]
+    fn a_running_file_operation_can_be_cancelled() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("the shell is readable");
+        assert!(
+            shell.contains("AppSession.cancelIo()"),
+            "nothing in the shell calls cancelIo, so a running save cannot be stopped"
+        );
+        let offered = shell
+            .lines()
+            .position(|line| line.contains("AppSession.cancelIo()"))
+            .expect("the call is there");
+        let preceding: Vec<&str> = shell.lines().take(offered).collect();
+        let guarded = preceding
+            .iter()
+            .rev()
+            .take(12)
+            .any(|line| line.contains("visible: AppSession.ioBusy"));
+        assert!(
+            guarded,
+            "the cancel control is not guarded by ioBusy, so it offers to stop \
+             an operation that is not running"
+        );
     }
 
     /// The attached tool tip is the Basic style's, and it is light.

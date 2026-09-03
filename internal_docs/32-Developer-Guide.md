@@ -186,6 +186,21 @@ Extension contract owns manifests, versioned protocol values, capability scopes,
 
 Presentation model owns action descriptions, immutable projections, focus/navigation semantics, panel/tool/dialog descriptors, accessibility nodes, and toolkit-neutral state. Linux host owns Wayland-compatible native windows/surfaces/input, portals/files, clipboard, AT-SPI, display/color signals, lifecycle, and power/session integration. Application crate is the composition root and may depend on all concrete implementations.
 
+### A slot with no caller is not a feature
+
+`cancel_io` set a token the file worker checks between layers, and `send`
+resets that token before every command, so cancelling a save has always worked
+and has never poisoned the next one. Nothing in the shell called the slot. The
+status bar showed a spinner and the word "Working…" and offered no way out of
+a large PSD export.
+
+That is the same shape as `layer.reorder` before Layer ▸ Arrange, and it is the
+shape to go looking for: a `#[qslot]` that no `.qml` file names and that
+`dispatch_host_op` does not reach is either dead code or a missing control, and
+the two look identical from inside the crate. `a_running_file_operation_can_be_cancelled`
+pins this one — the call *and* its `ioBusy` guard, because a cancel button that
+is always on screen offers to stop something that is not running.
+
 ## Dependency Rules
 
 ```mermaid
