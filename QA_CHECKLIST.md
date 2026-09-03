@@ -163,12 +163,12 @@ they had.
 
 ## 2.4 Permission and command-precondition errors
 
-- [ ] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should, with a message
+- [!] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should, with a message — pixels and position are correct. **Lock All permits opacity, blend and effects** ([QA-001](QA_ISSUES.md#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer)); the alpha lock is unreachable and unread ([QA-002](QA_ISSUES.md#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads))
 - [x] **E-30** Every command invoked with no document open — typed errors throughout, no panics
-- [ ] **E-31** Every command invoked with no active layer
-- [ ] **E-32** Commands that need a selection, invoked without one
-- [ ] **E-33** Commands that need a specific layer kind, invoked on the wrong kind
-- [ ] **E-34** Merge Down on the bottom layer; Merge Group outside a group
+- [x] **E-31** Every command invoked with no active layer — typed refusals throughout
+- [~] **E-32** Commands that need a selection, invoked without one — `selection.to-mask` and `mask.to-selection` refuse. `selection.invert` and `selection.modify` succeed as no-ops; defensible (inverting nothing is Select All) and the menu entries are enablement-gated, so not logged
+- [x] **E-33** Commands that need a specific layer kind, invoked on the wrong kind — all five refuse in plain English
+- [x] **E-34** Merge Down on the bottom layer; Merge Group outside a group — both refuse, as does Ungroup
 - [ ] **E-35** Every enablement tag actually disables its menu entry when false
 
 ## 2.5 Concurrency and ordering
