@@ -115,3 +115,13 @@ profile without changing the document.
 Documents open when a session ends badly are written to a recovery store and
 offered back at the next launch. They are not a format you open by hand — see
 [opening, saving and exporting](/guides/files/#autosave-and-recovery).
+
+## What PSD export leaves behind
+
+PSD here carries raster layers. When a document holds anything else, the export
+still writes the file and then tells you what could not go in it — which layers
+were left out and why, in a Compatibility report after the save. Rasterize a
+text or shape layer first if you need it to survive the trip.
+
+Layer masks, layer styles, effects and clipping are not written either. The
+flattened composite inside the file has them; the individual layers do not.

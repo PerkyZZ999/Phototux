@@ -70,6 +70,9 @@ pub(crate) enum FileEvent {
     Autosaved,
     Exported {
         path: PathBuf,
+        /// What the format could not carry. Empty for the raster formats,
+        /// which either write the composite faithfully or fail.
+        report: Vec<CompatibilityIssue>,
     },
     Failed {
         operation: &'static str,
@@ -331,7 +334,10 @@ fn export_document(
     })();
 
     match result {
-        Ok(()) => FileEvent::Exported { path },
+        Ok(()) => FileEvent::Exported {
+            path,
+            report: Vec::new(),
+        },
         Err(message) => FileEvent::Failed {
             operation: "Export",
             message,
@@ -359,7 +365,7 @@ fn export_psd_document(path: PathBuf, graph: DocumentGraph, cancel: &CancelToken
         export_psd_path(&path, &graph, &rasters).map_err(|e| e.to_string())
     })();
     match result {
-        Ok(()) => FileEvent::Exported { path },
+        Ok(report) => FileEvent::Exported { path, report },
         Err(message) if message == "cancelled" || cancel.is_cancelled() => FileEvent::Cancelled {
             operation: "Export",
         },

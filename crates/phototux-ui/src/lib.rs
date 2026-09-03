@@ -5305,9 +5305,16 @@ impl AppSession {
             FileEvent::Autosaved => {
                 self.notify(NoticeLevel::Info, "Autosave written");
             }
-            FileEvent::Exported { path } => {
+            FileEvent::Exported { path, report } => {
                 self.io_busy = false;
                 self.notify(NoticeLevel::Info, format!("Exported {}", path.display()));
+                // The same disclosure an import gets. PSD carries raster layers
+                // and nothing else, so exporting a document with a text layer
+                // and an adjustment above it wrote half of it and said nothing.
+                if !report.is_empty() {
+                    self.compatibility_report = format_report(&report);
+                    self.compatibility_report_changed();
+                }
                 self.io_busy_changed();
                 self.status_text_changed();
             }

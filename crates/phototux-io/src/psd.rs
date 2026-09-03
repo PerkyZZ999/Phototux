@@ -239,15 +239,91 @@ fn decode_or_report_composite(
 ///
 /// # Errors
 /// Returns [`PsdError`] when dimensions exceed limits or encoding fails.
+/// A written PSD and what it could not carry.
+///
+/// The bytes used to be the whole answer, so exporting a document with a text
+/// layer and an adjustment above it wrote the raster layers and said nothing —
+/// the file opened in another editor with half the document missing and
+/// nothing anywhere to explain it. Import has disclosed its compatibility
+/// issues since it was written; export now uses the same vocabulary and the
+/// same dialog.
+#[derive(Debug, Clone)]
+pub struct PsdExport {
+    pub bytes: Vec<u8>,
+    pub report: Vec<CompatibilityIssue>,
+}
+
+/// What this export had to leave behind, in the order the user would notice.
+fn export_report(
+    graph: &DocumentGraph,
+    written: usize,
+    dropped_kinds: &mut Vec<&'static str>,
+) -> Vec<CompatibilityIssue> {
+    let mut report = Vec::new();
+    dropped_kinds.sort_unstable();
+    dropped_kinds.dedup();
+    if !dropped_kinds.is_empty() {
+        report.push(CompatibilityIssue {
+            code: "psd.export.kinds".into(),
+            message: format!(
+                "Only raster layers are written to PSD. These were left out: {}. \
+                 Rasterize them first to keep them.",
+                dropped_kinds.join(", ")
+            ),
+        });
+    }
+    let rasters_in_graph = graph
+        .layers()
+        .iter()
+        .filter(|l| l.kind == phototux_engine::LayerKind::Raster)
+        .count();
+    if rasters_in_graph > written {
+        report.push(CompatibilityIssue {
+            code: "psd.export.limit".into(),
+            message: format!(
+                "PSD export writes at most {MAX_LAYERS} layers; {} were left out.",
+                rasters_in_graph - written
+            ),
+        });
+    }
+    if graph.layers().iter().any(|l| l.mask.is_some()) {
+        report.push(CompatibilityIssue {
+            code: "psd.export.masks".into(),
+            message: "Layer masks are not written; each layer is exported as it \
+                      composites, without its mask."
+                .into(),
+        });
+    }
+    if graph
+        .layers()
+        .iter()
+        .any(|l| !l.effects.is_empty() || !l.styles.is_empty() || l.clips_to_below)
+    {
+        report.push(CompatibilityIssue {
+            code: "psd.export.effects".into(),
+            message: "Layer styles, effects and clipping are not written. The \
+                      flattened composite in the file has them; the layers do not."
+                .into(),
+        });
+    }
+    report
+}
+
+/// Write the document as a PSD, and say what could not go in it.
+///
+/// # Errors
+/// Returns [`PsdError`] when no raster layer can be written.
 pub fn export_psd(
     graph: &DocumentGraph,
     rasters: &[(LayerId, Raster)],
-) -> Result<Vec<u8>, PsdError> {
+) -> Result<PsdExport, PsdError> {
     let width = graph.size.width.clamp(1, MAX_DIMENSION);
     let height = graph.size.height.clamp(1, MAX_DIMENSION);
     let mut layers: Vec<(String, f32, BlendMode, Raster)> = Vec::new();
+    let mut dropped_kinds: Vec<&'static str> = Vec::new();
     for layer in graph.layers() {
         if layer.kind != phototux_engine::LayerKind::Raster {
+            dropped_kinds.push(layer.kind.label());
             continue;
         }
         let Some((_, raster)) = rasters.iter().find(|(id, _)| *id == layer.id) else {
@@ -271,6 +347,7 @@ pub fn export_psd(
     if layers.is_empty() {
         return Err(PsdError::Parse("no raster layers to export".into()));
     }
+    let report = export_report(graph, layers.len(), &mut dropped_kinds);
 
     let composite = composite_layers_rgba(&layers, width, height);
     let mut out = Vec::new();
@@ -289,7 +366,7 @@ pub fn export_psd(
 
     write_u16(&mut out, 0)?; // raw composite
     write_planar_raw(&mut out, &composite, width, height, 4)?;
-    Ok(out)
+    Ok(PsdExport { bytes: out, report })
 }
 
 /// Write PSD bytes atomically to `path`.
@@ -300,8 +377,8 @@ pub fn export_psd_path(
     path: &Path,
     graph: &DocumentGraph,
     rasters: &[(LayerId, Raster)],
-) -> Result<(), PsdError> {
-    let bytes = export_psd(graph, rasters)?;
+) -> Result<Vec<CompatibilityIssue>, PsdError> {
+    let PsdExport { bytes, report } = export_psd(graph, rasters)?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let tmp = parent.join(format!(
         ".{}.phototux-psd-{}.tmp",
@@ -315,7 +392,7 @@ pub fn export_psd_path(
         let _ = std::fs::remove_file(&tmp);
         PsdError::Io(e)
     })?;
-    Ok(())
+    Ok(report)
 }
 
 struct ParsedLayer {
@@ -1006,6 +1083,79 @@ pub fn format_report(issues: &[CompatibilityIssue]) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    use super::{CompatibilityIssue, export_psd};
+    use phototux_engine::{DocumentGraph, DocumentSize, LayerKind};
+
+    fn full_raster(graph: &DocumentGraph) -> Vec<(phototux_engine::LayerId, crate::Raster)> {
+        let (w, h) = (graph.size.width, graph.size.height);
+        graph
+            .layers()
+            .iter()
+            .filter(|l| l.kind == LayerKind::Raster)
+            .map(|l| {
+                let px = vec![0u8; (w * h * 4) as usize];
+                (
+                    l.id,
+                    crate::Raster::new(w, h, px.into_boxed_slice()).expect("raster"),
+                )
+            })
+            .collect()
+    }
+
+    fn codes(report: &[CompatibilityIssue]) -> Vec<&str> {
+        report.iter().map(|i| i.code.as_str()).collect()
+    }
+
+    /// PSD carries raster layers and nothing else, and the export used to say
+    /// nothing about it — a document with a text layer and an adjustment above
+    /// it wrote the rasters and opened elsewhere with half of it missing.
+    #[test]
+    fn exporting_a_non_raster_layer_discloses_that_it_was_dropped() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(2, 2));
+        graph
+            .add_text_top(None, phototux_engine::TextContent::default())
+            .expect("text layer");
+        let rasters = full_raster(&graph);
+        let out = export_psd(&graph, &rasters).expect("export");
+        assert!(
+            codes(&out.report).contains(&"psd.export.kinds"),
+            "report was {:?}",
+            out.report
+        );
+        assert!(
+            out.report
+                .iter()
+                .any(|i| i.message.contains(LayerKind::Text.label())),
+            "the disclosure names the kind that was dropped: {:?}",
+            out.report
+        );
+        assert!(!out.bytes.is_empty(), "and the file is still written");
+    }
+
+    /// A document of plain raster layers has nothing to disclose, and a dialog
+    /// that appears every time teaches the user to dismiss it unread.
+    #[test]
+    fn exporting_only_raster_layers_discloses_nothing() {
+        let graph = DocumentGraph::new(DocumentSize::new(2, 2));
+        let rasters = full_raster(&graph);
+        let out = export_psd(&graph, &rasters).expect("export");
+        assert!(out.report.is_empty(), "report was {:?}", out.report);
+    }
+
+    #[test]
+    fn exporting_a_masked_layer_says_the_mask_is_not_written() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(2, 2));
+        let id = graph.layers()[0].id;
+        graph.set_mask(id, Some(phototux_engine::LayerMask::default()));
+        let rasters = full_raster(&graph);
+        let out = export_psd(&graph, &rasters).expect("export");
+        assert!(
+            codes(&out.report).contains(&"psd.export.masks"),
+            "report was {:?}",
+            out.report
+        );
+    }
     use phototux_engine::BlendMode;
 
     /// Every mode must survive a PSD write→read cycle, and no two may share a
@@ -1114,7 +1264,9 @@ mod tests {
             vec![10, 20, 30, 255, 200, 150, 100, 255].into_boxed_slice(),
         )
         .expect("raster");
-        let bytes = export_psd(&graph, &[(id, raster.clone())]).expect("export");
+        let bytes = export_psd(&graph, &[(id, raster.clone())])
+            .expect("export")
+            .bytes;
         let back = import_psd_bytes(&bytes, Some("round.psd")).expect("import");
         assert_eq!(back.graph.layer_count(), 1);
         let imported = &back.layer_rasters[0].1;
