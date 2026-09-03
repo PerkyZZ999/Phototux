@@ -510,8 +510,7 @@ impl SessionState {
 
     /// Set the world-space point shown at the viewport center.
     pub fn set_pan(&mut self, world_x: f32, world_y: f32) {
-        self.camera.pan_x = world_x;
-        self.camera.pan_y = world_y;
+        self.camera.set_pan(world_x, world_y);
         self.bump_overlay_view();
     }
 

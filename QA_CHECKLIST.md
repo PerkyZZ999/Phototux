@@ -132,7 +132,7 @@ they had.
 - [x] **E-04** Group nesting at `MAX_NESTING_DEPTH` (64); one deeper is refused — unreachable in practice: the 16-layer cap stops nesting at 14, which is what the constant's own comment predicts
 - [ ] **E-05** Every adjustment slot at both ends of its declared range
 - [ ] **E-06** Blur radius at `MAX_BLUR_RADIUS` and at 0
-- [ ] **E-07** Opacity at 0 and 1; zoom at min and max
+- [x] **E-07** Opacity at 0 and 1; zoom at min and max — opacity clamps at the layer, including out-of-range input. Zoom **failed**: `f32::clamp` propagates NaN, so `set_zoom(NaN)` stored NaN and the camera could not be recovered. Fixed at all three camera entries
 - [ ] **E-08** Selection of zero area, and one covering the whole canvas
 - [ ] **E-09** Undo stacks at their bounds (64 selection, 32 transform) — the oldest step falls off, nothing panics
 - [x] **E-10** Text with an empty body, and with a very long single word — both accepted, 100 000 characters included
