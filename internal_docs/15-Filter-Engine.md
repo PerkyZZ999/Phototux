@@ -198,6 +198,8 @@ Preview never changes modified state or history. A preview can lag parameter inp
 | Black & White | `black-white` | Red, Green, Blue |
 | White Balance | `white-balance` | Temperature, Tint |
 
+Colour-space conversion the kinds share lives in `phototux_engine`'s `color` module, not with the kind that uses it: `rgb_to_hsl` / `hsl_to_rgb` are what Hue/Saturation turns on, and the WGSL in `phototux_gpu::composite` mirrors them, so the parity fixture sweeping every kind on a real device is what holds the two implementations together. They sat in `layer.rs` — two of that file's twenty concepts and the only two with no layer in them — where a shader comment pointing at "phototux_engine::rgb_to_hsl" sent readers to the layer module.
+
 Slots are positional: an entry's index in `editor_slots` *is* its index in `slots`, so a parameter cannot be described by one index and read from another. `MAX_ADJUSTMENT_SLOTS` (8) bounds the list, because the composite shader carries that many floats per layer — raising it is a uniform-layout change, and a kind wanting a curve or a gradient should take a lookup texture instead of a longer slot list.
 
 Three rules hold the vocabulary together, each pinned by test:

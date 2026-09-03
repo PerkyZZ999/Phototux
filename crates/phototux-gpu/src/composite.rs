@@ -239,8 +239,10 @@ fn apply_exposure(rgb: vec3<f32>, stops: f32, gamma: f32) -> vec3<f32> {
     return clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-// Mirrors phototux_engine::rgb_to_hsl / hsl_to_rgb, which are the reference
-// these are held to by parity fixture.
+// Mirrors the conversions in phototux_engine's `color` module, which are the
+// reference these are held to by the parity fixture — it sweeps every
+// adjustment kind, Hue/Saturation included, against the CPU result on a real
+// device.
 fn rgb_to_hsl(rgb: vec3<f32>) -> vec3<f32> {
     let mx = max(rgb.r, max(rgb.g, rgb.b));
     let mn = min(rgb.r, min(rgb.g, rgb.b));
