@@ -483,6 +483,19 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("layer.merge-visible")
         .key("Ctrl+Shift+E")
         .icon("stack-minus"),
+        // Photoshop shares `Ctrl+E` between Merge Down and Merge Group and
+        // decides by what is selected. The registry binds one chord to one
+        // action, so this one carries no chord and Merge Down's refusal names
+        // it instead — a dead end that says where to go is better than a
+        // chord that means two things.
+        act(
+            "action.layer.merge-group",
+            "Merge &Group",
+            "layer",
+            "group_selected",
+        )
+        .host("layer.merge-group")
+        .icon("folder-minus"),
         act(
             "action.layer.flatten",
             "Flatten &Image",
@@ -792,6 +805,24 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .host("selection.modify")
         .arg(&format!("{}:{}", op.as_str(), op.menu_radius()))
+    }));
+    // Layer ▸ Arrange, generated from `ArrangeOp` for the same reason the
+    // families below are generated from theirs: the ops carry their own
+    // labels and Photoshop's chords, and a hand-written list here would be a
+    // second copy free to drift from them.
+    //
+    // A submenu because Photoshop's is one, and because the Layer menu already
+    // runs to the bottom of a 1080p window.
+    actions.extend(crate::ArrangeOp::ALL.into_iter().map(|op| {
+        act(
+            &format!("action.layer.arrange-{}", op.as_str()),
+            &as_menu_label(op.label()),
+            "layer.arrange",
+            "has_multiple_layers",
+        )
+        .command(command_id::LAYER_ARRANGE)
+        .arg(op.as_str())
+        .key(op.shortcut())
     }));
     // One Shape submenu entry per preset, and one Combine entry per boolean
     // op. Both were hand-written lists restating vocabularies that already
@@ -1432,6 +1463,29 @@ mod tests {
         }
     }
 
+    /// The shell reads `lastAnnounce` and says it out loud.
+    ///
+    /// Nineteen command handlers call `announce`, and the string reached QML
+    /// through a property that nothing was bound to — published, exposed, and
+    /// silent. The two halves that make it audible are a live region carrying
+    /// the text and an `Accessible.announce` call raising the event; a shell
+    /// that keeps one and drops the other is back to writing announcements
+    /// nobody hears. Handbook 29 — Events and Announcements.
+    #[test]
+    fn the_shell_speaks_the_engines_announcements() {
+        let shell =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml/Main.qml"))
+                .expect("qml/Main.qml is readable from the engine crate");
+        assert!(
+            shell.contains("Accessible.name: AppSession.lastAnnounce"),
+            "no live region carries the announcement text"
+        );
+        assert!(
+            shell.contains("Accessible.announce("),
+            "the live region never raises an announcement event"
+        );
+    }
+
     #[test]
     fn every_panel_has_exactly_one_window_menu_toggle() {
         let toggles: Vec<&ActionDescriptor> = action_table()
@@ -1577,6 +1631,28 @@ mod tests {
         );
         assert!(!actions_for_context("canvas").is_empty());
         assert!(!actions_for_context("selection").is_empty());
+    }
+
+    /// Arrange's chords are the punctuation ones, and punctuation is where a
+    /// chord quietly falls out of the map.
+    ///
+    /// The shell binds one `Shortcut` per key of this map and hands the chord
+    /// string back on activation, so a chord that normalises to something the
+    /// map is not keyed by is a menu entry with a shortcut printed beside it
+    /// that does nothing. `Ctrl+]` survives `normalize_shortcut` only because
+    /// a one-character part is upper-cased rather than parsed.
+    #[test]
+    fn every_arrange_chord_reaches_the_map_the_shell_binds() {
+        let map = default_shortcut_map();
+        for op in crate::ArrangeOp::ALL {
+            let chord = normalize_shortcut(op.shortcut());
+            assert_eq!(chord, op.shortcut(), "{} was rewritten", op.label());
+            assert!(
+                map.contains_key(&chord),
+                "{} ({chord}) is bound to nothing",
+                op.label()
+            );
+        }
     }
 
     #[test]

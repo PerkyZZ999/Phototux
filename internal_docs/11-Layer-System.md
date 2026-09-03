@@ -209,8 +209,9 @@ transform entry so the stack and the pixels come back together.
 Both refuse a group, and refuse a layer inside one. A group is a parent in a
 flat list rather than a container of pixels, so merging across a group boundary
 would move layers out of their group as a side effect of an operation that
-never mentioned it — and merging a group itself is Photoshop's separate Merge
-Group, which is not implemented. Merge Down also refuses when either layer is
+never mentioned it. Each refusal names `layer.merge-group` instead: the two
+share `Ctrl+E` in Photoshop, so a dead end that says where to go is worth more
+than one that only says no. Merge Down also refuses when either layer is
 hidden: merging something you cannot see into something else you cannot see is
 not an edit anyone can check by looking at the canvas.
 
@@ -218,6 +219,41 @@ One caveat Photoshop carries too: the merged pixels are the pair composited
 over transparency, so if the *lower* layer's blend mode is not Normal it was
 blending against what is under the pair, and that backdrop is not part of the
 merge. The result can then differ from what was on screen.
+
+#### Merging a group
+
+`layer.merge-group` is the operation the other two refuse, and it is a whole
+operation with an obvious meaning: the group and everything inside it become
+one raster layer carrying the group's name, standing where the group stood,
+under the group's own parent.
+
+Membership is the **`parent` chain**, walked transitively by
+`DocumentGraph::descendants_of`, not a slice of the flat list. A nested group's
+children name the *inner* group as their parent, so anything that walked one
+level would leave them behind and anything that walked indices would take
+layers that merely happen to sit between the group and its neighbours. The walk
+is depth-capped, so a `parent` chain corrupted into a cycle by a malformed
+document returns what it has rather than hanging.
+
+`replace_with_merged_layer` inherits the parent of whatever sat lowest among
+the ids it consumes, which here is a child of the group being deleted. The
+merged layer's parent is corrected to the **group's** parent afterwards, so
+merging an inner group leaves the result inside the outer one and merging a
+top-level group produces a top-level layer.
+
+Hidden members are **discarded**, the way flatten discards what it cannot see,
+rather than refused the way Merge Down refuses a hidden layer. The distinction
+is what the canvas can tell you: after a group merge the canvas does not change
+— what the group was drawing is exactly what the merged layer draws — so the
+edit is checkable by looking, and refusing would block the ordinary case of a
+group holding one hidden variant. The count is both announced and raised as a
+notice, because a layer vanishing without a word is what erodes trust in a
+merge. A group with nothing visible in it, and a hidden group, are refused.
+
+The pixels come from the group's visible descendants composited among
+themselves. The group record itself is not in that subset: it owns no texture,
+so it contributes nothing — which is also why a group's own blend mode and
+opacity do not yet reach the canvas.
 
 #### Background layer
 
@@ -363,6 +399,133 @@ time, where a sixth kind would have arrived as a blank badge indistinguishable
 from a raster layer. A test asserts raster is the only unbadged kind and that no
 two kinds share a badge or a label. `LayerKind` also owns each kind's display
 name and Phosphor stem, for the same reason and checked the same way.
+
+### Arranging the stack
+
+`layer.reorder` has existed since the stack did, with locks, undo and a
+`SetStackOrder` history entry — and nothing in the shell ever called it. The
+panel has no drag, and the arrows in its header move the *panel*, not the
+layer, so the only way to change stacking order was to delete layers and add
+them back in the order you wanted. A fully implemented command with no way in
+is worse than a missing one, because everything about it reads as finished.
+
+Layer ▸ Arrange is Photoshop's four entries with Photoshop's four chords, in a
+submenu because Photoshop's is one and because the Layer menu already ran to
+the bottom of a 1080p window. `ArrangeOp` owns the vocabulary — wire name,
+label, chord and the arithmetic that turns a direction into a destination index
+— and the registry generates the entries from it, so a fifth op cannot arrive
+with no way to reach it. `layer.arrange` resolves the op against the stack and
+then goes through the same move as `layer.reorder`: one code path, one history
+label, one undo.
+
+Both carry a group's contents. Moving the group row on its own would leave its
+members where they were, stacked around whatever the group landed next to,
+still naming it as their parent, and drawn indented under a group no longer
+above them.
+
+At either end of the stack the command **refuses** rather than doing nothing:
+the menu entry stays enabled there, so pressing it has to say why the layer did
+not move.
+
+The chords are the punctuation ones, which is where a chord quietly falls out
+of the map the shell binds — `Ctrl+]` survives normalisation only because a
+one-character part is upper-cased rather than parsed. A test pins all four
+against that map.
+
+### Grouping gathers its members
+
+Grouping used to set parents and leave the stack alone, so grouping layers that
+were not adjacent left a non-member stacked between two members. With the panel
+indenting by nesting that draws a group whose contents are interrupted by a
+layer not in it — an arrangement the order does not have, and one no group
+could ever composite as a unit, because the interloper blends in the middle of
+what should be a single result.
+
+`cmd_layer_group` now gathers them the way Photoshop does: the members become a
+contiguous run at the position of the topmost selected layer, with the group
+directly above. Members keep their relative order — grouping closes the gaps
+between them and must not silently restack them. The gather rides in the same
+`GraphCommand::Batch` as the group itself, as a `SetStackOrder`, so one undo
+puts back both the group and the order. Layers that were already adjacent
+produce no reorder entry at all.
+
+### A hidden group hides its contents
+
+`Layer::visible` is one layer's flag; what the canvas shows is that flag *and*
+every group above it. The compositor takes the layer list verbatim and knows
+nothing about `parent`, so a hidden group used to hide only its own empty
+slice: the eye on the group row closed, hover said "Show Group 1", and every
+layer inside it stayed on the canvas.
+
+`DocumentGraph::layers_resolved` returns the stack with visibility already
+resolved, and every path that hands layers to `phototux_canvas` goes through
+it. Resolution stays in the engine rather than in `phototux_gpu` so it can be
+tested without a device (DR-022), and the return is a `Cow` that borrows when
+no group is hidden — the composite runs per frame, and cloning sixteen layers
+to change nothing is churn on the one path that cannot afford any.
+
+The panel says the same thing: `LayerRow::hidden_by_group` dims both the eye
+and the name of a row inside a hidden group. Dimmed rather than switched to the
+crossed eye, because the layer's own flag really is still on and clicking there
+still toggles it — what is off is the group, which the user turns back on
+there.
+
+Group **opacity and blend mode** still do not reach the canvas. Both need the
+group composited into its own surface first, which the compositor does not yet
+do; the controls are live in the panel and change the document, and the image
+does not follow. That is the remaining half of this section's "isolated"
+policy.
+
+### Default names
+
+Every default name is numbered — `Group 1`, `Levels 2`, `Ellipse 1` — because
+the panel shows the name and very little else. Only raster layers used to be
+numbered; groups, text layers, shapes and fills each took a bare kind name, so
+a document with three groups showed three rows called "Group" and the only way
+to tell them apart was to rename them.
+
+`DocumentGraph::next_default_name` owns the scheme. It hands out the **lowest
+free** number rather than a running count of what already exists, which is what
+the raster path did: counting names that merely start with the stem hands out a
+duplicate as soon as one is deleted — add three layers, delete the first, and
+the count says two, so the next add is a second "Layer 3". A name the user
+typed is theirs, so a layer renamed to "Layer 5" reserves that number and the
+next default steps over it. Bounded by the pigeonhole principle: `len + 1`
+candidates against `len` layers means one is always free, which is why the
+search has no failure case.
+
+Shape layers are named for the shape rather than for being shapes —
+`Rectangle 1`, `Ellipse 1`, `Polygon 1`, `Line 1` — from the `kind` key the
+content carries. An unrecognised key falls back to `Shape` rather than being
+refused, so a document written by a later version still opens. Adjustment
+layers take `AdjustmentParams::label` as their stem, which is how two Levels
+layers stopped both being called "Levels".
+
+### Nesting in the panel
+
+The layers panel draws a flat list, because a group *is* a parent rather than a
+container: `Layer::parent` names the group and the stack stays one ordered
+vector. That leaves the panel with nothing to distinguish a group's child from
+the layer that merely follows the group at the same level — for a while it drew
+both identically, so grouping two layers changed the row order and nothing else.
+
+`DocumentGraph::depth_of` counts a layer's ancestors and `LayerRow::depth`
+carries the count across to the model as a role. The delegate indents its
+content by `depth × Theme.spaceMd` and draws one hairline per level in the gap
+that opens, so nesting stacks visibly when groups nest. Photoshop's arrangement
+governs what moves: the visibility toggle keeps its own fixed column so the eyes
+stay in one line down the panel, and only what follows them indents.
+
+Depth comes from the graph rather than from a row's neighbours. A delegate that
+inferred nesting by comparing itself to the row above would indent whatever
+happened to follow a group, including the layer that sits *after* it at the same
+level. Both the depth walk and `descendants_of` share `MAX_NESTING_DEPTH` and
+stop there: a `parent` chain corrupted into a cycle by a hand-edited document
+would otherwise run a row off the edge of the dock, or hang.
+
+Collapsing a group is not implemented. `Layer` carries no expanded flag, so the
+"collapsed presentation" a group may declare above is a policy the format allows
+and the panel does not yet offer.
 
 ### Smart objects
 

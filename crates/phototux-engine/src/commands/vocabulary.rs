@@ -27,6 +27,8 @@ pub mod command_id {
     pub const LAYER_MERGE_DOWN: &str = "layer.merge-down";
     /// Composite every visible layer into one, keeping the hidden ones.
     pub const LAYER_MERGE_VISIBLE: &str = "layer.merge-visible";
+    /// Composite a group's contents into one layer and drop the group.
+    pub const LAYER_MERGE_GROUP: &str = "layer.merge-group";
     /// Composite every visible layer into one. Destructive by design.
     pub const LAYER_FLATTEN: &str = "layer.flatten";
     pub const LAYER_DELETE: &str = "layer.delete";
@@ -35,6 +37,7 @@ pub mod command_id {
     pub const LAYER_SET_OPACITY: &str = "layer.set-opacity";
     pub const LAYER_SET_BLEND: &str = "layer.set-blend";
     pub const LAYER_REORDER: &str = "layer.reorder";
+    pub const LAYER_ARRANGE: &str = "layer.arrange";
     pub const LAYER_GROUP: &str = "layer.group";
     pub const LAYER_UNGROUP: &str = "layer.ungroup";
     pub const LAYER_SET_CLIP: &str = "layer.set-clip";
@@ -183,6 +186,7 @@ pub mod command_id {
         LAYER_DUPLICATE,
         LAYER_MERGE_DOWN,
         LAYER_MERGE_VISIBLE,
+        LAYER_MERGE_GROUP,
         LAYER_FLATTEN,
         LAYER_DELETE,
         LAYER_SET_ACTIVE,
@@ -190,6 +194,7 @@ pub mod command_id {
         LAYER_SET_OPACITY,
         LAYER_SET_BLEND,
         LAYER_REORDER,
+        LAYER_ARRANGE,
         LAYER_GROUP,
         LAYER_UNGROUP,
         LAYER_SET_CLIP,
@@ -362,6 +367,15 @@ pub enum CommandArgs {
     },
     Reorder {
         to_index: i32,
+    },
+    /// Move the selection one place, or all the way, through the stack.
+    ///
+    /// A relative move rather than a destination index, because that is what
+    /// the menu entry means and because resolving it needs the stack: the
+    /// registry carries a static argument, and "forward" is static while
+    /// "index 4" is not.
+    Arrange {
+        op: String,
     },
     Zoom {
         zoom: f32,

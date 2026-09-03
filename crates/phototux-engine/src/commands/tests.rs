@@ -1595,3 +1595,491 @@ fn merge_visible_needs_two_visible_layers() {
         .expect_err("one visible layer");
     assert!(error.user_message().contains("two"), "{error:?}");
 }
+
+/// A group with two layers in it becomes one layer where the group stood.
+#[test]
+fn merge_group_replaces_the_group_and_its_contents_with_one_layer() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack.clone();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let group = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("the group is active");
+    assert_eq!(
+        s.graph.as_ref().expect("graph").descendants_of(group).len(),
+        stack.len(),
+        "both layers went into the group"
+    );
+
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge group");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(graph.layer_count(), 1, "the group and its contents are one");
+    let merged = graph.active_id().expect("active");
+    assert_eq!(
+        graph.index_of(merged),
+        Some(0),
+        "it stands where they stood"
+    );
+    assert!(graph.get(group).is_none(), "the group record survived");
+    for id in stack {
+        assert!(graph.get(id).is_none(), "a member survived the merge");
+    }
+    assert_eq!(graph.get(merged).map(|l| l.kind), Some(LayerKind::Raster));
+    assert_eq!(
+        graph.get(merged).map(|l| l.parent),
+        Some(None),
+        "a top-level group merges to a top-level layer"
+    );
+}
+
+/// A group inside a group merges with the outer one.
+///
+/// Membership is the `parent` chain, so a nested group's children name the
+/// *inner* group and would be missed by anything that walked one level.
+#[test]
+fn merge_group_takes_a_nested_group_with_it() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+
+    // Inner group over the top two layers, then an outer group over that.
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack[1..].to_vec();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("inner group");
+    let inner = s.graph.as_ref().expect("graph").active_id().expect("inner");
+    s.selected_layer_ids = vec![inner];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("outer group");
+    let outer = s.graph.as_ref().expect("graph").active_id().expect("outer");
+    assert_eq!(
+        s.graph.as_ref().expect("graph").descendants_of(outer).len(),
+        stack.len(),
+        "the inner group and every layer it holds are inside the outer one"
+    );
+
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge group");
+    let graph = s.graph.as_ref().expect("graph");
+    assert!(graph.get(inner).is_none(), "the nested group survived");
+    assert!(graph.get(outer).is_none(), "the outer group survived");
+    assert_eq!(
+        graph.layer_count(),
+        2,
+        "the bottom layer plus one merged layer"
+    );
+}
+
+/// Merging the inner group leaves the merged layer inside the outer one.
+#[test]
+fn merging_a_nested_group_keeps_the_result_in_its_parent() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack.clone();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("inner group");
+    let inner = s.graph.as_ref().expect("graph").active_id().expect("inner");
+    s.selected_layer_ids = vec![inner];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("outer group");
+    let outer = s.graph.as_ref().expect("graph").active_id().expect("outer");
+
+    let inner_index = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .index_of(inner)
+        .expect("the inner group is in the stack");
+    s.invoke(
+        command_id::LAYER_SET_ACTIVE,
+        CommandArgs::LayerIndex(i32::try_from(inner_index).expect("index")),
+    )
+    .expect("select the inner group");
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge the inner group");
+
+    let graph = s.graph.as_ref().expect("graph");
+    let merged = graph.active_id().expect("active");
+    assert!(graph.get(outer).is_some(), "the outer group was consumed");
+    assert_eq!(
+        graph.get(merged).map(|l| l.parent),
+        Some(Some(outer)),
+        "the merged layer left the group it was inside"
+    );
+}
+
+/// Hidden members are discarded, the way Flatten discards what it cannot see.
+#[test]
+fn merge_group_discards_hidden_members() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    s.invoke(
+        command_id::LAYER_SET_VISIBILITY,
+        CommandArgs::SetVisibility {
+            index: 0,
+            visible: false,
+        },
+    )
+    .expect("hide the bottom one");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack.clone();
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+
+    s.invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect("merge group");
+    let graph = s.graph.as_ref().expect("graph");
+    assert_eq!(graph.layer_count(), 1, "the hidden member was kept");
+    for id in stack {
+        assert!(graph.get(id).is_none());
+    }
+}
+
+/// A group whose contents are all hidden has nothing to merge.
+#[test]
+fn merge_group_refuses_a_group_with_nothing_visible() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let count = s.graph.as_ref().expect("graph").layer_count();
+    for index in 0..count {
+        s.invoke(
+            command_id::LAYER_SET_VISIBILITY,
+            CommandArgs::SetVisibility {
+                index: i32::try_from(index).expect("index"),
+                visible: false,
+            },
+        )
+        .expect("hide");
+    }
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack;
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let error = s
+        .invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect_err("nothing visible");
+    assert!(error.user_message().contains("visible"), "{error:?}");
+}
+
+/// Merge Group is for groups, and says so.
+#[test]
+fn merge_group_refuses_anything_that_is_not_a_group() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let error = s
+        .invoke(command_id::LAYER_MERGE_GROUP, CommandArgs::None)
+        .expect_err("a raster layer is not a group");
+    assert!(error.user_message().contains("group"), "{error:?}");
+}
+
+/// Merge Down's refusal names the command that does the job.
+///
+/// A dead end that says where to go is worth more than one that says no: the
+/// two share `Ctrl+E` in Photoshop, so this is the message a user reaching
+/// for muscle memory will see.
+#[test]
+fn merge_down_names_merge_group_when_it_refuses_one() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(command_id::LAYER_CREATE, CommandArgs::None)
+        .expect("add");
+    let stack: Vec<_> = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect();
+    s.selected_layer_ids = stack;
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let error = s
+        .invoke(command_id::LAYER_MERGE_DOWN, CommandArgs::None)
+        .expect_err("a group cannot merge down");
+    assert!(
+        error.user_message().contains("Merge Group"),
+        "the refusal should name Merge Group: {error:?}"
+    );
+}
+
+/// The stack ids, bottom first.
+fn stack_of(s: &SessionState) -> Vec<LayerId> {
+    s.graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect()
+}
+
+/// Grouping non-adjacent layers has to gather them.
+///
+/// Setting parents and leaving the stack alone left a non-member sitting
+/// between two members. The panel indents by nesting, so that drew a group
+/// whose contents were interrupted by a layer not in it — and no group can
+/// composite as a unit while something else is stacked through the middle.
+#[test]
+fn grouping_gathers_members_that_were_not_adjacent() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    assert_eq!(before.len(), 5, "background, seeded layer, and three added");
+    // Skip the layer directly below the top one.
+    let (low, high) = (before[1], before[4]);
+    let passed_over = before[3];
+    s.selected_layer_ids = vec![low, high];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+
+    let after = stack_of(&s);
+    let group = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("the group is active");
+    let at = |id: LayerId| after.iter().position(|x| *x == id).expect("in the stack");
+    assert_eq!(
+        at(high),
+        at(low) + 1,
+        "the members ended up adjacent to each other"
+    );
+    assert_eq!(at(group), at(high) + 1, "with the group directly above");
+    assert!(
+        at(passed_over) < at(low) || at(passed_over) > at(group),
+        "the layer that was between them is now outside the run"
+    );
+}
+
+/// Gathering closes gaps; it does not restack the layers it is grouping.
+#[test]
+fn gathering_keeps_the_members_in_their_own_order() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    let (low, high) = (before[1], before[4]);
+    s.selected_layer_ids = vec![high, low];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let after = stack_of(&s);
+    let at = |id: LayerId| after.iter().position(|x| *x == id).expect("in the stack");
+    assert!(
+        at(low) < at(high),
+        "the one that was lower is still the lower of the two, whatever \
+         order the selection was made in"
+    );
+}
+
+/// The gather is part of the same undo step as the group itself.
+#[test]
+fn undoing_a_group_puts_the_stack_back() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[1], before[4]];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    assert_ne!(stack_of(&s), before, "grouping moved something");
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+    assert_eq!(
+        stack_of(&s),
+        before,
+        "undo restores the order as well as removing the group"
+    );
+}
+
+/// Layers that were already adjacent must not be moved at all.
+#[test]
+fn grouping_adjacent_layers_leaves_the_stack_where_it_was() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[3], before[4]];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let after = stack_of(&s);
+    assert_eq!(
+        after[..3],
+        before[..3],
+        "everything below the run is untouched"
+    );
+    assert_eq!(after[3], before[3]);
+    assert_eq!(after[4], before[4]);
+}
+fn arrange(s: &mut SessionState, op: crate::ArrangeOp) -> Result<(), CommandError> {
+    s.invoke(
+        command_id::LAYER_ARRANGE,
+        CommandArgs::Arrange {
+            op: op.as_str().to_owned(),
+        },
+    )
+    .map(|_| ())
+}
+
+#[test]
+fn bring_forward_moves_the_active_layer_up_one_place() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[1]];
+    let _ = s.graph.as_mut().expect("graph").set_active(before[1]);
+    arrange(&mut s, crate::ArrangeOp::Forward).expect("bring forward");
+    let after = stack_of(&s);
+    assert_eq!(after[1], before[2], "the layer above swapped down");
+    assert_eq!(after[2], before[1], "and the moved one is above it");
+    assert_eq!(after[0], before[0], "nothing below moved");
+}
+
+#[test]
+fn send_to_back_puts_the_layer_at_the_bottom() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    let top = *before.last().expect("a top layer");
+    s.selected_layer_ids = vec![top];
+    let _ = s.graph.as_mut().expect("graph").set_active(top);
+    arrange(&mut s, crate::ArrangeOp::Back).expect("send to back");
+    assert_eq!(stack_of(&s)[0], top);
+}
+
+#[test]
+fn bring_to_front_puts_the_layer_on_top() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[0]];
+    let _ = s.graph.as_mut().expect("graph").set_active(before[0]);
+    arrange(&mut s, crate::ArrangeOp::Front).expect("bring to front");
+    assert_eq!(*stack_of(&s).last().expect("a top layer"), before[0]);
+}
+
+/// A refusal, not a silent no-op: the menu entry stays enabled at the ends of
+/// the stack, so pressing it there has to say why nothing happened.
+#[test]
+fn arranging_past_the_end_says_so() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    let top = *before.last().expect("a top layer");
+    s.selected_layer_ids = vec![top];
+    let _ = s.graph.as_mut().expect("graph").set_active(top);
+    let err = arrange(&mut s, crate::ArrangeOp::Forward).expect_err("nowhere to go");
+    assert!(
+        matches!(err, CommandError::Rejected(m) if m.contains("top")),
+        "the refusal names which end it hit"
+    );
+    assert_eq!(stack_of(&s), before, "and nothing moved");
+}
+
+#[test]
+fn an_unknown_arrange_op_is_refused() {
+    let (mut s, _) = session_with_layers(1);
+    let before = stack_of(&s);
+    let err = s
+        .invoke(
+            command_id::LAYER_ARRANGE,
+            CommandArgs::Arrange {
+                op: "sideways".to_owned(),
+            },
+        )
+        .expect_err("no such op");
+    assert!(matches!(err, CommandError::InvalidArgument(_)));
+    assert_eq!(stack_of(&s), before);
+}
+
+/// Moving a group has to carry its contents.
+///
+/// The group row on its own would leave its members where they were: stacked
+/// around whatever the group landed next to, still naming it as their parent,
+/// and drawn indented under a group no longer above them.
+#[test]
+fn moving_a_group_carries_what_is_inside_it() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[3], before[4]];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let group = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("the group is active");
+    let members = s.graph.as_ref().expect("graph").descendants_of(group);
+    assert_eq!(members.len(), 2);
+
+    s.selected_layer_ids = vec![group];
+    arrange(&mut s, crate::ArrangeOp::Back).expect("send the group to the back");
+
+    let after = stack_of(&s);
+    let at = |id: LayerId| after.iter().position(|x| *x == id).expect("in the stack");
+    assert!(
+        members.iter().all(|id| at(*id) < at(group)),
+        "the members went with it and are still below their group"
+    );
+    assert_eq!(
+        at(group),
+        members.len(),
+        "the run landed at the bottom, group on top of its own members"
+    );
+}
+
+#[test]
+fn undoing_an_arrange_puts_the_order_back() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[0]];
+    let _ = s.graph.as_mut().expect("graph").set_active(before[0]);
+    arrange(&mut s, crate::ArrangeOp::Front).expect("bring to front");
+    assert_ne!(stack_of(&s), before);
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+    assert_eq!(stack_of(&s), before);
+}

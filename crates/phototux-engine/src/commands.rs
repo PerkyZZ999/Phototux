@@ -45,6 +45,7 @@ impl SessionState {
             command_id::LAYER_DUPLICATE => self.cmd_layer_duplicate(),
             command_id::LAYER_MERGE_DOWN => self.cmd_layer_merge_down(),
             command_id::LAYER_MERGE_VISIBLE => self.cmd_layer_merge_visible(),
+            command_id::LAYER_MERGE_GROUP => self.cmd_layer_merge_group(),
             command_id::LAYER_FLATTEN => self.cmd_layer_flatten(),
             command_id::LAYER_DELETE => self.cmd_layer_delete(),
             command_id::LAYER_SET_ACTIVE => self.cmd_layer_set_active(args),
@@ -52,6 +53,7 @@ impl SessionState {
             command_id::LAYER_SET_OPACITY => self.cmd_layer_set_opacity(args),
             command_id::LAYER_SET_BLEND => self.cmd_layer_set_blend(args),
             command_id::LAYER_REORDER => self.cmd_layer_reorder(args),
+            command_id::LAYER_ARRANGE => self.cmd_layer_arrange(args),
             command_id::LAYER_GROUP => self.cmd_layer_group(),
             command_id::LAYER_UNGROUP => self.cmd_layer_ungroup(),
             command_id::LAYER_SET_CLIP => self.cmd_layer_set_clip(args),
@@ -360,11 +362,13 @@ impl SessionState {
                 return Err(CommandError::Rejected("a layer went missing"));
             };
             if layer.kind == LayerKind::Group {
-                return Err(CommandError::Rejected("a group cannot be merged yet"));
+                return Err(CommandError::Rejected(
+                    "a group cannot be merged down — use Merge Group",
+                ));
             }
             if layer.parent.is_some() {
                 return Err(CommandError::Rejected(
-                    "a layer inside a group cannot be merged yet",
+                    "a layer inside a group cannot be merged — use Merge Group on its group",
                 ));
             }
         }
@@ -435,6 +439,86 @@ impl SessionState {
         let generation = graph.generation;
         self.history.push_transform("Merge Visible", generation);
         self.sync_object_selection_to_active();
+        Ok(CommandEffects::document_edit(generation))
+    }
+
+    /// Composite a group's contents into one layer and drop the group.
+    ///
+    /// Photoshop's Merge Group, and the reason the two other merges refuse a
+    /// group: merging *across* a group boundary would move layers out of
+    /// their group as a side effect, but merging the group itself is a whole
+    /// operation with an obvious meaning. The group and everything inside it
+    /// — nested groups included, which is why membership is the `parent`
+    /// chain rather than a slice of the stack — become one raster layer
+    /// carrying the group's name, in the group's place, under the group's own
+    /// parent.
+    ///
+    /// Hidden children are discarded rather than refused. Merge Down refuses
+    /// a hidden layer because merging what you cannot see is not an edit you
+    /// can check by looking; here the canvas is the check, and it does not
+    /// change: what the group was drawing is exactly what the merged layer
+    /// draws. The count is announced so the discard is not silent.
+    fn cmd_layer_merge_group(&mut self) -> Result<CommandEffects, CommandError> {
+        let Some(graph) = self.graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let Some(group_id) = graph.active_id() else {
+            return Err(CommandError::Rejected("no active layer"));
+        };
+        let Some(group) = graph.get(group_id) else {
+            return Err(CommandError::Rejected("no active layer"));
+        };
+        if group.kind != LayerKind::Group {
+            return Err(CommandError::Rejected("select a group first"));
+        }
+        if !group.visible {
+            return Err(CommandError::Rejected("a hidden group cannot be merged"));
+        }
+        if group.locks.all {
+            return Err(CommandError::Rejected(
+                "this group is locked — unlock it to change it",
+            ));
+        }
+        let name = group.name.clone();
+        let parent = group.parent;
+
+        let members = graph.descendants_of(group_id);
+        let visible: Vec<LayerId> = members
+            .iter()
+            .copied()
+            .filter(|id| graph.get(*id).is_some_and(|l| l.visible))
+            .collect();
+        if visible.is_empty() {
+            return Err(CommandError::Rejected(
+                "this group has nothing visible to merge",
+            ));
+        }
+        let hidden = members.len() - visible.len();
+
+        // The group record goes too, so the merged layer stands where the
+        // group stood rather than inside a container that no longer has
+        // anything in it.
+        let mut consumed = members;
+        consumed.push(group_id);
+        let Some(merged) = graph.replace_with_merged_layer(&consumed, &name) else {
+            return Err(CommandError::Rejected("a layer went missing"));
+        };
+        // `replace_with_merged_layer` inherits the parent of whatever sat
+        // lowest, which here is a child of the group being deleted. The
+        // merged layer belongs where the *group* belonged.
+        if let Some(layer) = graph.get_mut(merged) {
+            layer.parent = parent;
+        }
+        graph.bump_generation();
+        let generation = graph.generation;
+        self.history.push_transform("Merge Group", generation);
+        self.sync_object_selection_to_active();
+        if hidden > 0 {
+            let plural = if hidden == 1 { "layer" } else { "layers" };
+            self.announce(format!(
+                "Merged {name} — {hidden} hidden {plural} discarded"
+            ));
+        }
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -767,9 +851,58 @@ impl SessionState {
         let CommandArgs::Reorder { to_index } = args else {
             return Err(CommandError::InvalidArgument("expected reorder index"));
         };
+        let (moving, rest) = self.movable_run()?;
+        let insert_at = (to_index.max(0) as usize).min(rest.len());
+        self.apply_reorder(moving, rest, insert_at)
+    }
+
+    fn cmd_layer_arrange(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::Arrange { op } = args else {
+            return Err(CommandError::InvalidArgument("expected an arrange op"));
+        };
+        let Some(op) = crate::ArrangeOp::parse(&op) else {
+            return Err(CommandError::InvalidArgument("unknown arrange op"));
+        };
+        let (moving, rest) = self.movable_run()?;
+        // Where the run sits once it has been lifted out — the number of
+        // layers left behind that were below it.
+        let from = self
+            .graph
+            .as_ref()
+            .and_then(|graph| {
+                let order = graph.stack_order();
+                let first = order.iter().position(|id| moving.contains(id))?;
+                Some(
+                    order[..first]
+                        .iter()
+                        .filter(|id| !moving.contains(id))
+                        .count(),
+                )
+            })
+            .unwrap_or(0);
+        let insert_at = op.destination(from, rest.len());
+        if insert_at == from {
+            return Err(CommandError::Rejected(match op {
+                crate::ArrangeOp::Forward | crate::ArrangeOp::Front => {
+                    "this is already the top layer"
+                }
+                crate::ArrangeOp::Backward | crate::ArrangeOp::Back => {
+                    "this is already the bottom layer"
+                }
+            }));
+        }
+        self.apply_reorder(moving, rest, insert_at)
+    }
+
+    /// Split the stack into the layers a move carries and the ones it does not.
+    ///
+    /// A group carries its contents. Moving the group row on its own would
+    /// leave its members where they were — stacked around whatever the group
+    /// landed next to, still claiming it as their parent, and drawn indented
+    /// under a group that is no longer above them.
+    fn movable_run(&mut self) -> Result<(Vec<LayerId>, Vec<LayerId>), CommandError> {
         let targets = self.structural_target_ids()?;
-        let SessionState { graph, history, .. } = self;
-        let Some(graph) = graph.as_mut() else {
+        let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
         for id in &targets {
@@ -782,20 +915,39 @@ impl SessionState {
                 ));
             }
         }
-        let prev = graph.stack_order();
+        let mut carried: Vec<LayerId> = targets.clone();
+        for id in &targets {
+            if graph.get(*id).is_some_and(|l| l.kind == LayerKind::Group) {
+                carried.extend(graph.descendants_of(*id));
+            }
+        }
         let mut moving: Vec<LayerId> = Vec::new();
         let mut rest: Vec<LayerId> = Vec::new();
-        for id in &prev {
-            if targets.contains(id) {
-                moving.push(*id);
+        for id in graph.stack_order() {
+            if carried.contains(&id) {
+                moving.push(id);
             } else {
-                rest.push(*id);
+                rest.push(id);
             }
         }
         if moving.is_empty() {
             return Err(CommandError::Rejected("there are no layers to reorder"));
         }
-        let insert_at = (to_index.max(0) as usize).min(rest.len());
+        Ok((moving, rest))
+    }
+
+    fn apply_reorder(
+        &mut self,
+        moving: Vec<LayerId>,
+        rest: Vec<LayerId>,
+        insert_at: usize,
+    ) -> Result<CommandEffects, CommandError> {
+        let moved = moving.len();
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let prev = graph.stack_order();
         let mut next = rest;
         next.splice(insert_at..insert_at, moving);
         if next == prev {
@@ -808,7 +960,7 @@ impl SessionState {
         let generation = graph.generation;
         history.push_graph_applied(
             crate::GraphCommand::SetStackOrder { prev, next },
-            if targets.len() == 1 {
+            if moved == 1 {
                 "Reorder layer"
             } else {
                 "Reorder layers"
@@ -830,17 +982,10 @@ impl SessionState {
             )));
         }
 
-        let insert_at = graph
-            .index_of(targets[targets.len() - 1])
-            .map(|i| i + 1)
-            .unwrap_or(graph.layer_count())
-            .min(graph.layer_count());
-
-        let group_id = graph.add_group_top(Some("Group".into()))?;
-        let _ = graph.move_layer(group_id, insert_at);
-        let group_index = graph.index_of(group_id).unwrap_or(0);
-        let parent_cmds = reparent_into_group(graph, &targets, group_id)?;
-
+        // `None`, not `Some("Group")`: the graph numbers its own default
+        // names, and naming it here made every group in a document "Group".
+        let group_id = graph.add_group_top(None)?;
+        let group_index = graph.layer_count().saturating_sub(1);
         let mut batch = vec![crate::GraphCommand::AddLayer {
             id: group_id,
             index: group_index,
@@ -849,7 +994,16 @@ impl SessionState {
                 .cloned()
                 .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?,
         }];
-        batch.extend(parent_cmds);
+        batch.extend(reparent_into_group(graph, &targets, group_id)?);
+
+        let prev: Vec<LayerId> = graph.layers().iter().map(|l| l.id).collect();
+        let next = grouped_stack_order(graph, &targets, group_id);
+        if next != prev {
+            if !graph.reorder_stack(&next) {
+                return Err(CommandError::Rejected("could not gather the group"));
+            }
+            batch.push(crate::GraphCommand::SetStackOrder { prev, next });
+        }
 
         graph.bump_generation();
         let generation = graph.generation;
@@ -2066,12 +2220,14 @@ impl SessionState {
         let Some(params) = AdjustmentParams::default_for_kind(&kind) else {
             return Err(CommandError::InvalidArgument("unknown adjustment kind"));
         };
-        let name = params.label();
         let SessionState { graph, history, .. } = self;
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let id = graph.add_adjustment_top(Some(name.into()), params)?;
+        // Named for the adjustment, and numbered — two Levels layers used to
+        // be called "Levels" apiece, which the panel cannot tell apart.
+        let name = graph.next_default_name(params.label());
+        let id = graph.add_adjustment_top(Some(name), params)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
             .get(id)
@@ -3250,6 +3406,49 @@ fn rollback_parent_cmds(graph: &mut crate::DocumentGraph, cmds: &[crate::GraphCo
             let _ = graph.set_parent(*id, *prev);
         }
     }
+}
+
+/// Where the stack lands once `targets` are gathered under `group_id`.
+///
+/// Grouping used to set parents and leave the stack alone, so grouping layers
+/// that were not adjacent left a non-member sitting between two members. The
+/// panel indents by nesting, which made that draw as a group whose contents
+/// were interrupted by a layer that is not in it — an arrangement the order
+/// does not actually have, and one no group could ever composite as a unit.
+///
+/// Photoshop gathers them instead, and puts the run where the topmost selected
+/// layer was. Members keep their relative order: grouping must not silently
+/// restack the layers it is grouping, only close the gaps between them.
+fn grouped_stack_order(
+    graph: &crate::DocumentGraph,
+    targets: &[LayerId],
+    group_id: LayerId,
+) -> Vec<LayerId> {
+    let order: Vec<LayerId> = graph.layers().iter().map(|l| l.id).collect();
+    let members: Vec<LayerId> = order
+        .iter()
+        .copied()
+        .filter(|id| targets.contains(id))
+        .collect();
+    let top = order.iter().rposition(|id| targets.contains(id));
+    let mut next = Vec::with_capacity(order.len());
+    let mut placed = false;
+    for (i, id) in order.iter().copied().enumerate() {
+        if id == group_id || targets.contains(&id) {
+            continue;
+        }
+        if !placed && top.is_some_and(|t| i > t) {
+            next.extend(members.iter().copied());
+            next.push(group_id);
+            placed = true;
+        }
+        next.push(id);
+    }
+    if !placed {
+        next.extend(members);
+        next.push(group_id);
+    }
+    next
 }
 
 fn reparent_into_group(

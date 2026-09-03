@@ -14,6 +14,37 @@ use crate::paths::PathDocument;
 /// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 16;
 
+/// What to call a new shape layer, from the `kind` key its content carries.
+///
+/// Photoshop names a shape layer after the shape — "Rectangle 1", "Ellipse 2"
+/// — rather than after the fact that it is a shape, and with four kinds in the
+/// stack "Shape 1" through "Shape 4" says nothing the panel could not already
+/// see from the badge. The stars, arrows and rounded rectangles the presets
+/// offer all record themselves as `polygon`, which is what they are as far as
+/// the path is concerned, so they are named as polygons here too.
+///
+/// An unrecognised key falls back to the kind name rather than being refused:
+/// a document written by a later version can carry a shape kind this one does
+/// not know, and refusing to name it would refuse to open the file.
+fn shape_stem(content: &ShapeContent) -> &'static str {
+    match content.kind.as_str() {
+        "rect" => "Rectangle",
+        "ellipse" => "Ellipse",
+        "line" => "Line",
+        "polygon" => "Polygon",
+        _ => "Shape",
+    }
+}
+
+/// How far a `parent` chain is followed before the walk gives up.
+///
+/// A well-formed graph nests far shallower than this — `MAX_LAYERS` is 16, so
+/// even a group inside a group inside a group cannot get near it. The cap is
+/// there for the malformed case: a `parent` chain corrupted into a cycle by a
+/// hand-edited or truncated document would otherwise hang the walk rather
+/// than return something wrong.
+const MAX_NESTING_DEPTH: usize = 64;
+
 /// Graph schema version embedded in `.ptx` manifests.
 pub const GRAPH_SCHEMA_VERSION: u32 = 3;
 
@@ -108,6 +139,31 @@ impl DocumentGraph {
         Layer::new(id, name)
     }
 
+    /// The next free default name for `stem` — `Group 1`, `Group 2`, and so on.
+    ///
+    /// Photoshop numbers every default name, and the reason is the layers
+    /// panel: a stack holding three layers all called "Group" tells the user
+    /// nothing about which is which, and renaming one to find out is work the
+    /// editor should have done. Only raster layers were numbered here; groups,
+    /// text, shapes and fills all took a bare kind name, and two Levels
+    /// adjustments were both called "Levels".
+    ///
+    /// The number is the lowest that is free rather than a running count of
+    /// what exists. Counting names that merely *start with* the stem — which is
+    /// what the raster path used to do — hands out a duplicate as soon as one
+    /// is deleted: add three layers, delete the first, and the next add is a
+    /// second "Layer 3".
+    #[must_use]
+    pub fn next_default_name(&self, stem: &str) -> String {
+        // One more candidate than there are layers, so by the pigeonhole
+        // principle at least one of them is free however the existing names
+        // are arranged.
+        (1..=self.layers.len() + 1)
+            .map(|n| format!("{stem} {n}"))
+            .find(|candidate| self.layers.iter().all(|l| &l.name != candidate))
+            .expect("more candidates than layers, so one is always free")
+    }
+
     /// Replace `ids` with one fresh empty layer at the lowest of their
     /// positions, and return its id.
     ///
@@ -135,6 +191,119 @@ impl DocumentGraph {
         self.active = Some(id);
         self.bump();
         Some(id)
+    }
+
+    /// Every layer inside `group`, transitively, in stack order.
+    ///
+    /// Membership is the `parent` chain rather than a range of indices: a
+    /// group is a parent in a flat list, and a nested group's children name
+    /// the *inner* group as their parent, so walking indices between the
+    /// group and its neighbours would either miss them or take layers that
+    /// merely happen to sit there. The walk is depth-capped, so a `parent`
+    /// chain corrupted into a cycle by a malformed document returns what it
+    /// has rather than hanging.
+    #[must_use]
+    pub fn descendants_of(&self, group: LayerId) -> Vec<LayerId> {
+        self.layers
+            .iter()
+            .filter(|layer| {
+                let mut parent = layer.parent;
+                for _ in 0..MAX_NESTING_DEPTH {
+                    match parent {
+                        Some(id) if id == group => return true,
+                        Some(id) => parent = self.get(id).and_then(|l| l.parent),
+                        None => return false,
+                    }
+                }
+                false
+            })
+            .map(|layer| layer.id)
+            .collect()
+    }
+
+    /// The stack as anything that draws it must see it: every layer's
+    /// `visible` flag resolved against the groups it is inside.
+    ///
+    /// A group is a parent in a flat list, and the compositor takes that list
+    /// verbatim, so a hidden group used to hide nothing but its own empty
+    /// slice — the eye on a group row closed, said "Show Group 1" on hover,
+    /// and the group's contents stayed on the canvas. Resolving here rather
+    /// than in `phototux_gpu` keeps the notion of a group inside the engine,
+    /// where it can be tested without a device (DR-022).
+    ///
+    /// Borrowed when no group is hidden, which is every document that has no
+    /// groups at all: this runs on the composite path, and cloning sixteen
+    /// layers to change nothing is churn the one hot path cannot afford.
+    #[must_use]
+    pub fn layers_resolved(&self) -> std::borrow::Cow<'_, [Layer]> {
+        let hidden: Vec<LayerId> = self
+            .layers
+            .iter()
+            .filter(|l| !l.visible && l.kind == LayerKind::Group)
+            .map(|l| l.id)
+            .collect();
+        if hidden.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.layers);
+        }
+        let mut resolved = self.layers.clone();
+        for layer in &mut resolved {
+            if self.has_ancestor_in(layer.parent, &hidden) {
+                layer.visible = false;
+            }
+        }
+        std::borrow::Cow::Owned(resolved)
+    }
+
+    /// Whether this layer is inside a group the panel should draw as hidden.
+    ///
+    /// Distinct from the layer's own flag: a visible layer inside a hidden
+    /// group contributes nothing, and a panel that drew its eye open would be
+    /// describing a state the canvas does not have.
+    #[must_use]
+    pub fn is_hidden_by_group(&self, layer: LayerId) -> bool {
+        let hidden: Vec<LayerId> = self
+            .layers
+            .iter()
+            .filter(|l| !l.visible && l.kind == LayerKind::Group)
+            .map(|l| l.id)
+            .collect();
+        !hidden.is_empty() && self.has_ancestor_in(self.get(layer).and_then(|l| l.parent), &hidden)
+    }
+
+    /// Whether the chain from `parent` upwards passes through any of `ids`.
+    ///
+    /// Depth-capped for the reason [`Self::depth_of`] gives.
+    fn has_ancestor_in(&self, mut parent: Option<LayerId>, ids: &[LayerId]) -> bool {
+        for _ in 0..MAX_NESTING_DEPTH {
+            match parent {
+                Some(id) if ids.contains(&id) => return true,
+                Some(id) => parent = self.get(id).and_then(|l| l.parent),
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// How deeply `layer` sits inside groups — `0` at the root of the stack.
+    ///
+    /// The panel indents a row by this, which is the only cue that a layer is
+    /// inside the group above it: a group is a parent in a flat list, so
+    /// without the indent a grouped stack and an ungrouped one draw
+    /// identically. Depth-capped like [`Self::descendants_of`], and for the
+    /// same reason — an indent computed from a cyclic chain would otherwise
+    /// run the row off the edge of the dock.
+    #[must_use]
+    pub fn depth_of(&self, layer: LayerId) -> usize {
+        let mut depth = 0;
+        let mut parent = self.get(layer).and_then(|l| l.parent);
+        while let Some(id) = parent {
+            depth += 1;
+            if depth == MAX_NESTING_DEPTH {
+                break;
+            }
+            parent = self.get(id).and_then(|l| l.parent);
+        }
+        depth
     }
 
     /// Replace the whole stack with one empty layer and return its id.
@@ -259,13 +428,7 @@ impl DocumentGraph {
         if !self.can_add_layer() {
             return Err(DocumentError::layer_limit(MAX_LAYERS));
         }
-        let n = self
-            .layers
-            .iter()
-            .filter(|l| l.name.starts_with("Layer "))
-            .count()
-            + 1;
-        let name = name.unwrap_or_else(|| format!("Layer {n}"));
+        let name = name.unwrap_or_else(|| self.next_default_name("Layer"));
         let layer = self.alloc_layer(&name);
         let id = layer.id;
         self.layers.push(layer);
@@ -284,7 +447,7 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::group(id, name.unwrap_or_else(|| "Group".into()));
+        let layer = Layer::group(id, name.unwrap_or_else(|| self.next_default_name("Group")));
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -305,7 +468,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::text_layer(id, name.unwrap_or_else(|| "Text".into()), content);
+        let layer = Layer::text_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name("Text")),
+            content,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -326,7 +493,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::shape_layer(id, name.unwrap_or_else(|| "Shape".into()), content);
+        let layer = Layer::shape_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name(shape_stem(&content))),
+            content,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -347,8 +518,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer =
-            Layer::adjustment_layer(id, name.unwrap_or_else(|| "Adjustment".into()), params);
+        let layer = Layer::adjustment_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name("Adjustment")),
+            params,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -369,7 +543,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::fill_layer(id, name.unwrap_or_else(|| "Fill".into()), content);
+        let layer = Layer::fill_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name("Fill")),
+            content,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -868,6 +1046,207 @@ mod tests {
         assert_eq!(g.layer_mask_flags_joined(), "0|2");
         assert_eq!(g.set_clips_to_below(top, true), Some(false));
         assert_eq!(g.layer_clips_joined(), "0|1");
+    }
+
+    #[test]
+    fn every_default_name_is_numbered() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(None).expect("group");
+        let text = g
+            .add_text_top(None, crate::layer::TextContent::default())
+            .expect("text");
+        let fill = g
+            .add_fill_top(None, crate::layer::FillContent::default())
+            .expect("fill");
+
+        assert_eq!(g.get(group).expect("group").name, "Group 1");
+        assert_eq!(g.get(text).expect("text").name, "Text 1");
+        assert_eq!(g.get(fill).expect("fill").name, "Fill 1");
+    }
+
+    /// Two of the same kind must not end up with the same name — that is the
+    /// whole point, because the panel shows the name and nothing else.
+    #[test]
+    fn a_second_group_is_not_also_group_one() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let first = g.add_group_top(None).expect("group");
+        let second = g.add_group_top(None).expect("group");
+        assert_eq!(g.get(first).expect("group").name, "Group 1");
+        assert_eq!(g.get(second).expect("group").name, "Group 2");
+    }
+
+    /// The number is the lowest free one, not a count of what exists.
+    ///
+    /// Counting handed out a duplicate the moment a layer was deleted: three
+    /// layers, delete the first, and the count says two so the next add is a
+    /// second "Layer 3".
+    #[test]
+    fn a_deleted_number_is_reused_rather_than_duplicated() {
+        // A new document already ships a "Layer 1" above its background, so
+        // the first layer the user adds is "Layer 2". Counting names that
+        // start with the stem got this right only until something was deleted.
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let two = g.add_layer_top(None).expect("layer");
+        let three = g.add_layer_top(None).expect("layer");
+        assert_eq!(g.get(two).expect("layer").name, "Layer 2");
+        assert_eq!(g.get(three).expect("layer").name, "Layer 3");
+
+        g.remove_layer(two);
+        let next = g.add_layer_top(None).expect("layer");
+        assert_eq!(
+            g.get(next).expect("layer").name,
+            "Layer 2",
+            "the freed number comes back rather than a second Layer 3"
+        );
+    }
+
+    /// A name the user typed is theirs. The next default steps over it rather
+    /// than colliding with it.
+    #[test]
+    fn a_renamed_layer_still_reserves_its_number() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let renamed = g.add_layer_top(None).expect("layer");
+        g.get_mut(renamed).expect("layer").name = "Layer 3".to_owned();
+        let next = g.add_layer_top(None).expect("layer");
+        assert_eq!(g.get(next).expect("layer").name, "Layer 2");
+        let after = g.add_layer_top(None).expect("layer");
+        assert_eq!(g.get(after).expect("layer").name, "Layer 4");
+    }
+
+    #[test]
+    fn a_shape_layer_is_named_for_its_shape() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let named = |g: &mut DocumentGraph, kind: &str| {
+            let content = ShapeContent {
+                kind: kind.to_owned(),
+                ..Default::default()
+            };
+            let id = g.add_shape_top(None, content).expect("shape");
+            g.get(id).expect("shape").name.clone()
+        };
+        assert_eq!(named(&mut g, "rect"), "Rectangle 1");
+        assert_eq!(named(&mut g, "ellipse"), "Ellipse 1");
+        assert_eq!(named(&mut g, "polygon"), "Polygon 1");
+        assert_eq!(named(&mut g, "line"), "Line 1");
+        assert_eq!(
+            named(&mut g, "hyperbola"),
+            "Shape 1",
+            "a kind from a later version is named rather than refused"
+        );
+    }
+
+    /// The bug this exists for: the compositor takes the layer list verbatim,
+    /// so a hidden group used to hide nothing but its own empty slice. Closing
+    /// the eye on a group left every layer inside it on the canvas.
+    #[test]
+    fn hiding_a_group_hides_what_is_inside_it() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(None).expect("group");
+        let inside = g.add_layer_top(None).expect("layer");
+        let outside = g.add_layer_top(None).expect("layer");
+        g.get_mut(inside).expect("layer").parent = Some(group);
+        g.get_mut(group).expect("group").visible = false;
+
+        let resolved = g.layers_resolved();
+        let visible = |id: LayerId| resolved.iter().find(|l| l.id == id).expect("layer").visible;
+        assert!(!visible(inside), "a layer inside a hidden group is off");
+        assert!(visible(outside), "a layer beside it is untouched");
+        assert!(
+            g.get(inside).expect("layer").visible,
+            "the layer's own flag is unchanged — the group is what is off"
+        );
+    }
+
+    #[test]
+    fn a_hidden_outer_group_reaches_a_nested_layer() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let outer = g.add_group_top(None).expect("group");
+        let inner = g.add_group_top(None).expect("group");
+        let leaf = g.add_layer_top(None).expect("layer");
+        g.get_mut(inner).expect("group").parent = Some(outer);
+        g.get_mut(leaf).expect("layer").parent = Some(inner);
+        g.get_mut(outer).expect("group").visible = false;
+
+        assert!(g.is_hidden_by_group(leaf), "two levels down still counts");
+        assert!(
+            !g.layers_resolved()
+                .iter()
+                .find(|l| l.id == leaf)
+                .expect("layer")
+                .visible
+        );
+    }
+
+    /// The composite runs per frame, so the common case must not allocate.
+    #[test]
+    fn a_stack_with_nothing_to_resolve_is_borrowed() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(None).expect("group");
+        let inside = g.add_layer_top(None).expect("layer");
+        g.get_mut(inside).expect("layer").parent = Some(group);
+        assert!(
+            matches!(g.layers_resolved(), std::borrow::Cow::Borrowed(_)),
+            "a visible group changes nothing, so nothing is cloned"
+        );
+
+        g.get_mut(group).expect("group").visible = false;
+        assert!(matches!(g.layers_resolved(), std::borrow::Cow::Owned(_)));
+    }
+
+    /// Hiding a plain layer is not a group being hidden, and must not put the
+    /// composite path on the cloning branch.
+    #[test]
+    fn hiding_an_ordinary_layer_resolves_nothing() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let layer = g.add_layer_top(None).expect("layer");
+        g.get_mut(layer).expect("layer").visible = false;
+        assert!(matches!(g.layers_resolved(), std::borrow::Cow::Borrowed(_)));
+        assert!(!g.is_hidden_by_group(layer));
+    }
+
+    #[test]
+    fn depth_counts_the_groups_a_layer_is_inside() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let outer = g.add_group_top(None).expect("group");
+        let inner = g.add_group_top(None).expect("group");
+        let leaf = g.add_layer_top(None).expect("layer");
+        g.get_mut(inner).expect("group").parent = Some(outer);
+        g.get_mut(leaf).expect("layer").parent = Some(inner);
+
+        assert_eq!(g.depth_of(outer), 0, "a root group is not inside anything");
+        assert_eq!(g.depth_of(inner), 1);
+        assert_eq!(g.depth_of(leaf), 2);
+    }
+
+    #[test]
+    fn depth_of_an_unknown_layer_is_zero() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let gone = g.add_layer_top(None).expect("layer");
+        g.remove_layer(gone);
+        assert_eq!(
+            g.depth_of(gone),
+            0,
+            "a row for a layer that is no longer there draws unindented \
+             rather than panicking"
+        );
+    }
+
+    /// The cap is not decoration. A `.ptx` edited by hand can name a group as
+    /// its own ancestor, and the panel asks for a depth on every row it draws.
+    #[test]
+    fn a_cyclic_parent_chain_terminates_at_the_cap() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let a = g.add_group_top(None).expect("group");
+        let b = g.add_group_top(None).expect("group");
+        g.get_mut(a).expect("group").parent = Some(b);
+        g.get_mut(b).expect("group").parent = Some(a);
+
+        assert_eq!(g.depth_of(a), MAX_NESTING_DEPTH);
+        assert_eq!(
+            g.descendants_of(a).len(),
+            g.layer_count() - g.layers().iter().filter(|l| l.parent.is_none()).count(),
+            "the descendant walk stops too, rather than hanging"
+        );
     }
 }
 

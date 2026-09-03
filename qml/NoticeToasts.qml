@@ -141,8 +141,10 @@ Item {
                         icon.width: Theme.iconMd
                         icon.height: Theme.iconMd
                         Accessible.name: qsTr("Dismiss this message")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
+                        ThemedToolTip {
+                            visible: parent.hovered
+                            text: parent.Accessible.name
+                        }
                         onClicked: AppSession.dismissNotice(toast.modelData.id)
                     }
                 }

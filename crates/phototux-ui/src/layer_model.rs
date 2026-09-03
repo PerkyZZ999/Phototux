@@ -50,6 +50,11 @@ pub struct LayerItem {
     pub active: bool,
     /// The engine-order index this row came from, for commands that take one.
     pub stack_index: i32,
+    /// Groups this layer is inside; the delegate indents by it.
+    pub depth: i32,
+    /// A group above this layer is hidden, so it contributes nothing however
+    /// its own flag reads.
+    pub hidden_by_group: bool,
 }
 
 impl From<phototux_engine::LayerRow> for LayerItem {
@@ -64,6 +69,8 @@ impl From<phototux_engine::LayerRow> for LayerItem {
             selected: row.selected,
             active: row.active,
             stack_index: row.stack_index,
+            depth: row.depth,
+            hidden_by_group: row.hidden_by_group,
         }
     }
 }
@@ -290,6 +297,8 @@ mod tests {
             |r| r.selected = !r.selected,
             |r| r.active = !r.active,
             |r| r.stack_index += 1,
+            |r| r.depth += 1,
+            |r| r.hidden_by_group = !r.hidden_by_group,
         ];
         for (i, mutate) in mutations.iter().enumerate() {
             let mut after = base.clone();
@@ -315,6 +324,8 @@ mod tests {
             selected: true,
             active: false,
             stack_index: 3,
+            depth: 1,
+            hidden_by_group: true,
         };
         let item = LayerItem::from(engine_row.clone());
         assert_eq!(item.name, engine_row.name);
@@ -326,6 +337,8 @@ mod tests {
         assert_eq!(item.selected, engine_row.selected);
         assert_eq!(item.active, engine_row.active);
         assert_eq!(item.stack_index, engine_row.stack_index);
+        assert_eq!(item.depth, engine_row.depth);
+        assert_eq!(item.hidden_by_group, engine_row.hidden_by_group);
     }
 
     /// The delegate reads roles by field name, so these names are QML API.

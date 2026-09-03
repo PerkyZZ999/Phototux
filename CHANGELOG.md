@@ -2,6 +2,145 @@
 
 All notable decision milestones and project state changes.
 
+## [layer-groups-and-arrange] — 2026-09-02
+
+### Fixes
+
+- **Hiding a group hid nothing.** `Layer::visible` is one layer's flag and the
+  compositor takes the layer list verbatim, so closing the eye on a group hid
+  only its own empty slice — hover offered "Show Group 1" while every layer
+  inside stayed on the canvas and in the exported image.
+  `DocumentGraph::layers_resolved` resolves visibility against ancestors and
+  every path that hands layers to `phototux_canvas` goes through it. It returns
+  a `Cow` that borrows when no group is hidden, because this runs per frame.
+- **Grouping non-adjacent layers left a non-member between them.** Grouping set
+  parents and left the stack alone; with the panel indenting by nesting that
+  drew a group whose contents were interrupted by a layer not in it. Members
+  are now gathered into a contiguous run at the topmost one's position, keeping
+  their order relative to each other, in the same undo step as the group.
+- **Moving a group left its contents behind.** Both reorder paths carry a
+  group's descendants now.
+- **The landing page opened part-scrolled.** Its gallery tablist called
+  `scrollIntoView` at the end of every `select`, including the one that runs on
+  load to hide the panels — and `block: "nearest"` is not a no-op for an
+  element below the fold.
+
+### Shell
+
+- **Layer ▸ Arrange**, with Photoshop's four entries and four chords: Bring to
+  Front, Bring Forward, Send Backward, Send to Back. `layer.reorder` had
+  existed since the stack did — locks, undo, a `SetStackOrder` history entry —
+  and nothing in the shell ever called it. The panel has no drag and the arrows
+  in its header move the *panel*, so stacking order could only be changed by
+  deleting layers and adding them back in the order you wanted. At either end
+  of the stack the command refuses and says which end, rather than doing
+  nothing while the entry stays enabled.
+- **A group's contents are indented in the Layers panel**, with one hairline
+  per level of nesting. Photoshop's arrangement decides what moves: the
+  visibility toggle keeps its own fixed column so the eyes stay in one line
+  however deep the nesting runs. A row inside a hidden group is dimmed —
+  dimmed rather than switched to the crossed eye, because its own flag really
+  is still on.
+- **Every default layer name is numbered.** Only raster layers were, so three
+  groups all read "Group" and two Levels adjustments were both "Levels". The
+  number is the lowest that is *free* rather than a running count, which also
+  fixes the old scheme handing out a duplicate as soon as a layer was deleted.
+  Shape layers are named for the shape: "Rectangle 1", "Ellipse 1".
+
+### Known gaps
+
+- A group's **opacity and blend mode still do not reach the canvas**. Both need
+  the group composited on its own surface, which the single-pass compositor
+  does not do; the controls are live and change the document, and the image
+  does not follow. The handbook and the user guide say so rather than leaving
+  it to be discovered.
+- **Dragging rows in the panel is not implemented.** The user guide said it
+  was; that claim is corrected.
+
+## [themed-tooltips] — 2026-09-02
+
+### Internal
+
+- **Every tool tip in the shell was drawn by the Basic style**, which
+  hardcodes a light palette — pale grey popups over dark editor chrome, at
+  forty call sites. The unstyled-control guard could not see them: the
+  attached form, `ToolTip.visible` / `ToolTip.text` on a control, drives the
+  *shared* instance and instantiates nothing.
+- The shared instance cannot be restyled from one place. Assigning to
+  `ToolTip.toolTip.background` is accepted and has no effect, from an Item or
+  from the window; both were tried and reverted rather than left as dead code.
+  `ThemedToolTip` is a popup the call site owns, with a 450 ms delay — Qt's
+  default of 0 turns a row of icon buttons into a flicker of popups.
+- **Eight controls took their accessible name *from* the tool tip.** That pair
+  is now the other way round: the name is the source and the tip reads
+  `parent.Accessible.name`, which is the shape `PanelHeaderControls` already
+  used and leaves one string per control rather than two.
+- **Two tool tips in the Layers panel had never once appeared.** They keyed
+  off `containsMouse` on a `MouseArea` with no `hoverEnabled`, so the
+  condition was false whenever the pointer was not pressed. Both mask tips —
+  "Edit layer mask" and the enable/disable toggle — work now.
+- `no_attached_tool_tips_reach_the_user` fails the build on the attached form
+  in any shell file.
+
+## [announcements] — 2026-09-02
+
+### Internal
+
+- **Nineteen command handlers were announcing to nobody.** `announce` writes a
+  sentence into `SessionState::last_announce`, and the pairing of
+  store-and-publish had been written at the handful of *slots* that announce
+  and never at the command path all nineteen go through — so "Grouped layers",
+  "Added fill layer", "Selection → layer mask" and the rest were stored and
+  dropped. `apply_command_effects` publishes now, which is the one place every
+  command passes through.
+- It publishes **only on change**, which is handbook 29's "do not repeat
+  unchanged status": most commands announce nothing, and an unconditional emit
+  would have the live region re-read the previous action after each of them.
+- **And nothing was reading the property anyway.** `lastAnnounce` was exposed
+  to QML and bound by no element, so even the four hand-published
+  announcements were inaudible. The status bar now carries a live region: an
+  item that draws nothing but is not `visible: false` — Qt drops invisible
+  items from the accessibility tree — holding the text as `Accessible.name`
+  and calling `Accessible.announce` with polite politeness.
+- `the_shell_speaks_the_engines_announcements` fails the build if the live
+  region loses either half. Verified through AT-SPI: grouping two layers puts
+  "Grouped layers" in the region, and a fill layer replaces it with "Added
+  fill layer".
+
+## [merge-group] — 2026-09-02
+
+### Internal
+
+- **Merge Group.** The composition command the Layer menu was still missing,
+  and the one the other two merges have been naming in their refusals since
+  they were written. The group and everything inside it become one raster
+  layer carrying the group's name, standing where the group stood, under the
+  group's own parent.
+- **Membership is the `parent` chain, not a slice of the stack.** A nested
+  group's children name the *inner* group as their parent, so anything walking
+  one level would leave them behind and anything walking indices would take
+  layers that merely happen to sit between the group and its neighbours.
+  `DocumentGraph::descendants_of` walks it transitively, depth-capped so a
+  chain corrupted into a cycle returns what it has rather than hanging.
+- `replace_with_merged_layer` inherits the parent of whatever sat lowest,
+  which here is a child of the group being deleted — so the merged layer's
+  parent is corrected to the *group's* afterwards. Merging an inner group
+  leaves the result inside the outer one.
+- **Hidden members are discarded, not refused.** Merge Down refuses a hidden
+  layer because merging what you cannot see is not an edit you can check by
+  looking; a group merge is checkable by looking, because the canvas does not
+  change. Refusing would block the ordinary case of a group holding one hidden
+  variant. The count is announced *and* raised as a notice — a layer vanishing
+  without a word is what erodes trust in a merge.
+- **The refusals now name the way out.** Merge Down on a group said "a group
+  cannot be merged yet" and Merge Down on a layer inside one said much the
+  same; both now name Merge Group. The two share `Ctrl+E` in Photoshop, so
+  that is the message a user reaching for muscle memory will see, and a dead
+  end that says where to go is worth more than one that only says no.
+- Merge Group carries no chord of its own for the same reason: the registry
+  binds one chord to one action, and a chord that means two things is worse
+  than a menu entry that means one.
+
 ## [public-release] — 2026-09-02
 
 ### Public

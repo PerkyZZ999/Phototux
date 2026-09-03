@@ -41,6 +41,12 @@ New layers are transparent. A new *document* starts with an opaque white
 Background, the way Photoshop's does, so your first stroke has something to
 composite against.
 
+Each one arrives named for its kind and numbered — *Layer 3*, *Group 2*,
+*Ellipse 1*, *Levels 2* — so no two rows in the panel carry the same name.
+Numbers are reused: delete *Layer 2* and the next layer you add takes the name
+back. Rename a layer to *Layer 7* and that number is yours; the next default
+steps over it.
+
 <div class="callout callout-note">
 
 **A duplicate lands directly above its source, not on top of the stack.** A
@@ -51,7 +57,16 @@ asked for.
 
 ## Order, visibility and opacity
 
-Drag a layer in the panel to reorder it. The eye icon beside each row toggles
+**Layer ▸ Arrange** moves the active layer through the stack: Bring to Front
+(<kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>]</kbd>), Bring Forward
+(<kbd>Ctrl</kbd> <kbd>]</kbd>), Send Backward (<kbd>Ctrl</kbd> <kbd>[</kbd>)
+and Send to Back (<kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>[</kbd>). Moving a
+group takes everything inside it along. At the top or the bottom of the stack
+the command tells you it is already there rather than doing nothing quietly.
+
+Dragging rows in the panel is not implemented yet.
+
+The eye icon beside each row toggles
 visibility — a hidden layer contributes nothing to the composite and is
 skipped by Merge Visible and Flatten.
 
@@ -77,24 +92,49 @@ Three buttons under the blend row:
 **Layer ▸ New Group** puts the selected layers into a folder.
 **Layer ▸ Ungroup** takes them out again.
 
+Layers that were not next to each other are gathered together under the group,
+keeping their order relative to one another, and the group lands where the
+topmost selected layer was. Anything that was between them moves out of the
+run. One undo puts back both the group and the order.
+
 A group has its own blend mode and opacity. Set it to **Pass Through** — the
 default — and the layers inside composite as if the group were not there. Set
 it to anything else and the group is composited on its own first, then blended
 as a unit.
+
+The layers inside a group are indented in the panel, with a hairline running
+down beside them, and the indent deepens a level for each group they sit
+inside. Visibility toggles keep their own column at the left edge, so the eyes
+stay in one line however deep the nesting runs. Groups cannot be collapsed yet.
+
+Hiding a group hides everything inside it. The rows inside dim to show they
+are off, and their own eye icons stay as you left them — turn the group back on
+and each layer is exactly as visible as it was before.
+
+<div class="callout callout-warning">
+
+**A group's opacity and blend mode do not reach the canvas yet.** The controls
+are live and they do change the document, but the image will not follow until
+groups are composited on their own surface. Set opacity on the layers inside
+in the meantime.
+
+</div>
 
 <div class="callout callout-note">
 
 **Merging does not cross a group boundary.** Merge Down and Merge Visible
 refuse groups and anything inside one: a group is a parent in a flat list, so
 merging across the boundary would move layers out of their group as a side
-effect. Ungroup first if that is what you want.
+effect. To flatten a group, use **Layer ▸ Merge Group** — Photoshop shares
+<kbd>Ctrl</kbd> <kbd>E</kbd> between the two, and the refusal here names it.
 
 </div>
 
 ## Clipping masks
 
 **Layer ▸ Create Clipping Mask** confines a layer to the shape of the layer
-directly below it. The clipped layer's row indents in the panel.
+directly below it. The clipped layer's row is marked with a bent arrow pointing
+down at the layer it is clipped to.
 
 This is how you apply an adjustment to one layer instead of to everything
 under it: put the adjustment above the layer, then clip it.
@@ -154,6 +194,7 @@ recording a single undo step.
 |---|---|---|
 | **Merge Down** | <kbd>Ctrl</kbd> <kbd>E</kbd> | Composites the active layer onto the one below it. Refuses a hidden layer — merging something you cannot see is not an edit you can check by looking. |
 | **Merge Visible** | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd> | Composites every visible layer into one, keeping the hidden ones. |
+| **Merge Group** | — | Composites a group's contents into one layer named after the group. Nested groups go with it; hidden members are discarded, and it says how many. |
 | **Flatten Image** | — | Composites everything visible into one layer and discards the hidden ones. |
 | **Bake Text** | — | Turns a text layer into pixels. |
 | **Rasterize Shape** | — | Turns a shape layer's path into pixels. |
@@ -162,6 +203,13 @@ recording a single undo step.
 
 All of these are undoable, including the rasterize family: undo brings back
 the words, the editable path or the smart object's original pixels.
+
+**Merge Group** takes the group and everything inside it — nested groups
+included — and leaves one layer carrying the group's name, where the group
+stood. Hidden members are discarded, the way Flatten discards what it cannot
+see, and PhotoTux says how many; the canvas does not change, because what the
+group was drawing is what the merged layer draws. A group with nothing visible
+in it, and a hidden group, are refused.
 
 <div class="callout callout-warning">
 

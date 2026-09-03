@@ -242,8 +242,10 @@ ColumnLayout {
         focusPolicy: Qt.StrongFocus
         Accessible.role: Accessible.Button
         Accessible.name: quick.text
-        ToolTip.visible: quick.hovered
-        ToolTip.text: quick.text
+        ThemedToolTip {
+            visible: quick.hovered
+            text: quick.text
+        }
         background: Rectangle {
             radius: Theme.radiusSm
             color: quick.down
@@ -1535,12 +1537,10 @@ ColumnLayout {
                             padding: 0
                             enabled: opButton.available
                             onClicked: AppSession.alignLayers(opButton.modelData.id)
-                            ToolTip.visible: opButton.hovered
-                            ToolTip.text: opButton.available
-                                          ? opButton.modelData.label
-                                          : qsTr("%1 — needs %2 layers")
-                                            .arg(opButton.modelData.label)
-                                            .arg(opButton.modelData.minTargets)
+                            ThemedToolTip {
+                                visible: opButton.hovered
+                                text: opButton.available ? opButton.modelData.label : qsTr("%1 — needs %2 layers").arg(opButton.modelData.label).arg(opButton.modelData.minTargets)
+                            }
                             Accessible.name: opButton.modelData.label
                             contentItem: ThemedIcon {
                                 anchors.centerIn: parent
@@ -1976,8 +1976,10 @@ ColumnLayout {
                 ChromeIconToolButton {
                     icon.source: root.iconUrl("arrow-counter-clockwise")
                     enabled: root.blendIf.active === true
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Reset blend ranges")
+                    ThemedToolTip {
+                        visible: parent.hovered
+                        text: qsTr("Reset blend ranges")
+                    }
                     Accessible.name: qsTr("Reset blend ranges")
                     onClicked: AppSession.resetBlendIf()
                 }
@@ -2053,8 +2055,10 @@ ColumnLayout {
                         onClicked: AppSession.reorderActiveEffect(
                                        Number(effectId), index - 1)
                         Accessible.name: qsTr("Move effect up")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
+                        ThemedToolTip {
+                            visible: parent.hovered
+                            text: parent.Accessible.name
+                        }
                     }
                     ToolButton {
                         implicitWidth: 22
@@ -2074,8 +2078,10 @@ ColumnLayout {
                         onClicked: AppSession.reorderActiveEffect(
                                        Number(effectId), index + 1)
                         Accessible.name: qsTr("Move effect down")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
+                        ThemedToolTip {
+                            visible: parent.hovered
+                            text: parent.Accessible.name
+                        }
                     }
                 }
             }

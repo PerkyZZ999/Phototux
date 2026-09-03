@@ -70,39 +70,49 @@ RowLayout {
                                                          : "arrows-out-line-vertical")
         Accessible.name: root.anyGroupExpanded ? qsTr("Collapse all groups")
                                                : qsTr("Expand all groups")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.Accessible.name
+        }
         onClicked: root.disclosureToggleRequested()
     }
     HeaderIconButton {
         enabled: root.canMoveUp
         icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-up")
         Accessible.name: qsTr("Move panel up")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.Accessible.name
+        }
         onClicked: AppSession.movePanelInStack(root.panelId, -1)
     }
     HeaderIconButton {
         enabled: root.canMoveDown
         icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-down")
         Accessible.name: qsTr("Move panel down")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.Accessible.name
+        }
         onClicked: AppSession.movePanelInStack(root.panelId, 1)
     }
     HeaderIconButton {
         icon.source: Theme.iconUrl(AppSession.iconRoot, "minus-square")
         Accessible.name: qsTr("Auto-hide panel")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.Accessible.name
+        }
         onClicked: AppSession.togglePanelAutoHide(root.panelId)
     }
     HeaderIconButton {
         enabled: root.canTearOff
         icon.source: Theme.iconUrl(AppSession.iconRoot, "arrow-square-out")
         Accessible.name: qsTr("Tear off panel")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.Accessible.name
+        }
         onClicked: root.tearOffRequested()
     }
 }

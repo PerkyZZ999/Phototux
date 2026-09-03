@@ -818,7 +818,7 @@ impl AppSession {
                 },
             );
         }
-        match phototux_canvas::open_document(graph.size, graph.layers()) {
+        match phototux_canvas::open_document(graph.size, &graph.layers_resolved()) {
             Ok(ms) => {
                 self.finish_opened_ptx(path, title, graph, parts.rasters, parts.masks, ms);
             }
@@ -2106,6 +2106,7 @@ impl AppSession {
             "smart_object" => {
                 self.has_document && self.active_layer_kind == "smart-object" && !busy
             }
+            "group_selected" => self.has_document && self.active_layer_kind == "group" && !busy,
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
@@ -2156,6 +2157,9 @@ impl AppSession {
                     self.engine.colors.foreground[2],
                     1.0,
                 ],
+            }),
+            cid::LAYER_ARRANGE => Ok(CommandArgs::Arrange {
+                op: arg.unwrap_or("forward").to_owned(),
             }),
             cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
                 panel_id: arg.unwrap_or("panel.layers").to_owned(),
@@ -2314,6 +2318,7 @@ impl AppSession {
             "layer.flatten" => self.flatten_image(),
             "layer.merge-down" => self.merge_layer_down(),
             "layer.merge-visible" => self.merge_visible_layers(),
+            "layer.merge-group" => self.merge_group(),
             "document.rotate" => match arg.and_then(|a| a.parse::<i32>().ok()) {
                 // Degrees in the registry, quarter turns on the wire: the
                 // argument is what the menu entry is called.
@@ -2471,6 +2476,12 @@ impl AppSession {
             self.graph_revision = effects.generation.min(i32::MAX as u64) as i32;
             self.graph_revision_changed();
         }
+        // Nineteen command handlers call `announce`, and until this line none
+        // of them reached QML: the pairing of store-and-publish had been done
+        // at the handful of *slots* that announce and never at the command
+        // path they all go through. Publishing here means a handler cannot
+        // write an announcement that nothing says.
+        self.publish_announcement();
     }
 
     fn apply_convert_pixels(&mut self, from: &str, to: &str) {
@@ -2606,13 +2617,13 @@ impl AppSession {
             .and_then(|preview| Some((preview.layer_id, preview.to_effect()?)));
         let result = match preview {
             Some((layer_id, effect)) => {
-                let mut layers = graph.layers().to_vec();
+                let mut layers = graph.layers_resolved().into_owned();
                 if let Some(layer) = layers.iter_mut().find(|l| l.id == layer_id) {
                     layer.effects.push(effect);
                 }
                 phototux_canvas::sync_and_composite(&layers)
             }
-            None => phototux_canvas::sync_and_composite(graph.layers()),
+            None => phototux_canvas::sync_and_composite(&graph.layers_resolved()),
         };
         match result {
             Ok(ms) => {
@@ -2639,7 +2650,7 @@ impl AppSession {
             .engine
             .graph
             .as_ref()
-            .map(|graph| (graph.size, graph.layers().to_vec()))
+            .map(|graph| (graph.size, graph.layers_resolved().into_owned()))
         else {
             return;
         };
@@ -5391,7 +5402,7 @@ impl AppSession {
         flattened: Option<&Raster>,
     ) -> Option<f32> {
         let result = if !layer_rasters.is_empty() {
-            phototux_canvas::open_document(graph.size, graph.layers()).and_then(|ms| {
+            phototux_canvas::open_document(graph.size, &graph.layers_resolved()).and_then(|ms| {
                 for (id, raster) in layer_rasters {
                     phototux_canvas::write_layer_rgba(*id, raster.pixels())?;
                 }
@@ -5929,7 +5940,15 @@ impl AppSession {
     /// every announcing slot. Pairing them here means an announcement cannot be
     /// stored without being published, which is the failure that leaves a screen
     /// reader describing the previous action.
+    ///
+    /// Emitting only on change is handbook 29's "do not repeat unchanged
+    /// status": this is called after every command now, and most commands
+    /// announce nothing, so an unconditional emit would have the live region
+    /// re-read the *previous* action on each of them.
     fn publish_announcement(&mut self) {
+        if self.last_announce == self.engine.last_announce {
+            return;
+        }
         self.last_announce = self.engine.last_announce.clone();
         self.last_announce_changed();
     }
@@ -6055,7 +6074,48 @@ impl AppSession {
         self.merge_into_one(&visible, command_id::LAYER_MERGE_VISIBLE);
     }
 
-    /// Shared body of the two merges: composite `keep`, replace those layers
+    /// Composite a group's contents into one layer and drop the group.
+    ///
+    /// The pixels come from the group's *visible* descendants composited
+    /// among themselves, which is what the group was drawing. The group
+    /// record itself contributes nothing to the composite — it owns no
+    /// texture — so it is not in the subset even though the command consumes
+    /// it.
+    #[qslot]
+    fn merge_group(&mut self) {
+        let Some(graph) = self.engine.graph.as_ref() else {
+            return;
+        };
+        let Some(group_id) = graph.active_id() else {
+            return;
+        };
+        if graph.get(group_id).map(|l| l.kind) != Some(phototux_engine::LayerKind::Group) {
+            self.notify(NoticeLevel::Warning, "Select a group first".to_owned());
+            return;
+        }
+        let visible: Vec<_> = graph
+            .descendants_of(group_id)
+            .into_iter()
+            .filter(|id| graph.get(*id).is_some_and(|l| l.visible))
+            .collect();
+        if visible.is_empty() {
+            self.notify(
+                NoticeLevel::Warning,
+                "This group has nothing visible to merge".to_owned(),
+            );
+            return;
+        }
+        let discarded = graph.descendants_of(group_id).len() - visible.len();
+        self.merge_into_one(&visible, command_id::LAYER_MERGE_GROUP);
+        // A layer vanishing without a word is what erodes trust in a merge.
+        // The command authored the sentence for the accessibility channel;
+        // this puts the same one on screen rather than spelling it twice.
+        if discarded > 0 {
+            self.notify(NoticeLevel::Info, self.engine.last_announce.clone());
+        }
+    }
+
+    /// Shared body of the merges: composite `keep`, replace those layers
     /// with one, write the pixels into it.
     ///
     /// The pixels are read *before* the command, because afterwards the layers

@@ -342,6 +342,26 @@ Event policy:
 - include operation identity and meaningful phase;
 - do not repeat unchanged status.
 
+### Where an announcement actually goes
+
+The engine's `SessionState::announce` writes one sentence into
+`last_announce`. `AppSession::publish_announcement` copies it to the
+`lastAnnounce` QML property **and only emits when it changed**, which is this
+chapter's "do not repeat unchanged status": it runs after every command, and
+most commands announce nothing, so an unconditional emit would have the live
+region re-read the previous action on each of them.
+
+The shell ends the chain with a live region in the status bar — an item that
+draws nothing but is not `visible: false`, because Qt drops invisible items
+from the accessibility tree. It carries the text as `Accessible.name`, so the
+region is inspectable from AT-SPI, and calls `Accessible.announce` (Qt 6.8+)
+with `Accessible.Polite` to raise the event a screen reader speaks. Assertive
+politeness is reserved for immediate failure, per the policy above.
+
+All three parts are required for anything to be heard, which is why
+`the_shell_speaks_the_engines_announcements` fails the build if the live
+region loses either half.
+
 ```mermaid
 flowchart LR
     SemanticDelta[Semantic projection delta] --> Filter[Accessibility event policy]

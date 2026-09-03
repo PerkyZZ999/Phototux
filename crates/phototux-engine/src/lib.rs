@@ -2,6 +2,7 @@
 
 mod actions;
 mod align;
+mod arrange;
 mod atspi_map;
 mod blend_if;
 mod brush_preset;
@@ -58,6 +59,7 @@ pub use align::{
     AlignAxis, AlignOp, AlignTarget, align_frame, align_offsets, align_ops_json, content_bounds,
     placed_bounds,
 };
+pub use arrange::ArrangeOp;
 pub use atspi_map::{
     AtspiProjectionNode, SemanticRole, project_semantic_tree, project_semantic_tree_json,
 };

@@ -1188,7 +1188,7 @@ ApplicationWindow {
                 onObjectAdded: (index, object) => layerMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => layerMenu.removeItem(object)
             }
-            // Nine submenus, because the flat Layer menu carried thirty-one
+            // Ten submenus, because the flat Layer menu carried thirty-one
             // entries and ran past the bottom of a 1080p window — the last of
             // them unreachable however correctly they rendered. Each is
             // declared here and populated from the engine; a submenu the
@@ -1221,6 +1221,19 @@ ApplicationWindow {
                     delegate: actionMenuItem
                     onObjectAdded: (index, object) => smartMenu.insertItem(index, object)
                     onObjectRemoved: (index, object) => smartMenu.removeItem(object)
+                }
+            }
+            // Photoshop files Arrange between the group entries and Combine
+            // Shapes, next to Align and Distribute — the other things that
+            // move a layer without changing what is in it.
+            ThemedMenu {
+                id: arrangeMenu
+                title: qsTr("&Arrange")
+                Instantiator {
+                    model: root.actionsForMenu("layer.arrange")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => arrangeMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => arrangeMenu.removeItem(object)
                 }
             }
             ThemedMenu {
@@ -1747,27 +1760,33 @@ ApplicationWindow {
                 icon.source: root.iconUrl("file-plus")
                 enabled: root.actionIsEnabled("action.file.new")
                 onClicked: root.runAction("action.file.new")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("New…")
-                Accessible.name: ToolTip.text
+                Accessible.name: qsTr("New…")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
 
             ChromeIconToolButton {
                 icon.source: root.iconUrl("folder-open")
                 enabled: root.actionIsEnabled("action.file.open")
                 onClicked: root.runAction("action.file.open")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Open…")
-                Accessible.name: ToolTip.text
+                Accessible.name: qsTr("Open…")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
 
             ChromeIconToolButton {
                 icon.source: root.iconUrl("export")
                 enabled: root.actionIsEnabled("action.file.export")
                 onClicked: root.runAction("action.file.export")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Export PNG, JPEG, or PSD subset")
-                Accessible.name: ToolTip.text
+                Accessible.name: qsTr("Export PNG, JPEG, or PSD subset")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
 
             ToolSeparator {
@@ -1778,17 +1797,21 @@ ApplicationWindow {
                 icon.source: root.iconUrl("arrow-counter-clockwise")
                 enabled: root.actionIsEnabled("action.edit.undo")
                 onClicked: root.runAction("action.edit.undo")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Undo")
-                Accessible.name: ToolTip.text
+                Accessible.name: qsTr("Undo")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
             ChromeIconToolButton {
                 icon.source: root.iconUrl("arrow-clockwise")
                 enabled: root.actionIsEnabled("action.edit.redo")
                 onClicked: root.runAction("action.edit.redo")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Redo")
-                Accessible.name: ToolTip.text
+                Accessible.name: qsTr("Redo")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
 
             Item { Layout.fillWidth: true }
@@ -1812,9 +1835,11 @@ ApplicationWindow {
                 implicitHeight: 28
                 icon.source: root.iconUrl("question")
                 onClicked: aboutDialogLoader.open()
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("About PhotoTux")
-                Accessible.name: ToolTip.text
+                Accessible.name: qsTr("About PhotoTux")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: parent.Accessible.name
+                }
             }
         }
     }
@@ -1858,6 +1883,39 @@ ApplicationWindow {
                 // Expose the latest status string for AT-SPI; FPS/comp stay ignored below.
                 Accessible.name: text.length > 0 ? text : qsTr("Status")
                 Accessible.role: Accessible.StatusBar
+            }
+
+            /// The accessibility live region.
+            ///
+            /// `AppSession.lastAnnounce` is the sentence a command wrote about
+            /// what it just did — "Grouped layers", "Merged Group — 1 hidden
+            /// layer discarded". The property was published and *nothing read
+            /// it*, so nineteen command handlers were writing announcements no
+            /// screen reader ever heard.
+            ///
+            /// It draws nothing but is not `visible: false`: Qt drops
+            /// invisible items from the accessibility tree, and a live region
+            /// nobody can see is the entire point. `Accessible.name` carries
+            /// the text so the region is inspectable from AT-SPI;
+            /// `announce()` is what raises the event a screen reader speaks.
+            Item {
+                id: liveRegion
+                objectName: "liveRegion"
+                implicitWidth: 1
+                implicitHeight: 1
+                opacity: 0
+                Accessible.role: Accessible.StaticText
+                Accessible.name: AppSession.lastAnnounce
+                Accessible.description: qsTr("Announcements")
+
+                Connections {
+                    target: AppSession
+                    function onLastAnnounceChanged() {
+                        const message = AppSession.lastAnnounce
+                        if (message.length > 0)
+                            liveRegion.Accessible.announce(message, Accessible.Polite)
+                    }
+                }
             }
 
             ThemedButton {
@@ -2156,13 +2214,19 @@ ApplicationWindow {
                                     }
                                 }
                                 onPressAndHold: if (slotItem.stacked) slotItem.openFlyout()
-                                ToolTip.visible: containsMouse && !slotFlyout.visible
-                                ToolTip.text: slotItem.stacked
-                                    ? qsTr("%1  (hold for %2 more)")
-                                      .arg(slotItem.face.title)
-                                      .arg(slotItem.slotTools.length - 1)
-                                    : slotItem.face.title
-                                ToolTip.delay: 400
+                                ThemedToolTip {
+                                    visible: parent.containsMouse && !slotFlyout.visible
+                                    // Shorter than the default: the shelf is
+                                    // the one place a pointer rests on a
+                                    // control while deciding, and 450 ms there
+                                    // reads as the tip not coming.
+                                    delay: 400
+                                    text: slotItem.stacked
+                                          ? qsTr("%1  (hold for %2 more)")
+                                            .arg(slotItem.face.title)
+                                            .arg(slotItem.slotTools.length - 1)
+                                          : slotItem.face.title
+                                }
                                 hoverEnabled: true
                             }
                         }
@@ -2269,8 +2333,10 @@ ApplicationWindow {
                     radius: Theme.radiusSm
                     color: toolOverflowBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
                 }
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("More tools")
+                ThemedToolTip {
+                    visible: parent.hovered
+                    text: qsTr("More tools")
+                }
                 // Defer open so the activating press is not treated as PressOutside
                 // (CloseOnPressOutside) — required for reliable EIS / AT clicks.
                 onClicked: Qt.callLater(toolOverflowPopup.open)
@@ -3046,9 +3112,11 @@ ApplicationWindow {
                         icon.source: root.iconUrl(root.panelIconStem(modelData))
                         icon.width: Theme.iconMd
                         icon.height: Theme.iconMd
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Show %1").arg(qsTr(root.panelTitle(modelData)))
-                        Accessible.name: ToolTip.text
+                        Accessible.name: qsTr("Show %1").arg(qsTr(root.panelTitle(modelData)))
+                        ThemedToolTip {
+                            visible: parent.hovered
+                            text: parent.Accessible.name
+                        }
                         onClicked: AppSession.pinPanel(modelData)
                     }
                 }
@@ -3484,8 +3552,10 @@ ApplicationWindow {
                             icon.source: root.iconUrl("arrows-left-right")
                             icon.width: Theme.iconMd
                             icon.height: Theme.iconMd
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Swap foreground / background")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: qsTr("Swap foreground / background")
+                            }
                             Accessible.name: qsTr("Swap foreground / background")
                             onClicked: AppSession.swapFgBg()
                         }
@@ -3539,8 +3609,10 @@ ApplicationWindow {
                                     MouseArea {
                                         anchors.fill: parent
                                         onClicked: AppSession.swapFgBg()
-                                        ToolTip.visible: containsMouse
-                                        ToolTip.text: qsTr("Background (click to swap)")
+                                        ThemedToolTip {
+                                            visible: parent.containsMouse
+                                            text: qsTr("Background (click to swap)")
+                                        }
                                         hoverEnabled: true
                                     }
                                 }
@@ -3561,8 +3633,10 @@ ApplicationWindow {
                                                 AppSession.setShortcutInputYield(true)
                                             })
                                         }
-                                        ToolTip.visible: containsMouse
-                                        ToolTip.text: qsTr("Foreground")
+                                        ThemedToolTip {
+                                            visible: parent.containsMouse
+                                            text: qsTr("Foreground")
+                                        }
                                         hoverEnabled: true
                                     }
                                 }
@@ -3693,8 +3767,10 @@ ApplicationWindow {
                             icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument
                             onClicked: AppSession.addLayer()
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Add layer")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: qsTr("Add layer")
+                            }
                             Accessible.name: qsTr("Add layer")
                         }
                         ChromeIconToolButton {
@@ -3705,8 +3781,10 @@ ApplicationWindow {
                             icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument
                             onClicked: AppSession.addGroupLayer()
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Add group")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: qsTr("Add group")
+                            }
                             Accessible.name: qsTr("Add group")
                         }
                         ChromeIconToolButton {
@@ -3717,8 +3795,10 @@ ApplicationWindow {
                             icon.height: Theme.iconMd
                             enabled: AppSession.hasDocument && AppSession.layerCount > 1
                             onClicked: AppSession.deleteActiveLayer()
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Delete layer")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: qsTr("Delete layer")
+                            }
                             Accessible.name: qsTr("Delete layer")
                         }
                     }

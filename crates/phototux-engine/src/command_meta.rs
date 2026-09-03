@@ -142,6 +142,7 @@ pub const ALL: &[CommandMeta] = &[
     doc_tx(command_id::LAYER_DUPLICATE),
     doc_tx(command_id::LAYER_MERGE_DOWN),
     doc_tx(command_id::LAYER_MERGE_VISIBLE),
+    doc_tx(command_id::LAYER_MERGE_GROUP),
     doc_tx(command_id::LAYER_FLATTEN),
     doc_tx(command_id::LAYER_DELETE),
     meta(
@@ -155,6 +156,7 @@ pub const ALL: &[CommandMeta] = &[
     doc_merge(command_id::LAYER_SET_OPACITY),
     doc_tx(command_id::LAYER_SET_BLEND),
     doc_tx(command_id::LAYER_REORDER),
+    doc_tx(command_id::LAYER_ARRANGE),
     doc_tx(command_id::LAYER_GROUP),
     doc_tx(command_id::LAYER_UNGROUP),
     doc_tx(command_id::LAYER_SET_CLIP),

@@ -51,6 +51,20 @@ pub struct LayerRow {
     /// `count - 1 - i`, an inversion that was previously written out at every
     /// call site.
     pub stack_index: i32,
+    /// How many groups this layer is inside — `0` at the root of the stack.
+    ///
+    /// The panel indents by this. It is a property of the graph rather than
+    /// of the row's neighbours: rows are a flat list, so a delegate cannot
+    /// tell a group's child from the layer that merely follows the group
+    /// without being told.
+    pub depth: i32,
+    /// Whether a group above this layer is hidden.
+    ///
+    /// Distinct from [`Self::visible`], which is the layer's own flag: a
+    /// visible layer inside a hidden group contributes nothing to the canvas,
+    /// and a row that drew its eye open would describe a state the image does
+    /// not have.
+    pub hidden_by_group: bool,
 }
 
 /// Build the panel's rows for `document`, top of the stack first.
@@ -77,6 +91,8 @@ pub fn layer_rows(document: &DocumentGraph, selected: &[LayerId]) -> Vec<LayerRo
             selected: selected.contains(&layer.id),
             active: active == Some(layer.id),
             stack_index: i32::try_from(index).unwrap_or(i32::MAX),
+            depth: i32::try_from(document.depth_of(layer.id)).unwrap_or(i32::MAX),
+            hidden_by_group: document.is_hidden_by_group(layer.id),
         })
         .rev()
         .take(count)
@@ -267,6 +283,57 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The panel's indent comes from the graph, not from a row's neighbours.
+    ///
+    /// Rows are flat, so a delegate that tried to infer nesting from the row
+    /// above it would indent whatever happened to follow a group — including
+    /// the layer that sits *after* the group at the same level.
+    #[test]
+    fn a_grouped_layer_reports_the_depth_of_its_group() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(64, 64));
+        let outside = graph
+            .add_layer_top(Some("outside".to_owned()))
+            .expect("layer");
+        let group = graph
+            .add_group_top(Some("group".to_owned()))
+            .expect("group");
+        let inside = graph
+            .add_layer_top(Some("inside".to_owned()))
+            .expect("layer");
+        graph.get_mut(inside).expect("layer").parent = Some(group);
+
+        let rows = layer_rows(&graph, &[]);
+        let depth = |n: &str| rows.iter().find(|r| r.name == n).expect("row").depth;
+        assert_eq!(depth("group"), 0, "the group itself sits at the root");
+        assert_eq!(depth("inside"), 1, "its child is indented one level");
+        assert_eq!(
+            depth("outside"),
+            0,
+            "a layer next to the group is not inside it"
+        );
+        let _ = outside;
+    }
+
+    #[test]
+    fn nested_groups_indent_cumulatively() {
+        let mut graph = DocumentGraph::new(DocumentSize::new(64, 64));
+        let outer = graph
+            .add_group_top(Some("outer".to_owned()))
+            .expect("group");
+        let inner = graph
+            .add_group_top(Some("inner".to_owned()))
+            .expect("group");
+        let leaf = graph.add_layer_top(Some("leaf".to_owned())).expect("layer");
+        graph.get_mut(inner).expect("group").parent = Some(outer);
+        graph.get_mut(leaf).expect("layer").parent = Some(inner);
+
+        let rows = layer_rows(&graph, &[]);
+        let depth = |n: &str| rows.iter().find(|r| r.name == n).expect("row").depth;
+        assert_eq!(depth("outer"), 0);
+        assert_eq!(depth("inner"), 1);
+        assert_eq!(depth("leaf"), 2);
     }
 
     #[test]

@@ -113,8 +113,10 @@ ColumnLayout {
         Accessible.name: chip.text
         Accessible.checkable: true
         Accessible.checked: chip.current
-        ToolTip.visible: chip.hovered
-        ToolTip.text: chip.text
+        ThemedToolTip {
+            visible: chip.hovered
+            text: chip.text
+        }
         background: Rectangle {
             radius: Theme.radiusXs
             color: chip.current

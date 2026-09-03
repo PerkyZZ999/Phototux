@@ -131,8 +131,10 @@ Popup {
                         color: closeNewDocBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
                     }
                     onClicked: dialog.close()
-                    ToolTip.text: qsTr("Close")
-                    ToolTip.visible: hovered
+                    ThemedToolTip {
+                        visible: parent.hovered
+                        text: qsTr("Close")
+                    }
                 }
             }
         }

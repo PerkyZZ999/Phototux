@@ -71,6 +71,16 @@ Border — have no default chord because each opens a prompt.
 | Duplicate Layer | <kbd>Ctrl</kbd> <kbd>J</kbd> |
 | Merge Down | <kbd>Ctrl</kbd> <kbd>E</kbd> |
 | Merge Visible | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd> |
+| Merge Group | — |
+| Bring to Front | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>]</kbd> |
+| Bring Forward | <kbd>Ctrl</kbd> <kbd>]</kbd> |
+| Send Backward | <kbd>Ctrl</kbd> <kbd>[</kbd> |
+| Send to Back | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>[</kbd> |
+
+Merge Group has no default chord. Photoshop shares <kbd>Ctrl</kbd>
+<kbd>E</kbd> between Merge Down and Merge Group and decides by what is
+selected; here one chord binds one action, so Merge Down's refusal names Merge
+Group instead.
 
 ## View
 

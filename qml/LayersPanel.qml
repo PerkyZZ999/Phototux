@@ -43,6 +43,7 @@ ListView {
     cacheBuffer: Theme.toolHit * 4
     model: AppSession.layerModel
     delegate: Rectangle {
+        id: layerRow
         width: root.width
         height: 36
 
@@ -62,7 +63,24 @@ ListView {
         // commands that take one. Rows arrive already in
         // display order, so nothing here inverts an index.
         required property int stack_index
+        // Groups this layer is inside. Rows are a flat list —
+        // a group is a parent, not a container — so without
+        // this a grouped stack and an ungrouped one draw
+        // identically.
+        required property int depth
+        // Whether a group above this row is hidden. The
+        // layer's own flag can still say visible while it
+        // contributes nothing, and a row that drew its eye
+        // open would describe an image that is not there.
+        required property bool hidden_by_group
 
+        // Photoshop indents a group's contents and leaves the
+        // visibility toggle in its own fixed column, so the
+        // eyes stay in one line down the panel however deep
+        // the nesting runs. Only what follows them moves.
+        readonly property int indent: depth * Theme.spaceMd
+        // What the canvas actually shows for this layer.
+        readonly property bool onCanvas: layer_visible && !hidden_by_group
         readonly property bool hasMask: mask_flag !== 0
         readonly property bool maskEnabled: mask_flag === 1
         color: active || selected ? Theme.surfaceRaised
@@ -87,23 +105,51 @@ ListView {
                 anchors.centerIn: parent
                 source: layerVisButton.icon.source
                 size: 16
-                color: Theme.iconOnSurfaceEffective
+                // Dimmed rather than switched to the crossed eye: the layer's
+                // own flag is still on, and clicking here still toggles it.
+                // What is off is the group above, which the user turns back on
+                // there.
+                color: layerRow.onCanvas || !layer_visible
+                       ? Theme.iconOnSurfaceEffective
+                       : Theme.iconDisabledEffective
             }
             background: Rectangle {
                 radius: Theme.radiusXs
                 color: layerVisButton.hovered ? Theme.surfaceContainerHigh : "transparent"
             }
             onClicked: AppSession.toggleLayerVisible(stack_index)
-            Accessible.name: layer_visible
-                             ? qsTr("Hide %1").arg(name)
-                             : qsTr("Show %1").arg(name)
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
+            Accessible.name: hidden_by_group
+                             ? qsTr("%1 — hidden with its group").arg(name)
+                             : (layer_visible
+                                ? qsTr("Hide %1").arg(name)
+                                : qsTr("Show %1").arg(name))
+            ThemedToolTip {
+                visible: parent.hovered
+                text: parent.Accessible.name
+            }
+        }
+
+        // One hairline per level of nesting, in the gap the indent opens.
+        //
+        // The indent on its own is twelve pixels of nothing, which at a single
+        // level reads as a row that failed to line up rather than as a row
+        // inside something. The rails make the same twelve pixels say which
+        // group the row belongs to, and they stack when groups nest.
+        Repeater {
+            model: layerRow.depth
+            delegate: Rectangle {
+                required property int index
+                x: 28 + (index * Theme.spaceMd) + Math.round(Theme.spaceMd / 2)
+                width: 1
+                height: layerRow.height
+                color: Theme.borderEffective
+                opacity: 0.35
+            }
         }
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 28
+            anchors.leftMargin: 28 + layerRow.indent
             anchors.rightMargin: Theme.spaceSm
             spacing: Theme.spaceSm
 
@@ -157,12 +203,17 @@ ListView {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
+                    // `containsMouse` is false without this, so the tip
+                    // below had never once appeared.
+                    hoverEnabled: true
                     onClicked: {
                         AppSession.setActiveLayer(stack_index)
                         AppSession.setMaskEditTarget(true)
                     }
-                    ToolTip.visible: containsMouse
-                    ToolTip.text: qsTr("Edit layer mask")
+                    ThemedToolTip {
+                        visible: parent.containsMouse
+                        text: qsTr("Edit layer mask")
+                    }
                 }
             }
 
@@ -176,14 +227,15 @@ ListView {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
+                    hoverEnabled: true
                     onClicked: {
                         AppSession.setActiveLayer(stack_index)
                         AppSession.setMaskEnabledOnActive(!maskEnabled)
                     }
-                    ToolTip.visible: containsMouse
-                    ToolTip.text: maskEnabled
-                                  ? qsTr("Disable layer mask")
-                                  : qsTr("Enable layer mask")
+                    ThemedToolTip {
+                        visible: parent.containsMouse
+                        text: maskEnabled ? qsTr("Disable layer mask") : qsTr("Enable layer mask")
+                    }
                 }
             }
 
@@ -193,15 +245,19 @@ ListView {
                 size: 14
                 color: Theme.primary
                 Accessible.name: qsTr("Clipped to layer below")
-                ToolTip.visible: clipHover.hovered
-                ToolTip.text: qsTr("Clipped to layer below — delete base releases clip")
+                ThemedToolTip {
+                    visible: clipHover.hovered
+                    text: qsTr("Clipped to layer below — delete base releases clip")
+                }
                 HoverHandler { id: clipHover }
             }
 
             Label {
                 Layout.fillWidth: true
                 text: name
-                color: active ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant
+                color: layerRow.onCanvas
+                       ? (active ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant)
+                       : Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontBodySm
                 elide: Text.ElideRight
             }
@@ -210,7 +266,7 @@ ListView {
         HoverHandler { id: layerHover }
         MouseArea {
             anchors.fill: parent
-            anchors.leftMargin: 48
+            anchors.leftMargin: 48 + layerRow.indent
             z: -1
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: function (mouse) {
