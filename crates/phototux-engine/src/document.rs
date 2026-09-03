@@ -14,6 +14,28 @@ use crate::paths::PathDocument;
 /// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 16;
 
+/// What to call a new shape layer, from the `kind` key its content carries.
+///
+/// Photoshop names a shape layer after the shape — "Rectangle 1", "Ellipse 2"
+/// — rather than after the fact that it is a shape, and with four kinds in the
+/// stack "Shape 1" through "Shape 4" says nothing the panel could not already
+/// see from the badge. The stars, arrows and rounded rectangles the presets
+/// offer all record themselves as `polygon`, which is what they are as far as
+/// the path is concerned, so they are named as polygons here too.
+///
+/// An unrecognised key falls back to the kind name rather than being refused:
+/// a document written by a later version can carry a shape kind this one does
+/// not know, and refusing to name it would refuse to open the file.
+fn shape_stem(content: &ShapeContent) -> &'static str {
+    match content.kind.as_str() {
+        "rect" => "Rectangle",
+        "ellipse" => "Ellipse",
+        "line" => "Line",
+        "polygon" => "Polygon",
+        _ => "Shape",
+    }
+}
+
 /// How far a `parent` chain is followed before the walk gives up.
 ///
 /// A well-formed graph nests far shallower than this — `MAX_LAYERS` is 16, so
@@ -115,6 +137,31 @@ impl DocumentGraph {
         let id = LayerId(self.next_id);
         self.next_id += 1;
         Layer::new(id, name)
+    }
+
+    /// The next free default name for `stem` — `Group 1`, `Group 2`, and so on.
+    ///
+    /// Photoshop numbers every default name, and the reason is the layers
+    /// panel: a stack holding three layers all called "Group" tells the user
+    /// nothing about which is which, and renaming one to find out is work the
+    /// editor should have done. Only raster layers were numbered here; groups,
+    /// text, shapes and fills all took a bare kind name, and two Levels
+    /// adjustments were both called "Levels".
+    ///
+    /// The number is the lowest that is free rather than a running count of
+    /// what exists. Counting names that merely *start with* the stem — which is
+    /// what the raster path used to do — hands out a duplicate as soon as one
+    /// is deleted: add three layers, delete the first, and the next add is a
+    /// second "Layer 3".
+    #[must_use]
+    pub fn next_default_name(&self, stem: &str) -> String {
+        // One more candidate than there are layers, so by the pigeonhole
+        // principle at least one of them is free however the existing names
+        // are arranged.
+        (1..=self.layers.len() + 1)
+            .map(|n| format!("{stem} {n}"))
+            .find(|candidate| self.layers.iter().all(|l| &l.name != candidate))
+            .expect("more candidates than layers, so one is always free")
     }
 
     /// Replace `ids` with one fresh empty layer at the lowest of their
@@ -318,13 +365,7 @@ impl DocumentGraph {
         if !self.can_add_layer() {
             return Err(DocumentError::layer_limit(MAX_LAYERS));
         }
-        let n = self
-            .layers
-            .iter()
-            .filter(|l| l.name.starts_with("Layer "))
-            .count()
-            + 1;
-        let name = name.unwrap_or_else(|| format!("Layer {n}"));
+        let name = name.unwrap_or_else(|| self.next_default_name("Layer"));
         let layer = self.alloc_layer(&name);
         let id = layer.id;
         self.layers.push(layer);
@@ -343,7 +384,7 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::group(id, name.unwrap_or_else(|| "Group".into()));
+        let layer = Layer::group(id, name.unwrap_or_else(|| self.next_default_name("Group")));
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -364,7 +405,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::text_layer(id, name.unwrap_or_else(|| "Text".into()), content);
+        let layer = Layer::text_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name("Text")),
+            content,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -385,7 +430,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::shape_layer(id, name.unwrap_or_else(|| "Shape".into()), content);
+        let layer = Layer::shape_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name(shape_stem(&content))),
+            content,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -406,8 +455,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer =
-            Layer::adjustment_layer(id, name.unwrap_or_else(|| "Adjustment".into()), params);
+        let layer = Layer::adjustment_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name("Adjustment")),
+            params,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -428,7 +480,11 @@ impl DocumentGraph {
         }
         let id = LayerId(self.next_id);
         self.next_id += 1;
-        let layer = Layer::fill_layer(id, name.unwrap_or_else(|| "Fill".into()), content);
+        let layer = Layer::fill_layer(
+            id,
+            name.unwrap_or_else(|| self.next_default_name("Fill")),
+            content,
+        );
         self.layers.push(layer);
         self.active = Some(id);
         self.bump();
@@ -927,6 +983,93 @@ mod tests {
         assert_eq!(g.layer_mask_flags_joined(), "0|2");
         assert_eq!(g.set_clips_to_below(top, true), Some(false));
         assert_eq!(g.layer_clips_joined(), "0|1");
+    }
+
+    #[test]
+    fn every_default_name_is_numbered() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(None).expect("group");
+        let text = g
+            .add_text_top(None, crate::layer::TextContent::default())
+            .expect("text");
+        let fill = g
+            .add_fill_top(None, crate::layer::FillContent::default())
+            .expect("fill");
+
+        assert_eq!(g.get(group).expect("group").name, "Group 1");
+        assert_eq!(g.get(text).expect("text").name, "Text 1");
+        assert_eq!(g.get(fill).expect("fill").name, "Fill 1");
+    }
+
+    /// Two of the same kind must not end up with the same name — that is the
+    /// whole point, because the panel shows the name and nothing else.
+    #[test]
+    fn a_second_group_is_not_also_group_one() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let first = g.add_group_top(None).expect("group");
+        let second = g.add_group_top(None).expect("group");
+        assert_eq!(g.get(first).expect("group").name, "Group 1");
+        assert_eq!(g.get(second).expect("group").name, "Group 2");
+    }
+
+    /// The number is the lowest free one, not a count of what exists.
+    ///
+    /// Counting handed out a duplicate the moment a layer was deleted: three
+    /// layers, delete the first, and the count says two so the next add is a
+    /// second "Layer 3".
+    #[test]
+    fn a_deleted_number_is_reused_rather_than_duplicated() {
+        // A new document already ships a "Layer 1" above its background, so
+        // the first layer the user adds is "Layer 2". Counting names that
+        // start with the stem got this right only until something was deleted.
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let two = g.add_layer_top(None).expect("layer");
+        let three = g.add_layer_top(None).expect("layer");
+        assert_eq!(g.get(two).expect("layer").name, "Layer 2");
+        assert_eq!(g.get(three).expect("layer").name, "Layer 3");
+
+        g.remove_layer(two);
+        let next = g.add_layer_top(None).expect("layer");
+        assert_eq!(
+            g.get(next).expect("layer").name,
+            "Layer 2",
+            "the freed number comes back rather than a second Layer 3"
+        );
+    }
+
+    /// A name the user typed is theirs. The next default steps over it rather
+    /// than colliding with it.
+    #[test]
+    fn a_renamed_layer_still_reserves_its_number() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let renamed = g.add_layer_top(None).expect("layer");
+        g.get_mut(renamed).expect("layer").name = "Layer 3".to_owned();
+        let next = g.add_layer_top(None).expect("layer");
+        assert_eq!(g.get(next).expect("layer").name, "Layer 2");
+        let after = g.add_layer_top(None).expect("layer");
+        assert_eq!(g.get(after).expect("layer").name, "Layer 4");
+    }
+
+    #[test]
+    fn a_shape_layer_is_named_for_its_shape() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let named = |g: &mut DocumentGraph, kind: &str| {
+            let content = ShapeContent {
+                kind: kind.to_owned(),
+                ..Default::default()
+            };
+            let id = g.add_shape_top(None, content).expect("shape");
+            g.get(id).expect("shape").name.clone()
+        };
+        assert_eq!(named(&mut g, "rect"), "Rectangle 1");
+        assert_eq!(named(&mut g, "ellipse"), "Ellipse 1");
+        assert_eq!(named(&mut g, "polygon"), "Polygon 1");
+        assert_eq!(named(&mut g, "line"), "Line 1");
+        assert_eq!(
+            named(&mut g, "hyperbola"),
+            "Shape 1",
+            "a kind from a later version is named rather than refused"
+        );
     }
 
     #[test]

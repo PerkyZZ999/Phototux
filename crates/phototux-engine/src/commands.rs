@@ -919,7 +919,9 @@ impl SessionState {
             .unwrap_or(graph.layer_count())
             .min(graph.layer_count());
 
-        let group_id = graph.add_group_top(Some("Group".into()))?;
+        // `None`, not `Some("Group")`: the graph numbers its own default
+        // names, and naming it here made every group in a document "Group".
+        let group_id = graph.add_group_top(None)?;
         let _ = graph.move_layer(group_id, insert_at);
         let group_index = graph.index_of(group_id).unwrap_or(0);
         let parent_cmds = reparent_into_group(graph, &targets, group_id)?;
@@ -2149,12 +2151,14 @@ impl SessionState {
         let Some(params) = AdjustmentParams::default_for_kind(&kind) else {
             return Err(CommandError::InvalidArgument("unknown adjustment kind"));
         };
-        let name = params.label();
         let SessionState { graph, history, .. } = self;
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let id = graph.add_adjustment_top(Some(name.into()), params)?;
+        // Named for the adjustment, and numbered — two Levels layers used to
+        // be called "Levels" apiece, which the panel cannot tell apart.
+        let name = graph.next_default_name(params.label());
+        let id = graph.add_adjustment_top(Some(name), params)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
             .get(id)

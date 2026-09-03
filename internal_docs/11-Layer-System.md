@@ -400,6 +400,31 @@ from a raster layer. A test asserts raster is the only unbadged kind and that no
 two kinds share a badge or a label. `LayerKind` also owns each kind's display
 name and Phosphor stem, for the same reason and checked the same way.
 
+### Default names
+
+Every default name is numbered — `Group 1`, `Levels 2`, `Ellipse 1` — because
+the panel shows the name and very little else. Only raster layers used to be
+numbered; groups, text layers, shapes and fills each took a bare kind name, so
+a document with three groups showed three rows called "Group" and the only way
+to tell them apart was to rename them.
+
+`DocumentGraph::next_default_name` owns the scheme. It hands out the **lowest
+free** number rather than a running count of what already exists, which is what
+the raster path did: counting names that merely start with the stem hands out a
+duplicate as soon as one is deleted — add three layers, delete the first, and
+the count says two, so the next add is a second "Layer 3". A name the user
+typed is theirs, so a layer renamed to "Layer 5" reserves that number and the
+next default steps over it. Bounded by the pigeonhole principle: `len + 1`
+candidates against `len` layers means one is always free, which is why the
+search has no failure case.
+
+Shape layers are named for the shape rather than for being shapes —
+`Rectangle 1`, `Ellipse 1`, `Polygon 1`, `Line 1` — from the `kind` key the
+content carries. An unrecognised key falls back to `Shape` rather than being
+refused, so a document written by a later version still opens. Adjustment
+layers take `AdjustmentParams::label` as their stem, which is how two Levels
+layers stopped both being called "Levels".
+
 ### Nesting in the panel
 
 The layers panel draws a flat list, because a group *is* a parent rather than a

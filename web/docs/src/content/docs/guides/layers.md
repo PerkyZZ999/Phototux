@@ -41,6 +41,12 @@ New layers are transparent. A new *document* starts with an opaque white
 Background, the way Photoshop's does, so your first stroke has something to
 composite against.
 
+Each one arrives named for its kind and numbered — *Layer 3*, *Group 2*,
+*Ellipse 1*, *Levels 2* — so no two rows in the panel carry the same name.
+Numbers are reused: delete *Layer 2* and the next layer you add takes the name
+back. Rename a layer to *Layer 7* and that number is yours; the next default
+steps over it.
+
 <div class="callout callout-note">
 
 **A duplicate lands directly above its source, not on top of the stack.** A
