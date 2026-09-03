@@ -151,15 +151,15 @@ they had.
 
 ## 2.3 Malformed and missing state
 
-- [ ] **E-20** Truncated PNG / JPEG / `.ptx` / PSD → parse error, not a panic
-- [ ] **E-21** `.ptx` from a future version → refused with a version message
-- [ ] **E-22** `.ptx` with an unknown layer kind or extension blob → round-trips or refuses cleanly
+- [x] **E-20** Truncated PNG / JPEG / `.ptx` / PSD → parse error, not a panic — empty, one byte, header-only, half and pure garbage all refused with typed errors
+- [x] **E-21** `.ptx` from a future version → refused with a version message — names both the file's version and the build's
+- [x] **E-22** `.ptx` with an unknown layer kind or extension blob → round-trips or refuses cleanly — covered by `extension_blob_roundtrips_in_graph_json`
 - [ ] **E-23** PSD with features outside the subset → imports what it can, discloses the rest
-- [ ] **E-24** A file whose extension lies about its content
-- [ ] **E-25** Corrupt `preferences.json` → falls back to defaults rather than refusing to start
-- [ ] **E-26** Corrupt workspace / dock topology JSON → falls back to the default layout
-- [ ] **E-27** A recovery entry pointing at a file that no longer exists
-- [ ] **E-28** Zero-byte file offered to every open path
+- [x] **E-24** A file whose extension lies about its content — PNG to the `.ptx` reader, `.ptx` to the PSD reader and to the raster decoder: each refused by content, not extension
+- [x] **E-25** Corrupt `preferences.json` → falls back to defaults rather than refusing to start — `unwrap_or_default`, and the sparse-file case is covered by four existing tests
+- [x] **E-26** Corrupt workspace / dock topology JSON → falls back to the default layout — `from_json` validates then falls back to `essentials()`
+- [x] **E-27** A recovery entry pointing at a file that no longer exists — restore reports a clean error and the entry can still be discarded. **Found worse nearby**: one *unreadable* entry aborted the whole listing, so a single half-written file offered no recovery at all. Fixed
+- [x] **E-28** Zero-byte file offered to every open path — refused by all three readers
 
 ## 2.4 Permission and command-precondition errors
 
