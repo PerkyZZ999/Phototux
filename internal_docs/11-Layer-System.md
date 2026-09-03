@@ -400,6 +400,33 @@ from a raster layer. A test asserts raster is the only unbadged kind and that no
 two kinds share a badge or a label. `LayerKind` also owns each kind's display
 name and Phosphor stem, for the same reason and checked the same way.
 
+### A hidden group hides its contents
+
+`Layer::visible` is one layer's flag; what the canvas shows is that flag *and*
+every group above it. The compositor takes the layer list verbatim and knows
+nothing about `parent`, so a hidden group used to hide only its own empty
+slice: the eye on the group row closed, hover said "Show Group 1", and every
+layer inside it stayed on the canvas.
+
+`DocumentGraph::layers_resolved` returns the stack with visibility already
+resolved, and every path that hands layers to `phototux_canvas` goes through
+it. Resolution stays in the engine rather than in `phototux_gpu` so it can be
+tested without a device (DR-022), and the return is a `Cow` that borrows when
+no group is hidden — the composite runs per frame, and cloning sixteen layers
+to change nothing is churn on the one path that cannot afford any.
+
+The panel says the same thing: `LayerRow::hidden_by_group` dims both the eye
+and the name of a row inside a hidden group. Dimmed rather than switched to the
+crossed eye, because the layer's own flag really is still on and clicking there
+still toggles it — what is off is the group, which the user turns back on
+there.
+
+Group **opacity and blend mode** still do not reach the canvas. Both need the
+group composited into its own surface first, which the compositor does not yet
+do; the controls are live in the panel and change the document, and the image
+does not follow. That is the remaining half of this section's "isolated"
+policy.
+
 ### Default names
 
 Every default name is numbered — `Group 1`, `Levels 2`, `Ellipse 1` — because

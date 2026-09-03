@@ -221,6 +221,69 @@ impl DocumentGraph {
             .collect()
     }
 
+    /// The stack as anything that draws it must see it: every layer's
+    /// `visible` flag resolved against the groups it is inside.
+    ///
+    /// A group is a parent in a flat list, and the compositor takes that list
+    /// verbatim, so a hidden group used to hide nothing but its own empty
+    /// slice — the eye on a group row closed, said "Show Group 1" on hover,
+    /// and the group's contents stayed on the canvas. Resolving here rather
+    /// than in `phototux_gpu` keeps the notion of a group inside the engine,
+    /// where it can be tested without a device (DR-022).
+    ///
+    /// Borrowed when no group is hidden, which is every document that has no
+    /// groups at all: this runs on the composite path, and cloning sixteen
+    /// layers to change nothing is churn the one hot path cannot afford.
+    #[must_use]
+    pub fn layers_resolved(&self) -> std::borrow::Cow<'_, [Layer]> {
+        let hidden: Vec<LayerId> = self
+            .layers
+            .iter()
+            .filter(|l| !l.visible && l.kind == LayerKind::Group)
+            .map(|l| l.id)
+            .collect();
+        if hidden.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.layers);
+        }
+        let mut resolved = self.layers.clone();
+        for layer in &mut resolved {
+            if self.has_ancestor_in(layer.parent, &hidden) {
+                layer.visible = false;
+            }
+        }
+        std::borrow::Cow::Owned(resolved)
+    }
+
+    /// Whether this layer is inside a group the panel should draw as hidden.
+    ///
+    /// Distinct from the layer's own flag: a visible layer inside a hidden
+    /// group contributes nothing, and a panel that drew its eye open would be
+    /// describing a state the canvas does not have.
+    #[must_use]
+    pub fn is_hidden_by_group(&self, layer: LayerId) -> bool {
+        let hidden: Vec<LayerId> = self
+            .layers
+            .iter()
+            .filter(|l| !l.visible && l.kind == LayerKind::Group)
+            .map(|l| l.id)
+            .collect();
+        !hidden.is_empty() && self.has_ancestor_in(self.get(layer).and_then(|l| l.parent), &hidden)
+    }
+
+    /// Whether the chain from `parent` upwards passes through any of `ids`.
+    ///
+    /// Depth-capped for the reason [`Self::depth_of`] gives.
+    fn has_ancestor_in(&self, mut parent: Option<LayerId>, ids: &[LayerId]) -> bool {
+        for _ in 0..MAX_NESTING_DEPTH {
+            match parent {
+                Some(id) if ids.contains(&id) => return true,
+                Some(id) => parent = self.get(id).and_then(|l| l.parent),
+                None => return false,
+            }
+        }
+        false
+    }
+
     /// How deeply `layer` sits inside groups — `0` at the root of the stack.
     ///
     /// The panel indents a row by this, which is the only cue that a layer is
@@ -1070,6 +1133,75 @@ mod tests {
             "Shape 1",
             "a kind from a later version is named rather than refused"
         );
+    }
+
+    /// The bug this exists for: the compositor takes the layer list verbatim,
+    /// so a hidden group used to hide nothing but its own empty slice. Closing
+    /// the eye on a group left every layer inside it on the canvas.
+    #[test]
+    fn hiding_a_group_hides_what_is_inside_it() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(None).expect("group");
+        let inside = g.add_layer_top(None).expect("layer");
+        let outside = g.add_layer_top(None).expect("layer");
+        g.get_mut(inside).expect("layer").parent = Some(group);
+        g.get_mut(group).expect("group").visible = false;
+
+        let resolved = g.layers_resolved();
+        let visible = |id: LayerId| resolved.iter().find(|l| l.id == id).expect("layer").visible;
+        assert!(!visible(inside), "a layer inside a hidden group is off");
+        assert!(visible(outside), "a layer beside it is untouched");
+        assert!(
+            g.get(inside).expect("layer").visible,
+            "the layer's own flag is unchanged — the group is what is off"
+        );
+    }
+
+    #[test]
+    fn a_hidden_outer_group_reaches_a_nested_layer() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let outer = g.add_group_top(None).expect("group");
+        let inner = g.add_group_top(None).expect("group");
+        let leaf = g.add_layer_top(None).expect("layer");
+        g.get_mut(inner).expect("group").parent = Some(outer);
+        g.get_mut(leaf).expect("layer").parent = Some(inner);
+        g.get_mut(outer).expect("group").visible = false;
+
+        assert!(g.is_hidden_by_group(leaf), "two levels down still counts");
+        assert!(
+            !g.layers_resolved()
+                .iter()
+                .find(|l| l.id == leaf)
+                .expect("layer")
+                .visible
+        );
+    }
+
+    /// The composite runs per frame, so the common case must not allocate.
+    #[test]
+    fn a_stack_with_nothing_to_resolve_is_borrowed() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let group = g.add_group_top(None).expect("group");
+        let inside = g.add_layer_top(None).expect("layer");
+        g.get_mut(inside).expect("layer").parent = Some(group);
+        assert!(
+            matches!(g.layers_resolved(), std::borrow::Cow::Borrowed(_)),
+            "a visible group changes nothing, so nothing is cloned"
+        );
+
+        g.get_mut(group).expect("group").visible = false;
+        assert!(matches!(g.layers_resolved(), std::borrow::Cow::Owned(_)));
+    }
+
+    /// Hiding a plain layer is not a group being hidden, and must not put the
+    /// composite path on the cloning branch.
+    #[test]
+    fn hiding_an_ordinary_layer_resolves_nothing() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let layer = g.add_layer_top(None).expect("layer");
+        g.get_mut(layer).expect("layer").visible = false;
+        assert!(matches!(g.layers_resolved(), std::borrow::Cow::Borrowed(_)));
+        assert!(!g.is_hidden_by_group(layer));
     }
 
     #[test]

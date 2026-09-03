@@ -58,6 +58,13 @@ pub struct LayerRow {
     /// tell a group's child from the layer that merely follows the group
     /// without being told.
     pub depth: i32,
+    /// Whether a group above this layer is hidden.
+    ///
+    /// Distinct from [`Self::visible`], which is the layer's own flag: a
+    /// visible layer inside a hidden group contributes nothing to the canvas,
+    /// and a row that drew its eye open would describe a state the image does
+    /// not have.
+    pub hidden_by_group: bool,
 }
 
 /// Build the panel's rows for `document`, top of the stack first.
@@ -85,6 +92,7 @@ pub fn layer_rows(document: &DocumentGraph, selected: &[LayerId]) -> Vec<LayerRo
             active: active == Some(layer.id),
             stack_index: i32::try_from(index).unwrap_or(i32::MAX),
             depth: i32::try_from(document.depth_of(layer.id)).unwrap_or(i32::MAX),
+            hidden_by_group: document.is_hidden_by_group(layer.id),
         })
         .rev()
         .take(count)

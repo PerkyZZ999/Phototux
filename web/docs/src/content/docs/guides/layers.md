@@ -93,6 +93,19 @@ down beside them, and the indent deepens a level for each group they sit
 inside. Visibility toggles keep their own column at the left edge, so the eyes
 stay in one line however deep the nesting runs. Groups cannot be collapsed yet.
 
+Hiding a group hides everything inside it. The rows inside dim to show they
+are off, and their own eye icons stay as you left them — turn the group back on
+and each layer is exactly as visible as it was before.
+
+<div class="callout callout-warning">
+
+**A group's opacity and blend mode do not reach the canvas yet.** The controls
+are live and they do change the document, but the image will not follow until
+groups are composited on their own surface. Set opacity on the layers inside
+in the meantime.
+
+</div>
+
 <div class="callout callout-note">
 
 **Merging does not cross a group boundary.** Merge Down and Merge Visible

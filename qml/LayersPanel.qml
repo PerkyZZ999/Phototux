@@ -68,12 +68,19 @@ ListView {
         // this a grouped stack and an ungrouped one draw
         // identically.
         required property int depth
+        // Whether a group above this row is hidden. The
+        // layer's own flag can still say visible while it
+        // contributes nothing, and a row that drew its eye
+        // open would describe an image that is not there.
+        required property bool hidden_by_group
 
         // Photoshop indents a group's contents and leaves the
         // visibility toggle in its own fixed column, so the
         // eyes stay in one line down the panel however deep
         // the nesting runs. Only what follows them moves.
         readonly property int indent: depth * Theme.spaceMd
+        // What the canvas actually shows for this layer.
+        readonly property bool onCanvas: layer_visible && !hidden_by_group
         readonly property bool hasMask: mask_flag !== 0
         readonly property bool maskEnabled: mask_flag === 1
         color: active || selected ? Theme.surfaceRaised
@@ -98,16 +105,24 @@ ListView {
                 anchors.centerIn: parent
                 source: layerVisButton.icon.source
                 size: 16
-                color: Theme.iconOnSurfaceEffective
+                // Dimmed rather than switched to the crossed eye: the layer's
+                // own flag is still on, and clicking here still toggles it.
+                // What is off is the group above, which the user turns back on
+                // there.
+                color: layerRow.onCanvas || !layer_visible
+                       ? Theme.iconOnSurfaceEffective
+                       : Theme.iconDisabledEffective
             }
             background: Rectangle {
                 radius: Theme.radiusXs
                 color: layerVisButton.hovered ? Theme.surfaceContainerHigh : "transparent"
             }
             onClicked: AppSession.toggleLayerVisible(stack_index)
-            Accessible.name: layer_visible
-                             ? qsTr("Hide %1").arg(name)
-                             : qsTr("Show %1").arg(name)
+            Accessible.name: hidden_by_group
+                             ? qsTr("%1 — hidden with its group").arg(name)
+                             : (layer_visible
+                                ? qsTr("Hide %1").arg(name)
+                                : qsTr("Show %1").arg(name))
             ThemedToolTip {
                 visible: parent.hovered
                 text: parent.Accessible.name
@@ -240,7 +255,9 @@ ListView {
             Label {
                 Layout.fillWidth: true
                 text: name
-                color: active ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant
+                color: layerRow.onCanvas
+                       ? (active ? Theme.colorOnSurface : Theme.colorOnSurfaceVariant)
+                       : Theme.colorOnSurfaceMuted
                 font.pixelSize: Theme.fontBodySm
                 elide: Text.ElideRight
             }

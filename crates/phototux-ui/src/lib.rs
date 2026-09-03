@@ -818,7 +818,7 @@ impl AppSession {
                 },
             );
         }
-        match phototux_canvas::open_document(graph.size, graph.layers()) {
+        match phototux_canvas::open_document(graph.size, &graph.layers_resolved()) {
             Ok(ms) => {
                 self.finish_opened_ptx(path, title, graph, parts.rasters, parts.masks, ms);
             }
@@ -2614,13 +2614,13 @@ impl AppSession {
             .and_then(|preview| Some((preview.layer_id, preview.to_effect()?)));
         let result = match preview {
             Some((layer_id, effect)) => {
-                let mut layers = graph.layers().to_vec();
+                let mut layers = graph.layers_resolved().into_owned();
                 if let Some(layer) = layers.iter_mut().find(|l| l.id == layer_id) {
                     layer.effects.push(effect);
                 }
                 phototux_canvas::sync_and_composite(&layers)
             }
-            None => phototux_canvas::sync_and_composite(graph.layers()),
+            None => phototux_canvas::sync_and_composite(&graph.layers_resolved()),
         };
         match result {
             Ok(ms) => {
@@ -2647,7 +2647,7 @@ impl AppSession {
             .engine
             .graph
             .as_ref()
-            .map(|graph| (graph.size, graph.layers().to_vec()))
+            .map(|graph| (graph.size, graph.layers_resolved().into_owned()))
         else {
             return;
         };
@@ -5399,7 +5399,7 @@ impl AppSession {
         flattened: Option<&Raster>,
     ) -> Option<f32> {
         let result = if !layer_rasters.is_empty() {
-            phototux_canvas::open_document(graph.size, graph.layers()).and_then(|ms| {
+            phototux_canvas::open_document(graph.size, &graph.layers_resolved()).and_then(|ms| {
                 for (id, raster) in layer_rasters {
                     phototux_canvas::write_layer_rgba(*id, raster.pixels())?;
                 }
