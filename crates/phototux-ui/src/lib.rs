@@ -547,14 +547,27 @@ impl AppSession {
     /// The vector feeds the inspector badge rules and the JSON feeds QML; they
     /// are set together so a badge can never describe a value the panel is not
     /// showing.
+    /// The active adjustment's slot values, and the JSON the editor binds to.
+    ///
+    /// Two fields for one value, so the publish is written out rather than
+    /// left to the macro — but it is the same rule, and it goes through
+    /// `publish!` for the JSON half so that
+    /// `published_fields_are_not_also_announced_unconditionally` can see it.
+    /// It could not before, which is how an unconditional
+    /// `adjustment_slots_json_changed()` in `emit_layer_fields` came to sit
+    /// beside a compare-and-skip and quietly undo it.
     fn set_adjustment_slot_values(&mut self, values: &[f32]) {
         if self.adjustment_slots == values {
             return;
         }
         self.adjustment_slots = values.to_vec();
-        self.adjustment_slots_json =
-            serde_json::to_string(values).unwrap_or_else(|_| "[]".to_owned());
-        self.adjustment_slots_json_changed();
+        let json = serde_json::to_string(values).unwrap_or_else(|_| "[]".to_owned());
+        publish!(
+            self,
+            adjustment_slots_json,
+            json,
+            adjustment_slots_json_changed
+        );
     }
 
     pub fn new(icon_root: String) -> Self {
@@ -1212,80 +1225,96 @@ impl AppSession {
         self.brush_b = fg[2];
     }
 
+    /// Everything the Properties panel shows about the active layer's
+    /// adjustment, styles, blending and effects.
+    ///
+    /// The layer is read once. It used to be looked up twice — the second time
+    /// only to reach the effects, because the first borrow had to be dropped
+    /// before anything could be published — and the fields after that second
+    /// lookup were the ones that never joined the publish protocol: they were
+    /// assigned bare here and announced blind from `emit_layer_fields`, three
+    /// hundred lines away, where the two halves could drift apart unseen.
+    ///
+    /// The no-layer arm states the empty value for every field rather than
+    /// returning early. Returning early is what left `layer_styles_json` and
+    /// `effects_joined` describing a layer that was no longer active.
     fn sync_adjustment_fields(&mut self) {
         let layer = self
             .engine
             .graph
             .as_ref()
             .and_then(|g| g.active_id().and_then(|id| g.get(id)));
-        let Some(layer) = layer else {
-            self.adjustment_kind.clear();
-            self.set_adjustment_slot_values(&[]);
-            self.has_gaussian_blur = false;
-            self.gaussian_radius = 0.0;
-            let empty = blend_if_state_json(phototux_engine::BlendIf::default());
-            publish!(self, blend_if_json, empty, blend_if_json_changed);
-            let no_shape = shape_state_json(None);
-            publish!(self, shape_json, no_shape, shape_json_changed);
-            let no_smart = smart_state_json(None, false);
-            publish!(self, smart_json, no_smart, smart_json_changed);
-            return;
-        };
         // Copied out before publishing: the layer is borrowed from `self`, and
         // the publisher needs `self` mutably.
-        let adjustment = layer.adjustment.as_ref().map(|params| {
-            (
-                params.kind_key(),
-                params.slots(),
-                params.editor_slots().len(),
-            )
-        });
-        let styles_json = phototux_engine::layer_styles_json(&layer.styles);
-        let blend_if = blend_if_state_json(layer.blend_if);
-        let shape = shape_state_json(layer.shape.as_ref());
-        let smart = smart_state_json(
-            layer.smart.as_ref(),
-            self.smart_sources.contains_key(&layer.id),
-        );
+        let (adjustment, styles, blend_if, shape, smart, gaussian) = match layer {
+            Some(layer) => (
+                layer.adjustment.as_ref().map(|params| {
+                    (
+                        params.kind_key(),
+                        params.slots(),
+                        params.editor_slots().len(),
+                    )
+                }),
+                phototux_engine::layer_styles_json(&layer.styles),
+                blend_if_state_json(layer.blend_if),
+                shape_state_json(layer.shape.as_ref()),
+                smart_state_json(
+                    layer.smart.as_ref(),
+                    self.smart_sources.contains_key(&layer.id),
+                ),
+                layer.effects.iter().find_map(|effect| match effect.params {
+                    FilterParams::GaussianBlur { radius } if effect.enabled => Some(radius),
+                    _ => None,
+                }),
+            ),
+            None => (
+                None,
+                phototux_engine::layer_styles_json(&[]),
+                blend_if_state_json(phototux_engine::BlendIf::default()),
+                shape_state_json(None),
+                smart_state_json(None, false),
+                None,
+            ),
+        };
+
         publish!(self, blend_if_json, blend_if, blend_if_json_changed);
         publish!(self, shape_json, shape, shape_json_changed);
         publish!(self, smart_json, smart, smart_json_changed);
-        publish!(
-            self,
-            layer_styles_json,
-            styles_json,
-            layer_styles_json_changed
-        );
+        publish!(self, layer_styles_json, styles, layer_styles_json_changed);
         match adjustment {
             Some((kind, slots, used)) => {
-                self.adjustment_kind = kind.to_owned();
+                publish!(
+                    self,
+                    adjustment_kind,
+                    kind.to_owned(),
+                    adjustment_kind_changed
+                );
                 self.set_adjustment_slot_values(&slots[..used]);
             }
             None => {
-                self.adjustment_kind.clear();
+                publish!(
+                    self,
+                    adjustment_kind,
+                    String::new(),
+                    adjustment_kind_changed
+                );
                 self.set_adjustment_slot_values(&[]);
             }
         }
-        let layer = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.active_id().and_then(|id| g.get(id)));
-        let Some(layer) = layer else {
-            return;
-        };
-        let gaussian = layer.effects.iter().find_map(|effect| {
-            if !effect.enabled {
-                return None;
-            }
-            match effect.params {
-                FilterParams::GaussianBlur { radius } => Some(radius),
-                _ => None,
-            }
-        });
-        self.has_gaussian_blur = gaussian.is_some();
-        self.gaussian_radius = gaussian.unwrap_or(0.0);
-        self.effects_joined = self.engine.active_effects_joined();
+        publish!(
+            self,
+            has_gaussian_blur,
+            gaussian.is_some(),
+            has_gaussian_blur_changed
+        );
+        publish!(
+            self,
+            gaussian_radius,
+            gaussian.unwrap_or(0.0),
+            gaussian_radius_changed
+        );
+        let effects = self.engine.active_effects_joined();
+        publish!(self, effects_joined, effects, effects_joined_changed);
     }
 
     fn sync_text_fields(&mut self) {
@@ -1540,11 +1569,6 @@ impl AppSession {
         self.background_hex_changed();
         self.recent_colors_changed();
         self.brush_color_changed();
-        self.adjustment_kind_changed();
-        self.adjustment_slots_json_changed();
-        self.has_gaussian_blur_changed();
-        self.gaussian_radius_changed();
-        self.effects_joined_changed();
         self.emit_text_fields();
         self.emit_path_edit_fields();
         self.emit_filter_preview_fields();

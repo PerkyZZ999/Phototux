@@ -701,6 +701,29 @@ The action registry is where this rule pays off most often. Tool, shape, boolean
 
 The same shape appears one level down, in *projections* rather than names: one piece of host state reaching QML twice, once as a bound property and once as a pushed JSON string. The bound copy updates itself; the pushed one updates only where a caller remembers, so the two disagree at exactly the moments that matter. `document_name` and `dirty` reach the window title as properties and the tab strip as `documentTabsJson`, and Save As renamed the title while the tab went on reading "Untitled". The fix is not another call site: put the push next to the emits every caller already goes through — `emit_doc_fields` — and assert it is there, which is what `the_tab_strip_is_refreshed_with_the_document_fields` does.
 
+**Publish a property where you compute it.** `AppSession` has two ways to tell
+QML a value moved, and only one of them is safe. `publish!(self, field, next,
+field_changed)` compares, assigns and notifies in one place, so a value that did
+not move wakes nothing. The other way is to assign the field in a `sync_*`
+function and announce it blind from `emit_layer_fields`, hundreds of lines away
+— two halves that are free to drift, and that drift silently in both
+directions: a `sync_*` whose `emit_*` is not called leaves QML showing a stale
+value, and an unconditional `x_changed()` beside a `publish!` for the same field
+undoes the comparison entirely.
+
+`published_fields_are_not_also_announced_unconditionally` catches the second
+case by reading both lists out of the source. It only sees fields that go
+through the macro, which is why a hand-written compare-and-notify must still end
+in `publish!` for its notifying half — `set_adjustment_slot_values` did not, and
+an `adjustment_slots_json_changed()` sat in `emit_layer_fields` defeating it
+with nothing to say so.
+
+An early `return` in a `sync_*` is the same bug wearing a different hat. The
+no-layer arm of `sync_adjustment_fields` published three empty values and
+returned before two more, so deselecting left `layer_styles_json` and
+`effects_joined` describing a layer that was no longer active. State every field's
+empty value in that arm rather than returning.
+
 Shipped instances to copy from: `command_conformance::every_registered_id_is_known_and_has_meta` (command taxonomy), `selection_modify_actions_carry_a_parsable_argument` (registry args → `SelectionModifyOp`), `shape_create_actions_name_a_known_preset` plus `every_shape_created_from_the_qml_shell_names_a_known_preset` (`ShapePreset`, covering both the registry and the canvas' direct call), `the_tool_rail_and_the_tool_vocabulary_describe_the_same_tools` plus `every_tool_named_in_the_qml_shell_is_a_tool_the_host_knows` (tool ids), and `blend_gpu_codes_are_unique_and_pinned` plus `the_parity_set_covers_every_blend_mode` (blend modes). The last reads `qml/` as text, which is the only way to compare against a declarative binding; it asserts the parse found something before asserting anything about it, so a moved file reports the move rather than a false pass.
 
 Reading `qml/` is common enough that the walk is a helper rather than a preamble: `qml_files()` returns every `.qml` file as `(name, text)`, so a new guard is three lines instead of twenty. It exists once per crate — `chrome_contract::qml_files` in `phototux_ui`, `shell::tests::qml_files` in `phototux_engine` — because the engine sits below the ui crate and must not depend on it. Four hand-written copies preceded it and had already diverged: one dropped unreadable files silently, which would have made the orphan-icon sweep *pass* by seeing less, and two lost the file name so a failure could not say where. All four decisions now live in one place, including the assertion that the corpus is non-empty — a guard that reads nothing must report a broken scan, never a kept contract.
