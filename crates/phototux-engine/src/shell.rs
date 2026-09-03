@@ -623,6 +623,42 @@ pub fn tools_json() -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Every `.qml` file in the shell, as `(name, text)`.
+    ///
+    /// The engine reads the shell for the same reason the ui crate does: some
+    /// of what these descriptors promise is only kept in a declarative file
+    /// with no test runner. Both guards below used to open `qml/` themselves,
+    /// and the two copies had already diverged — one dropped unreadable files
+    /// silently, which would have made the orphan sweep *pass* by seeing less.
+    /// The ui crate has its own copy of this rather than a shared one: the
+    /// engine sits below it and must not depend on it.
+    fn qml_files() -> Vec<(String, String)> {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir)
+            .expect("qml/ is readable from the engine crate")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "qml") {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            out.push((
+                name,
+                std::fs::read_to_string(&path).expect("qml file is readable"),
+            ));
+        }
+        assert!(
+            !out.is_empty(),
+            "no QML found — the scan broke, not the shell"
+        );
+        out
+    }
+
     /// Every icon a descriptor names must be packaged into the QML resource.
     ///
     /// The qrc carries a hand-written list of icon stems, which CMake cannot
@@ -701,12 +737,7 @@ mod tests {
         // shipped with no icon at all while their icons sat in the binary. A
         // packaged icon nobody names is either dead payload or, as it was
         // here, a control someone meant to finish.
-        let qml: String = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml"))
-            .expect("qml/ is readable from the engine crate")
-            .filter_map(Result::ok)
-            .filter(|entry| entry.path().extension().is_some_and(|e| e == "qml"))
-            .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
-            .collect();
+        let qml: String = qml_files().into_iter().map(|(_, text)| text).collect();
         let named_by_rust: Vec<String> = default_tools()
             .iter()
             .map(|t| t.icon_key.clone())
@@ -784,15 +815,8 @@ mod tests {
     /// stems (`root.iconUrl(slotItem.face.icon)`) resolve from descriptors and
     /// are already covered above.
     fn qml_icon_literals() -> Vec<(String, Vec<String>)> {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
         let mut out = Vec::new();
-        let entries = std::fs::read_dir(dir).expect("qml/ is readable from the engine crate");
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_none_or(|ext| ext != "qml") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).expect("qml file is readable");
+        for (name, text) in qml_files() {
             let mut stems = Vec::new();
             for (marker, closer) in [("iconKey: \"", '"'), ("iconUrl(\"", '"')] {
                 for chunk in text.split(marker).skip(1) {
@@ -809,10 +833,6 @@ mod tests {
             if !stems.is_empty() {
                 stems.sort_unstable();
                 stems.dedup();
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
                 out.push((name, stems));
             }
         }

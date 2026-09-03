@@ -2994,15 +2994,8 @@ mod tests {
     /// vocabularies — one side is a declarative binding.
     #[test]
     fn every_tool_named_in_the_qml_shell_is_a_tool_the_host_knows() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
         let mut checked = 0_usize;
-        for entry in std::fs::read_dir(dir).expect("read qml/") {
-            let path = entry.expect("dir entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).expect("read qml file");
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        for (name, source) in crate::chrome_contract::qml_files() {
             for id in source.split("\"tool.").skip(1).filter_map(|rest| {
                 let id = rest.split('"').next()?;
                 // `tool.activate` is a host op, not a tool; the ids this test
@@ -3030,15 +3023,8 @@ mod tests {
     /// did not register.
     #[test]
     fn every_shape_created_from_the_qml_shell_names_a_known_preset() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
         let mut checked = 0_usize;
-        for entry in std::fs::read_dir(dir).expect("read qml/") {
-            let path = entry.expect("dir entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).expect("read qml file");
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        for (name, source) in crate::chrome_contract::qml_files() {
             for kind in source
                 .split("addShapeLayer(\"")
                 .skip(1)
