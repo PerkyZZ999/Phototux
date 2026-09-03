@@ -1,4 +1,4 @@
-//! Pure document/session types — no Qt (ADR-006, ADR-011, ADR-017).
+//! Pure document/session types — no Qt (DR-025, DR-002, DR-004).
 
 mod actions;
 mod align;
@@ -221,7 +221,7 @@ impl DocumentSize {
     }
 }
 
-/// Named size presets (ADR-013). 1080p is the recommended default highlight in UI.
+/// Named size presets (DR-024). 1080p is the recommended default highlight in UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizePreset {
     P720,
@@ -946,7 +946,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presets_match_adr_013() {
+    fn presets_match_the_document_session_sizes() {
         assert_eq!(SizePreset::P720.size(), DocumentSize::new(1280, 720));
         assert_eq!(SizePreset::P1080.size(), DocumentSize::new(1920, 1080));
         assert_eq!(SizePreset::P2k.size(), DocumentSize::new(2560, 1440));
@@ -1016,6 +1016,59 @@ mod tests {
         assert!(
             !s.status_summary().contains("composite"),
             "composite ms must stay out of status_summary to avoid AT-SPI thrash"
+        );
+    }
+
+    /// Every source file cites the Decision Register, never an archived ADR.
+    ///
+    /// The ADR files were deleted in July 2026 and
+    /// `Appendix/Archived-ADR-to-DR-Map.md` says in as many words that former
+    /// ids are not a second authority. Twenty-six module headers went on
+    /// citing them anyway, so `document.rs` opened by pointing a reader at two
+    /// documents that do not exist. Nothing said so, because a citation is
+    /// prose — it compiles either way, and the only cost is paid by whoever
+    /// follows it.
+    ///
+    /// Reading the tree as text is what makes the rule checkable at all. The
+    /// map itself is the one place an ADR id is still allowed to appear, and
+    /// it lives under `internal_docs/`, which this walk does not enter.
+    #[test]
+    fn no_source_file_cites_an_archived_adr() {
+        fn walk(dir: &std::path::Path, found: &mut Vec<String>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                // Build output is generated from these same sources, so it
+                // carries copies of every citation and would report each twice.
+                if name == "target" || name == "node_modules" || name.starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    walk(&path, found);
+                } else if let Ok(text) = std::fs::read_to_string(&path) {
+                    for (line, body) in text.lines().enumerate() {
+                        if let Some(at) = body.find("ADR-")
+                            && body[at + 4..].starts_with(|c: char| c.is_ascii_digit())
+                        {
+                            found.push(format!("{}:{}", path.display(), line + 1));
+                        }
+                    }
+                }
+            }
+        }
+
+        let root = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let mut found = Vec::new();
+        for area in ["crates", "qml", "scripts"] {
+            walk(&root.join(area), &mut found);
+        }
+        assert!(
+            found.is_empty(),
+            "archived ADR ids cited in shipped source — cite the live DR instead \
+             (see internal_docs/Appendix/Archived-ADR-to-DR-Map.md): {found:?}"
         );
     }
 

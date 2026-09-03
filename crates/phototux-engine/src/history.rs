@@ -1,4 +1,4 @@
-//! Unified transactional history timeline (ADR-013, ADR-017).
+//! Unified transactional history timeline (DR-004).
 
 use crate::document::DocumentGraph;
 use crate::undo::{GraphCommand, UndoStack};

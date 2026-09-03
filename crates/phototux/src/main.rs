@@ -1,4 +1,4 @@
-//! PhotoTux desktop GUI entry (ADR-014 — not a CLI product).
+//! PhotoTux desktop GUI entry (DR-023 — not a CLI product).
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;

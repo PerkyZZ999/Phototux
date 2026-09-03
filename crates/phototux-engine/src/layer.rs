@@ -1,4 +1,4 @@
-//! Layer types for the document stack (ADR-011, ADR-017).
+//! Layer types for the document stack (DR-002, DR-027).
 
 use std::borrow::Cow;
 

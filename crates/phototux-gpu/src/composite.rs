@@ -1,4 +1,4 @@
-//! Multi-layer GPU composite (ADR-008: 10×4K &lt; 2 ms gate).
+//! Multi-layer GPU composite (DR-017: 10×4K &lt; 2 ms gate).
 //!
 //! Single full-screen pass samples up to [`MAX_LAYERS`] layer textures and
 //! blends bottom→top in the fragment shader (avoids 10 serial full-frame RT passes).
@@ -1895,7 +1895,7 @@ fn make_r8_filled(ctx: &GpuContext, w: u32, h: u32, value: u8, label: &str) -> w
     tex
 }
 
-/// Run the ADR-008 gate: 10 layers at 4K, return composite time ms.
+/// Run the DR-017 gate: 10 layers at 4K, return composite time ms.
 pub fn benchmark_10x4k_ms(ctx: &GpuContext) -> f32 {
     use phototux_engine::DocumentGraph;
 
@@ -2001,7 +2001,7 @@ mod tests {
     /// painted layer, which puts a dirty slice in the array repack and takes the
     /// path a clean composite skips entirely. An earlier version of this test
     /// omitted the mark, so it only ever measured the clean path and a blocking
-    /// poll inside the repack survived it. It also runs at the ADR-008 gate size,
+    /// poll inside the repack survived it. It also runs at the DR-017 gate size,
     /// because a light document composites fast enough to mask a host wait.
     #[test]
     fn interactive_composite_does_not_wait_for_the_gpu() {
@@ -2251,7 +2251,7 @@ mod tests {
         // Host Instant includes submit/poll; keep 50µs slack for clock noise.
         assert!(
             ms < 2.05,
-            "ADR-008 gate failed: 10×4K composite {ms:.3} ms >= 2.05 ms"
+            "DR-017 gate failed: 10×4K composite {ms:.3} ms >= 2.05 ms"
         );
     }
 }

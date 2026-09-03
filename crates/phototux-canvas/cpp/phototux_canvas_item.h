@@ -18,7 +18,7 @@ class QRhiTexture;
 class QQuickWindow;
 class QVulkanInstance;
 
-// Production GPU viewport (ADR-003 / ADR-005 / ADR-010).
+// Production GPU viewport (DR-023).
 // QQuickRhiItem present path is GPU-only (no QImage full-frame upload).
 
 class PhototuxCanvasItem : public QQuickRhiItem

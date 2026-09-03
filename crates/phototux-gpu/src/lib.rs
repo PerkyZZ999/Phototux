@@ -1,4 +1,4 @@
-//! wgpu Vulkan context + multi-layer composite (ADR-004 / ADR-008 / ADR-011).
+//! wgpu Vulkan context + multi-layer composite (DR-006 / DR-017 / DR-002).
 
 mod blur;
 mod brush;
@@ -141,7 +141,7 @@ impl GpuContext {
             device_type: format!("{:?}", info_raw.device_type),
         };
 
-        // Timestamp queries are how the ADR-008 composite gate is supposed to be
+        // Timestamp queries are how the DR-017 composite gate is supposed to be
         // measured. They are optional on Vulkan, so take them when offered and
         // fall back to no GPU timing rather than failing device creation.
         let timestamp_features =

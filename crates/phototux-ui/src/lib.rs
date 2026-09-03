@@ -1,4 +1,4 @@
-//! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
+//! QML-facing session via qtbridge (DR-023). Package name `phototux_ui` → `import phototux_ui`.
 
 mod chrome_contract;
 mod clipboard;

@@ -1,4 +1,4 @@
-//! Crash-recovery journal for native documents (ADR-016).
+//! Crash-recovery journal for native documents (DR-026).
 
 use std::fs;
 use std::path::{Path, PathBuf};
