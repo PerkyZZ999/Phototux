@@ -1072,6 +1072,25 @@ mod tests {
         for area in ["crates", "qml", "scripts"] {
             walk(&root.join(area), &mut found);
         }
+        // Build configuration is source too, and the first draft of this walk
+        // missed it: the workspace manifest justified the release profile by
+        // an archived id where DR-017 belongs. Root *prose* is deliberately
+        // not walked — CHANGELOG.md is a record of what was decided when, and
+        // rewriting it would falsify the history, while AGENTS.md and
+        // CONSTRAINTS.md cite archived ids the sanctioned way, as "former" or
+        // "archived" beside the live DR.
+        for manifest in ["Cargo.toml", "deny.toml", "clippy.toml", "justfile"] {
+            let path = root.join(manifest);
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                for (line, body) in text.lines().enumerate() {
+                    if let Some(at) = body.find("ADR-")
+                        && body[at + 4..].starts_with(|c: char| c.is_ascii_digit())
+                    {
+                        found.push(format!("{}:{}", path.display(), line + 1));
+                    }
+                }
+            }
+        }
         assert!(
             found.is_empty(),
             "archived ADR ids cited in shipped source — cite the live DR instead \

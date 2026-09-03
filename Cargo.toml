@@ -38,7 +38,7 @@ arboard = "3.4"
 flate2 = "1.1.1"
 crc32fast = "1.4.2"
 
-# Shipping profile for the interactive editor. The SLOs in ADR-008 (60+ FPS
+# Shipping profile for the interactive editor. The SLOs in DR-017 (60+ FPS
 # zoom/pan, < 8 ms tablet input→render) are cross-crate hot paths: the brush
 # stream crosses phototux_ui → phototux_canvas → phototux_gpu on every dab, so
 # cross-crate inlining is worth the longer link.
