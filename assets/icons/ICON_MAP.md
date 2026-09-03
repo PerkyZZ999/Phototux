@@ -27,6 +27,14 @@ Canonical mapping of **shipped tools & actions** → **Phosphor SVG stems** unde
 
 Stems are **Phosphor file basenames** without `.svg`. Tool IDs use `tool.*`; action IDs use `action.*` (handbook command chrome).
 
+A descriptor's `icon_key` is already a stem, so the shell draws it directly —
+there is no translation step. `Main.qml` used to route every tool stem through
+a seventeen-entry fallback map keyed on `tool.*` ids, in case a descriptor
+still carried an id where a stem belongs. None did, and none can: a `tool.*`
+`icon_key` is not in `ICON_NAMES`, so `every_icon_key_is_packaged_into_the_qrc`
+fails on it before the fallback would ever be reached. The map was a second
+copy of this table that nothing checked, and it is gone.
+
 ---
 
 ## Uniqueness policy

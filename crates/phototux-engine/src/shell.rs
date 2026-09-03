@@ -629,6 +629,13 @@ mod tests {
     /// derive from these descriptors — so a tool or action naming an icon
     /// nobody added to that list ships a blank button, silently. This reads
     /// the list from the other side.
+    ///
+    /// It is also what lets the shell draw `descriptor.icon` directly. The
+    /// tool shelf used to route every stem through a seventeen-entry fallback
+    /// map in `Main.qml`, in case a descriptor still carried a `tool.*` id
+    /// where a Phosphor stem belongs. None does, and this test is the reason
+    /// none can: `tool.brush` is not in `ICON_NAMES`, so a descriptor that
+    /// regressed to one would fail here rather than reach the fallback.
     #[test]
     fn every_icon_key_is_packaged_into_the_qrc() {
         let cmake = std::fs::read_to_string(concat!(
@@ -774,8 +781,8 @@ mod tests {
     ///
     /// Matches `iconKey: "stem"` and `iconUrl("stem")` — the two forms the
     /// shell uses to name a glyph that comes from nowhere else. Interpolated
-    /// stems (`root.toolIconStem(...)`) resolve from descriptors and are
-    /// already covered above.
+    /// stems (`root.iconUrl(slotItem.face.icon)`) resolve from descriptors and
+    /// are already covered above.
     fn qml_icon_literals() -> Vec<(String, Vec<String>)> {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
         let mut out = Vec::new();

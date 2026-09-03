@@ -394,30 +394,6 @@ ApplicationWindow {
                 || panelId === "panel.history"
     }
 
-    // Fallback map if a descriptor still uses tool.* icon keys.
-    readonly property var toolIconStemMap: ({
-        "tool.brush": "paint-brush",
-        "tool.eraser": "eraser",
-        "tool.select.rect": "selection",
-        "tool.select.ellipse": "circle-dashed",
-        "tool.select.lasso": "lasso",
-        "tool.select.polygon": "polygon",
-        "tool.move": "arrows-out-cardinal",
-        "tool.transform": "arrows-out",
-        "tool.crop": "crop",
-        "tool.fill": "paint-bucket",
-        "tool.gradient": "gradient",
-        "tool.eyedropper": "eyedropper",
-        "tool.text": "text-t",
-        "tool.shape": "shapes",
-        "tool.pan": "hand",
-        "tool.zoom": "magnifying-glass"
-    })
-
-    function toolIconStem(iconKey) {
-        return root.toolIconStemMap[iconKey] || iconKey
-    }
-
     /// How many tool strip rows fit above the overflow control.
     function toolStripCapacity(stripHeight) {
         // Dense packing: 2px gaps match toolColumn.spacing.
@@ -2181,7 +2157,7 @@ ApplicationWindow {
 
                             ThemedIcon {
                                 anchors.centerIn: parent
-                                source: root.iconUrl(root.toolIconStem(slotItem.face.icon))
+                                source: root.iconUrl(slotItem.face.icon)
                                 size: 20
                                 color: Theme.iconOnSurfaceEffective
                             }
@@ -2303,8 +2279,7 @@ ApplicationWindow {
                                         contentItem: RowLayout {
                                             spacing: Theme.spaceSm
                                             ThemedIcon {
-                                                source: root.iconUrl(
-                                                    root.toolIconStem(flyoutRow.modelData.icon))
+                                                source: root.iconUrl(flyoutRow.modelData.icon)
                                                 size: Theme.iconMd
                                                 color: Theme.iconOnSurfaceEffective
                                             }
@@ -2417,7 +2392,7 @@ ApplicationWindow {
 
                                 ThemedIcon {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    source: root.iconUrl(root.toolIconStem(modelData.icon))
+                                    source: root.iconUrl(modelData.icon)
                                     size: 18
                                     color: Theme.iconOnSurfaceEffective
                                 }
