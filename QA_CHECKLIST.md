@@ -223,8 +223,8 @@ they had.
 - [ ] **U-23** Landing page loads at the top and both themes render
 - [ ] **U-24** Docs site navigation, search and table of contents work
 - [ ] **U-25** Both sites are usable from 320 px to 1440 px+
-- [ ] **U-26** The public shortcut reference matches the shipped registry
-- [ ] **U-27** No broken internal links or missing assets on either site
+- [x] **U-26** The public shortcut reference matches the shipped registry — all 56 chords agree in both directions, and `the_published_reference_lists_the_chords_that_ship` now keeps them that way
+- [x] **U-27** No broken internal links or missing assets on either site — `check-docs-links.py` resolves 70 pages, routes and assets included
 
 ---
 

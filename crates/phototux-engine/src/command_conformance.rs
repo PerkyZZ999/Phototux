@@ -520,4 +520,85 @@ mod tests {
             "a NaN slot must be refused, not clamped to something invented"
         );
     }
+    /// The published shortcut reference lists exactly the chords that ship.
+    ///
+    /// `web/docs/reference/shortcuts.md` is a second copy of the registry's
+    /// chord vocabulary, written for users and read by nobody who could notice
+    /// it going stale. A chord renamed here leaves the site telling people to
+    /// press something that does nothing — the worst kind of documentation
+    /// bug, because the reader trusts it over the application.
+    ///
+    /// Both directions: a documented chord the registry does not bind is a
+    /// promise the build does not keep, and a bound chord the reference omits
+    /// is a feature nobody can find.
+    #[test]
+    fn the_published_reference_lists_the_chords_that_ship() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web/docs/src/content/docs/reference/shortcuts.md"
+        ))
+        .expect("the shortcut reference is readable from the engine crate");
+
+        // Only the action tables, which run until the modifier section. What
+        // follows that heading is held keys — Space to pan, Alt to zoom out —
+        // which the canvas handles directly and the registry never binds, so
+        // reading them as action chords reported Space as a promise nothing
+        // keeps. The heading is asserted below so that renaming it fails here
+        // rather than quietly widening what this test accepts.
+        const MODIFIERS: &str = "## Modifiers on the canvas";
+        assert!(
+            page.contains(MODIFIERS),
+            "the modifier section moved; this test no longer knows where the \
+             action chords stop"
+        );
+        let actions_only = page.split(MODIFIERS).next().unwrap_or_default();
+
+        // Rows are `| Label | <kbd>Ctrl</kbd> <kbd>N</kbd> |`; the chord is
+        // whichever cell carries `<kbd>`. Table rows only — the page's prose
+        // uses `<kbd>` too, and reading that made the first run report "Ctrl"
+        // as a binding nothing answers.
+        let mut documented: Vec<String> = Vec::new();
+        for line in actions_only.lines() {
+            if !line.trim_start().starts_with('|') {
+                continue;
+            }
+            let Some(cell) = line.split('|').find(|cell| cell.contains("<kbd>")) else {
+                continue;
+            };
+            let keys: Vec<&str> = cell
+                .split("<kbd>")
+                .skip(1)
+                .filter_map(|rest| rest.split("</kbd>").next())
+                .map(str::trim)
+                .collect();
+            if !keys.is_empty() {
+                documented.push(keys.join("+"));
+            }
+        }
+        assert!(
+            documented.len() > 40,
+            "found {} documented chords — the table parse broke, not the page",
+            documented.len()
+        );
+
+        let bound: Vec<String> = crate::default_actions()
+            .into_iter()
+            .filter_map(|action| action.shortcut)
+            .collect();
+
+        for chord in &bound {
+            assert!(
+                documented.contains(chord),
+                "{chord} ships but the published reference omits it — a feature \
+                 nobody can find"
+            );
+        }
+        for chord in &documented {
+            assert!(
+                bound.contains(chord),
+                "the published reference lists {chord}, which nothing binds — \
+                 the site tells people to press something that does nothing"
+            );
+        }
+    }
 }
