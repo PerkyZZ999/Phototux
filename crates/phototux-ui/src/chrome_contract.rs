@@ -172,6 +172,37 @@ mod tests {
         out
     }
 
+    /// The braced body of the block opening on 1-based `line`.
+    ///
+    /// The scans above ask whether a control overrides something, and
+    /// "somewhere later in the file" is not an answer — a `background:` two
+    /// controls down would satisfy a plain `contains`. Matching braces keeps
+    /// the question about the control that was found.
+    fn body_at_line(text: &str, line: usize) -> String {
+        let offset: usize = text
+            .lines()
+            .take(line.saturating_sub(1))
+            .map(|l| l.len() + 1)
+            .sum();
+        let Some(open) = text[offset..].find('{').map(|i| offset + i) else {
+            return String::new();
+        };
+        let mut depth = 0usize;
+        for (i, ch) in text[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return text[open..open + i].to_owned();
+                    }
+                }
+                _ => {}
+            }
+        }
+        text[open..].to_owned()
+    }
+
     /// A slider has no text of its own, so without a name it reaches assistive
     /// technology as an anonymous "slider".
     ///
@@ -253,6 +284,74 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A kind-gated enablement compares against a string, and the string has
+    /// to be one a layer can actually report.
+    ///
+    /// `action_enablement` decides `text_layer`, `shape_layer`,
+    /// `group_selected` and `smart_object` by comparing `active_layer_kind`
+    /// with a literal. That literal comes from `LayerKind::as_str`, which this
+    /// crate does not consult — so renaming a kind in the engine, or writing
+    /// `"smart object"` for `"smart-object"`, leaves the comparison silently
+    /// false and the menu entry permanently greyed out. Nothing else fails
+    /// first: a menu item that is never enabled looks exactly like a menu item
+    /// that is correctly disabled.
+    #[test]
+    fn every_kind_an_enablement_names_is_a_kind_a_layer_reports() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let kinds: Vec<&str> = phototux_engine::LayerKind::ALL
+            .iter()
+            .map(|k| k.as_str())
+            .collect();
+        let mut checked = 0;
+        for (i, _) in source.match_indices("active_layer_kind == \"") {
+            let rest = &source[i + "active_layer_kind == \"".len()..];
+            let named = rest.split('"').next().expect("a closing quote");
+            assert!(
+                kinds.contains(&named),
+                "an enablement compares active_layer_kind with {named:?}, which no \
+                 LayerKind reports — the entry it gates can never be enabled. \
+                 Kinds are {kinds:?}"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 3,
+            "found {checked} kind comparisons — the scan broke rather than the host"
+        );
+    }
+
+    /// A `ToolButton` that keeps the Basic background is a pale grey square.
+    ///
+    /// Not on the unstyled-control list above, because a `ToolButton` with its
+    /// own `contentItem` *and* `background` is the right thing to write —
+    /// `ChromeIconToolButton` is exactly that. What is never right is leaving
+    /// the background: this Qt's Basic style paints `palette.button` at 0.5
+    /// opacity with a `palette.windowText` border, and unlike older versions
+    /// there is no `visible:` guard limiting it to the pressed state. Two
+    /// effect-reorder buttons in the Properties panel sat there as permanent
+    /// pale rectangles on dark chrome.
+    #[test]
+    fn every_tool_button_replaces_the_basic_background() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            for start in instantiations_of(&text, "ToolButton") {
+                let body = body_at_line(&text, start);
+                checked += 1;
+                assert!(
+                    body.contains("background:"),
+                    "{name}:{start} leaves a ToolButton's Basic background, which \
+                     paints a pale rectangle on dark chrome — give it one, or use \
+                     ChromeIconToolButton"
+                );
+            }
+        }
+        assert!(
+            checked > 8,
+            "found {checked} tool buttons — the scan broke rather than the shell"
+        );
     }
 
     /// A long file operation must be stoppable.

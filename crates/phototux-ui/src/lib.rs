@@ -2107,6 +2107,13 @@ impl AppSession {
                 self.has_document && self.active_layer_kind == "smart-object" && !busy
             }
             "group_selected" => self.has_document && self.active_layer_kind == "group" && !busy,
+            // Bake Text and Rasterize Shape each refuse anything else with a
+            // sentence naming the kind they wanted. A menu entry that is
+            // always live and always answers "this is not a text layer"
+            // teaches the user nothing they did not already know when they
+            // clicked it.
+            "text_layer" => self.has_document && self.active_layer_kind == "text" && !busy,
+            "shape_layer" => self.has_document && self.active_layer_kind == "shape" && !busy,
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,

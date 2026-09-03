@@ -243,7 +243,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.select.mask-to-selection",
             "Mask to Se&lection",
             "select",
-            "has_document",
+            "has_mask",
         )
         .command(command_id::MASK_TO_SELECTION),
         act("action.edit.copy", "&Copy", "edit", "selection_active")
@@ -261,7 +261,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.edit.copy-layer-mask",
             "Copy Layer &Mask",
             "edit",
-            "has_document",
+            "has_mask",
         )
         .host("clipboard.copy_layer_mask")
         .icon("circle-half"),
@@ -518,20 +518,25 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "has_document",
         )
         .command(command_id::LAYER_GROUP),
-        act("action.layer.ungroup", "&Ungroup", "layer", "has_document")
-            .command(command_id::LAYER_UNGROUP),
+        act(
+            "action.layer.ungroup",
+            "&Ungroup",
+            "layer",
+            "group_selected",
+        )
+        .command(command_id::LAYER_UNGROUP),
         act(
             "action.layer.bake-text",
             "Bake &Text",
             "layer",
-            "has_document_io_idle",
+            "text_layer",
         )
         .host("text.bake"),
         act(
             "action.layer.rasterize-shape",
             "Rasterize Shape",
             "layer.shape",
-            "has_document_io_idle",
+            "shape_layer",
         )
         .host("shape.rasterize"),
         // Layer > Smart Objects, where Photoshop keeps them.
@@ -567,7 +572,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.layer.apply-mask",
             "&Apply Mask",
             "layer.mask",
-            "has_document",
+            "has_mask",
         )
         .command(command_id::MASK_APPLY),
         act(

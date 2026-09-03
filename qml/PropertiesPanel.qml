@@ -2037,20 +2037,13 @@ ColumnLayout {
                         onToggled: AppSession.setActiveEffectEnabled(
                                        Number(effectId), checked)
                     }
-                    ToolButton {
+                    ChromeIconToolButton {
                         implicitWidth: 22
                         implicitHeight: 22
                         padding: 0
                         icon.source: root.iconUrl("caret-up")
-                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                         icon.width: 12
                         icon.height: 12
-                        contentItem: ThemedIcon {
-                            anchors.centerIn: parent
-                            source: parent.icon.source
-                            size: parent.icon.height
-                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                        }
                         enabled: index > 0
                         onClicked: AppSession.reorderActiveEffect(
                                        Number(effectId), index - 1)
@@ -2060,20 +2053,13 @@ ColumnLayout {
                             text: parent.Accessible.name
                         }
                     }
-                    ToolButton {
+                    ChromeIconToolButton {
                         implicitWidth: 22
                         implicitHeight: 22
                         padding: 0
                         icon.source: root.iconUrl("caret-down")
-                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                         icon.width: 12
                         icon.height: 12
-                        contentItem: ThemedIcon {
-                            anchors.centerIn: parent
-                            source: parent.icon.source
-                            size: parent.icon.height
-                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                        }
                         enabled: index < effectsRepeater.count - 1
                         onClicked: AppSession.reorderActiveEffect(
                                        Number(effectId), index + 1)
