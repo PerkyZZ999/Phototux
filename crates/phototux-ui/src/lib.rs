@@ -7,6 +7,7 @@ mod display_icc;
 mod file_worker;
 mod fonts;
 mod history_model;
+mod host_undo;
 mod layer_model;
 mod prefs;
 mod selection_path;
@@ -17,6 +18,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use file_worker::{FileCommand, FileEvent, FileWorker};
+use host_undo::HostUndoStack;
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AlignOp, AlignTarget, CommandArgs, CommandEffects, CommandError, CropRect, DabMode,
@@ -417,10 +419,11 @@ pub struct AppSession {
     clipboard_selection_r8: Option<crate::clipboard::CoveragePayload>,
     /// Layer mask clipboard (R8, document-sized).
     clipboard_mask_r8: Option<crate::clipboard::CoveragePayload>,
-    selection_undo: Vec<SelectionSnapshot>,
-    selection_redo: Vec<SelectionSnapshot>,
-    transform_undo: Vec<TransformSnapshot>,
-    transform_redo: Vec<TransformSnapshot>,
+    /// Pixel-selection undo, which the engine cannot hold: the mask is a GPU
+    /// texture, not part of the document graph.
+    selection_history: HostUndoStack<SelectionSnapshot>,
+    /// Transform-commit undo, for the same reason at layer scale.
+    transform_history: HostUndoStack<TransformSnapshot>,
     /// Generation pinned when a Save was submitted (Phase 2 receipt).
     pending_save_generation: Option<u64>,
     prefs: Preferences,
@@ -711,10 +714,8 @@ impl AppSession {
             clipboard_rgba: None,
             clipboard_selection_r8: None,
             clipboard_mask_r8: None,
-            selection_undo: Vec::new(),
-            selection_redo: Vec::new(),
-            transform_undo: Vec::new(),
-            transform_redo: Vec::new(),
+            selection_history: HostUndoStack::new(SELECTION_UNDO_LIMIT),
+            transform_history: HostUndoStack::new(TRANSFORM_UNDO_LIMIT),
             pending_save_generation: None,
             prefs: Preferences::default(),
             workspace: WorkspaceState::essentials(),
@@ -1630,13 +1631,11 @@ impl AppSession {
     }
 
     fn clear_selection_stacks(&mut self) {
-        self.selection_undo.clear();
-        self.selection_redo.clear();
+        self.selection_history.clear();
     }
 
     fn clear_transform_stacks(&mut self) {
-        self.transform_undo.clear();
-        self.transform_redo.clear();
+        self.transform_history.clear();
     }
 
     fn sync_transform_fields(&mut self) {
@@ -1675,21 +1674,9 @@ impl AppSession {
     }
 
     fn push_transform_snapshot(&mut self) {
-        let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
-            return;
-        };
-        let Some(graph) = self.engine.graph.clone() else {
-            return;
-        };
-        self.transform_undo.push(TransformSnapshot {
-            size,
-            layers,
-            graph,
-        });
-        if self.transform_undo.len() > TRANSFORM_UNDO_LIMIT {
-            self.transform_undo.remove(0);
+        if let Some(snapshot) = self.transform_snapshot_now() {
+            self.transform_history.record(snapshot);
         }
-        self.transform_redo.clear();
     }
 
     fn restore_transform_snapshot(&mut self, snap: TransformSnapshot) {
@@ -1706,16 +1693,32 @@ impl AppSession {
         }
     }
 
-    fn push_selection_snapshot(&mut self) {
-        let mask = phototux_canvas::selection_snapshot().unwrap_or_default();
-        self.selection_undo.push(SelectionSnapshot {
+    /// The selection as it is right now, ready to be stepped away from.
+    ///
+    /// The GPU mask and `engine.selection` are two halves of one state, and
+    /// reading them apart at each of the four call sites is how they came to
+    /// be written out four times.
+    fn selection_snapshot_now(&self) -> SelectionSnapshot {
+        SelectionSnapshot {
             state: self.engine.selection.clone(),
-            mask,
-        });
-        if self.selection_undo.len() > SELECTION_UNDO_LIMIT {
-            self.selection_undo.remove(0);
+            mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
         }
-        self.selection_redo.clear();
+    }
+
+    /// The document's pixels and graph right now, or `None` when either is
+    /// unavailable — an unopened document, or a GPU that cannot be read.
+    fn transform_snapshot_now(&self) -> Option<TransformSnapshot> {
+        let (size, layers) = phototux_canvas::snapshot_document_layers().ok()?;
+        Some(TransformSnapshot {
+            size,
+            layers,
+            graph: self.engine.graph.clone()?,
+        })
+    }
+
+    fn push_selection_snapshot(&mut self) {
+        let snapshot = self.selection_snapshot_now();
+        self.selection_history.record(snapshot);
     }
 
     /// Run a GPU selection edit with its undo snapshot taken first.
@@ -2409,59 +2412,36 @@ impl AppSession {
                 Err(error) => self.report_gpu("stroke redo", &error),
             },
             HostHistoryAction::Undo(HistoryKind::Selection) => {
-                let current = SelectionSnapshot {
-                    state: self.engine.selection.clone(),
-                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
-                };
-                if let Some(prev) = self.selection_undo.pop() {
-                    self.selection_redo.push(current);
-                    self.restore_selection_snapshot(prev);
-                } else {
-                    self.engine.selection.clear();
-                    let _ = phototux_canvas::selection_clear();
+                let current = self.selection_snapshot_now();
+                match self.selection_history.undo(current) {
+                    Some(previous) => self.restore_selection_snapshot(previous),
+                    // Stepping back past the oldest recorded selection is
+                    // stepping back to having made none.
+                    None => {
+                        self.engine.selection.clear();
+                        let _ = phototux_canvas::selection_clear();
+                    }
                 }
             }
             HostHistoryAction::Redo(HistoryKind::Selection) => {
-                let current = SelectionSnapshot {
-                    state: self.engine.selection.clone(),
-                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
-                };
-                if let Some(next) = self.selection_redo.pop() {
-                    self.selection_undo.push(current);
+                let current = self.selection_snapshot_now();
+                if let Some(next) = self.selection_history.redo(current) {
                     self.restore_selection_snapshot(next);
                 }
             }
             HostHistoryAction::Undo(HistoryKind::Transform) => {
-                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                let Some(current) = self.transform_snapshot_now() else {
                     return;
                 };
-                let Some(graph) = self.engine.graph.clone() else {
-                    return;
-                };
-                let current = TransformSnapshot {
-                    size,
-                    layers,
-                    graph,
-                };
-                if let Some(prev) = self.transform_undo.pop() {
-                    self.transform_redo.push(current);
-                    self.restore_transform_snapshot(prev);
+                if let Some(previous) = self.transform_history.undo(current) {
+                    self.restore_transform_snapshot(previous);
                 }
             }
             HostHistoryAction::Redo(HistoryKind::Transform) => {
-                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                let Some(current) = self.transform_snapshot_now() else {
                     return;
                 };
-                let Some(graph) = self.engine.graph.clone() else {
-                    return;
-                };
-                let current = TransformSnapshot {
-                    size,
-                    layers,
-                    graph,
-                };
-                if let Some(next) = self.transform_redo.pop() {
-                    self.transform_undo.push(current);
+                if let Some(next) = self.transform_history.redo(current) {
                     self.restore_transform_snapshot(next);
                 }
             }
@@ -6118,7 +6098,7 @@ impl AppSession {
         };
         self.push_transform_snapshot();
         if let Err(error) = self.invoke_command(command, CommandArgs::None) {
-            self.transform_undo.pop();
+            self.transform_history.discard_last();
             self.report_action_error(&error);
             return;
         }
@@ -6153,7 +6133,7 @@ impl AppSession {
         };
         self.push_transform_snapshot();
         if let Err(error) = self.invoke_command(command_id::LAYER_FLATTEN, CommandArgs::None) {
-            self.transform_undo.pop();
+            self.transform_history.discard_last();
             self.report_action_error(&error);
             return;
         }
