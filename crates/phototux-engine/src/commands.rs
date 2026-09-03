@@ -2391,6 +2391,16 @@ impl SessionState {
         let CommandArgs::FilterParameters { slots } = args else {
             return Err(CommandError::InvalidArgument("expected filter params"));
         };
+        // Refused, not clamped. The slots arrive from QML sliders, and a
+        // viewport division during a drag is enough to make one NaN; clamping
+        // would have to invent a value the user did not ask for, while
+        // refusing keeps the one they already had. `clamped` is a backstop
+        // below this, not the guard.
+        if slots.iter().any(|slot| !slot.is_finite()) {
+            return Err(CommandError::InvalidArgument(
+                "adjustment slots must be finite",
+            ));
+        }
         let id = self.active_layer_id()?;
         let prev = self
             .graph

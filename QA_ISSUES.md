@@ -22,6 +22,7 @@ the entry says so rather than inventing one.
 | [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | open |
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
+| [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
 
 ---
 
@@ -215,5 +216,65 @@ An eight-digit literal at the point of use is exactly where that mistake is
 invisible; a token named once is where it is not. A `no_colour_literals_in_qml`
 guard, with the document-colour sites listed as the exceptions they are, would
 keep the count from growing.
+
+**Resolution.** *(pending)*
+
+---
+
+## QA-004 — An adjustment's editor range and its clamp disagree
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `phototux_engine` — `layer.rs` |
+| **Checklist item** | [E-05](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** `AdjustmentParams::editor_slots()` declares the range each slider
+binds to. `AdjustmentParams::clamped()` enforces a different one. Three slots
+disagree:
+
+| Kind | Slot | `editor_slots` says | `clamped` enforces |
+|---|---|---|---|
+| Levels | Gamma | `0.1 ..= 3` | `0.01 ..= 10` |
+| Exposure | Gamma | `0.1 ..= 3` | `0.01 ..= 10` |
+| Posterize | Levels | `2 ..= 32` | `2 ..= 256` |
+
+**Steps to reproduce.** For each kind, set a slot past its declared maximum and
+read it back:
+
+```
+Levels.with_slots([.., gamma: 1003., ..]).clamped()  ->  gamma == 10
+Levels.with_slots([.., gamma: -999.9, ..]).clamped() ->  gamma == 0.01
+Posterize.with_slots([levels: 1032]).clamped()       ->  levels == 256
+```
+
+The declared range is `0.1 ..= 3` and `2 ..= 32`.
+
+**Root cause.** The two are written independently — `editor_slots()` returns a
+literal table for the UI, `clamped()` a literal `clamp` per arm — and nothing
+compares them. There is no evidence either is wrong on its own; they were
+simply never required to agree.
+
+**Why this is a real problem and not a curiosity.** The engine can hold a value
+the slider cannot express. A `.ptx` written by a future build with a wider
+range, or any caller that is not the slider, produces a document whose Gamma is
+5 while the slider is pinned at 3 — and the first touch of that slider snaps the
+value to 3, silently changing the document. The user never asked for that and
+has no way to see it coming.
+
+**Why it is not a quick fix.** Which range is authoritative is a product call.
+Two coherent answers:
+
+- **The editor range is the truth.** `clamped()` narrows to match, and any
+  wider value in an existing document is clamped on load — a migration, and a
+  visible change to documents that already exist.
+- **The clamp is the truth.** The sliders widen to `0.01 ..= 10` and
+  `2 ..= 256`, which makes the useful part of the Gamma slider a sliver at one
+  end. A non-linear slider mapping would fix that, and is a design change.
+
+Either way the fix is one table, not two, with the other derived from it — and
+a test asserting every slot's `editor_slots` range is exactly what `clamped()`
+enforces, so they cannot drift again.
 
 **Resolution.** *(pending)*

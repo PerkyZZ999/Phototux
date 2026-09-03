@@ -455,4 +455,69 @@ mod tests {
             .map(|l| l.opacity)
             .expect("an active layer")
     }
+    /// No adjustment can be made to produce a pixel that is not a number.
+    ///
+    /// `AdjustmentParams::clamped` used `f32::clamp` in all ten arms, and
+    /// `f32::clamp` propagates NaN — so the function whose job is to make a
+    /// slot safe passed one through, and `apply_rgb` then returned
+    /// `[NaN, NaN, NaN]`. The slots come from QML sliders, where a viewport
+    /// division during a drag is enough to make one.
+    ///
+    /// Two layers, tested together: `filter.set-parameters` refuses a
+    /// non-finite slot outright, keeping the value the user already had, and
+    /// `clamped` is total for anything that reaches it another way.
+    #[test]
+    fn no_adjustment_slot_can_produce_a_pixel_that_is_not_a_number() {
+        use crate::AdjustmentParams;
+
+        for kind in AdjustmentParams::ALL_KINDS {
+            for i in 0..kind.editor_slots().len() {
+                for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                    let mut slots = kind.slots();
+                    slots[i] = bad;
+                    let applied = kind.with_slots(slots).clamped();
+                    for value in applied.slots() {
+                        assert!(
+                            value.is_finite(),
+                            "{}: slot {i} of {bad} survived clamped() as {value}",
+                            kind.kind_key()
+                        );
+                    }
+                    let out = applied.apply_rgb([0.25, 0.5, 0.75]);
+                    assert!(
+                        out.iter().all(|c| c.is_finite()),
+                        "{}: slot {i} of {bad} produced {out:?}",
+                        kind.kind_key()
+                    );
+                }
+            }
+        }
+    }
+
+    /// And the command refuses one rather than inventing a replacement.
+    #[test]
+    fn a_filter_refuses_a_slot_that_is_not_a_number() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        session
+            .invoke(
+                command_id::FILTER_ADD_ADJUSTMENT,
+                CommandArgs::FilterAdjustment {
+                    kind: "brightness".to_owned(),
+                },
+            )
+            .expect("adjustment layer");
+        let mut slots = [0.0f32; crate::MAX_ADJUSTMENT_SLOTS];
+        slots[0] = f32::NAN;
+        assert!(
+            matches!(
+                session.invoke(
+                    command_id::FILTER_SET_PARAMETERS,
+                    CommandArgs::FilterParameters { slots }
+                ),
+                Err(CommandError::InvalidArgument(_))
+            ),
+            "a NaN slot must be refused, not clamped to something invented"
+        );
+    }
 }

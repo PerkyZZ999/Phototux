@@ -747,14 +747,33 @@ fn pad<const N: usize>(values: [f32; N]) -> [f32; MAX_ADJUSTMENT_SLOTS] {
 
 impl AdjustmentParams {
     /// Clamp parameters into UI/GPU-safe ranges.
+    /// Clamp into range, answering for a value that is not a number.
+    ///
+    /// `f32::clamp` propagates NaN — `f32::NAN.clamp(-1.0, 1.0)` is NaN — so
+    /// the ten arms below, whose whole job is to make a value safe, passed one
+    /// straight through and `apply_rgb` then returned `[NaN, NaN, NaN]`.
+    ///
+    /// The low bound is an arbitrary answer, and deliberately so: a NaN slot
+    /// is not a value anyone asked for, and `filter.set-parameters` refuses
+    /// one before it gets here. This is the backstop for a path that does not
+    /// go through the command, where bounded-and-wrong beats
+    /// poisonous-and-silent.
+    fn in_range(value: f32, low: f32, high: f32) -> f32 {
+        if value.is_nan() {
+            low
+        } else {
+            value.clamp(low, high)
+        }
+    }
+
     pub fn clamped(self) -> Self {
         match self {
             Self::BrightnessContrast {
                 brightness,
                 contrast,
             } => Self::BrightnessContrast {
-                brightness: brightness.clamp(-1.0, 1.0),
-                contrast: contrast.clamp(-1.0, 1.0),
+                brightness: Self::in_range(brightness, -1.0, 1.0),
+                contrast: Self::in_range(contrast, -1.0, 1.0),
             },
             Self::Levels {
                 black,
@@ -763,14 +782,14 @@ impl AdjustmentParams {
                 out_black,
                 out_white,
             } => {
-                let black = black.clamp(0.0, 1.0);
-                let white = white.clamp(0.0, 1.0).max(black + 1e-4);
+                let black = Self::in_range(black, 0.0, 1.0);
+                let white = Self::in_range(white, 0.0, 1.0).max(black + 1e-4);
                 Self::Levels {
                     black,
                     white,
-                    gamma: gamma.clamp(0.01, 10.0),
-                    out_black: out_black.clamp(0.0, 1.0),
-                    out_white: out_white.clamp(0.0, 1.0),
+                    gamma: Self::in_range(gamma, 0.01, 10.0),
+                    out_black: Self::in_range(out_black, 0.0, 1.0),
+                    out_white: Self::in_range(out_white, 0.0, 1.0),
                 }
             }
             Self::HueSaturation {
@@ -778,32 +797,32 @@ impl AdjustmentParams {
                 saturation,
                 lightness,
             } => Self::HueSaturation {
-                hue: hue.clamp(-1.0, 1.0),
-                saturation: saturation.clamp(-1.0, 1.0),
-                lightness: lightness.clamp(-1.0, 1.0),
+                hue: Self::in_range(hue, -1.0, 1.0),
+                saturation: Self::in_range(saturation, -1.0, 1.0),
+                lightness: Self::in_range(lightness, -1.0, 1.0),
             },
             Self::Invert => Self::Invert,
             Self::Threshold { level } => Self::Threshold {
-                level: level.clamp(0.0, 1.0),
+                level: Self::in_range(level, 0.0, 1.0),
             },
             Self::Posterize { levels } => Self::Posterize {
                 levels: levels.clamp(2, 256),
             },
             Self::Exposure { stops, gamma } => Self::Exposure {
-                stops: stops.clamp(-5.0, 5.0),
-                gamma: gamma.clamp(0.01, 10.0),
+                stops: Self::in_range(stops, -5.0, 5.0),
+                gamma: Self::in_range(gamma, 0.01, 10.0),
             },
             Self::Vibrance { amount } => Self::Vibrance {
-                amount: amount.clamp(-1.0, 1.0),
+                amount: Self::in_range(amount, -1.0, 1.0),
             },
             Self::BlackAndWhite { red, green, blue } => Self::BlackAndWhite {
-                red: red.clamp(0.0, 2.0),
-                green: green.clamp(0.0, 2.0),
-                blue: blue.clamp(0.0, 2.0),
+                red: Self::in_range(red, 0.0, 2.0),
+                green: Self::in_range(green, 0.0, 2.0),
+                blue: Self::in_range(blue, 0.0, 2.0),
             },
             Self::WhiteBalance { temperature, tint } => Self::WhiteBalance {
-                temperature: temperature.clamp(-1.0, 1.0),
-                tint: tint.clamp(-1.0, 1.0),
+                temperature: Self::in_range(temperature, -1.0, 1.0),
+                tint: Self::in_range(tint, -1.0, 1.0),
             },
         }
     }
