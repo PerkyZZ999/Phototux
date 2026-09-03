@@ -2752,6 +2752,17 @@ impl AppSession {
             .into_iter()
             .collect();
         phototux_canvas::close_document();
+        // Selection and transform undo live on the host, not in the parked
+        // `SessionState`, so they do not travel with the document the way
+        // everything else here does. The engine's history *is* per document —
+        // leave these behind and undoing in the next tab pops that tab's
+        // Selection entry while the host restores this tab's mask over it, a
+        // mask that is not even the same size when the documents differ.
+        //
+        // Cleared rather than parked, on memory: a `SelectionSnapshot` is a
+        // document-sized mask with a limit of 64 and a `TransformSnapshot` is
+        // full RGBA for every layer. A Selection entry with no snapshot left
+        // deselects, which is defined and safe.
         self.clear_selection_stacks();
         self.clear_transform_stacks();
         self.doc_registry

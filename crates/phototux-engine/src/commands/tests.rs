@@ -2166,3 +2166,76 @@ fn resizing_the_canvas_past_the_limit_is_refused() {
     ));
     assert_eq!(s.size, before, "and the canvas did not move");
 }
+
+/// A command that reports the document changed must leave something to undo.
+///
+/// `CommandEffects::dirty` is the engine saying "the user's work is different
+/// now". If nothing landed on the undo stack at the same time, that difference
+/// is permanent — the user cannot get back, and there is no error to notice.
+/// Document *creation* is the honest exception and says so by reporting
+/// `dirty: false`: a new document has nothing to undo to, and `apply_size`
+/// clears the history on purpose.
+///
+/// Every command is invoked with the arguments it needs where those are
+/// obvious and with `CommandArgs::None` otherwise; a command that refuses for
+/// want of state is skipped, because a refusal is not a mutation. That leaves
+/// the check partial by construction and still exact about what it does cover:
+/// the assertion only fires on a command that *succeeded* and *claimed* a
+/// change.
+#[test]
+fn a_command_that_dirties_the_document_leaves_an_undo_entry() {
+    let mut covered = 0usize;
+    for id in crate::command_id::ALL {
+        // Undo and redo are *about* the stack: they report the document dirty
+        // and move the stack the other way, which is right. Excluded by their
+        // declared mutation class rather than by name, so a third one added
+        // later is excluded for the same stated reason and no list drifts.
+        if crate::command_meta::meta_for(id)
+            .is_some_and(|m| m.mutation == crate::command_meta::MutationClass::HistoryMeta)
+        {
+            continue;
+        }
+        let (mut session, _) = session_with_layers(2);
+        let args = match *id {
+            crate::command_id::LAYER_ARRANGE => CommandArgs::Arrange {
+                op: "backward".to_owned(),
+            },
+            crate::command_id::LAYER_REORDER => CommandArgs::Reorder { to_index: 0 },
+            crate::command_id::LAYER_SET_OPACITY => CommandArgs::SetOpacity { opacity: 0.5 },
+            crate::command_id::LAYER_SET_BLEND => CommandArgs::SetBlend {
+                blend: "multiply".to_owned(),
+            },
+            crate::command_id::DOCUMENT_CANVAS_SIZE | crate::command_id::DOCUMENT_RESIZE => {
+                CommandArgs::Resize {
+                    width: 320,
+                    height: 240,
+                }
+            }
+            _ => CommandArgs::None,
+        };
+        let before = session.history.entries_undo().len();
+        let Ok(effects) = session.invoke(id, args) else {
+            continue;
+        };
+        if !effects.dirty {
+            continue;
+        }
+        covered += 1;
+        assert!(
+            session.history.entries_undo().len() > before,
+            "{id} reported the document dirty and pushed no undo entry, so the \
+             change cannot be taken back"
+        );
+    }
+    // Twenty-three of the eighty-odd commands run and dirty the document from a
+    // plain two-layer session; the rest refuse for want of a text layer, a
+    // selection, a smart object or an argument this harness does not invent.
+    // The floor is here so that coverage shrinking — a command that stops
+    // running from a bare session — fails loudly instead of quietly narrowing
+    // the check.
+    assert!(
+        covered >= 23,
+        "only {covered} commands reached the assertion — the harness broke \
+         rather than the commands"
+    );
+}

@@ -403,6 +403,47 @@ mod tests {
         );
     }
 
+    /// Parking a document must drop the host-side undo stacks with it.
+    ///
+    /// It already does; this pins it. Selection and transform undo are `Vec`s
+    /// on `AppSession`, not fields of the parked `SessionState`, so they do not
+    /// travel with the document the way everything else here does — and the
+    /// engine's history *is* per document. Drop the clearing and undoing in the
+    /// next tab pops that tab's `Selection` entry while the host restores the
+    /// previous tab's mask over it, a mask that need not even be the same size.
+    ///
+    /// Nothing else states the requirement, and the two calls sit twenty lines
+    /// below the `mem::take` that makes them necessary, which is exactly the
+    /// distance at which a tidy-up removes them. Read from the source because
+    /// `AppSession` needs an attached `QObject` and cannot be built in a unit
+    /// test.
+    #[test]
+    fn parking_a_document_drops_the_host_undo_stacks() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn park_current_document(&mut self)")
+            .expect("park_current_document is there to read");
+        // Newlines, not `lines().count()`: the text before `at` ends mid-line
+        // (the indent before `fn`), so `lines()` already counts that line and
+        // adding one lands on the line after the signature.
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        assert!(
+            body.contains("park_active("),
+            "the slice missed the function body — the scan broke rather than \
+             the host"
+        );
+        for call in ["clear_selection_stacks()", "clear_transform_stacks()"] {
+            assert!(
+                body.contains(call),
+                "park_current_document does not call {call}, so the stacks \
+                 survive into the next tab and undo restores another \
+                 document's mask"
+            );
+        }
+    }
+
     /// A long file operation must be stoppable.
     ///
     /// `cancel_io` sets a token the worker checks between layers, and `send`
