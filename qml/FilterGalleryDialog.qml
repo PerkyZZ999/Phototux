@@ -24,7 +24,7 @@ Dialog {
     modal: true
     title: qsTr("Filter Gallery")
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 360
     visible: AppSession.filterGalleryOpen
     // Both are deferred. `visible` is bound to host state that flips
@@ -94,7 +94,7 @@ Dialog {
                 required property int index
 
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: Theme.spaceXxs
 
                 Label {
                     text: slotRow.modelData.label

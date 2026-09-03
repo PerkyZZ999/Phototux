@@ -42,7 +42,7 @@ Dialog {
     header: ThemedDialogHeader { text: dialog.title }
     footer: ThemedDialogFooter {}
     standardButtons: Dialog.Close
-    width: 480
+    width: Math.round(480 * Theme.densityScale)
     // Grow into the window when there is room: the themed header and
     // footer take real height now that content no longer draws over
     // them, and a fixed 560 clipped the last row mid-line.

@@ -8,7 +8,11 @@ Popup {
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
-    width: 720
+    // Scaled with density. A dialog laid out for one type size and pinned
+    // to a pixel width crowds its own content at the other: at Comfortable
+    // the New Document preset cards ran "Recommended" and "1920 x 1080"
+    // right into the card border.
+    width: Math.round(720 * Theme.densityScale)
     height: 480
     padding: 0
 

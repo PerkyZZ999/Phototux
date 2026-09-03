@@ -32,7 +32,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     title: AppSession.selectionModifyTitle
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 200
     padding: Theme.spaceMd
     visible: AppSession.selectionModifyOp.length > 0

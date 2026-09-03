@@ -2123,7 +2123,7 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
                 anchors.topMargin: 2
-                spacing: 2
+                spacing: Theme.spaceXxs
                 // Literal width: Theme.spaceXs can be 0/NaN under filesystem QML.
                 width: parent.width - 8
 
@@ -2392,7 +2392,7 @@ ApplicationWindow {
                 Accessible.name: qsTr("More tools")
 
                 Column {
-                    spacing: 2
+                    spacing: Theme.spaceXxs
                     Repeater {
                         model: toolStrip.stripOverflowTools
                         delegate: Item {

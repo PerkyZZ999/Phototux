@@ -137,8 +137,8 @@ ListView {
             anchors.left: parent.left
             anchors.leftMargin: Theme.spaceXs
             anchors.verticalCenter: parent.verticalCenter
-            implicitWidth: 22
-            implicitHeight: 22
+            implicitWidth: Theme.inlineBtn
+            implicitHeight: Theme.inlineBtn
             flat: true
             icon.source: root.iconUrl(layer_visible ? "eye" : "eye-slash")
             icon.width: 16

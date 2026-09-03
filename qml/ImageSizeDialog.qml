@@ -27,7 +27,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     title: qsTr("Image Size")
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 260
     padding: Theme.spaceMd
     visible: AppSession.imageSizeOpen

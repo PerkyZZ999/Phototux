@@ -34,7 +34,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     title: qsTr("Canvas Size")
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 300
     padding: Theme.spaceMd
     visible: AppSession.canvasSizeOpen

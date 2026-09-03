@@ -907,8 +907,8 @@ ColumnLayout {
                     onEditingFinished: AppSession.setActiveFillHex(text)
                 }
                 Rectangle {
-                    implicitWidth: 22
-                    implicitHeight: 22
+                    implicitWidth: Theme.inlineBtn
+                    implicitHeight: Theme.inlineBtn
                     radius: Theme.radiusXs
                     color: AppSession.fillColorHex
                     border.color: Theme.border
@@ -960,7 +960,7 @@ ColumnLayout {
                     required property int index
 
                     Layout.fillWidth: true
-                    spacing: 2
+                    spacing: Theme.spaceXxs
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1514,7 +1514,7 @@ ColumnLayout {
                 required property bool distribute
                 required property string caption
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: Theme.spaceXxs
                 Label {
                     text: run.caption
                     color: Theme.colorOnSurfaceMuted
@@ -1761,7 +1761,7 @@ ColumnLayout {
                     required property var modelData
 
                     Layout.fillWidth: true
-                    spacing: 2
+                    spacing: Theme.spaceXxs
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1840,8 +1840,8 @@ ColumnLayout {
                                 Layout.preferredWidth: 64
                             }
                             Rectangle {
-                                implicitWidth: 22
-                                implicitHeight: 22
+                                implicitWidth: Theme.inlineBtn
+                                implicitHeight: Theme.inlineBtn
                                 radius: Theme.radiusSm
                                 border.color: Theme.border
                                 color: Qt.rgba(styleColor.rgba[0],
@@ -1907,7 +1907,7 @@ ColumnLayout {
             required property var stops
 
             Layout.fillWidth: true
-            spacing: 2
+            spacing: Theme.spaceXxs
 
             Label {
                 text: rangeEditor.caption
@@ -2040,8 +2040,8 @@ ColumnLayout {
                                        Number(effectId), checked)
                     }
                     ChromeIconToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
+                        implicitWidth: Theme.inlineBtn
+                        implicitHeight: Theme.inlineBtn
                         padding: 0
                         icon.source: root.iconUrl("caret-up")
                         icon.width: 12
@@ -2056,8 +2056,8 @@ ColumnLayout {
                         }
                     }
                     ChromeIconToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
+                        implicitWidth: Theme.inlineBtn
+                        implicitHeight: Theme.inlineBtn
                         padding: 0
                         icon.source: root.iconUrl("caret-down")
                         icon.width: 12

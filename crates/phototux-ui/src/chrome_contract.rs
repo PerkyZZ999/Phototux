@@ -372,6 +372,48 @@ mod tests {
         );
     }
 
+    /// A dialog laid out in raw pixels crowds its own content at the other
+    /// density.
+    ///
+    /// `Theme.densityScale` scales every type and spacing token, so a dialog
+    /// pinned to `width: 720` keeps its box while the words inside it grow. At
+    /// Comfortable, New Document ran "Recommended" and "1920 x 1080" into the
+    /// preset card's border — the four cards share the row, so each one shrank
+    /// exactly as its text got bigger.
+    ///
+    /// The check is on the root `width:` of a dialog file, which is the one
+    /// that sets the box. Inner widths are the layout's business.
+    #[test]
+    fn no_dialog_pins_itself_to_a_pixel_width() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if !name.ends_with("Dialog.qml") {
+                continue;
+            }
+            for (i, line) in text.lines().enumerate() {
+                // Root-level property: exactly four spaces of indent.
+                let Some(rest) = line.strip_prefix("    width:") else {
+                    continue;
+                };
+                if !line.starts_with("    width:") || line.starts_with("     ") {
+                    continue;
+                }
+                checked += 1;
+                assert!(
+                    rest.contains("densityScale") || rest.contains("parent") || rest.contains('%'),
+                    "{name}:{} pins the dialog to a pixel width, so its content \
+                     crowds at the other UI density — scale it by \
+                     Theme.densityScale",
+                    i + 1
+                );
+            }
+        }
+        assert!(
+            checked >= 6,
+            "found {checked} dialog widths — the scan broke rather than the shell"
+        );
+    }
+
     /// A combo box's label is a `Label` beside it, and nothing connects them.
     ///
     /// Same shape as the slider check below: the control carries no text of its
