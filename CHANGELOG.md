@@ -2,6 +2,61 @@
 
 All notable decision milestones and project state changes.
 
+## [layer-groups-and-arrange] — 2026-09-02
+
+### Fixes
+
+- **Hiding a group hid nothing.** `Layer::visible` is one layer's flag and the
+  compositor takes the layer list verbatim, so closing the eye on a group hid
+  only its own empty slice — hover offered "Show Group 1" while every layer
+  inside stayed on the canvas and in the exported image.
+  `DocumentGraph::layers_resolved` resolves visibility against ancestors and
+  every path that hands layers to `phototux_canvas` goes through it. It returns
+  a `Cow` that borrows when no group is hidden, because this runs per frame.
+- **Grouping non-adjacent layers left a non-member between them.** Grouping set
+  parents and left the stack alone; with the panel indenting by nesting that
+  drew a group whose contents were interrupted by a layer not in it. Members
+  are now gathered into a contiguous run at the topmost one's position, keeping
+  their order relative to each other, in the same undo step as the group.
+- **Moving a group left its contents behind.** Both reorder paths carry a
+  group's descendants now.
+- **The landing page opened part-scrolled.** Its gallery tablist called
+  `scrollIntoView` at the end of every `select`, including the one that runs on
+  load to hide the panels — and `block: "nearest"` is not a no-op for an
+  element below the fold.
+
+### Shell
+
+- **Layer ▸ Arrange**, with Photoshop's four entries and four chords: Bring to
+  Front, Bring Forward, Send Backward, Send to Back. `layer.reorder` had
+  existed since the stack did — locks, undo, a `SetStackOrder` history entry —
+  and nothing in the shell ever called it. The panel has no drag and the arrows
+  in its header move the *panel*, so stacking order could only be changed by
+  deleting layers and adding them back in the order you wanted. At either end
+  of the stack the command refuses and says which end, rather than doing
+  nothing while the entry stays enabled.
+- **A group's contents are indented in the Layers panel**, with one hairline
+  per level of nesting. Photoshop's arrangement decides what moves: the
+  visibility toggle keeps its own fixed column so the eyes stay in one line
+  however deep the nesting runs. A row inside a hidden group is dimmed —
+  dimmed rather than switched to the crossed eye, because its own flag really
+  is still on.
+- **Every default layer name is numbered.** Only raster layers were, so three
+  groups all read "Group" and two Levels adjustments were both "Levels". The
+  number is the lowest that is *free* rather than a running count, which also
+  fixes the old scheme handing out a duplicate as soon as a layer was deleted.
+  Shape layers are named for the shape: "Rectangle 1", "Ellipse 1".
+
+### Known gaps
+
+- A group's **opacity and blend mode still do not reach the canvas**. Both need
+  the group composited on its own surface, which the single-pass compositor
+  does not do; the controls are live and change the document, and the image
+  does not follow. The handbook and the user guide say so rather than leaving
+  it to be discovered.
+- **Dragging rows in the panel is not implemented.** The user guide said it
+  was; that claim is corrected.
+
 ## [themed-tooltips] — 2026-09-02
 
 ### Internal
