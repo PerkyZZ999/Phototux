@@ -693,3 +693,36 @@ flowchart TD
 - [26 — Dialogs](26-Dialogs.md) — Save/Export/file capability flows.
 - [Glossary](Appendix/Glossary.md) — canonical terminology.
 - [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.
+
+## Export discloses what the format cannot carry
+
+PSD carries raster layers and nothing else here. `export_psd` skipped every
+other kind with a bare `continue` and returned only bytes, so exporting a
+document with a text layer and an adjustment above it wrote the rasters, said
+"Exported …", and produced a file that opens elsewhere with half the document
+missing — with nothing anywhere to explain it. Import had disclosed its
+compatibility issues since it was written; export disclosed nothing.
+
+`export_psd` returns a `PsdExport` now: the bytes and a `Vec<CompatibilityIssue>`
+in the same vocabulary import uses, so it reaches the user through the same
+Compatibility report dialog. Four disclosures, in the order a user notices them:
+
+| Code | When |
+|---|---|
+| `psd.export.kinds` | A non-raster layer was left out — the message names the kinds |
+| `psd.export.limit` | More raster layers than PSD export writes |
+| `psd.export.masks` | A layer has a mask, which is not written |
+| `psd.export.effects` | Styles, effects or clipping, which the flattened composite has and the layers do not |
+
+A document of plain raster layers discloses nothing, and that matters as much
+as the disclosures: a dialog that appears on every export teaches the user to
+dismiss it unread.
+
+## Every field survives a `.ptx` round trip
+
+`ptx_roundtrip_preserves_graph_and_pixels` checks the layer count, the name and
+the pixels — the parts that fail loudly. What fails quietly is one field: a
+blend mode, a lock, a set of blend ranges, a layer style.
+`ptx_roundtrip_preserves_every_field_on_a_layer` sets every field away from its
+default and compares the whole layer as its own serialisation, so a field added
+tomorrow is covered without anyone editing the test.

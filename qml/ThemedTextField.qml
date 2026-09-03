@@ -15,6 +15,26 @@ import phototux_ui
 TextField {
     id: control
 
+    /// The value this field is a *view* of. Bind this, never `text`.
+    ///
+    /// Qt drops a `TextField`'s `text` binding the moment the user types into
+    /// it, and nothing puts it back. Every field in this shell that displays a
+    /// document value was therefore one rejected keystroke from showing
+    /// something the document does not have: typing `notacolour` into the
+    /// swatches hex and pressing Return left `notacolour` on screen for the
+    /// rest of the session while the swatch beside it never moved. Undo is the
+    /// other way in — Ctrl+Z inside a focused field is the field's own undo.
+    ///
+    /// `Qt.binding` looks like the fix and was not reliable here: with a
+    /// conditional source the field kept showing the wrong half of a pair.
+    /// A plain property cannot lose its binding, and writing `text` from its
+    /// change handler has no state to reason about. Leave `source` unset and
+    /// the field owns its own contents, which is right for a field nothing
+    /// else writes.
+    property string source
+    onSourceChanged: control.text = control.source
+    Component.onCompleted: if (control.source.length > 0) control.text = control.source
+
     implicitHeight: Theme.controlHeight
     font.pixelSize: Theme.fontBodySm
     color: control.enabled ? Theme.colorOnSurfaceEffective : Theme.colorOnSurfaceDisabled

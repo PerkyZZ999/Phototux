@@ -688,6 +688,63 @@ mod tests {
                 subject.icon_key()
             );
         }
+
+        // And the other direction. Five glyphs were packaged that nothing
+        // referenced — four of them cut for the View menu's toggles, which had
+        // shipped with no icon at all while their icons sat in the binary. A
+        // packaged icon nobody names is either dead payload or, as it was
+        // here, a control someone meant to finish.
+        let qml: String = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml"))
+            .expect("qml/ is readable from the engine crate")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|e| e == "qml"))
+            .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+            .collect();
+        let named_by_rust: Vec<String> = default_tools()
+            .iter()
+            .map(|t| t.icon_key.clone())
+            .chain(
+                crate::default_actions()
+                    .iter()
+                    .filter_map(|a| a.icon_key.clone()),
+            )
+            .chain(
+                crate::GradientKind::ALL
+                    .iter()
+                    .map(|k| k.icon_key().to_owned()),
+            )
+            .chain(
+                crate::LayerKind::ALL
+                    .iter()
+                    .map(|k| k.icon_key().to_owned()),
+            )
+            .chain(
+                crate::InspectorSubject::ALL
+                    .iter()
+                    .map(|s| s.icon_key().to_owned()),
+            )
+            // Notice levels name a glyph too. The first draft of this check
+            // did not know that and reported `x-circle` — the error toast's
+            // icon — as dead payload, which is the failure mode a check like
+            // this has: it is only as complete as its list of namers.
+            .chain(
+                crate::NoticeLevel::ALL
+                    .iter()
+                    .map(|l| l.icon_key().to_owned()),
+            )
+            .collect();
+        let orphans: Vec<&str> = packaged
+            .iter()
+            .copied()
+            .filter(|name| {
+                !named_by_rust.iter().any(|k| k == name) && !qml.contains(&format!("\"{name}\""))
+            })
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "the qrc carries {orphans:?}, which nothing names — either use them \
+             or take them out of ICON_NAMES"
+        );
         for action in crate::default_actions() {
             let Some(icon) = action.icon_key.as_deref() else {
                 continue;

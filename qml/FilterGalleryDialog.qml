@@ -24,7 +24,7 @@ Dialog {
     modal: true
     title: qsTr("Filter Gallery")
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 360
     visible: AppSession.filterGalleryOpen
     // Both are deferred. `visible` is bound to host state that flips
@@ -64,6 +64,10 @@ Dialog {
         ThemedComboBox {
             id: filterKindCombo
             Layout.fillWidth: true
+            // A combo's only label is the `Label` beside it, which nothing
+            // connects to it — assistive technology reaches it as an anonymous
+            // combo box.
+            Accessible.name: qsTr("Effect")
             model: dialog.catalog
             textRole: "label"
             valueRole: "id"
@@ -90,7 +94,7 @@ Dialog {
                 required property int index
 
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: Theme.spaceXxs
 
                 Label {
                     text: slotRow.modelData.label

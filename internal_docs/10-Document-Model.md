@@ -15,7 +15,7 @@ This specification refines the charter in [00 — Introduction](00-Introduction.
 | Mutation spine | Named commands via `SessionState::invoke` | Full async job / extension command bus |
 | Version / snapshots | Generation + metadata leases ([DR-005](Appendix/Decision-Register.md#dr-005--immutable-render-snapshots)) | Full pixel-immutable snapshot publisher |
 | Kinds | Raster, Group, Text, Adjustment, Shape ([DR-027](Appendix/Decision-Register.md#dr-027--graph-kind-set-includes-shape)) | Richer resources / extension opaques |
-| Session | Single document ([DR-024](Appendix/Decision-Register.md#dr-024--single-document-session-v1)) | Multi-doc registry |
+| Session | Single document ([DR-024](Appendix/Decision-Register.md#dr-024--document-session-model)) | Multi-doc registry |
 | Large docs | Full-layer GPU textures | Sparse tiles / pyramid (Phase 5) |
 
 ## Responsibilities

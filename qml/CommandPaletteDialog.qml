@@ -34,7 +34,7 @@ Popup {
     required property int hostHeight
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(520, dialog.hostWidth - 48)
+    width: Math.min(Math.round(520 * Theme.densityScale), dialog.hostWidth - 48)
     height: Math.min(420, dialog.hostHeight - 48)
     modal: true
     focus: true

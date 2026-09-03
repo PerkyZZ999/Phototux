@@ -626,6 +626,69 @@ mod tests {
         assert_eq!(back.rasters.get(&id), Some(&raster));
     }
 
+    /// Every field on a layer has to survive a save and a reopen.
+    ///
+    /// The round trip above checks the layer *count*, the name and the pixels,
+    /// which is the part that fails loudly. What fails quietly is one field: a
+    /// blend mode, a lock, a set of blend ranges, a layer style. Comparing the
+    /// whole layer — as its own serialisation, so a field added tomorrow is
+    /// covered without touching this test — is what makes "it opened fine" mean
+    /// something.
+    #[test]
+    fn ptx_roundtrip_preserves_every_field_on_a_layer() {
+        use phototux_engine::{BlendMode, LayerMask, LockFlags};
+
+        let mut graph = DocumentGraph::new(DocumentSize::new(2, 1));
+        let id = graph.layers()[0].id;
+        {
+            let layer = graph.get_mut(id).expect("seeded layer");
+            // Every field set away from its default, so a field that is dropped
+            // comes back as the default and the comparison fails.
+            layer.name = "Distinctive".to_owned();
+            layer.opacity = 0.375;
+            layer.visible = false;
+            layer.locked = true;
+            layer.locks = LockFlags {
+                pixels: true,
+                position: true,
+                alpha: true,
+                all: false,
+            };
+            layer.blend = BlendMode::Multiply;
+            layer.transform.translate_x = 12.5;
+            layer.transform.translate_y = -3.25;
+            layer.transform.scale_x = 1.75;
+            layer.transform.rotation_deg = 30.0;
+            layer.mask = Some(LayerMask {
+                enabled: false,
+                inverted: true,
+                feather: 4.5,
+                ..Default::default()
+            });
+            layer.clips_to_below = true;
+            layer.label_color = 3;
+        }
+        let before = serde_json::to_value(graph.get(id).expect("layer")).expect("serialise");
+
+        let raster =
+            Raster::new(2, 1, vec![1, 2, 3, 4, 5, 6, 7, 8].into_boxed_slice()).expect("raster");
+        let mut rasters = HashMap::new();
+        rasters.insert(id.0, raster);
+        let doc = PtxDocument::from_graph(graph, rasters);
+        let bytes = encode_ptx(&doc).expect("encode");
+        let back = decode_ptx(&bytes).expect("decode");
+
+        let after = back
+            .graph()
+            .get(id)
+            .map(|layer| serde_json::to_value(layer).expect("serialise"))
+            .expect("the layer came back");
+        assert_eq!(
+            before, after,
+            "a layer changed shape across a save and a reopen"
+        );
+    }
+
     #[test]
     fn ptx_roundtrip_preserves_embedded_icc() {
         let mut graph = DocumentGraph::new(DocumentSize::new(1, 1));

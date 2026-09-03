@@ -42,7 +42,7 @@ Dialog {
     header: ThemedDialogHeader { text: dialog.title }
     footer: ThemedDialogFooter {}
     standardButtons: Dialog.Close
-    width: 480
+    width: Math.round(480 * Theme.densityScale)
     // Grow into the window when there is room: the themed header and
     // footer take real height now that content no longer draws over
     // them, and a fixed 560 clipped the last row mid-line.
@@ -225,6 +225,7 @@ Dialog {
                     Layout.fillWidth: true
                 }
                 ThemedComboBox {
+                    Accessible.name: qsTr("UI density")
                     model: [qsTr("Dense"), qsTr("Comfortable")]
                     currentIndex: AppSession.prefUiDensity === "comfortable" ? 1 : 0
                     onActivated: AppSession.setPrefUiDensity(
@@ -414,7 +415,7 @@ Dialog {
                 onClicked: AppSession.restoreLastSavedWorkspace()
             }
             ThemedButton {
-                text: qsTr("Reset Workspace to Essentials")
+                text: qsTr("Reset workspace to Essentials")
                 onClicked: AppSession.resetWorkspace()
             }
 

@@ -27,7 +27,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     title: qsTr("Image Size")
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 260
     padding: Theme.spaceMd
     visible: AppSession.imageSizeOpen
@@ -86,7 +86,7 @@ Dialog {
             ThemedSpinBox {
                 id: widthSpin
                 from: 1
-                to: 32768
+                to: AppSession.maxDocumentDimension
                 editable: true
                 Layout.fillWidth: true
                 Accessible.name: qsTr("Width in pixels")
@@ -111,7 +111,7 @@ Dialog {
             ThemedSpinBox {
                 id: heightSpin
                 from: 1
-                to: 32768
+                to: AppSession.maxDocumentDimension
                 editable: true
                 Layout.fillWidth: true
                 Accessible.name: qsTr("Height in pixels")

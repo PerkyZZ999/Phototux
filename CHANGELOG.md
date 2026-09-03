@@ -2,6 +2,90 @@
 
 All notable decision milestones and project state changes.
 
+## [reachability-and-honesty] — 2026-09-03
+
+### Fixes
+
+- **A document larger than the GPU could hold opened anyway.** Typing 20000
+  into New Document made a 20000x1080 document that listed its layers, reported
+  its size, drew a blank rectangle and logged a wgpu validation error every
+  frame from then on, silently. Every layer is a texture of the document's size,
+  so the real ceiling is `wgpu::Limits::default().max_texture_dimension_2d` —
+  8192 per edge. The three size dialogs offered 32768 and two commands clamped
+  to it, a number related to nothing. `MAX_DOCUMENT_DIMENSION` and
+  `DocumentError::check_size` now refuse from New Document, Canvas Size, Image
+  Size and all three open paths — including raster, which is the one that
+  matters, because a scan or a stitched panorama really is bigger than this.
+- **PSD export discarded half a document without saying so.** It skipped every
+  non-raster layer with a bare `continue` and returned only bytes, so a document
+  with a text layer and an adjustment exported "successfully" and opened
+  elsewhere missing both. Export now returns compatibility issues in the same
+  vocabulary import has always used, through the same dialog: kinds left out
+  (named), layers past the cap, masks, and styles/effects/clipping. A document
+  of plain rasters discloses nothing.
+- **A text field could show a value the document did not have.** Qt drops a
+  `TextField`'s `text` binding on the first keystroke and nothing puts it back,
+  so typing an unparseable hex and pressing Return left it on screen for the
+  rest of the session while the swatch never moved. Ctrl+Z inside a focused
+  field is the same trap without a keystroke that looks wrong.
+  `ThemedTextField.source` is a plain property that cannot lose its binding.
+- **Six menu entries could only refuse.** Ungroup with no group selected, Bake
+  Text on a raster layer, Apply Mask on a layer with no mask — each answered a
+  click with a sentence telling the user what they had just been allowed to ask
+  for.
+- **A mask's feather was unbounded** while the blur it feeds clamps at 64, so a
+  document carrying 5000 was blurred by 64 and went on claiming 5000.
+- **The chrome came apart at Comfortable density.** Eight dialogs were pinned to
+  a pixel width while their type scaled, so New Document's preset cards ran
+  "Recommended" into the border; eighteen literal spacings and inline-button
+  sizes likewise stayed put while their rows grew.
+- **The landing page opened part-scrolled** into the middle of itself.
+
+### Shell
+
+- **Layer ▸ Arrange**, with Photoshop's four entries and chords.
+  `layer.reorder` had existed since the stack did — locks, undo, a history entry
+  — and *nothing in the shell ever called it*: the panel has no drag and the
+  header arrows move the panel. Stacking order could only be changed by deleting
+  layers and adding them back in order, while the public guide told users to
+  drag rows.
+- **A running file operation can be cancelled.** The worker has honoured a
+  cancel token the whole time and `send` resets it before each command; nothing
+  ever offered the user a way to set it. The "Working…" spinner was also a bare
+  `BusyIndicator` — `palette.dark` on dark chrome, squeezed to six pixels.
+- **The background colour can be set.** It could previously only be swapped to.
+  The swatch pair is Photoshop's widget now: click a square to select it, with
+  swap and black-and-white defaults on the widget rather than in the panel
+  header. `setBackgroundHex` and `ColorState::reset_default` both existed with
+  no caller.
+- **A group is a real thing in the panel and on the canvas** — contents
+  indented, hiding a group hides them, grouping gathers non-adjacent members,
+  moving a group carries them, and every default layer name is numbered.
+- **The View menu's four toggles have their icons**, which were already in the
+  binary and named by nothing.
+
+### Accessibility
+
+- **The layers panel was a flat run of labels** to assistive technology — no
+  list, no rows, nothing saying which layer was selected or which one edits land
+  on. It is a list of list items now, each with kind, visibility, nesting, mask,
+  clipping and position, and with selected and focused exposed separately.
+  Verified over AT-SPI.
+- Four unnamed combo boxes; the History list's missing role and row positions.
+
+### Internal
+
+- Guard tests for each of the above, and a rule that comes out of this pass: a
+  guard that has never been seen to fail is a claim, not a check. Every new one
+  here was sabotaged once and watched go red. Two that could not fail were found
+  and fixed that way.
+- `scripts/check-docs-links.py` — 70 pages, both roots, files and heading
+  anchors. Five handbook cross-references were dead.
+- Corrections: `park_current_document` already cleared the host undo stacks and
+  a duplicate was nearly added on a partial read; hidden nodes are correctly
+  marked in the AT-SPI tree and an earlier claim otherwise is withdrawn; the
+  command palette was never broken, the QA checklist was stale.
+
 ## [layer-groups-and-arrange] — 2026-09-02
 
 ### Fixes

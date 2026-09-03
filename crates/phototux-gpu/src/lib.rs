@@ -379,3 +379,25 @@ mod tests {
         assert!(!ctx.is_lost());
     }
 }
+
+#[cfg(test)]
+mod limit_tests {
+    /// The engine promises a maximum document edge; this crate is what makes
+    /// it true.
+    ///
+    /// Every layer is a texture of the document's size, so the promise is
+    /// exactly `max_texture_dimension_2d` of the limits requested above.
+    /// Raising the request without raising the constant leaves the editor
+    /// refusing documents it could now hold; lowering it without lowering the
+    /// constant puts back the silent failure the constant exists to prevent —
+    /// wgpu declines the allocation, the result texture stays invalid, and the
+    /// canvas draws nothing while every frame logs a validation error.
+    #[test]
+    fn the_requested_limit_is_the_one_the_engine_promises() {
+        assert_eq!(
+            wgpu::Limits::default().max_texture_dimension_2d,
+            phototux_engine::MAX_DOCUMENT_DIMENSION,
+            "phototux_gpu asks for a texture limit the engine does not promise"
+        );
+    }
+}

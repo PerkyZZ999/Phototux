@@ -243,7 +243,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.select.mask-to-selection",
             "Mask to Se&lection",
             "select",
-            "has_document",
+            "has_mask",
         )
         .command(command_id::MASK_TO_SELECTION),
         act("action.edit.copy", "&Copy", "edit", "selection_active")
@@ -261,7 +261,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.edit.copy-layer-mask",
             "Copy Layer &Mask",
             "edit",
-            "has_document",
+            "has_mask",
         )
         .host("clipboard.copy_layer_mask")
         .icon("circle-half"),
@@ -518,20 +518,25 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "has_document",
         )
         .command(command_id::LAYER_GROUP),
-        act("action.layer.ungroup", "&Ungroup", "layer", "has_document")
-            .command(command_id::LAYER_UNGROUP),
+        act(
+            "action.layer.ungroup",
+            "&Ungroup",
+            "layer",
+            "group_selected",
+        )
+        .command(command_id::LAYER_UNGROUP),
         act(
             "action.layer.bake-text",
             "Bake &Text",
             "layer",
-            "has_document_io_idle",
+            "text_layer",
         )
         .host("text.bake"),
         act(
             "action.layer.rasterize-shape",
             "Rasterize Shape",
             "layer.shape",
-            "has_document_io_idle",
+            "shape_layer",
         )
         .host("shape.rasterize"),
         // Layer > Smart Objects, where Photoshop keeps them.
@@ -567,7 +572,7 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
             "action.layer.apply-mask",
             "&Apply Mask",
             "layer.mask",
-            "has_document",
+            "has_mask",
         )
         .command(command_id::MASK_APPLY),
         act(
@@ -668,22 +673,33 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .command(command_id::VIEW_ZOOM_TO_FIT)
         .key("Ctrl+0")
         .icon("corners-in"),
+        // These four icons were packaged into the qrc and referenced by
+        // nothing — they are the toggles they were cut for, and the menu draws
+        // an icon when an entry has one. A View menu where half the entries
+        // carry a glyph and half do not reads as unfinished rather than as a
+        // distinction.
         act(
             "action.view.toggle-guides",
             "Show &Guides",
             "view",
             "always",
         )
-        .host("view.toggle_guides"),
-        act("action.view.toggle-grid", "Show G&rid", "view", "always").host("view.toggle_grid"),
+        .host("view.toggle_guides")
+        .icon("rectangle-dashed"),
+        act("action.view.toggle-grid", "Show G&rid", "view", "always")
+            .host("view.toggle_grid")
+            .icon("grid-four"),
         act(
             "action.view.toggle-rulers",
             "Show &Rulers",
             "view",
             "always",
         )
-        .host("view.toggle_rulers"),
-        act("action.view.toggle-snap", "Sna&p", "view", "always").host("view.toggle_snap"),
+        .host("view.toggle_rulers")
+        .icon("ruler"),
+        act("action.view.toggle-snap", "Sna&p", "view", "always")
+            .host("view.toggle_snap")
+            .icon("magnet"),
         act(
             "action.view.guide-v",
             "New Vertical Guide",
@@ -1633,26 +1649,47 @@ mod tests {
         assert!(!actions_for_context("selection").is_empty());
     }
 
-    /// Arrange's chords are the punctuation ones, and punctuation is where a
-    /// chord quietly falls out of the map.
+    /// Every punctuation chord the registry declares must survive
+    /// normalisation unchanged.
     ///
-    /// The shell binds one `Shortcut` per key of this map and hands the chord
-    /// string back on activation, so a chord that normalises to something the
-    /// map is not keyed by is a menu entry with a shortcut printed beside it
-    /// that does nothing. `Ctrl+]` survives `normalize_shortcut` only because
-    /// a one-character part is upper-cased rather than parsed.
+    /// The shell binds one `Shortcut` per key of `default_shortcut_map`, and
+    /// that map is keyed by `normalize_shortcut(declared)`. A chord the
+    /// normaliser *rewrites* therefore reaches the map under a spelling the
+    /// menu never shows, and the entry gets a printed accelerator that does
+    /// nothing. Letters are safe by construction — a one-character part is
+    /// upper-cased, a longer one has its first letter capitalised — so the
+    /// hazard is entirely in the punctuation: `]`, `[`, `,`, `=`, `-` and the
+    /// `+` that `Ctrl++` splits into nothing at all.
+    ///
+    /// Deliberately *not* an assertion that the chord is in the map: the map
+    /// is built from these same declarations, so that comparison can only
+    /// agree with itself. Collisions are `default_shortcut_chords_unique`'s
+    /// job.
     #[test]
-    fn every_arrange_chord_reaches_the_map_the_shell_binds() {
-        let map = default_shortcut_map();
-        for op in crate::ArrangeOp::ALL {
-            let chord = normalize_shortcut(op.shortcut());
-            assert_eq!(chord, op.shortcut(), "{} was rewritten", op.label());
-            assert!(
-                map.contains_key(&chord),
-                "{} ({chord}) is bound to nothing",
-                op.label()
+    fn punctuation_chords_survive_normalisation_unchanged() {
+        let mut checked = 0;
+        for action in default_actions() {
+            let Some(declared) = action.shortcut.as_deref() else {
+                continue;
+            };
+            let key = declared.rsplit('+').next().unwrap_or(declared);
+            if key.is_empty() || key.chars().all(|c| c.is_ascii_alphanumeric()) {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(
+                normalize_shortcut(declared),
+                declared,
+                "{} declares {declared}, which normalisation rewrites — the \
+                 menu would print a chord the shell never binds",
+                action.id
             );
         }
+        assert!(
+            checked >= 4,
+            "found {checked} punctuation chords — the scan broke rather than \
+             the registry"
+        );
     }
 
     #[test]

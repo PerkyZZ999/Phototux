@@ -165,9 +165,47 @@ pub struct DocumentSize {
     pub height: u32,
 }
 
+/// The largest edge a document may have, in pixels.
+///
+/// This is `wgpu::Limits::default().max_texture_dimension_2d`, which is what
+/// `phototux_gpu` asks the adapter for. Every layer is a texture of the
+/// document's size, so a document wider or taller than this cannot be
+/// composited at all — and the failure is silent: wgpu refuses the allocation,
+/// the compositor's result texture stays invalid, and every frame after that
+/// logs a validation error while the canvas shows nothing. A 20000-pixel
+/// document opened, populated its layers panel, and drew a blank rectangle
+/// with no message of any kind.
+///
+/// The number lives here rather than in `phototux_gpu` because the dialogs and
+/// the commands are what have to refuse, and they must be able to say so
+/// without a device (DR-022). `the_gpu_crate_asks_for_the_limit_the_engine_promises`
+/// keeps the two from drifting.
+pub const MAX_DOCUMENT_DIMENSION: u32 = 8192;
+
 impl DocumentSize {
     pub const fn new(width: u32, height: u32) -> Self {
         Self { width, height }
+    }
+
+    /// Whether the compositor can hold a document this size.
+    #[must_use]
+    pub const fn is_supported(self) -> bool {
+        self.width >= 1
+            && self.height >= 1
+            && self.width <= MAX_DOCUMENT_DIMENSION
+            && self.height <= MAX_DOCUMENT_DIMENSION
+    }
+
+    /// The offending edge, for a message that names a number the user typed.
+    #[must_use]
+    pub const fn oversized_edge(self) -> Option<u32> {
+        if self.width > MAX_DOCUMENT_DIMENSION {
+            Some(self.width)
+        } else if self.height > MAX_DOCUMENT_DIMENSION {
+            Some(self.height)
+        } else {
+            None
+        }
     }
 
     pub fn pixel_count(self) -> u64 {
@@ -486,8 +524,12 @@ impl SessionState {
     }
 
     pub fn apply_size(&mut self, size: DocumentSize) {
-        let w = size.width.clamp(1, 32_768);
-        let h = size.height.clamp(1, 32_768);
+        // Clamped to what the compositor can hold, not to a round number.
+        // The callers refuse an oversized request with a message; this is the
+        // last line, so that a caller that forgets still gets a document that
+        // draws rather than one that logs a validation error every frame.
+        let w = size.width.clamp(1, MAX_DOCUMENT_DIMENSION);
+        let h = size.height.clamp(1, MAX_DOCUMENT_DIMENSION);
         self.size = DocumentSize::new(w, h);
         self.has_document = true;
         self.graph = Some(DocumentGraph::new(self.size));
@@ -505,8 +547,8 @@ impl SessionState {
     }
 
     pub fn apply_flattened(&mut self, size: DocumentSize, layer_name: impl Into<String>) {
-        let width = size.width.clamp(1, 32_768);
-        let height = size.height.clamp(1, 32_768);
+        let width = size.width.clamp(1, MAX_DOCUMENT_DIMENSION);
+        let height = size.height.clamp(1, MAX_DOCUMENT_DIMENSION);
         let graph = DocumentGraph::new_flattened(DocumentSize::new(width, height), layer_name);
         self.replace_graph(graph);
     }

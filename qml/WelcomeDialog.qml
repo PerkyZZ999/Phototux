@@ -8,7 +8,7 @@ Popup {
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
-    width: 760
+    width: Math.round(760 * Theme.densityScale)
     height: 480
     padding: 0
 

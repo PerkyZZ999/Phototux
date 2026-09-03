@@ -683,13 +683,19 @@ ColumnLayout {
                 id: textBodyField
                 Layout.fillWidth: true
                 enabled: AppSession.textLayerActive
-                text: AppSession.textBody
+                // `source` for the undo case rather than the rejection one:
+                // this field is where the text comes from, so nothing here can
+                // be refused — but Ctrl+Z inside a focused field is the
+                // field's own undo, and after that the field and the layer
+                // disagree with nothing to put them back.
+                source: AppSession.textBody
                 placeholderText: qsTr("Text")
                 onEditingFinished: characterProps.pushText()
             }
             ThemedComboBox {
                 id: fontFamilyCombo
                 Layout.fillWidth: true
+                Accessible.name: qsTr("Font family")
                 enabled: AppSession.textLayerActive
                 model: {
                     try {
@@ -770,6 +776,7 @@ ColumnLayout {
             ThemedComboBox {
                 id: alignCombo
                 Layout.fillWidth: true
+                Accessible.name: qsTr("Text alignment")
                 enabled: AppSession.textLayerActive
                 model: [qsTr("Left"), qsTr("Center"), qsTr("Right")]
                 currentIndex: AppSession.textAlignment
@@ -786,7 +793,9 @@ ColumnLayout {
                     id: textColorField
                     Layout.fillWidth: true
                     enabled: AppSession.textLayerActive
-                    text: AppSession.textColorHex
+                    // `source`, not `text`: a rejected value would otherwise
+                    // stay in the field for good.
+                    source: AppSession.textColorHex
                     onEditingFinished: characterProps.pushText()
                 }
             }
@@ -894,12 +903,12 @@ ColumnLayout {
                 }
                 ThemedTextField {
                     Layout.fillWidth: true
-                    text: AppSession.fillColorHex
+                    source: AppSession.fillColorHex
                     onEditingFinished: AppSession.setActiveFillHex(text)
                 }
                 Rectangle {
-                    implicitWidth: 22
-                    implicitHeight: 22
+                    implicitWidth: Theme.inlineBtn
+                    implicitHeight: Theme.inlineBtn
                     radius: Theme.radiusXs
                     color: AppSession.fillColorHex
                     border.color: Theme.border
@@ -951,7 +960,7 @@ ColumnLayout {
                     required property int index
 
                     Layout.fillWidth: true
-                    spacing: 2
+                    spacing: Theme.spaceXxs
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1190,18 +1199,11 @@ ColumnLayout {
                 ThemedTextField {
                     id: hexField
                     Layout.fillWidth: true
-                    text: colorRow.hex
+                    source: colorRow.hex
                     font.family: "Noto Sans Mono"
                     font.pixelSize: Theme.fontMono
                     Accessible.name: qsTr("%1 colour, hexadecimal").arg(colorRow.caption)
                     onEditingFinished: colorRow.committed(text)
-                    // A field that has focus keeps whatever was typed into it,
-                    // including a value the document has since undone away
-                    // from — and Ctrl+Z inside a text field is the field's own
-                    // undo, so that is exactly how it happens. Re-read on the
-                    // way out, whether or not `hex` changed meanwhile.
-                    onActiveFocusChanged: if (!hexField.activeFocus)
-                                              hexField.text = colorRow.hex
                 }
             }
 
@@ -1512,7 +1514,7 @@ ColumnLayout {
                 required property bool distribute
                 required property string caption
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: Theme.spaceXxs
                 Label {
                     text: run.caption
                     color: Theme.colorOnSurfaceMuted
@@ -1759,7 +1761,7 @@ ColumnLayout {
                     required property var modelData
 
                     Layout.fillWidth: true
-                    spacing: 2
+                    spacing: Theme.spaceXxs
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1838,8 +1840,8 @@ ColumnLayout {
                                 Layout.preferredWidth: 64
                             }
                             Rectangle {
-                                implicitWidth: 22
-                                implicitHeight: 22
+                                implicitWidth: Theme.inlineBtn
+                                implicitHeight: Theme.inlineBtn
                                 radius: Theme.radiusSm
                                 border.color: Theme.border
                                 color: Qt.rgba(styleColor.rgba[0],
@@ -1905,7 +1907,7 @@ ColumnLayout {
             required property var stops
 
             Layout.fillWidth: true
-            spacing: 2
+            spacing: Theme.spaceXxs
 
             Label {
                 text: rangeEditor.caption
@@ -2037,20 +2039,13 @@ ColumnLayout {
                         onToggled: AppSession.setActiveEffectEnabled(
                                        Number(effectId), checked)
                     }
-                    ToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
+                    ChromeIconToolButton {
+                        implicitWidth: Theme.inlineBtn
+                        implicitHeight: Theme.inlineBtn
                         padding: 0
                         icon.source: root.iconUrl("caret-up")
-                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                         icon.width: 12
                         icon.height: 12
-                        contentItem: ThemedIcon {
-                            anchors.centerIn: parent
-                            source: parent.icon.source
-                            size: parent.icon.height
-                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                        }
                         enabled: index > 0
                         onClicked: AppSession.reorderActiveEffect(
                                        Number(effectId), index - 1)
@@ -2060,20 +2055,13 @@ ColumnLayout {
                             text: parent.Accessible.name
                         }
                     }
-                    ToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
+                    ChromeIconToolButton {
+                        implicitWidth: Theme.inlineBtn
+                        implicitHeight: Theme.inlineBtn
                         padding: 0
                         icon.source: root.iconUrl("caret-down")
-                        icon.color: enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
                         icon.width: 12
                         icon.height: 12
-                        contentItem: ThemedIcon {
-                            anchors.centerIn: parent
-                            source: parent.icon.source
-                            size: parent.icon.height
-                            color: parent.enabled ? Theme.iconOnSurfaceEffective : Theme.iconDisabledEffective
-                        }
                         enabled: index < effectsRepeater.count - 1
                         onClicked: AppSession.reorderActiveEffect(
                                        Number(effectId), index + 1)

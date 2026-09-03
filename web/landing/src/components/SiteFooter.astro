@@ -39,7 +39,7 @@ const year = new Date().getFullYear();
   <div class="container site-footer-inner">
     <div class="site-footer-brand">
       <a class="wordmark" href="/" aria-label={`${BRAND.name} home`}>
-        <img src="/brand/logo.png" alt="" width="32" height="32" />
+        <img src="/brand/logo.png" alt="" width="32" height="32" / loading="eager" decoding="async">
         <span>{BRAND.name}</span>
       </a>
       <p class="muted site-footer-blurb">{BRAND.tagline}</p>

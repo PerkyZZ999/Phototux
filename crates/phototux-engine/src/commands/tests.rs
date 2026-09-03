@@ -2083,3 +2083,159 @@ fn undoing_an_arrange_puts_the_order_back() {
         .expect("undo");
     assert_eq!(stack_of(&s), before);
 }
+
+/// A document bigger than the compositor can hold has to be refused.
+///
+/// The dialogs stopped at 32768, which is not a limit of anything: past
+/// `MAX_DOCUMENT_DIMENSION` wgpu declines the layer textures, the result
+/// texture stays invalid, and the editor shows a populated layers panel over a
+/// canvas that draws nothing while every frame logs a validation error. A
+/// 20000-pixel document did exactly that, with no message of any kind.
+#[test]
+fn a_document_larger_than_the_gpu_can_hold_is_refused() {
+    let mut s = SessionState::default();
+    let too_wide = crate::MAX_DOCUMENT_DIMENSION + 1;
+    let err = s
+        .invoke(
+            command_id::DOCUMENT_NEW_SIZE,
+            CommandArgs::NewSize {
+                width: too_wide,
+                height: 1080,
+            },
+        )
+        .expect_err("the compositor cannot hold it");
+    assert!(
+        matches!(
+            err,
+            CommandError::Document(crate::DocumentError::DimensionTooLarge { .. })
+        ),
+        "got {err:?}"
+    );
+    assert!(!s.has_document, "and no half-made document is left behind");
+}
+
+/// The refusal has to say the number the user typed and the number they can.
+#[test]
+fn the_refusal_names_both_numbers() {
+    let err = crate::DocumentError::check_size(crate::DocumentSize::new(20000, 1080))
+        .expect_err("too wide");
+    let message = err.to_string();
+    assert!(message.contains("20000"), "{message}");
+    assert!(
+        message.contains(&crate::MAX_DOCUMENT_DIMENSION.to_string()),
+        "{message}"
+    );
+    assert!(
+        CommandError::Document(err).is_user_correctable(),
+        "typing a smaller number fixes it, so it belongs in front of the user"
+    );
+}
+
+#[test]
+fn the_largest_supported_document_is_still_allowed() {
+    let mut s = SessionState::default();
+    let edge = crate::MAX_DOCUMENT_DIMENSION;
+    s.invoke(
+        command_id::DOCUMENT_NEW_SIZE,
+        CommandArgs::NewSize {
+            width: edge,
+            height: edge,
+        },
+    )
+    .expect("the limit itself is a size that works");
+    assert_eq!(s.size.width, edge);
+    assert_eq!(s.size.height, edge);
+}
+
+#[test]
+fn resizing_the_canvas_past_the_limit_is_refused() {
+    let (mut s, _) = session_with_layers(1);
+    let before = s.size;
+    let err = s
+        .invoke(
+            command_id::DOCUMENT_CANVAS_SIZE,
+            CommandArgs::Resize {
+                width: crate::MAX_DOCUMENT_DIMENSION + 1,
+                height: 1080,
+            },
+        )
+        .expect_err("too wide");
+    assert!(matches!(
+        err,
+        CommandError::Document(crate::DocumentError::DimensionTooLarge { .. })
+    ));
+    assert_eq!(s.size, before, "and the canvas did not move");
+}
+
+/// A command that reports the document changed must leave something to undo.
+///
+/// `CommandEffects::dirty` is the engine saying "the user's work is different
+/// now". If nothing landed on the undo stack at the same time, that difference
+/// is permanent — the user cannot get back, and there is no error to notice.
+/// Document *creation* is the honest exception and says so by reporting
+/// `dirty: false`: a new document has nothing to undo to, and `apply_size`
+/// clears the history on purpose.
+///
+/// Every command is invoked with the arguments it needs where those are
+/// obvious and with `CommandArgs::None` otherwise; a command that refuses for
+/// want of state is skipped, because a refusal is not a mutation. That leaves
+/// the check partial by construction and still exact about what it does cover:
+/// the assertion only fires on a command that *succeeded* and *claimed* a
+/// change.
+#[test]
+fn a_command_that_dirties_the_document_leaves_an_undo_entry() {
+    let mut covered = 0usize;
+    for id in crate::command_id::ALL {
+        // Undo and redo are *about* the stack: they report the document dirty
+        // and move the stack the other way, which is right. Excluded by their
+        // declared mutation class rather than by name, so a third one added
+        // later is excluded for the same stated reason and no list drifts.
+        if crate::command_meta::meta_for(id)
+            .is_some_and(|m| m.mutation == crate::command_meta::MutationClass::HistoryMeta)
+        {
+            continue;
+        }
+        let (mut session, _) = session_with_layers(2);
+        let args = match *id {
+            crate::command_id::LAYER_ARRANGE => CommandArgs::Arrange {
+                op: "backward".to_owned(),
+            },
+            crate::command_id::LAYER_REORDER => CommandArgs::Reorder { to_index: 0 },
+            crate::command_id::LAYER_SET_OPACITY => CommandArgs::SetOpacity { opacity: 0.5 },
+            crate::command_id::LAYER_SET_BLEND => CommandArgs::SetBlend {
+                blend: "multiply".to_owned(),
+            },
+            crate::command_id::DOCUMENT_CANVAS_SIZE | crate::command_id::DOCUMENT_RESIZE => {
+                CommandArgs::Resize {
+                    width: 320,
+                    height: 240,
+                }
+            }
+            _ => CommandArgs::None,
+        };
+        let before = session.history.entries_undo().len();
+        let Ok(effects) = session.invoke(id, args) else {
+            continue;
+        };
+        if !effects.dirty {
+            continue;
+        }
+        covered += 1;
+        assert!(
+            session.history.entries_undo().len() > before,
+            "{id} reported the document dirty and pushed no undo entry, so the \
+             change cannot be taken back"
+        );
+    }
+    // Twenty-three of the eighty-odd commands run and dirty the document from a
+    // plain two-layer session; the rest refuse for want of a text layer, a
+    // selection, a smart object or an argument this harness does not invent.
+    // The floor is here so that coverage shrinking — a command that stops
+    // running from a bare session — fails loudly instead of quietly narrowing
+    // the check.
+    assert!(
+        covered >= 23,
+        "only {covered} commands reached the assertion — the harness broke \
+         rather than the commands"
+    );
+}

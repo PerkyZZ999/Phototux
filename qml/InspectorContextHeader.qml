@@ -151,7 +151,7 @@ ColumnLayout {
     // segmented pair says "these are the alternatives" without being opened.
     RowLayout {
         Layout.fillWidth: true
-        spacing: 2
+        spacing: Theme.spaceXxs
         visible: AppSession.hasDocument
 
         ScopeTab {

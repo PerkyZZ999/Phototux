@@ -189,3 +189,14 @@ to write, which may be a few minutes behind — see
 A security problem goes
 [privately](https://github.com/PerkyZZ999/Phototux/security/advisories/new)
 instead, not into the public tracker.
+
+## "8192 px is the limit on each edge"
+
+Every layer is a full-size image on the GPU, and the largest texture PhotoTux
+asks for is 8192 × 8192. A document bigger than that on either edge cannot be
+composited at all, so New Document, Image Size, Canvas Size and Open all refuse
+it rather than opening something that would draw nothing.
+
+If you are trying to open a photograph larger than this — a scan, or a stitched
+panorama — resize it first in another tool. Tiled compositing, which is what
+would lift the limit, is not implemented.

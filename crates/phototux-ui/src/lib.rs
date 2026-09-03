@@ -385,6 +385,8 @@ pub struct AppSession {
     gaussian_radius: f32,
     effects_joined: String,
     icon_root: String,
+    /// Mirrors `phototux_engine::MAX_DOCUMENT_DIMENSION`; never changes.
+    max_document_dimension: i32,
     document_name: String,
     dirty: bool,
     io_busy: bool,
@@ -692,6 +694,8 @@ impl AppSession {
             gaussian_radius: 0.0,
             effects_joined: String::new(),
             icon_root,
+            max_document_dimension: i32::try_from(phototux_engine::MAX_DOCUMENT_DIMENSION)
+                .unwrap_or(i32::MAX),
             document_name: "Untitled".to_owned(),
             dirty: false,
             io_busy: false,
@@ -817,6 +821,10 @@ impl AppSession {
                     pixels: source.pixels().to_vec(),
                 },
             );
+        }
+        if let Err(error) = phototux_engine::DocumentError::check_size(graph.size) {
+            self.fail_io("Open", &error.to_string());
+            return;
         }
         match phototux_canvas::open_document(graph.size, &graph.layers_resolved()) {
             Ok(ms) => {
@@ -2107,6 +2115,13 @@ impl AppSession {
                 self.has_document && self.active_layer_kind == "smart-object" && !busy
             }
             "group_selected" => self.has_document && self.active_layer_kind == "group" && !busy,
+            // Bake Text and Rasterize Shape each refuse anything else with a
+            // sentence naming the kind they wanted. A menu entry that is
+            // always live and always answers "this is not a text layer"
+            // teaches the user nothing they did not already know when they
+            // clicked it.
+            "text_layer" => self.has_document && self.active_layer_kind == "text" && !busy,
+            "shape_layer" => self.has_document && self.active_layer_kind == "shape" && !busy,
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
@@ -2737,6 +2752,17 @@ impl AppSession {
             .into_iter()
             .collect();
         phototux_canvas::close_document();
+        // Selection and transform undo live on the host, not in the parked
+        // `SessionState`, so they do not travel with the document the way
+        // everything else here does. The engine's history *is* per document —
+        // leave these behind and undoing in the next tab pops that tab's
+        // Selection entry while the host restores this tab's mask over it, a
+        // mask that is not even the same size when the documents differ.
+        //
+        // Cleared rather than parked, on memory: a `SelectionSnapshot` is a
+        // document-sized mask with a limit of 64 and a `TransformSnapshot` is
+        // full RGBA for every layer. A Selection entry with no snapshot left
+        // deselects, which is defined and safe.
         self.clear_selection_stacks();
         self.clear_transform_stacks();
         self.doc_registry
@@ -3592,6 +3618,14 @@ impl AppSession {
         Notify = effects_joined_changed
     );
     qproperty!("iconRoot", Member = icon_root, Notify = icon_root_changed);
+    // The largest document edge the compositor can hold. Published so the three
+    // size dialogs bound their spin boxes to the same number the commands
+    // enforce: they used to stop at 32768, which is not a limit of anything.
+    qproperty!(
+        "maxDocumentDimension",
+        Member = max_document_dimension,
+        Notify = max_document_dimension_changed
+    );
     qproperty!(
         "documentName",
         Member = document_name,
@@ -4108,6 +4142,11 @@ impl AppSession {
     fn effects_joined_changed(&mut self);
     #[qsignal]
     fn icon_root_changed(&mut self);
+    // Never emitted: the limit is a build-time constant. The property needs a
+    // notifier to exist at all, and a binding that reads a constant is
+    // evaluated once, which is exactly right.
+    #[qsignal]
+    fn max_document_dimension_changed(&mut self);
     #[qsignal]
     fn document_name_changed(&mut self);
     #[qsignal]
@@ -5277,9 +5316,16 @@ impl AppSession {
             FileEvent::Autosaved => {
                 self.notify(NoticeLevel::Info, "Autosave written");
             }
-            FileEvent::Exported { path } => {
+            FileEvent::Exported { path, report } => {
                 self.io_busy = false;
                 self.notify(NoticeLevel::Info, format!("Exported {}", path.display()));
+                // The same disclosure an import gets. PSD carries raster layers
+                // and nothing else, so exporting a document with a text layer
+                // and an adjustment above it wrote half of it and said nothing.
+                if !report.is_empty() {
+                    self.compatibility_report = format_report(&report);
+                    self.compatibility_report_changed();
+                }
                 self.io_busy_changed();
                 self.status_text_changed();
             }
@@ -5325,6 +5371,15 @@ impl AppSession {
 
     fn handle_raster_opened(&mut self, path: PathBuf, raster: Raster) {
         let size = DocumentSize::new(raster.width(), raster.height());
+        // A photograph from a scanner or a stitched panorama really is bigger
+        // than the compositor can hold, and opening it anyway produced a
+        // document that listed its layers and drew nothing while every frame
+        // logged a validation error. Saying so is the only honest answer until
+        // the compositor tiles.
+        if let Err(error) = phototux_engine::DocumentError::check_size(size) {
+            self.fail_io("Open", &error.to_string());
+            return;
+        }
         let layer_name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -5373,6 +5428,10 @@ impl AppSession {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Imported.psd".into());
+        if let Err(error) = phototux_engine::DocumentError::check_size(graph.size) {
+            self.fail_io("Open", &error.to_string());
+            return;
+        }
         if let Err(error) = self.prepare_new_document_tab(&title) {
             self.fail_io("Open", &error);
             return;
@@ -8399,8 +8458,27 @@ impl AppSession {
     #[qslot]
     fn swap_fg_bg(&mut self) {
         self.engine.colors.swap();
+        self.adopt_foreground_without_recording();
+    }
+
+    /// Photoshop's D: black foreground, white background.
+    ///
+    /// `ColorState::reset_default` has been in the engine the whole time with
+    /// nothing reaching it, which is the same shape as `cancel_io` and
+    /// `layer.reorder` — a finished capability with no way in.
+    #[qslot]
+    fn reset_fg_bg(&mut self) {
+        self.engine.colors.reset_default();
+        self.adopt_foreground_without_recording();
+    }
+
+    /// Take the current foreground into the brush and republish the fields.
+    ///
+    /// Deliberately not through `set_foreground`, which pushes onto the recent
+    /// list: swapping and resetting move between colours the user already has,
+    /// and recording them would fill the recent row with the same two entries.
+    fn adopt_foreground_without_recording(&mut self) {
         let fg = self.engine.colors.foreground;
-        // Sync brush without re-pushing recent (swap already has both colors).
         self.engine.brush_color = fg;
         self.engine.brush.color = fg;
         self.engine.sync_brush_from_tool();
@@ -8631,7 +8709,14 @@ impl AppSession {
         let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.clamp(1, 32_768), h.clamp(1, 32_768));
+        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        // Refused, not clamped to 32768: the compositor allocates a texture per
+        // layer at this size, and past the device limit wgpu fails it and every
+        // frame after logs a validation error over a canvas that draws nothing.
+        if let Err(error) = phototux_engine::DocumentError::check_size(size) {
+            self.notify(NoticeLevel::Warning, error.to_string());
+            return;
+        }
         if self.engine.size == size {
             return;
         }
@@ -8677,7 +8762,11 @@ impl AppSession {
             self.notify(NoticeLevel::Warning, format!("Unknown anchor: {anchor}"));
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.clamp(1, 32_768), h.clamp(1, 32_768));
+        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        if let Err(error) = phototux_engine::DocumentError::check_size(size) {
+            self.notify(NoticeLevel::Warning, error.to_string());
+            return;
+        }
         if self.engine.size == size {
             return;
         }

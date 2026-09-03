@@ -186,6 +186,21 @@ Extension contract owns manifests, versioned protocol values, capability scopes,
 
 Presentation model owns action descriptions, immutable projections, focus/navigation semantics, panel/tool/dialog descriptors, accessibility nodes, and toolkit-neutral state. Linux host owns Wayland-compatible native windows/surfaces/input, portals/files, clipboard, AT-SPI, display/color signals, lifecycle, and power/session integration. Application crate is the composition root and may depend on all concrete implementations.
 
+### A slot with no caller is not a feature
+
+`cancel_io` set a token the file worker checks between layers, and `send`
+resets that token before every command, so cancelling a save has always worked
+and has never poisoned the next one. Nothing in the shell called the slot. The
+status bar showed a spinner and the word "Working…" and offered no way out of
+a large PSD export.
+
+That is the same shape as `layer.reorder` before Layer ▸ Arrange, and it is the
+shape to go looking for: a `#[qslot]` that no `.qml` file names and that
+`dispatch_host_op` does not reach is either dead code or a missing control, and
+the two look identical from inside the crate. `a_running_file_operation_can_be_cancelled`
+pins this one — the call *and* its `ioBusy` guard, because a cancel button that
+is always on screen offers to stop something that is not running.
+
 ## Dependency Rules
 
 ```mermaid
@@ -941,3 +956,25 @@ Future local automation may invoke stable command schemas under explicit capabil
 - Root [`AGENTS.md`](../AGENTS.md) — agent constitution (commands, crate boundaries, quality gate).
 - [Glossary](Appendix/Glossary.md) — canonical terminology.
 - [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.
+\n
+
+### Documentation links
+
+```bash
+python3 scripts/check-docs-links.py
+```
+
+Checks every internal link in `internal_docs/` and in `web/docs` — that the
+file or route exists, and that a `#fragment` matches a heading on the page it
+lands on. A cross-reference that misses is invisible: the browser scrolls to
+the top of the page it *did* find and the reader takes that for the section.
+DR-024 was renamed from "Single document session v1" to "Document session
+model" and five handbook pages went on pointing at the old anchor, quietly
+sending anyone who followed them to the top of the Decision Register.
+
+The two roots resolve differently — the handbook links relative files, the
+Astro site links routes — and heading slugs follow GitHub's rule, where each
+space becomes its own hyphen. That is why `## DR-023 — Tech stack` is
+`#dr-023--tech-stack`: the em dash is dropped and both spaces around it
+survive. Collapsing them is the mistake that makes this check report a hundred
+links broken when none are.

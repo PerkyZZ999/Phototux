@@ -444,7 +444,7 @@ Rectangle {
                     label: qsTr("Fill")
                     ThemedTextField {
                         Layout.preferredWidth: 90
-                        text: AppSession.fillColorHex
+                        source: AppSession.fillColorHex
                         onEditingFinished: AppSession.setActiveFillHex(text)
                         Accessible.name: qsTr("Fill colour hex")
                     }

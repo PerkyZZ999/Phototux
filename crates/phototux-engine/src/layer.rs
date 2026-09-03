@@ -378,7 +378,13 @@ impl LayerMask {
         self.contrast = self.contrast.clamp(-1.0, 1.0);
         self.shift = self.shift.clamp(-1.0, 1.0);
         self.density = self.density.clamp(0.0, 1.0);
-        self.feather = self.feather.max(0.0);
+        // Upper bound too, not just `max(0.0)`. The feather is a blur, and the
+        // blur kernel clamps at `MAX_BLUR_RADIUS`, so a document carrying
+        // feather: 5000 was blurred by 64 while claiming 5000 — and the panel's
+        // slider stops at 64, so the stored value could not even be seen. This
+        // function is the one that promises "UI/GPU-safe ranges"; it was
+        // clamping three of the four.
+        self.feather = self.feather.clamp(0.0, MAX_BLUR_RADIUS);
     }
 
     /// Coverage this mask yields for one stored sample, in `0.0..=1.0`.
@@ -2221,5 +2227,28 @@ mod tests {
             }
             .is_invisible()
         );
+    }
+
+    /// `clamp_refine` promises UI/GPU-safe ranges, and the feather is the one
+    /// that reaches a blur kernel with a ceiling of its own.
+    #[test]
+    fn refine_clamps_the_feather_to_what_the_blur_can_do() {
+        let mut mask = LayerMask {
+            feather: 5000.0,
+            ..Default::default()
+        };
+        mask.clamp_refine();
+        assert_eq!(
+            mask.feather, MAX_BLUR_RADIUS,
+            "a document claiming 5000 was blurred by {MAX_BLUR_RADIUS} and said \
+             otherwise"
+        );
+
+        let mut negative = LayerMask {
+            feather: -3.0,
+            ..Default::default()
+        };
+        negative.clamp_refine();
+        assert_eq!(negative.feather, 0.0);
     }
 }

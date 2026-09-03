@@ -172,6 +172,37 @@ mod tests {
         out
     }
 
+    /// The braced body of the block opening on 1-based `line`.
+    ///
+    /// The scans above ask whether a control overrides something, and
+    /// "somewhere later in the file" is not an answer — a `background:` two
+    /// controls down would satisfy a plain `contains`. Matching braces keeps
+    /// the question about the control that was found.
+    fn body_at_line(text: &str, line: usize) -> String {
+        let offset: usize = text
+            .lines()
+            .take(line.saturating_sub(1))
+            .map(|l| l.len() + 1)
+            .sum();
+        let Some(open) = text[offset..].find('{').map(|i| offset + i) else {
+            return String::new();
+        };
+        let mut depth = 0usize;
+        for (i, ch) in text[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return text[open..open + i].to_owned();
+                    }
+                }
+                _ => {}
+            }
+        }
+        text[open..].to_owned()
+    }
+
     /// A slider has no text of its own, so without a name it reaches assistive
     /// technology as an anonymous "slider".
     ///
@@ -232,6 +263,12 @@ mod tests {
                 ("DialogButtonBox", "ThemedDialogFooter"),
                 ("ScrollBar", "ThemedScrollBar"),
                 ("ToolTip", "ThemedToolTip"),
+                // Basic draws this one with `pen: palette.dark`, so the
+                // status bar's "Working…" spinner was a dark grey smudge on
+                // dark chrome — and Basic's own `padding: 6` around a
+                // 48-pixel contentItem left about six pixels of it inside the
+                // eighteen the status bar allows.
+                ("BusyIndicator", "ThemedBusyIndicator"),
             ] {
                 // The themed component is allowed to *be* the bare control.
                 // `ThemedMenu` also names `ThemedMenuItem` as its delegate,
@@ -247,6 +284,285 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A text field that displays a document value binds `source`, not `text`.
+    ///
+    /// Qt drops a `TextField`'s `text` binding the moment the user types into
+    /// it, and nothing puts it back. Every field here that shows a document
+    /// value was one rejected keystroke from showing something the document
+    /// does not have: typing `notacolour` into the swatches hex and pressing
+    /// Return left `notacolour` on screen for the rest of the session while the
+    /// swatch beside it never moved. Undo is the other way in — Ctrl+Z inside a
+    /// focused field is the field's own undo.
+    ///
+    /// `ThemedTextField.source` is a plain property, so it cannot lose its
+    /// binding, and its change handler writes `text`. `Qt.binding` looked like
+    /// the fix and was not reliable: with a conditional source the field kept
+    /// showing the wrong half of a pair through a sequence of perfectly
+    /// ordinary clicks.
+    #[test]
+    fn a_field_that_shows_a_value_binds_source_not_text() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if name == "ThemedTextField.qml" {
+                continue;
+            }
+            for start in instantiations_of(&text, "ThemedTextField") {
+                let body = body_at_line(&text, start);
+                let commits = body.contains("onEditingFinished")
+                    || body.contains("Keys.onReturnPressed")
+                    || body.contains("onAccepted");
+                if !commits {
+                    continue;
+                }
+                checked += 1;
+                let binds_text = body
+                    .lines()
+                    .any(|l| l.trim_start().starts_with("text:") && !l.contains("text: \""));
+                assert!(
+                    !binds_text,
+                    "{name}:{start} binds `text` to a value and commits edits — \
+                     the binding is lost on the first keystroke and the field \
+                     then shows whatever was typed. Bind `source` instead."
+                );
+            }
+        }
+        assert!(
+            checked >= 5,
+            "found {checked} editable fields that commit — the scan broke rather \
+             than the shell"
+        );
+    }
+
+    /// A kind-gated enablement compares against a string, and the string has
+    /// to be one a layer can actually report.
+    ///
+    /// `action_enablement` decides `text_layer`, `shape_layer`,
+    /// `group_selected` and `smart_object` by comparing `active_layer_kind`
+    /// with a literal. That literal comes from `LayerKind::as_str`, which this
+    /// crate does not consult — so renaming a kind in the engine, or writing
+    /// `"smart object"` for `"smart-object"`, leaves the comparison silently
+    /// false and the menu entry permanently greyed out. Nothing else fails
+    /// first: a menu item that is never enabled looks exactly like a menu item
+    /// that is correctly disabled.
+    #[test]
+    fn every_kind_an_enablement_names_is_a_kind_a_layer_reports() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let kinds: Vec<&str> = phototux_engine::LayerKind::ALL
+            .iter()
+            .map(|k| k.as_str())
+            .collect();
+        let mut checked = 0;
+        for (i, _) in source.match_indices("active_layer_kind == \"") {
+            let rest = &source[i + "active_layer_kind == \"".len()..];
+            let named = rest.split('"').next().expect("a closing quote");
+            assert!(
+                kinds.contains(&named),
+                "an enablement compares active_layer_kind with {named:?}, which no \
+                 LayerKind reports — the entry it gates can never be enabled. \
+                 Kinds are {kinds:?}"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 3,
+            "found {checked} kind comparisons — the scan broke rather than the host"
+        );
+    }
+
+    /// A dialog laid out in raw pixels crowds its own content at the other
+    /// density.
+    ///
+    /// `Theme.densityScale` scales every type and spacing token, so a dialog
+    /// pinned to `width: 720` keeps its box while the words inside it grow. At
+    /// Comfortable, New Document ran "Recommended" and "1920 x 1080" into the
+    /// preset card's border — the four cards share the row, so each one shrank
+    /// exactly as its text got bigger.
+    ///
+    /// The check is on the root `width:` of a dialog file, which is the one
+    /// that sets the box. Inner widths are the layout's business.
+    #[test]
+    fn no_dialog_pins_itself_to_a_pixel_width() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if !name.ends_with("Dialog.qml") {
+                continue;
+            }
+            for (i, line) in text.lines().enumerate() {
+                // Root-level property: exactly four spaces of indent.
+                let Some(rest) = line.strip_prefix("    width:") else {
+                    continue;
+                };
+                if !line.starts_with("    width:") || line.starts_with("     ") {
+                    continue;
+                }
+                checked += 1;
+                assert!(
+                    rest.contains("densityScale") || rest.contains("parent") || rest.contains('%'),
+                    "{name}:{} pins the dialog to a pixel width, so its content \
+                     crowds at the other UI density — scale it by \
+                     Theme.densityScale",
+                    i + 1
+                );
+            }
+        }
+        assert!(
+            checked >= 6,
+            "found {checked} dialog widths — the scan broke rather than the shell"
+        );
+    }
+
+    /// A combo box's label is a `Label` beside it, and nothing connects them.
+    ///
+    /// Same shape as the slider check below: the control carries no text of its
+    /// own, so without a name it reaches assistive technology as an anonymous
+    /// "combo box" and the user has to guess from the selected value what it
+    /// selects. Four of them shipped that way — the effect picker, UI density,
+    /// font family and text alignment.
+    ///
+    /// A component *definition* and a `delegate:` are exempt: their instances
+    /// carry the text, which Qt uses as the name already.
+    #[test]
+    fn every_combo_box_tells_assistive_technology_what_it_selects() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if name == "ThemedComboBox.qml" {
+                continue;
+            }
+            for start in instantiations_of(&text, "ThemedComboBox") {
+                let opener = text
+                    .lines()
+                    .nth(start.saturating_sub(1))
+                    .unwrap_or_default();
+                if opener.contains("component ") || opener.contains("delegate:") {
+                    continue;
+                }
+                let body = body_at_line(&text, start);
+                checked += 1;
+                assert!(
+                    body.contains("Accessible.name"),
+                    "{name}:{start} is an unnamed combo box — its label is a \
+                     Label beside it, which nothing connects to it"
+                );
+            }
+        }
+        assert!(
+            checked >= 4,
+            "found {checked} combo boxes — the scan broke rather than the shell"
+        );
+    }
+
+    /// A `ToolButton` that keeps the Basic background is a pale grey square.
+    ///
+    /// Not on the unstyled-control list above, because a `ToolButton` with its
+    /// own `contentItem` *and* `background` is the right thing to write —
+    /// `ChromeIconToolButton` is exactly that. What is never right is leaving
+    /// the background: this Qt's Basic style paints `palette.button` at 0.5
+    /// opacity with a `palette.windowText` border, and unlike older versions
+    /// there is no `visible:` guard limiting it to the pressed state. Two
+    /// effect-reorder buttons in the Properties panel sat there as permanent
+    /// pale rectangles on dark chrome.
+    #[test]
+    fn every_tool_button_replaces_the_basic_background() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            for start in instantiations_of(&text, "ToolButton") {
+                let body = body_at_line(&text, start);
+                checked += 1;
+                assert!(
+                    body.contains("background:"),
+                    "{name}:{start} leaves a ToolButton's Basic background, which \
+                     paints a pale rectangle on dark chrome — give it one, or use \
+                     ChromeIconToolButton"
+                );
+            }
+        }
+        assert!(
+            checked > 8,
+            "found {checked} tool buttons — the scan broke rather than the shell"
+        );
+    }
+
+    /// Parking a document must drop the host-side undo stacks with it.
+    ///
+    /// It already does; this pins it. Selection and transform undo are `Vec`s
+    /// on `AppSession`, not fields of the parked `SessionState`, so they do not
+    /// travel with the document the way everything else here does — and the
+    /// engine's history *is* per document. Drop the clearing and undoing in the
+    /// next tab pops that tab's `Selection` entry while the host restores the
+    /// previous tab's mask over it, a mask that need not even be the same size.
+    ///
+    /// Nothing else states the requirement, and the two calls sit twenty lines
+    /// below the `mem::take` that makes them necessary, which is exactly the
+    /// distance at which a tidy-up removes them. Read from the source because
+    /// `AppSession` needs an attached `QObject` and cannot be built in a unit
+    /// test.
+    #[test]
+    fn parking_a_document_drops_the_host_undo_stacks() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn park_current_document(&mut self)")
+            .expect("park_current_document is there to read");
+        // Newlines, not `lines().count()`: the text before `at` ends mid-line
+        // (the indent before `fn`), so `lines()` already counts that line and
+        // adding one lands on the line after the signature.
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        assert!(
+            body.contains("park_active("),
+            "the slice missed the function body — the scan broke rather than \
+             the host"
+        );
+        for call in ["clear_selection_stacks()", "clear_transform_stacks()"] {
+            assert!(
+                body.contains(call),
+                "park_current_document does not call {call}, so the stacks \
+                 survive into the next tab and undo restores another \
+                 document's mask"
+            );
+        }
+    }
+
+    /// A long file operation must be stoppable.
+    ///
+    /// `cancel_io` sets a token the worker checks between layers, and `send`
+    /// resets it before every command, so cancelling has always worked and
+    /// has never poisoned the next save. Nothing called the slot. Saving a
+    /// large PSD or exporting a 4K composite is the one thing here that takes
+    /// long enough to regret starting, and the status bar showed a spinner
+    /// and the word "Working…" with no way out of it.
+    ///
+    /// Pinned as a pair: the call and the `ioBusy` guard. A cancel button that
+    /// is always on screen offers to stop something that is not running.
+    #[test]
+    fn a_running_file_operation_can_be_cancelled() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("the shell is readable");
+        assert!(
+            shell.contains("AppSession.cancelIo()"),
+            "nothing in the shell calls cancelIo, so a running save cannot be stopped"
+        );
+        let offered = shell
+            .lines()
+            .position(|line| line.contains("AppSession.cancelIo()"))
+            .expect("the call is there");
+        let preceding: Vec<&str> = shell.lines().take(offered).collect();
+        let guarded = preceding
+            .iter()
+            .rev()
+            .take(12)
+            .any(|line| line.contains("visible: AppSession.ioBusy"));
+        assert!(
+            guarded,
+            "the cancel control is not guarded by ioBusy, so it offers to stop \
+             an operation that is not running"
+        );
     }
 
     /// The attached tool tip is the Basic style's, and it is light.

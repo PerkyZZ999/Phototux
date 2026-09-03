@@ -713,9 +713,12 @@ impl CommandError {
     pub fn is_user_correctable(&self) -> bool {
         match self {
             Self::Rejected(_) | Self::InvalidArgument(_) => true,
-            Self::Document(DocumentError::NoDocument | DocumentError::LayerLimitReached { .. }) => {
-                true
-            }
+            Self::Document(
+                DocumentError::NoDocument
+                | DocumentError::LayerLimitReached { .. }
+                // The user typed the number; typing a smaller one fixes it.
+                | DocumentError::DimensionTooLarge { .. },
+            ) => true,
             Self::Unknown(_) | Self::Document(DocumentError::LayerMissingAfterAdd) => false,
         }
     }

@@ -76,6 +76,13 @@ QtObject {
     /// Panel-header Phosphor glyphs (uniform optical box).
     readonly property int iconMd: Math.round(16 * densityScale)
     readonly property int panelHeaderBtn: Math.round(24 * densityScale)
+    /// A button that sits *inside* a dense row — a layer's eye, an effect's
+    /// reorder caret — rather than in panel chrome. Smaller than
+    /// `panelHeaderBtn` on purpose: it shares its line with text.
+    ///
+    /// A literal 22 in six places did not scale with density, so at
+    /// Comfortable the rows grew around buttons that stayed put.
+    readonly property int inlineBtn: Math.round(22 * densityScale)
     /// Height the right dock holds back for the panels stacked under Properties.
     readonly property int dockStackReserve: Math.round(280 * densityScale)
 

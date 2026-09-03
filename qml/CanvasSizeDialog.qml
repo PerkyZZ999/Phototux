@@ -34,7 +34,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     title: qsTr("Canvas Size")
     header: ThemedDialogHeader { text: dialog.title }
-    width: 420
+    width: Math.round(420 * Theme.densityScale)
     height: 300
     padding: Theme.spaceMd
     visible: AppSession.canvasSizeOpen
@@ -78,7 +78,7 @@ Dialog {
                 ThemedSpinBox {
                     id: widthSpin
                     from: 1
-                    to: 32768
+                    to: AppSession.maxDocumentDimension
                     editable: true
                     Layout.fillWidth: true
                     Accessible.name: qsTr("Canvas width in pixels")
@@ -96,7 +96,7 @@ Dialog {
                 ThemedSpinBox {
                     id: heightSpin
                     from: 1
-                    to: 32768
+                    to: AppSession.maxDocumentDimension
                     editable: true
                     Layout.fillWidth: true
                     Accessible.name: qsTr("Canvas height in pixels")

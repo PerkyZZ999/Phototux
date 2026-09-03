@@ -55,7 +55,7 @@ Owner asked for agent decisions beyond the tech stack. Summary: **handbook owns 
 | GPU-first + CPU reference | **Handbook** | Interactive path stays zero-copy GPU; add CPU reference for tests / degraded |
 | Tiling / pyramid | **Handbook (later)** | Design for it; implement when large-doc evidence demands ([DR-006](Decision-Register.md) Provisional knobs) |
 | Crate topology | **Codebase** | Stay coarse; grow modules inside crates ([DR-025](Decision-Register.md#dr-025--crate-topology-coarse-workspace)) |
-| Single vs multi document | **Codebase (v1)** | Single document until explicit multi-doc project ([DR-024](Decision-Register.md#dr-024--single-document-session-v1)) |
+| Single vs multi document | **Codebase (v1)** | Single document until explicit multi-doc project ([DR-024](Decision-Register.md#dr-024--document-session-model)) |
 | Workspace / docking / panels | **Handbook** | Semantic models + descriptors; Qt implements presentation |
 | Toolbars / shortcuts / context menus | **Handbook** | Action/command IDs drive chrome |
 | Preferences / themes | **Handbook** | Services + dialogs; tokens in `qml/Theme.qml` + ch.25 |
@@ -177,7 +177,7 @@ Order is priority, not parallel forever.
 | Slice | Gate | Work |
 | --- | --- | --- |
 | 5.1 Tiling / sparse residency | Large-doc benchmark fails without it | Tile store + pyramid |
-| 5.2 Multi-document tabs | Explicit amend of [DR-024](Decision-Register.md#dr-024--single-document-session-v1) | Session registry + tabs |
+| 5.2 Multi-document tabs | Explicit amend of [DR-024](Decision-Register.md#dr-024--document-session-model) | Session registry + tabs |
 | 5.3 Plugin capability seams | Phase 1 solid; product need | Manifests only; ABI still deferred |
 | 5.4 History spill / budgets | Memory pressure evidence | Retention policy UX |
 

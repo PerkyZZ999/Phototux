@@ -13,11 +13,24 @@ Five panels dock down the right-hand side:
 |---|---|
 | **Properties** | Everything about the active layer — kind, transform, align, masks, styles, and the controls specific to a text, shape, adjustment or smart-object layer. A **Document** tab beside it holds the document's own properties. |
 | **Navigator** | A thumbnail of the whole document with a rectangle marking what is on screen. |
-| **Swatches** | Saved colours. |
+| **Swatches** | The foreground and background colours, and a palette. |
 | **Layers** | The stack, with blend mode, opacity and locks. |
 | **History** | Every step you have taken, including the undone ones. |
 
 **Window** in the menu bar toggles each one by name.
+
+### Foreground and background colours
+
+The Swatches panel carries Photoshop's colour widget: two overlapping squares,
+a swap arrow at the top right, and the black-and-white default mark at the
+bottom left. Click either square to select it — the ring shows which one you
+are editing — and the hex field and the palette below then set that one. So
+setting the background is a click on the background square, not a swap, an
+edit and a swap back.
+
+Type an unparseable value into the hex field and it snaps back to the colour
+that is actually set, rather than leaving what you typed on screen.
+
 
 ### Rearranging
 

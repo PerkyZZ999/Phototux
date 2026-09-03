@@ -949,3 +949,26 @@ Every reject carries machine reason codes. Local traces include durations per pi
 - Downstream: `28-Extension-Architecture.md`
 - Downstream: `29-Reliability-and-Failure-Handling.md`
 - Downstream: `31-Performance-and-Concurrency.md`
+
+## Enablement is a promise, not a hint
+
+An action's enablement tag says when the entry is live. Six of them claimed
+only `has_document` while the command behind them refused anything narrower,
+so the menu offered Ungroup with no group selected, Bake Text on a raster
+layer, Apply Mask on a layer with no mask, and answered each click with a
+sentence telling the user what they had just been allowed to ask for. Merge
+Group already had this right with `group_selected`; the rest now match:
+`group_selected` for Ungroup, `has_mask` for Apply Mask, Mask to Selection and
+Copy Layer Mask, and new `text_layer` / `shape_layer` tags for Bake Text and
+Rasterize Shape.
+
+A refusal is worth keeping only when it *teaches* — Merge Down's refusal names
+Merge Group, which is somewhere to go. "This is not a text layer" is not.
+
+The kind-gated tags compare `active_layer_kind` against a literal, and that
+literal comes from `LayerKind::as_str` in a crate the shell does not consult.
+Renaming a kind, or writing `smart object` for `smart-object`, leaves the
+comparison silently false and the entry greyed out forever — which looks
+exactly like an entry that is correctly disabled.
+`every_kind_an_enablement_names_is_a_kind_a_layer_reports` fails the build on
+that.
