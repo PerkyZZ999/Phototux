@@ -67,3 +67,10 @@ web/*/.netlify/
 npm-debug.log*
 pnpm-debug.log*
 yarn-error.log*
+
+# Announcement drafts. These are one-off posts written for a launch — an Arch
+# Forums thread, a release note — that get pasted somewhere and are done. They
+# were tracked briefly and removed upstream; they stay on disk so the wording
+# survives for the next release, and out of git so drafts nobody will read
+# again do not accumulate in the history.
+announcements/
