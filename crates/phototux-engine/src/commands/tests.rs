@@ -1854,3 +1854,106 @@ fn merge_down_names_merge_group_when_it_refuses_one() {
         "the refusal should name Merge Group: {error:?}"
     );
 }
+
+/// The stack ids, bottom first.
+fn stack_of(s: &SessionState) -> Vec<LayerId> {
+    s.graph
+        .as_ref()
+        .expect("graph")
+        .layers()
+        .iter()
+        .map(|l| l.id)
+        .collect()
+}
+
+/// Grouping non-adjacent layers has to gather them.
+///
+/// Setting parents and leaving the stack alone left a non-member sitting
+/// between two members. The panel indents by nesting, so that drew a group
+/// whose contents were interrupted by a layer not in it — and no group can
+/// composite as a unit while something else is stacked through the middle.
+#[test]
+fn grouping_gathers_members_that_were_not_adjacent() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    assert_eq!(before.len(), 5, "background, seeded layer, and three added");
+    // Skip the layer directly below the top one.
+    let (low, high) = (before[1], before[4]);
+    let passed_over = before[3];
+    s.selected_layer_ids = vec![low, high];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+
+    let after = stack_of(&s);
+    let group = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("the group is active");
+    let at = |id: LayerId| after.iter().position(|x| *x == id).expect("in the stack");
+    assert_eq!(
+        at(high),
+        at(low) + 1,
+        "the members ended up adjacent to each other"
+    );
+    assert_eq!(at(group), at(high) + 1, "with the group directly above");
+    assert!(
+        at(passed_over) < at(low) || at(passed_over) > at(group),
+        "the layer that was between them is now outside the run"
+    );
+}
+
+/// Gathering closes gaps; it does not restack the layers it is grouping.
+#[test]
+fn gathering_keeps_the_members_in_their_own_order() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    let (low, high) = (before[1], before[4]);
+    s.selected_layer_ids = vec![high, low];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let after = stack_of(&s);
+    let at = |id: LayerId| after.iter().position(|x| *x == id).expect("in the stack");
+    assert!(
+        at(low) < at(high),
+        "the one that was lower is still the lower of the two, whatever \
+         order the selection was made in"
+    );
+}
+
+/// The gather is part of the same undo step as the group itself.
+#[test]
+fn undoing_a_group_puts_the_stack_back() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[1], before[4]];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    assert_ne!(stack_of(&s), before, "grouping moved something");
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+    assert_eq!(
+        stack_of(&s),
+        before,
+        "undo restores the order as well as removing the group"
+    );
+}
+
+/// Layers that were already adjacent must not be moved at all.
+#[test]
+fn grouping_adjacent_layers_leaves_the_stack_where_it_was() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[3], before[4]];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let after = stack_of(&s);
+    assert_eq!(
+        after[..3],
+        before[..3],
+        "everything below the run is untouched"
+    );
+    assert_eq!(after[3], before[3]);
+    assert_eq!(after[4], before[4]);
+}

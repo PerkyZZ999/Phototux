@@ -913,19 +913,10 @@ impl SessionState {
             )));
         }
 
-        let insert_at = graph
-            .index_of(targets[targets.len() - 1])
-            .map(|i| i + 1)
-            .unwrap_or(graph.layer_count())
-            .min(graph.layer_count());
-
         // `None`, not `Some("Group")`: the graph numbers its own default
         // names, and naming it here made every group in a document "Group".
         let group_id = graph.add_group_top(None)?;
-        let _ = graph.move_layer(group_id, insert_at);
-        let group_index = graph.index_of(group_id).unwrap_or(0);
-        let parent_cmds = reparent_into_group(graph, &targets, group_id)?;
-
+        let group_index = graph.layer_count().saturating_sub(1);
         let mut batch = vec![crate::GraphCommand::AddLayer {
             id: group_id,
             index: group_index,
@@ -934,7 +925,16 @@ impl SessionState {
                 .cloned()
                 .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?,
         }];
-        batch.extend(parent_cmds);
+        batch.extend(reparent_into_group(graph, &targets, group_id)?);
+
+        let prev: Vec<LayerId> = graph.layers().iter().map(|l| l.id).collect();
+        let next = grouped_stack_order(graph, &targets, group_id);
+        if next != prev {
+            if !graph.reorder_stack(&next) {
+                return Err(CommandError::Rejected("could not gather the group"));
+            }
+            batch.push(crate::GraphCommand::SetStackOrder { prev, next });
+        }
 
         graph.bump_generation();
         let generation = graph.generation;
@@ -3337,6 +3337,49 @@ fn rollback_parent_cmds(graph: &mut crate::DocumentGraph, cmds: &[crate::GraphCo
             let _ = graph.set_parent(*id, *prev);
         }
     }
+}
+
+/// Where the stack lands once `targets` are gathered under `group_id`.
+///
+/// Grouping used to set parents and leave the stack alone, so grouping layers
+/// that were not adjacent left a non-member sitting between two members. The
+/// panel indents by nesting, which made that draw as a group whose contents
+/// were interrupted by a layer that is not in it — an arrangement the order
+/// does not actually have, and one no group could ever composite as a unit.
+///
+/// Photoshop gathers them instead, and puts the run where the topmost selected
+/// layer was. Members keep their relative order: grouping must not silently
+/// restack the layers it is grouping, only close the gaps between them.
+fn grouped_stack_order(
+    graph: &crate::DocumentGraph,
+    targets: &[LayerId],
+    group_id: LayerId,
+) -> Vec<LayerId> {
+    let order: Vec<LayerId> = graph.layers().iter().map(|l| l.id).collect();
+    let members: Vec<LayerId> = order
+        .iter()
+        .copied()
+        .filter(|id| targets.contains(id))
+        .collect();
+    let top = order.iter().rposition(|id| targets.contains(id));
+    let mut next = Vec::with_capacity(order.len());
+    let mut placed = false;
+    for (i, id) in order.iter().copied().enumerate() {
+        if id == group_id || targets.contains(&id) {
+            continue;
+        }
+        if !placed && top.is_some_and(|t| i > t) {
+            next.extend(members.iter().copied());
+            next.push(group_id);
+            placed = true;
+        }
+        next.push(id);
+    }
+    if !placed {
+        next.extend(members);
+        next.push(group_id);
+    }
+    next
 }
 
 fn reparent_into_group(

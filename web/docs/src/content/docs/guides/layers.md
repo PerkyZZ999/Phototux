@@ -83,6 +83,11 @@ Three buttons under the blend row:
 **Layer ▸ New Group** puts the selected layers into a folder.
 **Layer ▸ Ungroup** takes them out again.
 
+Layers that were not next to each other are gathered together under the group,
+keeping their order relative to one another, and the group lands where the
+topmost selected layer was. Anything that was between them moves out of the
+run. One undo puts back both the group and the order.
+
 A group has its own blend mode and opacity. Set it to **Pass Through** — the
 default — and the layers inside composite as if the group were not there. Set
 it to anything else and the group is composited on its own first, then blended

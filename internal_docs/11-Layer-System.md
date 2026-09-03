@@ -400,6 +400,23 @@ from a raster layer. A test asserts raster is the only unbadged kind and that no
 two kinds share a badge or a label. `LayerKind` also owns each kind's display
 name and Phosphor stem, for the same reason and checked the same way.
 
+### Grouping gathers its members
+
+Grouping used to set parents and leave the stack alone, so grouping layers that
+were not adjacent left a non-member stacked between two members. With the panel
+indenting by nesting that draws a group whose contents are interrupted by a
+layer not in it — an arrangement the order does not have, and one no group
+could ever composite as a unit, because the interloper blends in the middle of
+what should be a single result.
+
+`cmd_layer_group` now gathers them the way Photoshop does: the members become a
+contiguous run at the position of the topmost selected layer, with the group
+directly above. Members keep their relative order — grouping closes the gaps
+between them and must not silently restack them. The gather rides in the same
+`GraphCommand::Batch` as the group itself, as a `SetStackOrder`, so one undo
+puts back both the group and the order. Layers that were already adjacent
+produce no reorder entry at all.
+
 ### A hidden group hides its contents
 
 `Layer::visible` is one layer's flag; what the canvas shows is that flag *and*
