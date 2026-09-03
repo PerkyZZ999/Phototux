@@ -26,7 +26,20 @@ pub const MAX_LAYERS: usize = 16;
 /// An unrecognised key falls back to the kind name rather than being refused:
 /// a document written by a later version can carry a shape kind this one does
 /// not know, and refusing to name it would refuse to open the file.
-fn shape_stem(content: &ShapeContent) -> &'static str {
+fn shape_stem(content: &ShapeContent) -> &str {
+    // Every preset builds its path under the preset's own name — "Star",
+    // "Arrow", "Rounded Rectangle" — while `kind` deliberately collapses those
+    // three onto the geometry the renderer cares about, "polygon". Naming the
+    // layer from `kind` alone therefore called a star a Polygon: the user
+    // picked Layer > Shape > Star and got "Polygon 1".
+    //
+    // The path name is the preset's answer to the same question and needs no
+    // second list here to stay in step with `ShapePreset`. `kind` remains the
+    // fallback for content that did not come from a preset — a `.ptx` written
+    // before paths carried names, or an import that fills in geometry alone.
+    if !content.path.name.is_empty() {
+        return &content.path.name;
+    }
     match content.kind.as_str() {
         "rect" => "Rectangle",
         "ellipse" => "Ellipse",
@@ -1133,6 +1146,29 @@ mod tests {
             "Shape 1",
             "a kind from a later version is named rather than refused"
         );
+    }
+
+    /// Three presets share the `polygon` kind, and naming from the kind alone
+    /// called all three "Polygon": picking Layer > Shape > Star produced
+    /// "Polygon 1". The preset's own name for its path is what the user asked
+    /// for.
+    #[test]
+    fn a_preset_shape_is_named_for_the_preset_the_user_picked() {
+        let mut g = DocumentGraph::new(DocumentSize::new(640, 480));
+        let named = |g: &mut DocumentGraph, preset: crate::ShapePreset| {
+            let id = g
+                .add_shape_top(None, preset.content(640, 480))
+                .expect("shape");
+            g.get(id).expect("shape").name.clone()
+        };
+        assert_eq!(named(&mut g, crate::ShapePreset::Star), "Star 1");
+        assert_eq!(named(&mut g, crate::ShapePreset::Arrow), "Arrow 1");
+        assert_eq!(
+            named(&mut g, crate::ShapePreset::RoundedRect),
+            "Rounded Rectangle 1"
+        );
+        assert_eq!(named(&mut g, crate::ShapePreset::Polygon), "Polygon 1");
+        assert_eq!(named(&mut g, crate::ShapePreset::Ellipse), "Ellipse 1");
     }
 
     /// The bug this exists for: the compositor takes the layer list verbatim,

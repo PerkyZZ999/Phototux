@@ -264,7 +264,11 @@ impl ShapeContent {
 impl Default for ShapeContent {
     fn default() -> Self {
         Self {
-            path: crate::paths::VectorPath::polyline("Shape", Vec::new(), true),
+            // Unnamed: the default is a placeholder with no anchors, and
+            // `shape_stem` reads a path's name as the user's word for what the
+            // shape is. A stand-in name here would make every hand-built
+            // content claim to be called "Shape".
+            path: crate::paths::VectorPath::polyline("", Vec::new(), true),
             fill_rgba: [0.2, 0.45, 0.9, 1.0],
             stroke_rgba: [0.0, 0.0, 0.0, 1.0],
             stroke_width: 2.0,

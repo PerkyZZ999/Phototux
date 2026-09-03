@@ -78,7 +78,13 @@ they had.
 - [ ] **H-18** Clone stamp anchors on Alt-click and copies from the anchor
 - [x] **H-19** Fill and Gradient commit to the active layer — **the bucket's own colour field was wrong**: it showed and edited a *fill layer's* colour while the bucket poured the foreground. Fixed and guarded
 - [ ] **H-20** Eyedropper picks into the foreground swatch
-- [ ] **H-21** Text tool creates an editable text layer; Bake Text rasterizes it
+- [~] **H-21** Text tool creates an editable text layer; Bake Text rasterizes it
+      — the layer is created and is editable from both the on-canvas frame and the
+      Character panel (they mirror each other live), and Bake Text converts it to a
+      raster layer with the notice "Text baked to pixels — editable text discarded".
+      Two defects: the creating click's position is discarded ([QA-007](QA_ISSUES.md)),
+      and the bake uses a 5×7 bitmap alphabet rather than the previewed face
+      ([QA-008](QA_ISSUES.md)).
 - [ ] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors
 
 ## 1.3 Layers and masks

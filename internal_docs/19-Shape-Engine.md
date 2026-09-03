@@ -44,6 +44,8 @@ Nine presets on `ShapePreset`, which owns each one's wire key, label, geometry, 
 
 Star, arrow and rounded rectangle are all closed polygons as far as the path is concerned; they differ in their anchors, not in their kind, so they share `kind_key() == "polygon"`.
 
+That sharing is why a new shape layer is **named from its path, not its kind**. `document::shape_stem` reads `content.path.name` — which each preset sets to its own name when it builds the geometry — and falls back to the `kind` map only for content that did not come from a preset, such as a `.ptx` written before paths carried names. Naming from `kind` alone made all three polygon presets "Polygon": picking Layer ▸ Shape ▸ Star produced "Polygon 1". `a_preset_shape_is_named_for_the_preset_the_user_picked` holds the star, arrow and rounded rectangle cases against that.
+
 The rounded rectangle's corners are **sampled arcs**, four anchors each, not Béziers: the path model carries anchors and controls that the renderer does not yet read as curves, and a visibly wrong curve is worse than an honest polyline. Its radius is clamped to half the shorter side, because a larger one folds the outline inside out.
 
 ## Gradient shapes

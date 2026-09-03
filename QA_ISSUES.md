@@ -25,6 +25,8 @@ the entry says so rather than inventing one.
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
+| [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
+| [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
 
 ---
 
@@ -446,3 +448,93 @@ that the window stopped responding for minutes on an ordinary radius — and
 moving selection morphology onto the file worker, with the cancel path
 `a_running_file_operation_can_be_cancelled` already guards, remains worth
 doing.
+
+---
+
+## QA-007 — The Text and Shape tools discard the click that creates the layer
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `qml/CanvasInput.qml`, `phototux_engine` — `commands.rs`, `layer.rs` |
+| **Checklist item** | [H-21](QA_CHECKLIST.md), [H-22](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** With the Text tool active, clicking anywhere on the canvas
+creates a text layer whose frame is at the document origin, not at the click.
+Clicking at the bottom-right of a 1920×1080 document puts the frame at the top
+edge, a thousand pixels away from the pointer. The Shape tool behaves the same
+way: `rect` presets land at a fixed position regardless of where the drag
+started.
+
+Photoshop places the type insertion point where the Type tool is clicked, and
+that is this project's stated placement rule. Missing it costs a second gesture
+every time — create, then drag the frame back to where the click already said
+it should go.
+
+**Steps to reproduce.**
+
+1. New 1080p document.
+2. Press `t` for the Text tool.
+3. Click near the bottom-right of the canvas.
+4. The text frame appears along the top edge of the document.
+
+**Root cause.** The position never leaves QML. `CanvasInput.qml` has the
+document coordinates in hand — it computes `screenToDocX(mouse.x)` for the path
+tool three lines further down — but the text branch calls
+`AppSession.addTextLayer(qsTr("Text"))`, a slot whose whole signature is the
+string. `CommandArgs::TextCreate` carries only `text`, and `cmd_text_create`
+builds its content from `TextContent::default()`, whose origin is `(0, 0)`.
+Nothing downstream could honour a click position because nothing upstream ever
+sends one.
+
+**Why not a quick fix.** The coordinate has to be threaded through four places
+that each have their own guard: the QML call site, the `#[qslot]` signature,
+the `CommandArgs` variant, and `args_for_action` — which supplies arguments for
+the same command when it is invoked from the menu rather than the canvas, and
+so needs a defensible default rather than a click. `command_conformance.rs`
+holds `every_action_builds_arguments_its_command_accepts` over that last pair,
+so the change is safe to make but is not a one-line edit, and the same work
+should cover the Shape tool rather than being done twice.
+
+## QA-008 — Bake Text rasterizes in a bitmap face, not the one the editor shows
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `phototux_engine` — `text_bake.rs` |
+| **Checklist item** | [H-21](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** The on-canvas text editor and the read-only preview both render
+in the layer's chosen family — Noto Sans at 24 pt by default, with real
+lowercase and proportional advances. `Layer ▸ Bake Text` produces something
+else: a blocky monospaced 5×7 bitmap alphabet with no lowercase. The user sees
+one thing while the text is editable and a visibly different thing the instant
+it becomes pixels, and the bake is not undoable back into an editable layer
+without stepping through history.
+
+**Steps to reproduce.**
+
+1. New 1080p document, press `t`, click the canvas.
+2. Type `PhotoTux QA` into the frame — it renders in Noto Sans.
+3. `Layer ▸ Bake Text`.
+4. The canvas now shows `PHOTOTUX QA` in a bitmap face.
+
+**Root cause.** `text_bake.rs` says so in its own first lines: it "uses a
+built-in 5×7 ASCII glyph set so bake works without Qt font shaping". That was
+the right call for the crate boundary — `phototux_engine` may not link Qt, and
+the bake had to exist for headless tests before any shaping path did. It is
+correct as a reference rasterizer. It is not correct as the thing a user gets
+when they click Bake Text.
+
+**Why not a quick fix.** Shaping the layer's actual face means either a text
+adapter in `phototux_ui` (which may use Qt) that rasterizes and hands the host
+a buffer, leaving `bake_text_rgba8` as the headless fallback, or a pure-Rust
+shaping stack in the engine. The first is a smaller change and matches
+handbook 18's "portable core defines text semantics, Linux-native adapters
+resolve fonts" split; it is still a new adapter with its own tests, not an
+edit. Handbook 18 describes the full engine, and the
+[gap analysis](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) does
+not currently record that the shipping bake ignores the selected face — that
+omission is part of this issue.
