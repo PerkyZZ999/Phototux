@@ -673,22 +673,33 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .command(command_id::VIEW_ZOOM_TO_FIT)
         .key("Ctrl+0")
         .icon("corners-in"),
+        // These four icons were packaged into the qrc and referenced by
+        // nothing — they are the toggles they were cut for, and the menu draws
+        // an icon when an entry has one. A View menu where half the entries
+        // carry a glyph and half do not reads as unfinished rather than as a
+        // distinction.
         act(
             "action.view.toggle-guides",
             "Show &Guides",
             "view",
             "always",
         )
-        .host("view.toggle_guides"),
-        act("action.view.toggle-grid", "Show G&rid", "view", "always").host("view.toggle_grid"),
+        .host("view.toggle_guides")
+        .icon("rectangle-dashed"),
+        act("action.view.toggle-grid", "Show G&rid", "view", "always")
+            .host("view.toggle_grid")
+            .icon("grid-four"),
         act(
             "action.view.toggle-rulers",
             "Show &Rulers",
             "view",
             "always",
         )
-        .host("view.toggle_rulers"),
-        act("action.view.toggle-snap", "Sna&p", "view", "always").host("view.toggle_snap"),
+        .host("view.toggle_rulers")
+        .icon("ruler"),
+        act("action.view.toggle-snap", "Sna&p", "view", "always")
+            .host("view.toggle_snap")
+            .icon("magnet"),
         act(
             "action.view.guide-v",
             "New Vertical Guide",

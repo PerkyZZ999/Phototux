@@ -96,7 +96,6 @@ set(ICON_NAMES
     magnifying-glass-minus
     magnifying-glass-plus
     magnet
-    minus
     minus-circle
     minus-square
     monitor

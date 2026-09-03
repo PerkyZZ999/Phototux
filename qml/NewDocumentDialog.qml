@@ -160,7 +160,7 @@ Popup {
                         spacing: Theme.spaceMd
 
                         Label {
-                            text: qsTr("Blank Document Presets")
+                            text: qsTr("Blank document presets")
                             color: Theme.colorOnSurfaceVariant
                             font.pixelSize: Theme.fontHeadlineSm
                             font.weight: Font.DemiBold

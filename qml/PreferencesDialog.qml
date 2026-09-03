@@ -415,7 +415,7 @@ Dialog {
                 onClicked: AppSession.restoreLastSavedWorkspace()
             }
             ThemedButton {
-                text: qsTr("Reset Workspace to Essentials")
+                text: qsTr("Reset workspace to Essentials")
                 onClicked: AppSession.resetWorkspace()
             }
 
