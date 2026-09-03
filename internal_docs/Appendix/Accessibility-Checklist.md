@@ -17,8 +17,8 @@ Executable checklist for PhotoTux accessibility conformance against [29 — Acce
 | --- | --- | --- |
 | A1 | Every actionable control has a semantic node with stable ID derived from owner+role, not widget pointer or coordinates | tree dump |
 | A2 | Application → window → workspace → regions hierarchy matches reading order, not construction order | hierarchy fixture |
-| A3 | Decorative wrappers/icons excluded unless they convey state | review |
-| A4 | Virtualized lists expose collection size/position and stable active descendant | layer list test |
+| A3 | Decorative wrappers/icons excluded unless they convey state | review — layers panel clipping marker carries `Accessible.ignored: !clips_to_below`; `visible: false` alone left it in the tree as a zero-sized node named "Clipped to layer below" on layers that were not clipped (2026-09-03) |
+| A4 | Virtualized lists expose collection size/position and stable active descendant | layer list — the `ListView` is `Accessible.List`, each row `Accessible.ListItem`, and every row's description ends "N of M". Verified over AT-SPI (2026-09-03) |
 | A5 | Hidden/collapsed panels expose expandable representative, not ghost actionable subtrees | panel tests |
 | A6 | Critical status remains reachable when visual overflow collapses | status region test |
 | A7 | Extension UI contributions provide names/roles/states or are rejected | plugin harness |
@@ -30,7 +30,7 @@ Executable checklist for PhotoTux accessibility conformance against [29 — Acce
 | B1 | Name source order: visible label → descriptor → type+sanitized user name → generic fallback | name oracle |
 | B2 | Placeholder/hint is not the accessible name | form tests |
 | B3 | Tooltip is not sole name | icon button tests |
-| B4 | Ambiguous repeats include context (“Visibility, Layer 3”) | layer tree |
+| B4 | Ambiguous repeats include context (“Visibility, Layer 3”) | layer tree — eye buttons read "Hide Layer 1" / "Layer 2 — hidden with its group"; row descriptions carry kind, visibility, nesting, mask and clipping (2026-09-03) |
 | B5 | Descriptions carry consequence/disabled reason/units/shortcut only when useful | spot check |
 | B6 | Values expose range, units, text form, mixed/indeterminate, editability | slider/spin |
 | B7 | Private paths/hidden metadata not exposed merely for diagnostics | privacy review |
@@ -43,7 +43,7 @@ Executable checklist for PhotoTux accessibility conformance against [29 — Acce
 | C1 | Roles drawn from documented families (menus, toolbars, trees, tabs, dialogs, canvas summary, etc.) | role map |
 | C2 | Custom concepts use closest standard role + attributes; no mislabeling for phrasing | review |
 | C3 | States include enabled, focused, selected, expanded, checked/pressed, busy, invalid, required, read-only, modal, multiselectable, indeterminate as applicable | state matrix |
-| C4 | Selected ≠ focused ≠ active edit target; all independently exposed | layer/mask scenario |
+| C4 | Selected ≠ focused ≠ active edit target; all independently exposed | layer rows expose `selected` from the object-selection set and `focused` from the single active layer, separately. AT-SPI over a four-row stack: the active group reads `focused, selectable, selected`, the rest `selectable` only (2026-09-03) |
 | C5 | Busy/progress exposed for ops >250 ms | job UI |
 
 ## D. Focus

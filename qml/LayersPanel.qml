@@ -37,6 +37,14 @@ ListView {
     /// shell, so this reports where and for which layer rather than opening it.
     signal contextMenuRequested(int stackIndex, var origin, real localX, real localY)
 
+    // Assistive technology saw a flat run of buttons and labels here: no list,
+    // no rows, and nothing saying which layer was selected or active. The
+    // conformance matrix asks for a collection with position and a stable
+    // active descendant (A4), and for selected, focused and the active edit
+    // target to be independently exposed (C4).
+    Accessible.role: Accessible.List
+    Accessible.name: qsTr("Layers")
+
     clip: true
     spacing: 0
     reuseItems: true
@@ -83,6 +91,40 @@ ListView {
         readonly property bool onCanvas: layer_visible && !hidden_by_group
         readonly property bool hasMask: mask_flag !== 0
         readonly property bool maskEnabled: mask_flag === 1
+        // One node per row, so a screen reader reads "Layer 2, raster layer,
+        // hidden with its group, 3 of 5" instead of three unrelated labels.
+        // Reads model roles and this delegate's own properties only — a
+        // binding here that reached `AppSession` would re-enter a borrowed
+        // session, which is the trap qml/AGENTS.md describes.
+        Accessible.role: Accessible.ListItem
+        Accessible.name: name
+        Accessible.description: {
+            const bits = [kind_label]
+            if (hidden_by_group)
+                bits.push(qsTr("hidden with its group"))
+            else if (!layer_visible)
+                bits.push(qsTr("hidden"))
+            if (depth > 0)
+                bits.push(qsTr("inside a group"))
+            if (hasMask)
+                bits.push(maskEnabled ? qsTr("masked") : qsTr("mask disabled"))
+            if (clips_to_below)
+                bits.push(qsTr("clipped to the layer below"))
+            // Position last, the way a screen reader reads a list. Derived
+            // from `stack_index` rather than taking `index` as a required
+            // property: the delegate's required properties are checked against
+            // the model's roles, and `index` is not one. Rows are emitted
+            // top-first while `stack_index` counts from the bottom, so the
+            // display position is the count minus it.
+            bits.push(qsTr("%1 of %2").arg(root.count - stack_index).arg(root.count))
+            return bits.join(", ")
+        }
+        Accessible.selectable: true
+        Accessible.selected: selected
+        // The single active layer, which is what edits land on — distinct from
+        // being one of several selected.
+        Accessible.focused: active
+
         color: active || selected ? Theme.surfaceRaised
                : (layerHover.hovered ? Theme.surfaceContainer : "transparent")
         border.color: active ? Theme.primary
@@ -244,6 +286,10 @@ ListView {
                 source: root.iconUrl("arrow-elbow-down-right")
                 size: 14
                 color: Theme.primary
+                // `visible: false` is not enough on its own here — the item
+                // still reached the AT-SPI tree as a zero-sized node named
+                // "Clipped to layer below", on layers that are not clipped.
+                Accessible.ignored: !clips_to_below
                 Accessible.name: qsTr("Clipped to layer below")
                 ThemedToolTip {
                     visible: clipHover.hovered

@@ -743,3 +743,31 @@ Accessibility is not a side channel for reading undisclosed document bytes. Canv
 - [28 — UX Guidelines](28-UX-Guidelines.md) — discoverability, keyboard-first operation, and error communication.
 - [Glossary](Appendix/Glossary.md) — canonical terminology.
 - [Requirement Keywords](Appendix/Requirement-Keywords.md) — normative interpretation.
+
+## The layers panel is a list, not a run of labels
+
+Assistive technology saw the layers panel as a flat sequence: a button called
+"Hide Layer 1", a static text "Raster layer", a static text "Layer 1", and the
+same again for the next row. No list, no rows, nothing saying which layer was
+selected or which one edits would land on — and a zero-sized node announcing
+"Clipped to layer below" on every layer, clipped or not, because `visible:
+false` does not by itself keep an item out of the AT-SPI tree.
+
+The `ListView` is `Accessible.List` and each row is an `Accessible.ListItem`
+whose name is the layer's name and whose description carries the rest: kind,
+whether it is hidden and whether that is its group's doing, nesting, mask
+state, clipping, and the position as "N of M". Position is derived from
+`stack_index` rather than taking `index` as a required property, because the
+delegate's required properties are checked against the model's roles and
+`index` is not one; rows are emitted top-first while `stack_index` counts from
+the bottom, so the display position is the count minus it.
+
+Selected and focused are exposed separately, which is the point of C4:
+`Accessible.selected` follows the object-selection set and `Accessible.focused`
+the single active layer, because a layer can be one of several selected without
+being the one edits land on.
+
+Every binding here reads model roles and the delegate's own properties. A
+binding that reached `AppSession` would re-enter a borrowed session inside the
+host slot that changed the row — handbook 32, item models are the synchronous
+case.
