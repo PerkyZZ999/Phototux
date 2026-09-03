@@ -115,10 +115,10 @@ they had.
 
 ## 1.6 Non-GUI surfaces
 
-- [ ] **H-46** `rust-tc quick` and `rust-tc doctor` pass from a clean tree
-- [ ] **H-47** `scripts/check-docs-links.py` reports zero broken links
-- [ ] **H-48** Both Astro sites build, and the docs search index generates
-- [ ] **H-49** The git pre-commit hook installs and runs
+- [x] **H-46** `rust-tc quick` and `rust-tc doctor` pass from a clean tree — 697 tests
+- [x] **H-47** `scripts/check-docs-links.py` reports zero broken links — 70 pages
+- [x] **H-48** Both Astro sites build, and the docs search index generates — **failed first**: two malformed `<img>` tags broke the landing build; fixed, and `scripts/check-web.sh` added so it cannot recur
+- [x] **H-49** The git pre-commit hook installs and runs — `core.hooksPath=.githooks`, runs on every commit in this pass
 
 ---
 
@@ -232,4 +232,4 @@ they had.
 
 | Date | Scope | Result |
 |---|---|---|
-| — | — | pass not yet started |
+| 2026-09-03 | §1.6 non-GUI surfaces | 4/4 pass; H-48 failed first and was fixed |

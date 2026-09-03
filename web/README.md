@@ -25,6 +25,12 @@ Requires Node 22.12 or newer and pnpm. Both sites are Astro 7 with no
 framework islands, so the output is HTML, CSS and a few kilobytes of vanilla
 JavaScript.
 
+`./scripts/check-web.sh` from the repository root runs the same build, and
+installs dependencies first on a cold checkout. Run it after touching anything
+under `web/`: neither `rust-tc doctor` nor `check-docs-links.py` compiles Astro,
+so a template that does not parse is invisible to every other gate. The landing
+page shipped for a day with two malformed `<img>` tags for exactly that reason.
+
 ## Why one design package
 
 The sites share `@phototux/design`: colour, type, space and shape tokens, the

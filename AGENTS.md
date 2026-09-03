@@ -25,6 +25,7 @@ rust-tc doctor                          # full local Rust-Toolchain gate
 CHECK_SONAR=0 ./scripts/check-rust.sh --full   # rust-tc doctor only
 ./scripts/check-sonar.sh                # Clippy JSON + scanner + quality gate
 python3 scripts/check-docs-links.py      # internal_docs + web/docs link check
+./scripts/check-web.sh                   # both Astro sites still build
 ```
 
 One-time: `./scripts/install-git-hooks.sh`. Host packages, crate map, and the rest of the quality matrix: [32 — Developer Guide](internal_docs/32-Developer-Guide.md#build-check-and-test-commands).
