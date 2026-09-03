@@ -82,6 +82,11 @@ default — and the layers inside composite as if the group were not there. Set
 it to anything else and the group is composited on its own first, then blended
 as a unit.
 
+The layers inside a group are indented in the panel, with a hairline running
+down beside them, and the indent deepens a level for each group they sit
+inside. Visibility toggles keep their own column at the left edge, so the eyes
+stay in one line however deep the nesting runs. Groups cannot be collapsed yet.
+
 <div class="callout callout-note">
 
 **Merging does not cross a group boundary.** Merge Down and Merge Visible
@@ -95,7 +100,8 @@ effect. To flatten a group, use **Layer ▸ Merge Group** — Photoshop shares
 ## Clipping masks
 
 **Layer ▸ Create Clipping Mask** confines a layer to the shape of the layer
-directly below it. The clipped layer's row indents in the panel.
+directly below it. The clipped layer's row is marked with a bent arrow pointing
+down at the layer it is clipped to.
 
 This is how you apply an adjustment to one layer instead of to everything
 under it: put the adjustment above the layer, then clip it.

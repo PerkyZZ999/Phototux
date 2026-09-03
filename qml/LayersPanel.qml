@@ -43,6 +43,7 @@ ListView {
     cacheBuffer: Theme.toolHit * 4
     model: AppSession.layerModel
     delegate: Rectangle {
+        id: layerRow
         width: root.width
         height: 36
 
@@ -62,7 +63,17 @@ ListView {
         // commands that take one. Rows arrive already in
         // display order, so nothing here inverts an index.
         required property int stack_index
+        // Groups this layer is inside. Rows are a flat list —
+        // a group is a parent, not a container — so without
+        // this a grouped stack and an ungrouped one draw
+        // identically.
+        required property int depth
 
+        // Photoshop indents a group's contents and leaves the
+        // visibility toggle in its own fixed column, so the
+        // eyes stay in one line down the panel however deep
+        // the nesting runs. Only what follows them moves.
+        readonly property int indent: depth * Theme.spaceMd
         readonly property bool hasMask: mask_flag !== 0
         readonly property bool maskEnabled: mask_flag === 1
         color: active || selected ? Theme.surfaceRaised
@@ -103,9 +114,27 @@ ListView {
             }
         }
 
+        // One hairline per level of nesting, in the gap the indent opens.
+        //
+        // The indent on its own is twelve pixels of nothing, which at a single
+        // level reads as a row that failed to line up rather than as a row
+        // inside something. The rails make the same twelve pixels say which
+        // group the row belongs to, and they stack when groups nest.
+        Repeater {
+            model: layerRow.depth
+            delegate: Rectangle {
+                required property int index
+                x: 28 + (index * Theme.spaceMd) + Math.round(Theme.spaceMd / 2)
+                width: 1
+                height: layerRow.height
+                color: Theme.borderEffective
+                opacity: 0.35
+            }
+        }
+
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 28
+            anchors.leftMargin: 28 + layerRow.indent
             anchors.rightMargin: Theme.spaceSm
             spacing: Theme.spaceSm
 
@@ -220,7 +249,7 @@ ListView {
         HoverHandler { id: layerHover }
         MouseArea {
             anchors.fill: parent
-            anchors.leftMargin: 48
+            anchors.leftMargin: 48 + layerRow.indent
             z: -1
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: function (mouse) {

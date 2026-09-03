@@ -50,6 +50,8 @@ pub struct LayerItem {
     pub active: bool,
     /// The engine-order index this row came from, for commands that take one.
     pub stack_index: i32,
+    /// Groups this layer is inside; the delegate indents by it.
+    pub depth: i32,
 }
 
 impl From<phototux_engine::LayerRow> for LayerItem {
@@ -64,6 +66,7 @@ impl From<phototux_engine::LayerRow> for LayerItem {
             selected: row.selected,
             active: row.active,
             stack_index: row.stack_index,
+            depth: row.depth,
         }
     }
 }
@@ -290,6 +293,7 @@ mod tests {
             |r| r.selected = !r.selected,
             |r| r.active = !r.active,
             |r| r.stack_index += 1,
+            |r| r.depth += 1,
         ];
         for (i, mutate) in mutations.iter().enumerate() {
             let mut after = base.clone();
@@ -315,6 +319,7 @@ mod tests {
             selected: true,
             active: false,
             stack_index: 3,
+            depth: 1,
         };
         let item = LayerItem::from(engine_row.clone());
         assert_eq!(item.name, engine_row.name);
@@ -326,6 +331,7 @@ mod tests {
         assert_eq!(item.selected, engine_row.selected);
         assert_eq!(item.active, engine_row.active);
         assert_eq!(item.stack_index, engine_row.stack_index);
+        assert_eq!(item.depth, engine_row.depth);
     }
 
     /// The delegate reads roles by field name, so these names are QML API.

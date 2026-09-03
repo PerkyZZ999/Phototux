@@ -14,6 +14,15 @@ use crate::paths::PathDocument;
 /// Hard cap matching the GPU compositor (`phototux_gpu::MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 16;
 
+/// How far a `parent` chain is followed before the walk gives up.
+///
+/// A well-formed graph nests far shallower than this — `MAX_LAYERS` is 16, so
+/// even a group inside a group inside a group cannot get near it. The cap is
+/// there for the malformed case: a `parent` chain corrupted into a cycle by a
+/// hand-edited or truncated document would otherwise hang the walk rather
+/// than return something wrong.
+const MAX_NESTING_DEPTH: usize = 64;
+
 /// Graph schema version embedded in `.ptx` manifests.
 pub const GRAPH_SCHEMA_VERSION: u32 = 3;
 
@@ -148,12 +157,11 @@ impl DocumentGraph {
     /// has rather than hanging.
     #[must_use]
     pub fn descendants_of(&self, group: LayerId) -> Vec<LayerId> {
-        const MAX_DEPTH: usize = 64;
         self.layers
             .iter()
             .filter(|layer| {
                 let mut parent = layer.parent;
-                for _ in 0..MAX_DEPTH {
+                for _ in 0..MAX_NESTING_DEPTH {
                     match parent {
                         Some(id) if id == group => return true,
                         Some(id) => parent = self.get(id).and_then(|l| l.parent),
@@ -164,6 +172,28 @@ impl DocumentGraph {
             })
             .map(|layer| layer.id)
             .collect()
+    }
+
+    /// How deeply `layer` sits inside groups — `0` at the root of the stack.
+    ///
+    /// The panel indents a row by this, which is the only cue that a layer is
+    /// inside the group above it: a group is a parent in a flat list, so
+    /// without the indent a grouped stack and an ungrouped one draw
+    /// identically. Depth-capped like [`Self::descendants_of`], and for the
+    /// same reason — an indent computed from a cyclic chain would otherwise
+    /// run the row off the edge of the dock.
+    #[must_use]
+    pub fn depth_of(&self, layer: LayerId) -> usize {
+        let mut depth = 0;
+        let mut parent = self.get(layer).and_then(|l| l.parent);
+        while let Some(id) = parent {
+            depth += 1;
+            if depth == MAX_NESTING_DEPTH {
+                break;
+            }
+            parent = self.get(id).and_then(|l| l.parent);
+        }
+        depth
     }
 
     /// Replace the whole stack with one empty layer and return its id.
@@ -897,6 +927,51 @@ mod tests {
         assert_eq!(g.layer_mask_flags_joined(), "0|2");
         assert_eq!(g.set_clips_to_below(top, true), Some(false));
         assert_eq!(g.layer_clips_joined(), "0|1");
+    }
+
+    #[test]
+    fn depth_counts_the_groups_a_layer_is_inside() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let outer = g.add_group_top(None).expect("group");
+        let inner = g.add_group_top(None).expect("group");
+        let leaf = g.add_layer_top(None).expect("layer");
+        g.get_mut(inner).expect("group").parent = Some(outer);
+        g.get_mut(leaf).expect("layer").parent = Some(inner);
+
+        assert_eq!(g.depth_of(outer), 0, "a root group is not inside anything");
+        assert_eq!(g.depth_of(inner), 1);
+        assert_eq!(g.depth_of(leaf), 2);
+    }
+
+    #[test]
+    fn depth_of_an_unknown_layer_is_zero() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let gone = g.add_layer_top(None).expect("layer");
+        g.remove_layer(gone);
+        assert_eq!(
+            g.depth_of(gone),
+            0,
+            "a row for a layer that is no longer there draws unindented \
+             rather than panicking"
+        );
+    }
+
+    /// The cap is not decoration. A `.ptx` edited by hand can name a group as
+    /// its own ancestor, and the panel asks for a depth on every row it draws.
+    #[test]
+    fn a_cyclic_parent_chain_terminates_at_the_cap() {
+        let mut g = DocumentGraph::new(DocumentSize::new(64, 64));
+        let a = g.add_group_top(None).expect("group");
+        let b = g.add_group_top(None).expect("group");
+        g.get_mut(a).expect("group").parent = Some(b);
+        g.get_mut(b).expect("group").parent = Some(a);
+
+        assert_eq!(g.depth_of(a), MAX_NESTING_DEPTH);
+        assert_eq!(
+            g.descendants_of(a).len(),
+            g.layer_count() - g.layers().iter().filter(|l| l.parent.is_none()).count(),
+            "the descendant walk stops too, rather than hanging"
+        );
     }
 }
 

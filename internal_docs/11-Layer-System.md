@@ -400,6 +400,32 @@ from a raster layer. A test asserts raster is the only unbadged kind and that no
 two kinds share a badge or a label. `LayerKind` also owns each kind's display
 name and Phosphor stem, for the same reason and checked the same way.
 
+### Nesting in the panel
+
+The layers panel draws a flat list, because a group *is* a parent rather than a
+container: `Layer::parent` names the group and the stack stays one ordered
+vector. That leaves the panel with nothing to distinguish a group's child from
+the layer that merely follows the group at the same level — for a while it drew
+both identically, so grouping two layers changed the row order and nothing else.
+
+`DocumentGraph::depth_of` counts a layer's ancestors and `LayerRow::depth`
+carries the count across to the model as a role. The delegate indents its
+content by `depth × Theme.spaceMd` and draws one hairline per level in the gap
+that opens, so nesting stacks visibly when groups nest. Photoshop's arrangement
+governs what moves: the visibility toggle keeps its own fixed column so the eyes
+stay in one line down the panel, and only what follows them indents.
+
+Depth comes from the graph rather than from a row's neighbours. A delegate that
+inferred nesting by comparing itself to the row above would indent whatever
+happened to follow a group, including the layer that sits *after* it at the same
+level. Both the depth walk and `descendants_of` share `MAX_NESTING_DEPTH` and
+stop there: a `parent` chain corrupted into a cycle by a hand-edited document
+would otherwise run a row off the edge of the dock, or hang.
+
+Collapsing a group is not implemented. `Layer` carries no expanded flag, so the
+"collapsed presentation" a group may declare above is a policy the format allows
+and the panel does not yet offer.
+
 ### Smart objects
 
 A smart object keeps the pixels it was made from and re-applies its `placement`
