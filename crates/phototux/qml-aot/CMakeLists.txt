@@ -116,6 +116,7 @@ set(ICON_NAMES
     selection-plus
     shapes
     sparkle
+    square-half
     stack-minus
     folder-minus
     stack-simple

@@ -286,6 +286,55 @@ mod tests {
         }
     }
 
+    /// A text field that displays a document value binds `source`, not `text`.
+    ///
+    /// Qt drops a `TextField`'s `text` binding the moment the user types into
+    /// it, and nothing puts it back. Every field here that shows a document
+    /// value was one rejected keystroke from showing something the document
+    /// does not have: typing `notacolour` into the swatches hex and pressing
+    /// Return left `notacolour` on screen for the rest of the session while the
+    /// swatch beside it never moved. Undo is the other way in — Ctrl+Z inside a
+    /// focused field is the field's own undo.
+    ///
+    /// `ThemedTextField.source` is a plain property, so it cannot lose its
+    /// binding, and its change handler writes `text`. `Qt.binding` looked like
+    /// the fix and was not reliable: with a conditional source the field kept
+    /// showing the wrong half of a pair through a sequence of perfectly
+    /// ordinary clicks.
+    #[test]
+    fn a_field_that_shows_a_value_binds_source_not_text() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if name == "ThemedTextField.qml" {
+                continue;
+            }
+            for start in instantiations_of(&text, "ThemedTextField") {
+                let body = body_at_line(&text, start);
+                let commits = body.contains("onEditingFinished")
+                    || body.contains("Keys.onReturnPressed")
+                    || body.contains("onAccepted");
+                if !commits {
+                    continue;
+                }
+                checked += 1;
+                let binds_text = body
+                    .lines()
+                    .any(|l| l.trim_start().starts_with("text:") && !l.contains("text: \""));
+                assert!(
+                    !binds_text,
+                    "{name}:{start} binds `text` to a value and commits edits — \
+                     the binding is lost on the first keystroke and the field \
+                     then shows whatever was typed. Bind `source` instead."
+                );
+            }
+        }
+        assert!(
+            checked >= 5,
+            "found {checked} editable fields that commit — the scan broke rather \
+             than the shell"
+        );
+    }
+
     /// A kind-gated enablement compares against a string, and the string has
     /// to be one a layer can actually report.
     ///

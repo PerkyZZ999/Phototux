@@ -8406,8 +8406,27 @@ impl AppSession {
     #[qslot]
     fn swap_fg_bg(&mut self) {
         self.engine.colors.swap();
+        self.adopt_foreground_without_recording();
+    }
+
+    /// Photoshop's D: black foreground, white background.
+    ///
+    /// `ColorState::reset_default` has been in the engine the whole time with
+    /// nothing reaching it, which is the same shape as `cancel_io` and
+    /// `layer.reorder` — a finished capability with no way in.
+    #[qslot]
+    fn reset_fg_bg(&mut self) {
+        self.engine.colors.reset_default();
+        self.adopt_foreground_without_recording();
+    }
+
+    /// Take the current foreground into the brush and republish the fields.
+    ///
+    /// Deliberately not through `set_foreground`, which pushes onto the recent
+    /// list: swapping and resetting move between colours the user already has,
+    /// and recording them would fill the recent row with the same two entries.
+    fn adopt_foreground_without_recording(&mut self) {
         let fg = self.engine.colors.foreground;
-        // Sync brush without re-pushing recent (swap already has both colors).
         self.engine.brush_color = fg;
         self.engine.brush.color = fg;
         self.engine.sync_brush_from_tool();

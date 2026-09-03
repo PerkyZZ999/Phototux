@@ -683,7 +683,12 @@ ColumnLayout {
                 id: textBodyField
                 Layout.fillWidth: true
                 enabled: AppSession.textLayerActive
-                text: AppSession.textBody
+                // `source` for the undo case rather than the rejection one:
+                // this field is where the text comes from, so nothing here can
+                // be refused — but Ctrl+Z inside a focused field is the
+                // field's own undo, and after that the field and the layer
+                // disagree with nothing to put them back.
+                source: AppSession.textBody
                 placeholderText: qsTr("Text")
                 onEditingFinished: characterProps.pushText()
             }
@@ -786,7 +791,9 @@ ColumnLayout {
                     id: textColorField
                     Layout.fillWidth: true
                     enabled: AppSession.textLayerActive
-                    text: AppSession.textColorHex
+                    // `source`, not `text`: a rejected value would otherwise
+                    // stay in the field for good.
+                    source: AppSession.textColorHex
                     onEditingFinished: characterProps.pushText()
                 }
             }
@@ -894,7 +901,7 @@ ColumnLayout {
                 }
                 ThemedTextField {
                     Layout.fillWidth: true
-                    text: AppSession.fillColorHex
+                    source: AppSession.fillColorHex
                     onEditingFinished: AppSession.setActiveFillHex(text)
                 }
                 Rectangle {
@@ -1190,18 +1197,11 @@ ColumnLayout {
                 ThemedTextField {
                     id: hexField
                     Layout.fillWidth: true
-                    text: colorRow.hex
+                    source: colorRow.hex
                     font.family: "Noto Sans Mono"
                     font.pixelSize: Theme.fontMono
                     Accessible.name: qsTr("%1 colour, hexadecimal").arg(colorRow.caption)
                     onEditingFinished: colorRow.committed(text)
-                    // A field that has focus keeps whatever was typed into it,
-                    // including a value the document has since undone away
-                    // from — and Ctrl+Z inside a text field is the field's own
-                    // undo, so that is exactly how it happens. Re-read on the
-                    // way out, whether or not `hex` changed meanwhile.
-                    onActiveFocusChanged: if (!hexField.activeFocus)
-                                              hexField.text = colorRow.hex
                 }
             }
 

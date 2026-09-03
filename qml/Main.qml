@@ -3566,19 +3566,7 @@ ApplicationWindow {
                             onTearOffRequested: root.tearOffAndClamp("panel.swatches",
                                                                        root.x + root.width - 360, root.y + 160, 320, 280)
                         }
-                        ChromeIconToolButton {
-                            implicitWidth: Theme.panelHeaderBtn
-                            implicitHeight: Theme.panelHeaderBtn
-                            icon.source: root.iconUrl("arrows-left-right")
-                            icon.width: Theme.iconMd
-                            icon.height: Theme.iconMd
-                            ThemedToolTip {
-                                visible: parent.hovered
-                                text: qsTr("Swap foreground / background")
-                            }
-                            Accessible.name: qsTr("Swap foreground / background")
-                            onClicked: AppSession.swapFgBg()
-                        }
+
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -3611,43 +3599,109 @@ ApplicationWindow {
                         anchors.margins: Theme.spaceMd
                         spacing: Theme.spaceSm
 
+                        /// Which of the pair the hex field and the palette edit.
+                        ///
+                        /// The background swatch used to *swap* on click, which
+                        /// left no gesture for setting it: you swapped, edited
+                        /// what had become the foreground, and swapped back.
+                        /// `setBackgroundHex` existed the whole time with
+                        /// nothing calling it. Photoshop opens the picker for
+                        /// whichever swatch you click, and keeps swap as its own
+                        /// control — which this panel's header already has.
+                        property bool editingBackground: false
+
+                        /// The hex the field shows, written in one place.
+                        ///
+                        /// This was a conditional binding —
+                        /// `editingBackground ? backgroundHex : foregroundHex`
+                        /// — and it went stale: after a commit, a palette click
+                        /// and a reset in sequence, the field showed the
+                        /// foreground while the background swatch was the one
+                        /// selected. A conditional binding only tracks the
+                        /// branch it evaluated, and `TextField` drops its `text`
+                        /// binding the moment the user types, so the two
+                        /// mechanisms were repairing each other in an order
+                        /// nothing states. One writer and three explicit
+                        /// triggers is smaller than the rule you would have to
+                        /// remember otherwise.
+                        property string editedHex: AppSession.foregroundHex
+                        function refreshHex() {
+                            editedHex = editingBackground ? AppSession.backgroundHex
+                                                          : AppSession.foregroundHex
+                        }
+                        onEditingBackgroundChanged: refreshHex()
+                        Connections {
+                            target: AppSession
+                            // Reads only. Calling a slot from a handler that
+                            // reacts to an AppSession signal re-enters a
+                            // borrowed session — see qml/AGENTS.md.
+                            function onForegroundHexChanged() { swatchesCol.refreshHex() }
+                            function onBackgroundHexChanged() { swatchesCol.refreshHex() }
+                        }
+                        function applyHex(hex) {
+                            if (editingBackground)
+                                AppSession.setBackgroundHex(hex)
+                            else
+                                AppSession.setForegroundHex(hex)
+                            // The host may have refused it, and a refusal emits
+                            // no change signal — so put the field back from the
+                            // colour that actually survived.
+                            refreshHex()
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spaceMd
 
+                            // Photoshop's colour widget: two overlapping
+                            // squares, a swap arrow at the top right, and the
+                            // black-and-white default mark at the bottom left.
+                            // Both controls used to live in the panel header,
+                            // which is not where anyone coming from Photoshop
+                            // looks for them — and which had run out of room.
                             Item {
-                                implicitWidth: 44
-                                implicitHeight: 36
+                                implicitWidth: 58
+                                implicitHeight: 50
                                 Rectangle {
-                                    x: 12
-                                    y: 10
+                                    x: 14
+                                    y: 18
                                     width: 26
                                     height: 26
                                     radius: Theme.radiusSm
                                     color: AppSession.backgroundHex
-                                    border.color: Theme.border
+                                    border.color: swatchesCol.editingBackground
+                                                  ? Theme.primary : Theme.border
+                                    border.width: swatchesCol.editingBackground ? 2 : 1
                                     MouseArea {
                                         anchors.fill: parent
-                                        onClicked: AppSession.swapFgBg()
+                                        onClicked: {
+                                            swatchesCol.editingBackground = true
+                                            Qt.callLater(function () {
+                                                hexField.forceActiveFocus()
+                                                AppSession.setShortcutInputYield(true)
+                                            })
+                                        }
                                         ThemedToolTip {
                                             visible: parent.containsMouse
-                                            text: qsTr("Background (click to swap)")
+                                            text: qsTr("Background")
                                         }
                                         hoverEnabled: true
                                     }
                                 }
                                 Rectangle {
-                                    x: 0
-                                    y: 0
+                                    x: 2
+                                    y: 4
                                     width: 26
                                     height: 26
                                     radius: Theme.radiusSm
                                     color: AppSession.foregroundHex
-                                    border.color: Theme.primary
-                                    border.width: 1
+                                    border.color: swatchesCol.editingBackground
+                                                  ? Theme.border : Theme.primary
+                                    border.width: swatchesCol.editingBackground ? 1 : 2
                                     MouseArea {
                                         anchors.fill: parent
                                         onClicked: {
+                                            swatchesCol.editingBackground = false
                                             Qt.callLater(function () {
                                                 hexField.forceActiveFocus()
                                                 AppSession.setShortcutInputYield(true)
@@ -3660,19 +3714,72 @@ ApplicationWindow {
                                         hoverEnabled: true
                                     }
                                 }
+
+                                // Top right, over the corner of the background
+                                // square, exactly where Photoshop keeps it.
+                                ChromeIconToolButton {
+                                    x: 42
+                                    y: 0
+                                    implicitWidth: 16
+                                    implicitHeight: 16
+                                    padding: 0
+                                    icon.source: root.iconUrl("arrows-left-right")
+                                    icon.width: 12
+                                    icon.height: 12
+                                    onClicked: AppSession.swapFgBg()
+                                    Accessible.name: qsTr("Swap foreground and background")
+                                    ThemedToolTip {
+                                        visible: parent.hovered
+                                        text: parent.Accessible.name
+                                    }
+                                }
+
+                                // Bottom left. `ColorState::reset_default` has
+                                // been in the engine the whole time with nothing
+                                // reaching it. Not `arrow-counter-clockwise`:
+                                // that is Undo's icon, and a second meaning for
+                                // it in the same window is worse than no icon.
+                                ChromeIconToolButton {
+                                    x: 0
+                                    y: 34
+                                    implicitWidth: 16
+                                    implicitHeight: 16
+                                    padding: 0
+                                    icon.source: root.iconUrl("square-half")
+                                    icon.width: 12
+                                    icon.height: 12
+                                    onClicked: AppSession.resetFgBg()
+                                    Accessible.name: qsTr("Reset to black and white")
+                                    ThemedToolTip {
+                                        visible: parent.hovered
+                                        text: parent.Accessible.name
+                                    }
+                                }
                             }
 
                             ThemedTextField {
                                 id: hexField
                                 Layout.fillWidth: true
-                                text: AppSession.foregroundHex
-                                Accessible.name: qsTr("Foreground hex")
+                                // `source`, not `text`: a `TextField` drops its
+                                // `text` binding the moment the user types.
+                                source: swatchesCol.editedHex
+                                Accessible.name: swatchesCol.editingBackground
+                                                 ? qsTr("Background hex")
+                                                 : qsTr("Foreground hex")
                                 font.family: "Noto Sans Mono"
                                 font.pixelSize: Theme.fontMono
                                 onActiveFocusChanged: root.refreshShortcutYield()
-                                onEditingFinished: AppSession.setForegroundHex(text)
+                                // A `TextField` drops its `text` binding the
+                                // moment the user types, so without restoring
+                                // it the field keeps showing what was typed —
+                                // `notacolour` stayed on screen for good while
+                                // the swatch beside it never moved.
+                                // `applyHex` ends by writing the field, so a
+                                // value the host refused never survives on
+                                // screen.
+                                onEditingFinished: swatchesCol.applyHex(text)
                                 Keys.onReturnPressed: {
-                                    AppSession.setForegroundHex(text)
+                                    swatchesCol.applyHex(text)
                                     event.accepted = true
                                 }
                             }
@@ -3696,7 +3803,7 @@ ApplicationWindow {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: AppSession.setForegroundHex(modelData)
+                                        onClicked: swatchesCol.applyHex(modelData)
                                     }
                                 }
                             }
@@ -3718,7 +3825,12 @@ ApplicationWindow {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: AppSession.pickRecentColor(index)
+                                        // The hex, not `pickRecentColor(index)`:
+                                        // that one always sets the foreground,
+                                        // so clicking a recent colour while the
+                                        // background swatch was selected changed
+                                        // the wrong half of the pair.
+                                        onClicked: swatchesCol.applyHex(modelData)
                                     }
                                 }
                             }

@@ -185,6 +185,7 @@ Prefer handbook panel descriptors (`panel.layers`, …) for panel chrome. Sugges
 | `floppy-disk` | `action.file.save` |
 | `export` | `action.file.export` |
 | `arrow-counter-clockwise` | `action.edit.undo` |
+| `square-half` | reset foreground / background to black and white |
 | `arrow-clockwise` | `action.edit.redo` |
 | `info` | `action.help.about` |
 | `corners-in` | zoom-fit actions |
