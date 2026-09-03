@@ -219,23 +219,36 @@ ApplicationWindow {
     /// a dependency explicit.
     property int panelHeightRevision: 0
 
+    /// The descriptor for one panel, or `undefined` when nothing declares it.
+    function panelDescriptor(panelId) {
+        var all = root.panelDescriptors
+        for (var i = 0; i < all.length; ++i) {
+            if (all[i].id === panelId)
+                return all[i]
+        }
+        return undefined
+    }
+
     /// The height the shell gives a panel that the user has never dragged.
     ///
-    /// The one home for these numbers. `-1` means the panel is not resizable:
-    /// Swatches sizes to its content and Layers takes whatever is left, so
-    /// neither has a height of its own to drag — resizing Layers really means
-    /// resizing everything above it, which is what the other grips already do.
+    /// The numbers come from `PanelDescriptor.default_height`, so the one home
+    /// for them is the file that declares the panels. This applies the shape
+    /// the descriptor names; `-1` still means "not resizable", which is what a
+    /// `flexible` panel is — Swatches sizes to its content and Layers takes
+    /// whatever is left, so neither has a height of its own to drag. Resizing
+    /// Layers really means resizing everything above it, which is what the
+    /// other grips already do.
     function panelDefaultHeight(panelId, dockHeight) {
-        switch (panelId) {
-        case "panel.properties":
-            // Keeps Layers and History above the status bar in an untouched
-            // dock. Only a default now — a dragged height overrides it.
-            return Math.min(dockHeight * 0.42,
+        var d = root.panelDescriptor(panelId)
+        if (!d)
+            return -1
+        var h = d.default_height
+        if (h.kind === "fixed")
+            return h.value
+        if (h.kind === "fraction-of-dock") {
+            // Clamped so the stack below still clears the status bar.
+            return Math.min(dockHeight * h.value,
                             Math.max(0, dockHeight - Theme.dockStackReserve))
-        case "panel.navigator":
-            return 132
-        case "panel.history":
-            return 120
         }
         return -1
     }
@@ -359,27 +372,19 @@ ApplicationWindow {
     }
 
     function panelTitle(panelId) {
-        var all = root.panelDescriptors
-        for (var i = 0; i < all.length; ++i) {
-            if (all[i].id === panelId)
-                return all[i].title || panelId
-        }
-        return panelId
+        var d = root.panelDescriptor(panelId)
+        return d ? (d.title || panelId) : panelId
     }
 
     /// Phosphor stem for auto-hide strip / panel chrome (ICON_MAP-aligned).
+    ///
+    /// From the descriptor, not a second list here. The list answered
+    /// `dots-three` for any panel it had not been told about, so a new panel
+    /// got a placeholder glyph and nothing said so; a stem the qrc does not
+    /// carry now fails `every_icon_key_is_packaged_into_the_qrc` instead.
     function panelIconStem(panelId) {
-        if (panelId === "panel.properties")
-            return "gear"
-        if (panelId === "panel.navigator")
-            return "magnifying-glass"
-        if (panelId === "panel.swatches")
-            return "image-square"
-        if (panelId === "panel.layers")
-            return "folder"
-        if (panelId === "panel.history")
-            return "arrow-counter-clockwise"
-        return "dots-three"
+        var d = root.panelDescriptor(panelId)
+        return d ? d.icon_key : "dots-three"
     }
 
     function panelIsVisible(panelId) {

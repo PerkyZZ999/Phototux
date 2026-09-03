@@ -4,14 +4,46 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// How the shell sizes a docked panel before the user has dragged it.
+///
+/// Three cases rather than a number with sentinels, because they are not the
+/// same kind of thing and a panel must be exactly one: a fixed strip, a share
+/// of the dock, or something that has no height of its own to give. Writing
+/// them as `-1` and a magic ratio is what let the numbers live in a `switch`
+/// in `Main.qml`, keyed on the same five ids this file already declares.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
+pub enum PanelHeight {
+    /// Sizes to its content, or takes whatever the stack leaves.
+    ///
+    /// Such a panel has no seam of its own: resizing Layers really means
+    /// resizing everything above it, which the other grips already do.
+    Flexible,
+    /// A fixed height in logical pixels, before density scaling.
+    Fixed(u32),
+    /// A share of the dock's height, clamped to leave the stack below room.
+    FractionOfDock(f32),
+}
+
 /// Dock / panel contribution descriptor (toolkit-neutral).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PanelDescriptor {
     pub id: String,
     pub title: String,
     /// Default region: `right`, `left`, `bottom`.
     pub default_region: String,
     pub visible_by_default: bool,
+    /// Phosphor stem for the auto-hide strip and panel chrome.
+    ///
+    /// A panel's glyph is identity, the same as a tool's, and it belongs with
+    /// the title rather than in a second `switch` in the shell — which is
+    /// where it was, and which answered `dots-three` for anything it had not
+    /// been told about. Declaring it here also brings panels under
+    /// `every_icon_key_is_packaged_into_the_qrc`, so a stem the qrc does not
+    /// carry now fails the build instead of shipping a blank button.
+    pub icon_key: String,
+    /// The height the dock gives this panel until the user drags it.
+    pub default_height: PanelHeight,
 }
 
 /// Inspector disclosure group descriptor (handbook 01 / 28 progressive disclosure).
@@ -76,37 +108,44 @@ pub struct ToolDescriptor {
 /// Properties; promoting either to a dock of its own is a separate piece of
 /// work, and this list is where it would start.
 pub fn default_panels() -> Vec<PanelDescriptor> {
+    let panel = |id: &str, title: &str, icon: &str, height: PanelHeight| PanelDescriptor {
+        id: id.into(),
+        title: title.into(),
+        default_region: "right".into(),
+        visible_by_default: true,
+        icon_key: icon.into(),
+        default_height: height,
+    };
+    // Photoshop's right dock, top to bottom. Properties takes a share rather
+    // than a fixed strip so Layers and History still clear the status bar in a
+    // dock nobody has touched; Swatches sizes to its swatch grid and Layers
+    // takes what is left, so neither has a height to drag.
     vec![
-        PanelDescriptor {
-            id: "panel.properties".into(),
-            title: "Properties".into(),
-            default_region: "right".into(),
-            visible_by_default: true,
-        },
-        PanelDescriptor {
-            id: "panel.navigator".into(),
-            title: "Navigator".into(),
-            default_region: "right".into(),
-            visible_by_default: true,
-        },
-        PanelDescriptor {
-            id: "panel.swatches".into(),
-            title: "Swatches".into(),
-            default_region: "right".into(),
-            visible_by_default: true,
-        },
-        PanelDescriptor {
-            id: "panel.layers".into(),
-            title: "Layers".into(),
-            default_region: "right".into(),
-            visible_by_default: true,
-        },
-        PanelDescriptor {
-            id: "panel.history".into(),
-            title: "History".into(),
-            default_region: "right".into(),
-            visible_by_default: true,
-        },
+        panel(
+            "panel.properties",
+            "Properties",
+            "gear",
+            PanelHeight::FractionOfDock(0.42),
+        ),
+        panel(
+            "panel.navigator",
+            "Navigator",
+            "magnifying-glass",
+            PanelHeight::Fixed(132),
+        ),
+        panel(
+            "panel.swatches",
+            "Swatches",
+            "image-square",
+            PanelHeight::Flexible,
+        ),
+        panel("panel.layers", "Layers", "folder", PanelHeight::Flexible),
+        panel(
+            "panel.history",
+            "History",
+            "arrow-counter-clockwise",
+            PanelHeight::Fixed(120),
+        ),
     ]
 }
 
@@ -659,6 +698,55 @@ mod tests {
         out
     }
 
+    /// The shape `Main.qml` reads a panel height out of.
+    ///
+    /// `panelDefaultHeight` branches on `default_height.kind` and takes
+    /// `.value`, so the serde tagging is a wire contract, not an
+    /// implementation detail. Changing `tag`/`content` or the rename rule
+    /// would leave every branch falling through to `-1` — every panel
+    /// silently unresizable, and the dock laid out by whatever is left over.
+    /// Nothing in Rust would notice, because the Rust round-trip stays
+    /// correct whatever the strings are.
+    #[test]
+    fn a_panel_height_serialises_as_the_shell_reads_it() {
+        let json = |h: super::PanelHeight| serde_json::to_string(&h).expect("serialises");
+        assert_eq!(json(super::PanelHeight::Flexible), r#"{"kind":"flexible"}"#);
+        assert_eq!(
+            json(super::PanelHeight::Fixed(132)),
+            r#"{"kind":"fixed","value":132}"#
+        );
+        assert_eq!(
+            json(super::PanelHeight::FractionOfDock(0.42)),
+            r#"{"kind":"fraction-of-dock","value":0.42}"#
+        );
+    }
+
+    /// Every panel declares a height, and the ones that shipped keep theirs.
+    #[test]
+    fn the_dock_keeps_the_heights_it_shipped_with() {
+        use super::PanelHeight::{Fixed, FractionOfDock};
+        let height = |id: &str| {
+            super::default_panels()
+                .into_iter()
+                .find(|p| p.id == id)
+                .map(|p| p.default_height)
+                .expect("a declared panel")
+        };
+        assert_eq!(height("panel.properties"), FractionOfDock(0.42));
+        assert_eq!(height("panel.navigator"), Fixed(132));
+        assert_eq!(height("panel.history"), Fixed(120));
+        // Swatches sizes to content and Layers takes what is left, so neither
+        // has a seam of its own — that is what Flexible means, not "unset".
+        assert!(matches!(
+            height("panel.swatches"),
+            super::PanelHeight::Flexible
+        ));
+        assert!(matches!(
+            height("panel.layers"),
+            super::PanelHeight::Flexible
+        ));
+    }
+
     /// Every icon a descriptor names must be packaged into the QML resource.
     ///
     /// The qrc carries a hand-written list of icon stems, which CMake cannot
@@ -704,6 +792,15 @@ mod tests {
                 tool.icon_key
             );
         }
+        for panel in default_panels() {
+            assert!(
+                packaged.contains(&panel.icon_key.as_str()),
+                "{} names icon {:?}, which the qrc does not carry — the auto-hide \
+                 strip ships a blank button",
+                panel.id,
+                panel.icon_key
+            );
+        }
         for kind in crate::GradientKind::ALL {
             assert!(
                 packaged.contains(&kind.icon_key()),
@@ -746,6 +843,7 @@ mod tests {
                     .iter()
                     .filter_map(|a| a.icon_key.clone()),
             )
+            .chain(default_panels().iter().map(|p| p.icon_key.clone()))
             .chain(
                 crate::GradientKind::ALL
                     .iter()
