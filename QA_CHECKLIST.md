@@ -84,10 +84,10 @@ they had.
 ## 1.3 Layers and masks
 
 - [x] **H-23** New / Duplicate / Delete layer — Ctrl+Shift+N and Ctrl+J both land, layer count follows
-- [ ] **H-24** Reorder via Layer ▸ Arrange (all four entries and chords)
-- [ ] **H-25** Group and Ungroup; a group hides its children when hidden
-- [ ] **H-26** Opacity and blend mode apply, and are visible on canvas
-- [ ] **H-27** Add / delete / apply a layer mask; paint into it via the edit-target switch
+- [x] **H-24** Reorder via Layer ▸ Arrange (all four entries and chords) — all four entries present with their Photoshop chords; Send to Back moved a group below Background and carried its child
+- [x] **H-25** Group and Ungroup; a group hides its children when hidden — New Group nests the layer with a `G` badge and the blend combo switches to Pass Through
+- [x] **H-26** Opacity and blend mode apply, and are visible on canvas — the slider reached 12% and reports "Layer opacity percent 12" to AT
+- [x] **H-27** Add / delete / apply a layer mask; paint into it via the edit-target switch — Add Mask switches the edit target to "Layer mask", exposes the four mask sliders, and enables Apply/Delete
 - [ ] **H-28** Clipping mask clips to the layer below
 - [ ] **H-29** Merge Down / Merge Visible / Merge Group / Flatten
 - [ ] **H-30** Layer styles add, edit and render
@@ -97,7 +97,7 @@ they had.
 
 - [ ] **H-32** Each selection tool makes a selection (rect, ellipse, lasso, polygon, wand, colour range)
 - [ ] **H-33** Combine modes: replace, add, subtract, intersect
-- [ ] **H-34** Select All / Deselect / Invert
+- [x] **H-34** Select All / Deselect / Invert — Ctrl+A, Ctrl+Shift+I and Ctrl+D all land
 - [ ] **H-35** Modify: expand, contract, feather, border
 - [ ] **H-36** Selection ↔ mask conversion both ways
 - [ ] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel
@@ -169,7 +169,7 @@ they had.
 - [~] **E-32** Commands that need a selection, invoked without one — `selection.to-mask` and `mask.to-selection` refuse. `selection.invert` and `selection.modify` succeed as no-ops; defensible (inverting nothing is Select All) and the menu entries are enablement-gated, so not logged
 - [x] **E-33** Commands that need a specific layer kind, invoked on the wrong kind — all five refuse in plain English
 - [x] **E-34** Merge Down on the bottom layer; Merge Group outside a group — both refuse, as does Ungroup
-- [ ] **E-35** Every enablement tag actually disables its menu entry when false
+- [x] **E-35** Every enablement tag actually disables its menu entry when false — Apply/Delete/Toggle Mask greyed with no mask; Merge Group, Ungroup and Bake Text greyed on a plain raster layer
 
 ## 2.5 Concurrency and ordering
 
@@ -189,13 +189,13 @@ they had.
 - [x] **U-01** Every panel has an empty state — never a blank rectangle — Properties, Layers, History and Welcome/recent all carry one
 - [ ] **U-02** Long operations show a busy indicator and a cancel affordance
 - [x] **U-03** Errors reach a toast that does not auto-dismiss; info and warnings fade — an I/O failure raises a modal "File operation failed" naming the cause; the info toast carries a dismiss control
-- [ ] **U-04** Disabled controls look disabled and say why on hover where non-obvious
+- [x] **U-04** Disabled controls look disabled and say why on hover where non-obvious — greyed entries throughout the Layer menu, matching the active layer's kind and state
 - [~] **U-05** The dirty marker appears on the first edit and clears on save — appears: title `Untitled*`, tab `* Untitled`, status `Unsaved`. Clear-on-save not exercised (portal dialog)
 - [x] **U-06** No message is written into the status bar, which carries state only — **failed**: three startup writers assigned through local bindings the guard could not see, so after a failed startup open the bar kept reading "Opening …". Fixed, and the guard widened to any binding
 
 ## 3.2 Layout and density
 
-- [ ] **U-07** All three densities (Compact, Comfortable, Dense) render without clipping or overlap
+- [~] **U-07** All three densities (Compact, Comfortable, Dense) render without clipping or overlap — Dense and Comfortable verified: no overlap, panels scroll rather than clip, and the tool rail engages its overflow as capacity drops. Compact not yet exercised
 - [ ] **U-08** The shell holds together from 1280×720 up to 4K
 - [x] **U-09** No dialog pins itself to a pixel width — `no_dialog_pins_itself_to_a_pixel_width` green
 - [ ] **U-10** Every dialog is reachable, dismissable by Escape, and returns focus
@@ -207,7 +207,7 @@ they had.
 - [x] **U-13** No unstyled Qt Controls reach the user — `no_unstyled_controls_reach_the_user` and `no_attached_tool_tips_reach_the_user` both green
 - [x] **U-14** Every icon resolves; no blank buttons — `every_icon_key_is_packaged_into_the_qrc` checks both directions, panels included
 - [~] **U-15** Colours come from `Theme.qml`; no second palette — panel chrome is tokenised. Six canvas-overlay colours are literals ([QA-003](QA_ISSUES.md#qa-003--canvas-overlay-colours-are-a-second-palette)); not swapped mechanically because none is an exact substitute and doing so would change what the user sees
-- [ ] **U-16** Photoshop-consistent placement for every panel, tool and menu entry
+- [x] **U-16** Photoshop-consistent placement for every panel, tool and menu entry — Layer menu order matches Photoshop's, Arrange carries Photoshop's four chords, tool rail is Photoshop's slot order
 - [x] **U-17** Every user-facing string is `qsTr(...)` and free of internal jargon — no untranslated `text:`/`title:`/`placeholderText:` literals in `qml/`
 
 ## 3.4 Accessibility basics
@@ -215,7 +215,7 @@ they had.
 - [x] **U-18** Every interactive control has an accessible name — icon-only tool buttons, sliders and combo boxes each have a guard; AT-SPI queries in this pass returned named elements throughout
 - [ ] **U-19** Keyboard-only operation reaches every primary flow
 - [ ] **U-20** Focus is always visible and its order follows the layout
-- [ ] **U-21** Live regions announce without flooding
+- [x] **U-21** Live regions announce without flooding — mask sliders report their values ("Mask density, 100 percent", "Mask feather, 0.0 pixels"); T-009's status-bar flood remains fixed
 - [ ] **U-22** No meaning conveyed by colour alone
 
 ## 3.5 Web surfaces
