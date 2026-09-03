@@ -1638,26 +1638,47 @@ mod tests {
         assert!(!actions_for_context("selection").is_empty());
     }
 
-    /// Arrange's chords are the punctuation ones, and punctuation is where a
-    /// chord quietly falls out of the map.
+    /// Every punctuation chord the registry declares must survive
+    /// normalisation unchanged.
     ///
-    /// The shell binds one `Shortcut` per key of this map and hands the chord
-    /// string back on activation, so a chord that normalises to something the
-    /// map is not keyed by is a menu entry with a shortcut printed beside it
-    /// that does nothing. `Ctrl+]` survives `normalize_shortcut` only because
-    /// a one-character part is upper-cased rather than parsed.
+    /// The shell binds one `Shortcut` per key of `default_shortcut_map`, and
+    /// that map is keyed by `normalize_shortcut(declared)`. A chord the
+    /// normaliser *rewrites* therefore reaches the map under a spelling the
+    /// menu never shows, and the entry gets a printed accelerator that does
+    /// nothing. Letters are safe by construction — a one-character part is
+    /// upper-cased, a longer one has its first letter capitalised — so the
+    /// hazard is entirely in the punctuation: `]`, `[`, `,`, `=`, `-` and the
+    /// `+` that `Ctrl++` splits into nothing at all.
+    ///
+    /// Deliberately *not* an assertion that the chord is in the map: the map
+    /// is built from these same declarations, so that comparison can only
+    /// agree with itself. Collisions are `default_shortcut_chords_unique`'s
+    /// job.
     #[test]
-    fn every_arrange_chord_reaches_the_map_the_shell_binds() {
-        let map = default_shortcut_map();
-        for op in crate::ArrangeOp::ALL {
-            let chord = normalize_shortcut(op.shortcut());
-            assert_eq!(chord, op.shortcut(), "{} was rewritten", op.label());
-            assert!(
-                map.contains_key(&chord),
-                "{} ({chord}) is bound to nothing",
-                op.label()
+    fn punctuation_chords_survive_normalisation_unchanged() {
+        let mut checked = 0;
+        for action in default_actions() {
+            let Some(declared) = action.shortcut.as_deref() else {
+                continue;
+            };
+            let key = declared.rsplit('+').next().unwrap_or(declared);
+            if key.is_empty() || key.chars().all(|c| c.is_ascii_alphanumeric()) {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(
+                normalize_shortcut(declared),
+                declared,
+                "{} declares {declared}, which normalisation rewrites — the \
+                 menu would print a chord the shell never binds",
+                action.id
             );
         }
+        assert!(
+            checked >= 4,
+            "found {checked} punctuation chords — the scan broke rather than \
+             the registry"
+        );
     }
 
     #[test]
