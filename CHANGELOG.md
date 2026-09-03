@@ -2,6 +2,71 @@
 
 All notable decision milestones and project state changes.
 
+## [architecture-pass] — 2026-09-03
+
+An `improve-codebase-architecture` pass over the whole workspace rather than
+recent work, taken one candidate at a time. The recurring shape was **one piece
+of knowledge written down twice**, where nothing compared the copies.
+
+### Fixes
+
+- **Twenty-six citations pointed at documents that were deleted.** `document.rs`
+  opened by naming ADR-011 and ADR-017; the GPU composite gate was stated as
+  ADR-008; `check-rust.sh` told a contributor to scaffold the workspace per
+  ADR-006; the workspace manifest justified its release profile the same way.
+  The ADR files were removed in July and the map says in as many words that
+  former ids are not a second authority. Each site now names its live DR, and
+  `no_source_file_cites_an_archived_adr` walks `crates/`, `qml/`, `scripts/` and
+  the root manifests so the rule is checked rather than asserted. Prose stays
+  out: rewriting the changelog would falsify the record.
+- **A menu entry could ask the host for something no arm answered.** Fifty-four
+  host ops were declared in one file and matched in another, with a runtime
+  toast as the only check — so a renamed op shipped as an entry that did
+  nothing until someone clicked it. The reverse direction found three arms no
+  action could reach: `prefs.open`, `workspace.reset` and a `panel.toggle:`
+  prefix, each a dead second route to a handler the command path already
+  reaches.
+- **An action could send its command arguments the command would refuse.**
+  `args_for_action` ends in a catch-all answering `CommandArgs::None`, right for
+  the twenty commands that take none and silent for any other. The wiring was
+  written in three places and checked in none; it now lives in the engine
+  beside the `invoke` that consumes it, and the whole registry is walked
+  through both halves.
+- **Deselecting left the Properties panel describing the previous layer.**
+  `sync_adjustment_fields` published three empty values in its no-layer arm and
+  returned before two more, so `layer_styles_json` and `effects_joined` went on
+  describing a layer that was no longer active. Five fields that were assigned
+  bare and announced blind from `emit_layer_fields` now publish where they are
+  computed, and the guard that catches the blind half can finally see them.
+- **The tool shelf routed every glyph through a map nothing could reach.** A
+  seventeen-entry `tool.*`-to-stem fallback in `Main.qml`, guarding a case
+  `every_icon_key_is_packaged_into_the_qrc` already makes unshippable.
+
+### Changes
+
+- **A panel descriptor carries its glyph and its height.** `Main.qml` decided
+  both, plus resizability and whether a panel had a body, in four switches keyed
+  on the five ids the engine already declares. `PanelHeight` is `Fixed`,
+  `FractionOfDock` or `Flexible` rather than a number with `-1` meaning no, and
+  panel icons now fall under the qrc packaging guard.
+- **One bounded type for the two undo stacks the host keeps.** The pixel
+  selection mask and transform layer buffers live on the GPU, so the engine
+  cannot hold their inverse. The four-step dance was written out four times
+  inside a method no test could reach; `HostUndoStack<T>` holds the bound, the
+  redo-clear and the swap direction, and its tests are the first to run over
+  them.
+- **`tracing` replaces fifteen `eprintln!` diagnostics.** The guardrails have
+  asked for it since the workspace existed; it was in no manifest. `RUST_LOG`
+  now selects the level, defaulting to `info`. Benchmarks and parity skips keep
+  `eprintln!` — those are results, not diagnostics — and three canvas lines stay
+  outside because they are C++.
+- **One `qml_files()` per crate instead of four hand-rolled walks.** The copies
+  had diverged: one dropped unreadable files silently, which would have made the
+  orphan-icon sweep pass by seeing less.
+- **HSL conversion moved to the colour module.** Two of `layer.rs`'s twenty
+  concepts, and the only two with no layer in them, while a shader comment
+  saying "mirrors `phototux_engine::rgb_to_hsl`" sent readers there.
+
 ## [reachability-and-honesty] — 2026-09-03
 
 ### Fixes

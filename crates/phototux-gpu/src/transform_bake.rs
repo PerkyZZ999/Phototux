@@ -1,7 +1,7 @@
 //! Commit-only CPU raster transforms (crop / flip / rotate / affine bake).
 //!
 //! Hot-path preview stays on the GPU composite shader; these helpers run once
-//! per user commit so ADR-005 (no steady-state CPU canvas upload) is preserved.
+//! per user commit so DR-023 (no steady-state CPU canvas upload) is preserved.
 
 use phototux_engine::{CropRect, LayerTransform};
 

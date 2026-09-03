@@ -1,4 +1,4 @@
-//! Layered PSD import/export subset with compatibility reporting (ADR-018).
+//! Layered PSD import/export subset with compatibility reporting (DR-013).
 
 use std::io::{Cursor, Read};
 use std::path::Path;

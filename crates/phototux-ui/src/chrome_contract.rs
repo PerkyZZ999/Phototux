@@ -7,40 +7,52 @@
 //! icon packaging and menu structure — because the alternative is a second list
 //! that someone has to remember to update.
 
+/// The shell's source directory.
+#[cfg(test)]
+pub(crate) fn qml_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml"))
+}
+
+/// Every `.qml` file in the shell, as `(name, text)`.
+///
+/// Shared with the guards in `lib.rs` rather than written out again there.
+/// Reading the shell is how most of these contracts are checked at all, so
+/// the walk is the first twenty lines of every one — which is enough friction
+/// that a guard worth having does not get written. Behind one call it costs
+/// three lines, and the parts that are easy to get subtly different each time
+/// — skipping non-`.qml`, carrying the file name into the failure message,
+/// and failing loudly when the scan itself breaks rather than passing on an
+/// empty corpus — are decided once.
+#[cfg(test)]
+pub(crate) fn qml_files() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(qml_dir())
+        .expect("qml/ is readable from the ui crate")
+        .flatten()
+    {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "qml") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        out.push((
+            name,
+            std::fs::read_to_string(&path).expect("qml is readable"),
+        ));
+    }
+    assert!(
+        !out.is_empty(),
+        "no QML found — the scan broke, not the shell"
+    );
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    fn qml_dir() -> PathBuf {
-        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml"))
-    }
-
-    /// Every `.qml` file in the shell, as `(name, text)`.
-    fn qml_files() -> Vec<(String, String)> {
-        let mut out = Vec::new();
-        for entry in std::fs::read_dir(qml_dir())
-            .expect("qml/ is readable from the ui crate")
-            .flatten()
-        {
-            let path = entry.path();
-            if path.extension().is_none_or(|ext| ext != "qml") {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            out.push((
-                name,
-                std::fs::read_to_string(&path).expect("qml is readable"),
-            ));
-        }
-        assert!(
-            !out.is_empty(),
-            "no QML found — the scan broke, not the shell"
-        );
-        out
-    }
+    use super::{qml_dir, qml_files};
 
     /// The `type {` blocks in `text`, as `(line number, body)`.
     ///

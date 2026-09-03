@@ -1,6 +1,6 @@
 //! GPU timestamp timing for a single render pass.
 //!
-//! ADR-008 states the composite gate in **GPU** milliseconds. Timing a pass by
+//! DR-017 states the composite gate in **GPU** milliseconds. Timing a pass by
 //! wrapping submit in a host `Instant` and blocking on device idle measures the
 //! CPU stall instead, and the stall itself is what the handbook forbids on the
 //! UI thread. Timestamp queries measure the pass on the GPU timeline without

@@ -59,6 +59,29 @@ decides", and writing a default for every panel would freeze a layout decision
 the shell should still be free to change. Undocking a panel forgets its height,
 and "Reset Workspace" clears them all by replacing the topology.
 
+What the shell decides comes from `PanelDescriptor::default_height`, a
+`PanelHeight` of `Fixed(px)`, `FractionOfDock(f)` or `Flexible`. Three cases
+rather than a number with sentinels, because a panel must be exactly one and
+the difference is real: Navigator is a fixed strip, Properties takes a share of
+the dock clamped to leave the stack below room, and Swatches and Layers have no
+height of their own to give. It lived in a `switch` in `Main.qml` keyed on the
+same five ids the engine already declares — the fourth such switch, beside one
+for the glyph, one for whether the panel resizes, and one for whether it has a
+body. A panel added to the descriptors but missed in one of them got a
+`dots-three` icon and no height, with nothing to say so.
+
+The glyph moved the same way, to `PanelDescriptor::icon_key`. That also brings
+panels under `every_icon_key_is_packaged_into_the_qrc`, so a stem the qrc does
+not carry fails the build rather than shipping a blank button on the auto-hide
+strip. `panelHasBody` deliberately stays in `Main.qml`: it asks which panels
+that file declares a body for, which is not something the engine can know.
+
+The serde tagging on `PanelHeight` is a wire contract, since `panelDefaultHeight`
+branches on `kind` and reads `value`. Renaming a variant would leave every
+branch falling through to "not resizable" — every panel silently unresizable —
+while the Rust round-trip stayed correct, so
+`a_panel_height_serialises_as_the_shell_reads_it` pins the strings.
+
 Two things the implementation has to get right, both found by getting them
 wrong:
 

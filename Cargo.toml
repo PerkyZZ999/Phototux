@@ -30,6 +30,11 @@ phototux_io = { path = "crates/phototux-io" }
 image = { version = "=0.25.9", default-features = false }
 percent-encoding = "2.3.2"
 thiserror = "2.0.18"
+# Diagnostics. AGENTS.md has asked for "tracing with fields on hot paths,
+# not format! spam" since the workspace existed; until now the code had
+# eprintln! with a hand-written prefix, no levels and no way to filter.
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt", "env-filter"] }
 pollster = "1.0.1"
 cc = "1.2.67"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -38,7 +43,7 @@ arboard = "3.4"
 flate2 = "1.1.1"
 crc32fast = "1.4.2"
 
-# Shipping profile for the interactive editor. The SLOs in ADR-008 (60+ FPS
+# Shipping profile for the interactive editor. The SLOs in DR-017 (60+ FPS
 # zoom/pan, < 8 ms tablet input→render) are cross-crate hot paths: the brush
 # stream crosses phototux_ui → phototux_canvas → phototux_gpu on every dab, so
 # cross-crate inlining is worth the longer link.

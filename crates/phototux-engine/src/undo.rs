@@ -1,4 +1,4 @@
-//! Gesture-level undo stack (ADR-013 G16).
+//! Gesture-level undo stack (DR-004).
 
 use crate::document::DocumentGraph;
 use crate::filter_plan::FilterPlan;

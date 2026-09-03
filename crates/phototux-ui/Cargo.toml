@@ -10,6 +10,7 @@ publish = false
 description = "qtbridge QObjects for PhotoTux UI"
 
 [dependencies]
+tracing = { workspace = true }
 qtbridge = { workspace = true }
 phototux_engine = { workspace = true }
 phototux_canvas = { path = "../phototux-canvas" }

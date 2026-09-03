@@ -1,4 +1,4 @@
-//! QML-facing session via qtbridge (ADR-003). Package name `phototux_ui` → `import phototux_ui`.
+//! QML-facing session via qtbridge (DR-023). Package name `phototux_ui` → `import phototux_ui`.
 
 mod chrome_contract;
 mod clipboard;
@@ -7,6 +7,7 @@ mod display_icc;
 mod file_worker;
 mod fonts;
 mod history_model;
+mod host_undo;
 mod layer_model;
 mod prefs;
 mod selection_path;
@@ -17,6 +18,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use file_worker::{FileCommand, FileEvent, FileWorker};
+use host_undo::HostUndoStack;
 use phototux_canvas::PaintWorker;
 use phototux_engine::{
     AlignOp, AlignTarget, CommandArgs, CommandEffects, CommandError, CropRect, DabMode,
@@ -417,10 +419,11 @@ pub struct AppSession {
     clipboard_selection_r8: Option<crate::clipboard::CoveragePayload>,
     /// Layer mask clipboard (R8, document-sized).
     clipboard_mask_r8: Option<crate::clipboard::CoveragePayload>,
-    selection_undo: Vec<SelectionSnapshot>,
-    selection_redo: Vec<SelectionSnapshot>,
-    transform_undo: Vec<TransformSnapshot>,
-    transform_redo: Vec<TransformSnapshot>,
+    /// Pixel-selection undo, which the engine cannot hold: the mask is a GPU
+    /// texture, not part of the document graph.
+    selection_history: HostUndoStack<SelectionSnapshot>,
+    /// Transform-commit undo, for the same reason at layer scale.
+    transform_history: HostUndoStack<TransformSnapshot>,
     /// Generation pinned when a Save was submitted (Phase 2 receipt).
     pending_save_generation: Option<u64>,
     prefs: Preferences,
@@ -521,9 +524,9 @@ impl Default for AppSession {
                 session.io_error = format!("Open failed: {error}");
             }
         }
-        eprintln!(
-            "[phototux] AppSession ready {:.2} ms",
-            started.elapsed().as_secs_f64() * 1000.0
+        tracing::info!(
+            ms = (started.elapsed().as_secs_f64() * 100_000.0).round() / 100.0,
+            "AppSession ready"
         );
         session
     }
@@ -544,14 +547,27 @@ impl AppSession {
     /// The vector feeds the inspector badge rules and the JSON feeds QML; they
     /// are set together so a badge can never describe a value the panel is not
     /// showing.
+    /// The active adjustment's slot values, and the JSON the editor binds to.
+    ///
+    /// Two fields for one value, so the publish is written out rather than
+    /// left to the macro — but it is the same rule, and it goes through
+    /// `publish!` for the JSON half so that
+    /// `published_fields_are_not_also_announced_unconditionally` can see it.
+    /// It could not before, which is how an unconditional
+    /// `adjustment_slots_json_changed()` in `emit_layer_fields` came to sit
+    /// beside a compare-and-skip and quietly undo it.
     fn set_adjustment_slot_values(&mut self, values: &[f32]) {
         if self.adjustment_slots == values {
             return;
         }
         self.adjustment_slots = values.to_vec();
-        self.adjustment_slots_json =
-            serde_json::to_string(values).unwrap_or_else(|_| "[]".to_owned());
-        self.adjustment_slots_json_changed();
+        let json = serde_json::to_string(values).unwrap_or_else(|_| "[]".to_owned());
+        publish!(
+            self,
+            adjustment_slots_json,
+            json,
+            adjustment_slots_json_changed
+        );
     }
 
     pub fn new(icon_root: String) -> Self {
@@ -711,10 +727,8 @@ impl AppSession {
             clipboard_rgba: None,
             clipboard_selection_r8: None,
             clipboard_mask_r8: None,
-            selection_undo: Vec::new(),
-            selection_redo: Vec::new(),
-            transform_undo: Vec::new(),
-            transform_redo: Vec::new(),
+            selection_history: HostUndoStack::new(SELECTION_UNDO_LIMIT),
+            transform_history: HostUndoStack::new(TRANSFORM_UNDO_LIMIT),
             pending_save_generation: None,
             prefs: Preferences::default(),
             workspace: WorkspaceState::essentials(),
@@ -905,7 +919,7 @@ impl AppSession {
             return;
         }
         self.notify(NoticeLevel::Error, format!("{operation} failed: {error}"));
-        eprintln!("[phototux] {operation}: {error}");
+        tracing::warn!(operation, %error, "operation failed");
     }
 
     /// Post a message to the toast channel.
@@ -938,7 +952,7 @@ impl AppSession {
             "Graphics device lost — the document is preserved. Use Recover to restore the canvas.",
         );
         self.publish_announcement();
-        eprintln!("[phototux] GPU lost — document authority preserved");
+        tracing::error!("GPU lost — document authority preserved");
     }
 
     fn sync_from_engine(&mut self) {
@@ -1211,80 +1225,96 @@ impl AppSession {
         self.brush_b = fg[2];
     }
 
+    /// Everything the Properties panel shows about the active layer's
+    /// adjustment, styles, blending and effects.
+    ///
+    /// The layer is read once. It used to be looked up twice — the second time
+    /// only to reach the effects, because the first borrow had to be dropped
+    /// before anything could be published — and the fields after that second
+    /// lookup were the ones that never joined the publish protocol: they were
+    /// assigned bare here and announced blind from `emit_layer_fields`, three
+    /// hundred lines away, where the two halves could drift apart unseen.
+    ///
+    /// The no-layer arm states the empty value for every field rather than
+    /// returning early. Returning early is what left `layer_styles_json` and
+    /// `effects_joined` describing a layer that was no longer active.
     fn sync_adjustment_fields(&mut self) {
         let layer = self
             .engine
             .graph
             .as_ref()
             .and_then(|g| g.active_id().and_then(|id| g.get(id)));
-        let Some(layer) = layer else {
-            self.adjustment_kind.clear();
-            self.set_adjustment_slot_values(&[]);
-            self.has_gaussian_blur = false;
-            self.gaussian_radius = 0.0;
-            let empty = blend_if_state_json(phototux_engine::BlendIf::default());
-            publish!(self, blend_if_json, empty, blend_if_json_changed);
-            let no_shape = shape_state_json(None);
-            publish!(self, shape_json, no_shape, shape_json_changed);
-            let no_smart = smart_state_json(None, false);
-            publish!(self, smart_json, no_smart, smart_json_changed);
-            return;
-        };
         // Copied out before publishing: the layer is borrowed from `self`, and
         // the publisher needs `self` mutably.
-        let adjustment = layer.adjustment.as_ref().map(|params| {
-            (
-                params.kind_key(),
-                params.slots(),
-                params.editor_slots().len(),
-            )
-        });
-        let styles_json = phototux_engine::layer_styles_json(&layer.styles);
-        let blend_if = blend_if_state_json(layer.blend_if);
-        let shape = shape_state_json(layer.shape.as_ref());
-        let smart = smart_state_json(
-            layer.smart.as_ref(),
-            self.smart_sources.contains_key(&layer.id),
-        );
+        let (adjustment, styles, blend_if, shape, smart, gaussian) = match layer {
+            Some(layer) => (
+                layer.adjustment.as_ref().map(|params| {
+                    (
+                        params.kind_key(),
+                        params.slots(),
+                        params.editor_slots().len(),
+                    )
+                }),
+                phototux_engine::layer_styles_json(&layer.styles),
+                blend_if_state_json(layer.blend_if),
+                shape_state_json(layer.shape.as_ref()),
+                smart_state_json(
+                    layer.smart.as_ref(),
+                    self.smart_sources.contains_key(&layer.id),
+                ),
+                layer.effects.iter().find_map(|effect| match effect.params {
+                    FilterParams::GaussianBlur { radius } if effect.enabled => Some(radius),
+                    _ => None,
+                }),
+            ),
+            None => (
+                None,
+                phototux_engine::layer_styles_json(&[]),
+                blend_if_state_json(phototux_engine::BlendIf::default()),
+                shape_state_json(None),
+                smart_state_json(None, false),
+                None,
+            ),
+        };
+
         publish!(self, blend_if_json, blend_if, blend_if_json_changed);
         publish!(self, shape_json, shape, shape_json_changed);
         publish!(self, smart_json, smart, smart_json_changed);
-        publish!(
-            self,
-            layer_styles_json,
-            styles_json,
-            layer_styles_json_changed
-        );
+        publish!(self, layer_styles_json, styles, layer_styles_json_changed);
         match adjustment {
             Some((kind, slots, used)) => {
-                self.adjustment_kind = kind.to_owned();
+                publish!(
+                    self,
+                    adjustment_kind,
+                    kind.to_owned(),
+                    adjustment_kind_changed
+                );
                 self.set_adjustment_slot_values(&slots[..used]);
             }
             None => {
-                self.adjustment_kind.clear();
+                publish!(
+                    self,
+                    adjustment_kind,
+                    String::new(),
+                    adjustment_kind_changed
+                );
                 self.set_adjustment_slot_values(&[]);
             }
         }
-        let layer = self
-            .engine
-            .graph
-            .as_ref()
-            .and_then(|g| g.active_id().and_then(|id| g.get(id)));
-        let Some(layer) = layer else {
-            return;
-        };
-        let gaussian = layer.effects.iter().find_map(|effect| {
-            if !effect.enabled {
-                return None;
-            }
-            match effect.params {
-                FilterParams::GaussianBlur { radius } => Some(radius),
-                _ => None,
-            }
-        });
-        self.has_gaussian_blur = gaussian.is_some();
-        self.gaussian_radius = gaussian.unwrap_or(0.0);
-        self.effects_joined = self.engine.active_effects_joined();
+        publish!(
+            self,
+            has_gaussian_blur,
+            gaussian.is_some(),
+            has_gaussian_blur_changed
+        );
+        publish!(
+            self,
+            gaussian_radius,
+            gaussian.unwrap_or(0.0),
+            gaussian_radius_changed
+        );
+        let effects = self.engine.active_effects_joined();
+        publish!(self, effects_joined, effects, effects_joined_changed);
     }
 
     fn sync_text_fields(&mut self) {
@@ -1539,11 +1569,6 @@ impl AppSession {
         self.background_hex_changed();
         self.recent_colors_changed();
         self.brush_color_changed();
-        self.adjustment_kind_changed();
-        self.adjustment_slots_json_changed();
-        self.has_gaussian_blur_changed();
-        self.gaussian_radius_changed();
-        self.effects_joined_changed();
         self.emit_text_fields();
         self.emit_path_edit_fields();
         self.emit_filter_preview_fields();
@@ -1630,13 +1655,11 @@ impl AppSession {
     }
 
     fn clear_selection_stacks(&mut self) {
-        self.selection_undo.clear();
-        self.selection_redo.clear();
+        self.selection_history.clear();
     }
 
     fn clear_transform_stacks(&mut self) {
-        self.transform_undo.clear();
-        self.transform_redo.clear();
+        self.transform_history.clear();
     }
 
     fn sync_transform_fields(&mut self) {
@@ -1675,21 +1698,9 @@ impl AppSession {
     }
 
     fn push_transform_snapshot(&mut self) {
-        let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
-            return;
-        };
-        let Some(graph) = self.engine.graph.clone() else {
-            return;
-        };
-        self.transform_undo.push(TransformSnapshot {
-            size,
-            layers,
-            graph,
-        });
-        if self.transform_undo.len() > TRANSFORM_UNDO_LIMIT {
-            self.transform_undo.remove(0);
+        if let Some(snapshot) = self.transform_snapshot_now() {
+            self.transform_history.record(snapshot);
         }
-        self.transform_redo.clear();
     }
 
     fn restore_transform_snapshot(&mut self, snap: TransformSnapshot) {
@@ -1706,16 +1717,32 @@ impl AppSession {
         }
     }
 
-    fn push_selection_snapshot(&mut self) {
-        let mask = phototux_canvas::selection_snapshot().unwrap_or_default();
-        self.selection_undo.push(SelectionSnapshot {
+    /// The selection as it is right now, ready to be stepped away from.
+    ///
+    /// The GPU mask and `engine.selection` are two halves of one state, and
+    /// reading them apart at each of the four call sites is how they came to
+    /// be written out four times.
+    fn selection_snapshot_now(&self) -> SelectionSnapshot {
+        SelectionSnapshot {
             state: self.engine.selection.clone(),
-            mask,
-        });
-        if self.selection_undo.len() > SELECTION_UNDO_LIMIT {
-            self.selection_undo.remove(0);
+            mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
         }
-        self.selection_redo.clear();
+    }
+
+    /// The document's pixels and graph right now, or `None` when either is
+    /// unavailable — an unopened document, or a GPU that cannot be read.
+    fn transform_snapshot_now(&self) -> Option<TransformSnapshot> {
+        let (size, layers) = phototux_canvas::snapshot_document_layers().ok()?;
+        Some(TransformSnapshot {
+            size,
+            layers,
+            graph: self.engine.graph.clone()?,
+        })
+    }
+
+    fn push_selection_snapshot(&mut self) {
+        let snapshot = self.selection_snapshot_now();
+        self.selection_history.record(snapshot);
     }
 
     /// Run a GPU selection edit with its undo snapshot taken first.
@@ -2128,126 +2155,6 @@ impl AppSession {
         }
     }
 
-    fn active_lock_flags(&self) -> phototux_engine::LockFlags {
-        self.active_id()
-            .and_then(|id| self.engine.graph.as_ref()?.get(id))
-            .map(|layer| layer.locks)
-            .unwrap_or_default()
-    }
-
-    fn command_args_for_action(
-        &self,
-        command_id: &str,
-        arg: Option<&str>,
-    ) -> Result<CommandArgs, CommandError> {
-        use phototux_engine::command_id as cid;
-        match command_id {
-            cid::HISTORY_UNDO
-            | cid::HISTORY_REDO
-            | cid::LAYER_CREATE
-            | cid::LAYER_DUPLICATE
-            | cid::LAYER_DELETE
-            | cid::LAYER_GROUP
-            | cid::LAYER_UNGROUP
-            | cid::VIEW_ZOOM_TO_FIT
-            | cid::VIEW_ZOOM_IN
-            | cid::VIEW_ZOOM_OUT
-            | cid::VIEW_ZOOM_ACTUAL
-            | cid::MASK_APPLY
-            | cid::APP_SHOW_PREFERENCES
-            | cid::APP_SHOW_FILTER_GALLERY
-            | cid::FILTER_COMMIT
-            | cid::FILTER_CANCEL_PREVIEW
-            | cid::WORKSPACE_RESET
-            | cid::MASK_CREATE_VECTOR
-            | cid::SELECTION_TO_MASK
-            | cid::MASK_TO_SELECTION => Ok(CommandArgs::None),
-            cid::STYLE_ADD => Ok(CommandArgs::LayerStyleKind {
-                kind: arg.unwrap_or("drop-shadow").to_owned(),
-            }),
-            cid::LAYER_CREATE_FILL => Ok(CommandArgs::FillCreate {
-                color_rgba: [
-                    self.engine.colors.foreground[0],
-                    self.engine.colors.foreground[1],
-                    self.engine.colors.foreground[2],
-                    1.0,
-                ],
-            }),
-            cid::LAYER_ARRANGE => Ok(CommandArgs::Arrange {
-                op: arg.unwrap_or("forward").to_owned(),
-            }),
-            cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
-                panel_id: arg.unwrap_or("panel.layers").to_owned(),
-            }),
-            cid::WORKSPACE_APPLY_PRESET => Ok(CommandArgs::ApplyWorkspacePreset {
-                preset_id: arg.unwrap_or("workspace.preset.essentials").to_owned(),
-            }),
-            cid::DOCUMENT_ASSIGN_PROFILE => Ok(CommandArgs::AssignProfile {
-                profile: arg.unwrap_or("sRGB").to_owned(),
-            }),
-            cid::DOCUMENT_CONVERT_PROFILE => Ok(CommandArgs::ConvertProfile {
-                profile: arg.unwrap_or("sRGB").to_owned(),
-            }),
-            cid::DOCUMENT_SET_SOFT_PROOF => {
-                let raw = arg.unwrap_or(":relative");
-                let (profile, intent) = match raw.split_once(':') {
-                    Some((p, i)) => (p.to_owned(), i.to_owned()),
-                    None => (raw.to_owned(), "relative".to_owned()),
-                };
-                Ok(CommandArgs::SoftProof { profile, intent })
-            }
-            cid::DOCUMENT_SET_ICC => {
-                if arg == Some("clear") {
-                    Ok(CommandArgs::SetIcc { bytes: None })
-                } else {
-                    Err(CommandError::InvalidArgument(
-                        "document.set-icc requires clear or host embed",
-                    ))
-                }
-            }
-            cid::FILTER_ADD_ADJUSTMENT => Ok(CommandArgs::FilterAdjustment {
-                kind: arg.unwrap_or("brightness").to_owned(),
-            }),
-            cid::FILTER_ADD_EFFECT => Ok(CommandArgs::FilterEffect {
-                kind: arg.unwrap_or("gaussian").to_owned(),
-            }),
-            cid::FILTER_PREVIEW => Ok(CommandArgs::FilterPreview {
-                kind: arg.unwrap_or("gaussian").to_owned(),
-            }),
-            cid::SHAPE_BOOLEAN => Ok(CommandArgs::ShapeBoolean {
-                op: arg.unwrap_or("union").to_owned(),
-            }),
-            cid::RASTER_FLIP => Ok(CommandArgs::RasterFlip {
-                horizontal: arg != Some("v"),
-            }),
-            cid::LAYER_SET_LOCKS => {
-                let mut locks = self.active_lock_flags();
-                match arg {
-                    Some("pixels") => locks.pixels = !locks.pixels,
-                    Some("position") => locks.position = !locks.position,
-                    Some("all") => locks.all = !locks.all,
-                    Some("alpha") => locks.alpha = !locks.alpha,
-                    _ => locks.all = !locks.all,
-                }
-                Ok(CommandArgs::SetLocks {
-                    pixels: locks.pixels || locks.all,
-                    position: locks.position || locks.all,
-                    all: locks.all,
-                    alpha: locks.alpha || locks.all,
-                })
-            }
-            _ => {
-                if arg.is_none() {
-                    Ok(CommandArgs::None)
-                } else {
-                    Err(CommandError::InvalidArgument(
-                        "unsupported command args for action",
-                    ))
-                }
-            }
-        }
-    }
-
     fn dispatch_host_op(&mut self, op: &str, arg: Option<&str>) {
         match op {
             "document.new" => {
@@ -2279,7 +2186,6 @@ impl AppSession {
             "help.about" => {
                 self.request_host(phototux_engine::HostRequest::ShowAbout);
             }
-            "prefs.open" => self.open_preferences(),
             // Shortcut and palette route through the same activation the tool
             // shelf uses, so leaving an in-progress transform or crop is
             // cancelled identically however the tool was switched.
@@ -2403,11 +2309,6 @@ impl AppSession {
                 self.add_guide("h".into(), y);
             }
             "view.clear_guides" => self.clear_guides(),
-            "workspace.reset" => self.reset_workspace(),
-            op if op.starts_with("panel.toggle:") => {
-                let panel = op.trim_start_matches("panel.toggle:");
-                self.toggle_panel_by_id(&format!("panel.{panel}"));
-            }
             _ => {
                 self.notify(NoticeLevel::Warning, format!("Unknown host op: {op}"));
             }
@@ -2535,59 +2436,36 @@ impl AppSession {
                 Err(error) => self.report_gpu("stroke redo", &error),
             },
             HostHistoryAction::Undo(HistoryKind::Selection) => {
-                let current = SelectionSnapshot {
-                    state: self.engine.selection.clone(),
-                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
-                };
-                if let Some(prev) = self.selection_undo.pop() {
-                    self.selection_redo.push(current);
-                    self.restore_selection_snapshot(prev);
-                } else {
-                    self.engine.selection.clear();
-                    let _ = phototux_canvas::selection_clear();
+                let current = self.selection_snapshot_now();
+                match self.selection_history.undo(current) {
+                    Some(previous) => self.restore_selection_snapshot(previous),
+                    // Stepping back past the oldest recorded selection is
+                    // stepping back to having made none.
+                    None => {
+                        self.engine.selection.clear();
+                        let _ = phototux_canvas::selection_clear();
+                    }
                 }
             }
             HostHistoryAction::Redo(HistoryKind::Selection) => {
-                let current = SelectionSnapshot {
-                    state: self.engine.selection.clone(),
-                    mask: phototux_canvas::selection_snapshot().unwrap_or_default(),
-                };
-                if let Some(next) = self.selection_redo.pop() {
-                    self.selection_undo.push(current);
+                let current = self.selection_snapshot_now();
+                if let Some(next) = self.selection_history.redo(current) {
                     self.restore_selection_snapshot(next);
                 }
             }
             HostHistoryAction::Undo(HistoryKind::Transform) => {
-                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                let Some(current) = self.transform_snapshot_now() else {
                     return;
                 };
-                let Some(graph) = self.engine.graph.clone() else {
-                    return;
-                };
-                let current = TransformSnapshot {
-                    size,
-                    layers,
-                    graph,
-                };
-                if let Some(prev) = self.transform_undo.pop() {
-                    self.transform_redo.push(current);
-                    self.restore_transform_snapshot(prev);
+                if let Some(previous) = self.transform_history.undo(current) {
+                    self.restore_transform_snapshot(previous);
                 }
             }
             HostHistoryAction::Redo(HistoryKind::Transform) => {
-                let Ok((size, layers)) = phototux_canvas::snapshot_document_layers() else {
+                let Some(current) = self.transform_snapshot_now() else {
                     return;
                 };
-                let Some(graph) = self.engine.graph.clone() else {
-                    return;
-                };
-                let current = TransformSnapshot {
-                    size,
-                    layers,
-                    graph,
-                };
-                if let Some(next) = self.transform_redo.pop() {
-                    self.transform_undo.push(current);
+                if let Some(next) = self.transform_history.redo(current) {
                     self.restore_transform_snapshot(next);
                 }
             }
@@ -2994,15 +2872,8 @@ mod tests {
     /// vocabularies — one side is a declarative binding.
     #[test]
     fn every_tool_named_in_the_qml_shell_is_a_tool_the_host_knows() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
         let mut checked = 0_usize;
-        for entry in std::fs::read_dir(dir).expect("read qml/") {
-            let path = entry.expect("dir entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).expect("read qml file");
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        for (name, source) in crate::chrome_contract::qml_files() {
             for id in source.split("\"tool.").skip(1).filter_map(|rest| {
                 let id = rest.split('"').next()?;
                 // `tool.activate` is a host op, not a tool; the ids this test
@@ -3024,21 +2895,79 @@ mod tests {
         );
     }
 
+    /// The action registry and the host dispatcher name the same host ops.
+    ///
+    /// An action either invokes a command or asks the host to do something no
+    /// command covers — open a file dialog, reach the clipboard, talk to the
+    /// GPU. The second kind is a bare string matched by `dispatch_host_op`,
+    /// and the only thing that catches a mismatch today is the catch-all arm,
+    /// which raises a toast *if the user clicks the entry*. A renamed or
+    /// mistyped op therefore ships as a menu item that does nothing, and the
+    /// person who finds it is the user.
+    ///
+    /// The other direction matters as much and is quieter still: an arm no
+    /// action names is unreachable, because `dispatch_host_op` is private and
+    /// its one caller passes `action.host_op`. Three such arms had
+    /// accumulated — `prefs.open`, `workspace.reset` and a `panel.toggle:`
+    /// prefix — each a second, dead route to a handler the command path
+    /// already reaches through `HostFollowUp`.
+    ///
+    /// Reading the arms out of this file as text is what makes the two
+    /// vocabularies comparable; the alternative is a third list of op names
+    /// for someone to forget. Arms are matched at their exact indentation, so
+    /// the string literals *inside* an arm body are not mistaken for patterns.
+    #[test]
+    fn the_registry_and_the_host_dispatcher_name_the_same_host_ops() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the ui crate can read its own source");
+        let body = source
+            .split("fn dispatch_host_op(&mut self, op: &str, arg: Option<&str>) {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    }").next())
+            .expect("dispatch_host_op is where this test thinks it is");
+        let arms: Vec<&str> = body
+            .lines()
+            .filter_map(|line| line.strip_prefix("            \""))
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert!(
+            arms.len() > 40,
+            "found {} arms — the scan broke rather than the host",
+            arms.len()
+        );
+
+        let declared: Vec<String> = phototux_engine::default_actions()
+            .into_iter()
+            .filter_map(|action| action.host_op)
+            .collect();
+        for action in phototux_engine::default_actions() {
+            let Some(op) = action.host_op.as_deref() else {
+                continue;
+            };
+            assert!(
+                arms.contains(&op),
+                "{} asks the host for {op:?}, which no arm answers — the entry \
+                 would raise a toast and do nothing",
+                action.id
+            );
+        }
+        for arm in arms {
+            assert!(
+                declared.iter().any(|op| op == arm),
+                "dispatch_host_op answers {arm:?}, which no action asks for — \
+                 nothing can reach it, because host ops arrive only from the registry"
+            );
+        }
+    }
+
     /// The canvas creates shapes directly, not only through the Layer menu, so
     /// the registry test in the engine does not cover every caller. An unknown
     /// kind now creates nothing, which from the shell looks like a click that
     /// did not register.
     #[test]
     fn every_shape_created_from_the_qml_shell_names_a_known_preset() {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml");
         let mut checked = 0_usize;
-        for entry in std::fs::read_dir(dir).expect("read qml/") {
-            let path = entry.expect("dir entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).expect("read qml file");
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        for (name, source) in crate::chrome_contract::qml_files() {
             for kind in source
                 .split("addShapeLayer(\"")
                 .skip(1)
@@ -4421,7 +4350,7 @@ impl AppSession {
             return;
         }
         if let Some(cid) = action.command_id.as_deref() {
-            match self.command_args_for_action(cid, action.arg.as_deref()) {
+            match self.engine.args_for_action(cid, action.arg.as_deref()) {
                 Ok(args) => {
                     if let Err(error) = self.invoke_command(cid, args) {
                         self.report_action_error(&error);
@@ -5986,9 +5915,9 @@ impl AppSession {
             return;
         };
         self.startup_ms = start.elapsed().as_secs_f32() * 1000.0;
-        eprintln!(
-            "[phototux] first interactive frame {:.2} ms",
-            self.startup_ms
+        tracing::info!(
+            ms = f64::from((self.startup_ms * 100.0).round()) / 100.0,
+            "first interactive frame"
         );
         self.startup_ms_changed();
     }
@@ -6193,7 +6122,7 @@ impl AppSession {
         };
         self.push_transform_snapshot();
         if let Err(error) = self.invoke_command(command, CommandArgs::None) {
-            self.transform_undo.pop();
+            self.transform_history.discard_last();
             self.report_action_error(&error);
             return;
         }
@@ -6228,7 +6157,7 @@ impl AppSession {
         };
         self.push_transform_snapshot();
         if let Err(error) = self.invoke_command(command_id::LAYER_FLATTEN, CommandArgs::None) {
-            self.transform_undo.pop();
+            self.transform_history.discard_last();
             self.report_action_error(&error);
             return;
         }

@@ -161,6 +161,10 @@ Provenance identifies user presentation, tool gesture, history operation, recove
 
 One action normally maps to one command. A view-only action may use a workspace command or explicit non-mutating handler when no persisted/shared state changes. One command may be invoked from many actions only when parameterization or presentation differs without changing semantics.
 
+**The action-to-command wiring lives in the engine.** A descriptor carries a command id and an optional string — `"h"`, `"drop-shadow"`, `"sRGB"` — while the router destructures a specific `CommandArgs` variant; `SessionState::args_for_action` turns one into the other, beside the `invoke` that consumes what it builds. It sat in the host until it could not be tested there, and it reads only session state the engine already owns (the foreground colour for a fill layer, the active layer's locks for a lock toggle), so nothing was gained by the distance.
+
+It ends in a catch-all that answers `CommandArgs::None`, which is the right default for the twenty-odd commands that take no arguments and a silent failure for any other: the command refuses with `InvalidArgument`, and from the shell that is a menu entry that does nothing. `every_action_builds_arguments_its_command_accepts` walks the shipped registry through both halves on an empty session and on one with a document. It rejects `InvalidArgument` only — a command refusing because there is no document or no active layer is answering correctly, and enablement tags are what keep that off the screen.
+
 **Descriptor lookup is a hot path and must be constant-cost.** Presentations resolve enablement per action, and every bound action re-resolves together whenever a shared enablement input changes — the surface is the whole menu tree, not one item. A lookup that constructs the descriptor table therefore multiplies one state change by the table size and by the number of bindings. Descriptors are immutable for the process lifetime, so the table **MUST** be built once and looked up by index; helpers that walk it **SHOULD** borrow rather than clone.
 
 ```mermaid

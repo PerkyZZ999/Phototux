@@ -1,4 +1,4 @@
-//! Native `.ptx` document container (ADR-016).
+//! Native `.ptx` document container (DR-026).
 
 use std::collections::HashMap;
 use std::fs::File;

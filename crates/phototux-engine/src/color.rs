@@ -122,8 +122,88 @@ fn rgba_nearly_equal(a: [f32; 4], b: [f32; 4]) -> bool {
         .all(|(lhs, rhs)| (lhs - rhs).abs() <= EPS)
 }
 
+/// RGB → HSL, all components in 0..1 (hue wraps).
+///
+/// The pivot the Hue/Saturation adjustment turns on, and the reference the
+/// WGSL in `phototux_gpu::composite` mirrors — the parity fixture sweeps every
+/// adjustment kind against this on a real device. It lived in `layer.rs`, two
+/// of that file's twenty concepts and the only two with no layer in them, so a
+/// shader comment saying "mirrors phototux_engine::rgb_to_hsl" sent a reader
+/// to the layer module. `pub(crate)`, not `pub`: it was never re-exported from
+/// the crate root, so the wider visibility advertised an API nobody had.
+#[must_use]
+pub(crate) fn rgb_to_hsl(rgb: [f32; 3]) -> [f32; 3] {
+    let max = rgb[0].max(rgb[1]).max(rgb[2]);
+    let min = rgb[0].min(rgb[1]).min(rgb[2]);
+    let l = (max + min) * 0.5;
+    let span = max - min;
+    if span <= f32::EPSILON {
+        return [0.0, 0.0, l];
+    }
+    let s = if l > 0.5 {
+        span / (2.0 - max - min)
+    } else {
+        span / (max + min)
+    };
+    let h = if max == rgb[0] {
+        ((rgb[1] - rgb[2]) / span).rem_euclid(6.0)
+    } else if max == rgb[1] {
+        (rgb[2] - rgb[0]) / span + 2.0
+    } else {
+        (rgb[0] - rgb[1]) / span + 4.0
+    };
+    [(h / 6.0).rem_euclid(1.0), s, l]
+}
+
+/// HSL → RGB, inverse of [`rgb_to_hsl`].
+#[must_use]
+pub(crate) fn hsl_to_rgb(hsl: [f32; 3]) -> [f32; 3] {
+    let [h, s, l] = hsl;
+    if s <= f32::EPSILON {
+        return [l; 3];
+    }
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    let channel = |mut t: f32| {
+        t = t.rem_euclid(1.0);
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 0.5 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    [channel(h + 1.0 / 3.0), channel(h), channel(h - 1.0 / 3.0)]
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// HSL is the pivot the Hue/Saturation adjustment turns on, so a colour
+    /// must survive the round trip it makes on every pixel.
+    #[test]
+    fn hsl_round_trips() {
+        for rgb in [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.5, 0.5, 0.5],
+            [0.9, 0.2, 0.35],
+            [0.1, 0.7, 0.4],
+            [0.25, 0.3, 0.95],
+        ] {
+            let back = hsl_to_rgb(rgb_to_hsl(rgb));
+            for (a, b) in back.iter().zip(rgb) {
+                assert!((a - b).abs() < 1e-4, "{rgb:?} -> {back:?}");
+            }
+        }
+    }
     use super::*;
 
     #[test]

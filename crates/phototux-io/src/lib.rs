@@ -1,4 +1,4 @@
-//! Document I/O boundaries: rasters, native `.ptx`, recovery, PSD subset (ADR-015/016).
+//! Document I/O boundaries: rasters, native `.ptx`, recovery, PSD subset (DR-013 / DR-026).
 
 mod atomic;
 mod psd;

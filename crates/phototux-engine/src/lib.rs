@@ -1,4 +1,4 @@
-//! Pure document/session types — no Qt (ADR-006, ADR-011, ADR-017).
+//! Pure document/session types — no Qt (DR-025, DR-002, DR-004).
 
 mod actions;
 mod align;
@@ -128,10 +128,10 @@ pub use shape_boolean::{BooleanOp, boolean_rgba8};
 pub use shape_preset::ShapePreset;
 pub use shell::{
     AdjustmentParamRange, DisclosureBadge, DisclosureGroupDescriptor, InspectorState,
-    PanelDescriptor, ToolDescriptor, adjustment_editor_ranges, adjustment_editor_ranges_json,
-    adjustment_labels_json, default_disclosure_groups, default_panels, default_tools,
-    disclosure_groups_json, essentials_panel_visibility, inspector_badges, inspector_badges_json,
-    panels_json, tool_slots, tool_slots_json, tools_json,
+    PanelDescriptor, PanelHeight, ToolDescriptor, adjustment_editor_ranges,
+    adjustment_editor_ranges_json, adjustment_labels_json, default_disclosure_groups,
+    default_panels, default_tools, disclosure_groups_json, essentials_panel_visibility,
+    inspector_badges, inspector_badges_json, panels_json, tool_slots, tool_slots_json, tools_json,
 };
 pub use snapshot_publish::{
     MAX_SNAPSHOT_BYTES, PixelSnapshot, SnapshotError, SnapshotPublisher, solid_layer_rgba,
@@ -221,7 +221,7 @@ impl DocumentSize {
     }
 }
 
-/// Named size presets (ADR-013). 1080p is the recommended default highlight in UI.
+/// Named size presets (DR-024). 1080p is the recommended default highlight in UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizePreset {
     P720,
@@ -698,6 +698,13 @@ impl SessionState {
     }
 
     /// The active layer, if there is a document and it has one.
+    /// The active layer's lock flags, or none when there is no layer.
+    fn active_lock_flags(&self) -> crate::LockFlags {
+        self.active_layer()
+            .map(|layer| layer.locks)
+            .unwrap_or_default()
+    }
+
     fn active_layer(&self) -> Option<&crate::layer::Layer> {
         self.graph
             .as_ref()
@@ -946,7 +953,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presets_match_adr_013() {
+    fn presets_match_the_document_session_sizes() {
         assert_eq!(SizePreset::P720.size(), DocumentSize::new(1280, 720));
         assert_eq!(SizePreset::P1080.size(), DocumentSize::new(1920, 1080));
         assert_eq!(SizePreset::P2k.size(), DocumentSize::new(2560, 1440));
@@ -1016,6 +1023,78 @@ mod tests {
         assert!(
             !s.status_summary().contains("composite"),
             "composite ms must stay out of status_summary to avoid AT-SPI thrash"
+        );
+    }
+
+    /// Every source file cites the Decision Register, never an archived ADR.
+    ///
+    /// The ADR files were deleted in July 2026 and
+    /// `Appendix/Archived-ADR-to-DR-Map.md` says in as many words that former
+    /// ids are not a second authority. Twenty-six module headers went on
+    /// citing them anyway, so `document.rs` opened by pointing a reader at two
+    /// documents that do not exist. Nothing said so, because a citation is
+    /// prose — it compiles either way, and the only cost is paid by whoever
+    /// follows it.
+    ///
+    /// Reading the tree as text is what makes the rule checkable at all. The
+    /// map itself is the one place an ADR id is still allowed to appear, and
+    /// it lives under `internal_docs/`, which this walk does not enter.
+    #[test]
+    fn no_source_file_cites_an_archived_adr() {
+        fn walk(dir: &std::path::Path, found: &mut Vec<String>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                // Build output is generated from these same sources, so it
+                // carries copies of every citation and would report each twice.
+                if name == "target" || name == "node_modules" || name.starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    walk(&path, found);
+                } else if let Ok(text) = std::fs::read_to_string(&path) {
+                    for (line, body) in text.lines().enumerate() {
+                        if let Some(at) = body.find("ADR-")
+                            && body[at + 4..].starts_with(|c: char| c.is_ascii_digit())
+                        {
+                            found.push(format!("{}:{}", path.display(), line + 1));
+                        }
+                    }
+                }
+            }
+        }
+
+        let root = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let mut found = Vec::new();
+        for area in ["crates", "qml", "scripts"] {
+            walk(&root.join(area), &mut found);
+        }
+        // Build configuration is source too, and the first draft of this walk
+        // missed it: the workspace manifest justified the release profile by
+        // an archived id where DR-017 belongs. Root *prose* is deliberately
+        // not walked — CHANGELOG.md is a record of what was decided when, and
+        // rewriting it would falsify the history, while AGENTS.md and
+        // CONSTRAINTS.md cite archived ids the sanctioned way, as "former" or
+        // "archived" beside the live DR.
+        for manifest in ["Cargo.toml", "deny.toml", "clippy.toml", "justfile"] {
+            let path = root.join(manifest);
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                for (line, body) in text.lines().enumerate() {
+                    if let Some(at) = body.find("ADR-")
+                        && body[at + 4..].starts_with(|c: char| c.is_ascii_digit())
+                    {
+                        found.push(format!("{}:{}", path.display(), line + 1));
+                    }
+                }
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "archived ADR ids cited in shipped source — cite the live DR instead \
+             (see internal_docs/Appendix/Archived-ADR-to-DR-Map.md): {found:?}"
         );
     }
 

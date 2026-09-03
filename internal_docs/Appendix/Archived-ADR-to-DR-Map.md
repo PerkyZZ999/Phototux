@@ -31,3 +31,18 @@ Historical ADR ids are **not** a second authority. Prefer Decision Register (DR)
 | ADR-018 | PSD interchange subset | DR-013 adapters + ch.22/27 |
 
 **Rule for agents:** implement against handbook + Decision Register. Cite former ADR ids only via this map, never as a second authoritative MUST set.
+
+## The shipped source no longer cites ADRs
+
+The rule above was written for the handbook and was never true of the code. When
+the ADR files were deleted, twenty-six module headers, one C++ header, one QML
+comment and one shell script went on citing them — `document.rs` opened by
+pointing a reader at `ADR-011` and `ADR-017`, neither of which exists. A prose
+citation compiles whatever it names, so nothing reported the drift; the cost was
+paid only by whoever followed one.
+
+Every one of those sites now names its live DR, resolved through the table
+above. `phototux_engine`'s `no_source_file_cites_an_archived_adr` walks
+`crates/`, `qml/` and `scripts/` and fails the build on any `ADR-<digits>`, so
+the rule is now checked rather than asserted. This appendix is the one place an
+archived id still belongs, and the walk does not enter `internal_docs/`.

@@ -1,4 +1,4 @@
-//! Background paint worker (ADR-007).
+//! Background paint worker (DR-010).
 
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};

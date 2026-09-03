@@ -190,6 +190,40 @@ Successful undo commits authoritative state, registers traversal state, advances
 
 If inverse cannot apply, undo fails atomically. The system does not partially restore some layers. An optional repair command may establish a checkpoint boundary but must disclose lost traversal.
 
+### Host-side steps
+
+Two things the timeline can undo are not in the document graph, so the engine
+cannot hold their inverse: the pixel selection, whose coverage mask is a GPU
+texture, and a transform or flatten commit, which overwrites layer buffers.
+The engine records the *step* and hands the host a
+`HostHistoryAction::{Undo,Redo}(HistoryKind)`; the host keeps the snapshots.
+
+Those snapshots live in `HostUndoStack<T>` (`phototux_ui::host_undo`) — one for
+selection, one for transform, with different bounds because a selection
+snapshot is one coverage mask and a transform snapshot is every layer's pixels.
+The type is what enforces the three rules that were previously restated at each
+call site: the bound, that recording an edit discards the redo branch, and that
+stepping in either direction hands the current state to the opposite branch.
+
+That last rule is why it is a type. It was written out four times inside
+`apply_host_history` — capture, pop from one stack, push what was captured onto
+the other, restore — and transposing the last two in any one of the four would
+have left undo appearing to work while redo walked the wrong branch. Nothing
+could have caught it: the four copies sat in a method that talks to
+`phototux_canvas`, so no test reached them. The type has no GPU in it and its
+tests are the first to run over these rules.
+
+Stepping back past the oldest recorded selection is not an error; it steps back
+to having made none, so the selection is cleared. `undo` therefore drops the
+state it was handed when it has nothing to return, rather than stranding it on
+the redo branch where it would offer a redo to a state the undo path never
+produced.
+
+Merge and flatten record their snapshot *before* invoking the command, so that
+it captures the pixels the command is about to replace. When the command
+refuses, `discard_last` withdraws it — otherwise a refused edit would leave a
+no-op step on the undo stack.
+
 ## Redo Execution
 
 Redo resolves the next record in active suffix and applies forward representation. It revalidates resources and invariants. Deterministic replay uses pinned algorithm/schema/resources, not current defaults. Redo cannot silently substitute missing fonts, profiles, brushes, or extension operations.

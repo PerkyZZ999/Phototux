@@ -1,4 +1,4 @@
-//! One-shot fill and gradient into layer RGBA (commit path; ADR-005).
+//! One-shot fill and gradient into layer RGBA (commit path; DR-023).
 
 use phototux_engine::GradientRamp;
 

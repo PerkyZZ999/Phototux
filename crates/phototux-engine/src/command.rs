@@ -1,4 +1,4 @@
-//! Engine command queue types (ADR-007).
+//! Engine command queue types (DR-010).
 
 use crate::LayerId;
 use crate::layer::PaintTarget;

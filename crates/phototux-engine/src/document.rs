@@ -1,4 +1,4 @@
-//! Ordered hierarchical document graph (ADR-011, ADR-017).
+//! Ordered hierarchical document graph (DR-002, DR-004).
 
 use serde::{Deserialize, Serialize};
 

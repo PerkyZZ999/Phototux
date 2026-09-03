@@ -48,7 +48,7 @@ ok() { echo "${C_GRN}ok${C_RST} $*"; }
 if [[ ! -f "$ROOT/Cargo.toml" ]]; then
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -qE '\.rs$'; then
-      die "Rust sources staged but no Cargo.toml workspace yet. Scaffold the workspace first (ADR-006)."
+      die "Rust sources staged but no Cargo.toml workspace yet. Scaffold the workspace first (DR-025)."
     fi
   fi
   info "No Cargo.toml — skipping Rust-Toolchain (docs-only tree)."

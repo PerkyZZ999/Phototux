@@ -4,7 +4,7 @@ import QtQuick
 ///
 /// Dialogs are the bulk of the shell's QML object graph, but a typical session
 /// never opens most of them, so constructing them during startup is pure
-/// cold-boot cost against the ADR-008 interactive gate. Once loaded the instance
+/// cold-boot cost against the DR-017 interactive gate. Once loaded the instance
 /// is retained, so reopening is immediate and any in-progress state survives a
 /// close.
 ///
