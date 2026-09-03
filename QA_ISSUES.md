@@ -24,7 +24,7 @@ the entry says so rather than inventing one.
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
-| [QA-006](#qa-006--typing-into-a-spin-box-then-confirming-wedges-the-window) | **high** | `qml/ThemedSpinBox.qml` | Typing a value into a spin box, then confirming, hangs the whole window | open |
+| [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | open |
 
 ---
 
@@ -339,72 +339,73 @@ what "active" means, rather than only tightening the rect.
 
 ---
 
-## QA-006 — Typing into a spin box, then confirming, wedges the window
+## QA-006 — Select ▸ Modify blocks the UI thread for minutes
 
 | | |
 |---|---|
-| **Severity** | **high** — the window stops accepting input entirely and the process spins |
-| **Area** | `qml/ThemedSpinBox.qml`, reached through `qml/SelectionModifyDialog.qml` |
+| **Severity** | **high** — the window stops responding for as long as the operation runs, which at the radius the UI permits is over an hour |
+| **Area** | `phototux_engine` — `selection.rs`; reached from `qml/SelectionModifyDialog.qml` |
 | **Checklist item** | [H-35](QA_CHECKLIST.md) |
 | **Status** | open |
 | **Also logged as** | warrants a `T-nnn` row in the Interactive-Stability-Checklist |
 
-**Observed.** After typing a value into the Radius spin box and clicking **OK**,
-the dialog does not close and the application stops responding to input
-anywhere in the window — not OK, not Cancel, not Escape, not the spin box's own
-steppers, not the menus. The canvas keeps compositing at 60 fps, so it does not
-look frozen; it is simply deaf.
+**Observed.** Choosing a radius above the default in Select ▸ Modify and
+confirming makes the window stop accepting input — not OK, not Cancel, not
+Escape, not the menus. The canvas keeps compositing at 60 fps, so it does not
+look frozen; it is simply not listening. The process moves from state `S` to
+`R` and pegs a core.
 
-The process goes from state `S` to state `R` and its CPU climbs and stays
-climbing: 20% → 25% → 33% over the first fifteen seconds, and 71% on an
-instance left for five minutes. Nothing is written to the log.
+It is **not** a hang. The operation completes; it just takes long enough to look
+like one.
 
-**Steps to reproduce.** Reliably, twice from a clean start:
-
-1. New document (any preset). Ctrl+A to make a selection.
+**Steps to reproduce.**
+1. New document at 1080p. Ctrl+A.
 2. Select ▸ Modify ▸ Expand…
-3. **Triple-click the Radius field and type a number** — for example `40`.
-4. Click **OK**.
+3. Type `40` into the Radius field and click OK.
+4. The window is unresponsive for roughly half a minute in a release build, and
+   several times that in a debug build.
 
-The dialog stays open showing `40` and the window is unresponsive from here on.
+**Root cause — measured, not estimated.** `morph_mask_r8`
+([selection.rs:674](crates/phototux-engine/src/selection.rs#L674)) is a naive
+per-pixel neighbourhood scan over a **disc** structuring element: for every
+pixel it visits every offset in `-r..=r` squared and skips those outside
+`dx² + dy² > r²`. That is O(w · h · (2r+1)²), single-threaded, and it runs
+synchronously inside the `modifySelection` slot — which is to say, on the UI
+thread, with no progress, no cancel, and no worker.
 
-**The control case matters.** Doing the same thing *without* touching the text
-works perfectly: open the dialog, click OK on the default radius of 2, and the
-dialog closes, the selection expands, and CPU stays at 20% in state `S`. The
-trigger is specifically **editing the spin box's text**, not the dialog and not
-the command.
+Measured on 1920×1080 in a **release** build:
 
-**Likely cause — stated as a hypothesis, because I confirmed the trigger and
-the symptom but not the loop.** `ThemedSpinBox` binds its editor's text to the
-control's value:
+| Radius | Taps per pixel | Wall clock |
+|---|---|---|
+| 2 (the default) | 25 | 77 ms |
+| 8 | 289 | 1.0 s |
+| 20 | 1 681 | 6.7 s |
+| 40 | 6 561 | 25.3 s |
+| 512 (the spin box maximum) | 1 050 625 | ~67 minutes, extrapolated |
 
-```qml
-contentItem: TextInput {
-    text: control.displayText
-    …
-}
-```
+The default radius of 2 is the only value that feels instant, which is why the
+dialog appears to work: every path that does not change the radius runs 25 taps
+per pixel and returns.
 
-That is the same trap `qml/AGENTS.md` already documents for the sibling
-component: *"Qt drops a `TextField`'s `text` binding the moment the user types,
-and nothing puts it back."* Once the user types, `TextInput.text` is no longer
-bound to `displayText`, so the control and its editor disagree about the value
-— and `SpinBox`'s internal reconciliation on commit is the plausible source of
-the spin. The strongest evidence for this reading is that the bug appears only
-on the path that breaks that binding.
+**A hypothesis I had and discarded, recorded so nobody re-runs it.** The first
+reading was a QML binding loop in `ThemedSpinBox`, whose editor binds
+`text: control.displayText` — the trap `qml/AGENTS.md` documents for
+`ThemedTextField`. The control experiment killed it: typing into the **Image
+Size** dialog's spin box and confirming is completely healthy (9.5% CPU, state
+`S`), and that dialog uses the same component with the same bound-`visible`
+lifecycle. The difference is not the spin box. It is what the OK handler calls.
 
-`a_field_that_shows_a_value_binds_source_not_text` guards exactly this mistake
-— for `ThemedTextField`. `ThemedSpinBox` was never brought under it.
+**The fix.** The disc is a union of horizontal spans — for each `dy` the span is
+`±⌊√(r²−dy²)⌋` — so a dilate is a vertical accumulation of horizontal
+sliding-window maxima. A monotonic-deque sliding max is O(w) per row, which
+makes the whole operation **O(w · h · r)** instead of O(w · h · r²): an
+r-fold improvement, about 81× at radius 40, taking 25 s to roughly 0.3 s. The
+result is bit-identical, so it can be held to the current implementation by
+differential test rather than by re-deriving what the right answer is.
 
-**Why this is not a quick fix.** `ThemedSpinBox` is shared: the New Document,
-Image Size and Canvas Size dialogs, the preferences history-retention field and
-this prompt all use it, and all of them are editable. Applying the `source`
-pattern means reworking how the editor commits, and every one of those call
-sites has to be re-tested — a spin box that stops accepting typed input at all
-would be a worse regression than the hang.
+Even after that, a radius of 512 is ~4 s, so the operation should also move off
+the UI thread with the cancel path `a_running_file_operation_can_be_cancelled`
+already guards for file work. Fixing the algorithm first is what makes the
+common case correct; the worker is what makes the extreme case honest.
 
-The guard should be widened at the same time, so that any Themed control whose
-editor shows a value is held to the same rule rather than only the one where
-the trap was first found.
-
-**Resolution.** *(pending — see Phase 3)*
+**Resolution.** *(in progress — see Phase 3)*
