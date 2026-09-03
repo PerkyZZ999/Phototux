@@ -2115,6 +2115,52 @@ fn a_document_larger_than_the_gpu_can_hold_is_refused() {
 }
 
 /// The refusal has to say the number the user typed and the number they can.
+/// A zero edge is refused at every entry, including the ones a file feeds.
+///
+/// `check_size` only asked `oversized_edge`, so this passed — and two of its
+/// five callers hand it dimensions a `.ptx` or a PSD *declared*, which a file
+/// is free to set to 0. The two dialog callers had grown a `.max(1)` each,
+/// which says the hazard was known and handled at two sites out of five.
+#[test]
+fn a_zero_edge_is_not_a_document() {
+    for size in [
+        crate::DocumentSize::new(0, 0),
+        crate::DocumentSize::new(0, 1080),
+        crate::DocumentSize::new(1920, 0),
+    ] {
+        let err = crate::DocumentError::check_size(size).expect_err("a zero edge must be refused");
+        assert!(err.to_string().contains("1 px"), "{err}");
+        assert!(
+            CommandError::Document(err).is_user_correctable(),
+            "the message says what is wrong, so it belongs in front of the user"
+        );
+    }
+    assert!(crate::DocumentSize::new(1, 1).is_supported());
+}
+
+/// The predicate and the guard must agree, because they used to not.
+#[test]
+fn every_size_the_predicate_accepts_is_one_the_guard_accepts() {
+    let max = crate::MAX_DOCUMENT_DIMENSION;
+    for (w, h) in [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (max, max),
+        (max + 1, 1),
+        (1, max + 1),
+        (1920, 1080),
+    ] {
+        let size = crate::DocumentSize::new(w, h);
+        assert_eq!(
+            size.is_supported(),
+            crate::DocumentError::check_size(size).is_ok(),
+            "{w}x{h}: is_supported and check_size disagree"
+        );
+    }
+}
+
 #[test]
 fn the_refusal_names_both_numbers() {
     let err = crate::DocumentError::check_size(crate::DocumentSize::new(20000, 1080))

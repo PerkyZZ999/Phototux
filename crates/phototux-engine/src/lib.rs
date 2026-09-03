@@ -189,11 +189,31 @@ impl DocumentSize {
 
     /// Whether the compositor can hold a document this size.
     #[must_use]
+    /// Derived from the two edge checks rather than restating them.
+    ///
+    /// It restated them once, and the copies disagreed: this knew a zero edge
+    /// was unsupported while [`DocumentError::check_size`] — the guard every
+    /// caller actually uses — only asked [`Self::oversized_edge`], so a
+    /// document declaring 0x0 passed.
     pub const fn is_supported(self) -> bool {
-        self.width >= 1
-            && self.height >= 1
-            && self.width <= MAX_DOCUMENT_DIMENSION
-            && self.height <= MAX_DOCUMENT_DIMENSION
+        self.degenerate_edge().is_none() && self.oversized_edge().is_none()
+    }
+
+    /// The offending edge when one is too small to be a document at all.
+    ///
+    /// Zero is not a small document. The compositor allocates one texture per
+    /// layer at the document's size and wgpu refuses a zero-sized texture, so
+    /// the result is the same shape of failure an oversized edge produces: a
+    /// document that lists its layers and draws nothing.
+    #[must_use]
+    pub const fn degenerate_edge(self) -> Option<u32> {
+        if self.width == 0 {
+            Some(self.width)
+        } else if self.height == 0 {
+            Some(self.height)
+        } else {
+            None
+        }
     }
 
     /// The offending edge, for a message that names a number the user typed.

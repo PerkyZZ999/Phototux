@@ -8638,7 +8638,7 @@ impl AppSession {
         let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        let size = phototux_engine::DocumentSize::new(w, h);
         // Refused, not clamped to 32768: the compositor allocates a texture per
         // layer at this size, and past the device limit wgpu fails it and every
         // frame after logs a validation error over a canvas that draws nothing.
@@ -8691,7 +8691,7 @@ impl AppSession {
             self.notify(NoticeLevel::Warning, format!("Unknown anchor: {anchor}"));
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        let size = phototux_engine::DocumentSize::new(w, h);
         if let Err(error) = phototux_engine::DocumentError::check_size(size) {
             self.notify(NoticeLevel::Warning, error.to_string());
             return;

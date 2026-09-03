@@ -716,8 +716,12 @@ impl CommandError {
             Self::Document(
                 DocumentError::NoDocument
                 | DocumentError::LayerLimitReached { .. }
-                // The user typed the number; typing a smaller one fixes it.
-                | DocumentError::DimensionTooLarge { .. },
+                // The user typed the number; typing a different one fixes it.
+                // A size read from a file is not theirs to retype, but neither
+                // is an oversized scan, and the message says what is wrong
+                // either way.
+                | DocumentError::DimensionTooLarge { .. }
+                | DocumentError::DimensionTooSmall { .. },
             ) => true,
             Self::Unknown(_) | Self::Document(DocumentError::LayerMissingAfterAdd) => false,
         }

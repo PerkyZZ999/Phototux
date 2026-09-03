@@ -126,16 +126,16 @@ they had.
 
 ## 2.1 Boundary values
 
-- [ ] **E-01** Document dimension at exactly `MAX_DOCUMENT_DIMENSION` (8192) is accepted; 8193 is refused with a message naming the limit
-- [ ] **E-02** Document dimension of 0 or 1 is handled or refused, not crashed
-- [ ] **E-03** Layer count at the composite cap (`MAX_LAYERS`); one more is refused
-- [ ] **E-04** Group nesting at `MAX_NESTING_DEPTH` (64); one deeper is refused
+- [x] **E-01** Document dimension at exactly `MAX_DOCUMENT_DIMENSION` (8192) is accepted; 8193 is refused with a message naming the limit
+- [x] **E-02** Document dimension of 0 or 1 is handled or refused, not crashed — **failed**: `check_size` only tested the upper bound, so a `.ptx` or PSD declaring 0x0 opened as a degenerate document. Fixed
+- [x] **E-03** Layer count at the composite cap (`MAX_LAYERS`); one more is refused — stops at 16 with `LayerLimitReached`
+- [x] **E-04** Group nesting at `MAX_NESTING_DEPTH` (64); one deeper is refused — unreachable in practice: the 16-layer cap stops nesting at 14, which is what the constant's own comment predicts
 - [ ] **E-05** Every adjustment slot at both ends of its declared range
 - [ ] **E-06** Blur radius at `MAX_BLUR_RADIUS` and at 0
 - [ ] **E-07** Opacity at 0 and 1; zoom at min and max
 - [ ] **E-08** Selection of zero area, and one covering the whole canvas
 - [ ] **E-09** Undo stacks at their bounds (64 selection, 32 transform) — the oldest step falls off, nothing panics
-- [ ] **E-10** Text with an empty body, and with a very long single word
+- [x] **E-10** Text with an empty body, and with a very long single word — both accepted, 100 000 characters included
 
 ## 2.2 External-dependency failures (the "network" analogue)
 
@@ -164,7 +164,7 @@ they had.
 ## 2.4 Permission and command-precondition errors
 
 - [ ] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should, with a message
-- [ ] **E-30** Every command invoked with no document open
+- [x] **E-30** Every command invoked with no document open — typed errors throughout, no panics
 - [ ] **E-31** Every command invoked with no active layer
 - [ ] **E-32** Commands that need a selection, invoked without one
 - [ ] **E-33** Commands that need a specific layer kind, invoked on the wrong kind
