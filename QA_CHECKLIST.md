@@ -140,14 +140,14 @@ they had.
 ## 2.2 External-dependency failures (the "network" analogue)
 
 - [ ] **E-11** GPU device lost mid-session → document survives, Recover restores the canvas
-- [ ] **E-12** Save to a read-only directory → refused with a message, document stays dirty, no partial file
-- [ ] **E-13** Save to a path whose parent does not exist
-- [ ] **E-14** Disk full during save → atomic replace leaves the previous file intact
-- [ ] **E-15** Open a file deleted between the dialog and the read
+- [x] **E-12** Save to a read-only directory → refused with a message, document stays dirty, no partial file — `Permission denied (os error 13)` carried through, no temp left behind
+- [x] **E-13** Save to a path whose parent does not exist — refused with the OS reason
+- [x] **E-14** Disk full during save → atomic replace leaves the previous file intact — covered by `a_failed_write_leaves_the_previous_contents_intact` and `a_failed_write_leaves_no_temporary_behind`; a genuine ENOSPC was not simulated
+- [x] **E-15** Open a file deleted between the dialog and the read — refused with `No such file or directory`. **Found alongside**: a 0-edge raster was refused as "dimensions exceed the 32,768 pixel limit". Fixed
 - [ ] **E-16** Portal file dialog cancelled at every point it can be
 - [ ] **E-17** `fc-list` unavailable → font list falls back rather than hanging
 - [ ] **E-18** colord unavailable → display profile falls back to sRGB
-- [ ] **E-19** A long save can be cancelled, and cancelling leaves no partial file
+- [x] **E-19** A long save can be cancelled, and cancelling leaves no partial file — cancel is wired through `CancelToken` and guarded by `a_running_file_operation_can_be_cancelled`; the atomic-write tests cover the no-partial-file half
 
 ## 2.3 Malformed and missing state
 
