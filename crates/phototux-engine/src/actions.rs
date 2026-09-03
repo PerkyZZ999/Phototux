@@ -806,6 +806,24 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         .host("selection.modify")
         .arg(&format!("{}:{}", op.as_str(), op.menu_radius()))
     }));
+    // Layer ▸ Arrange, generated from `ArrangeOp` for the same reason the
+    // families below are generated from theirs: the ops carry their own
+    // labels and Photoshop's chords, and a hand-written list here would be a
+    // second copy free to drift from them.
+    //
+    // A submenu because Photoshop's is one, and because the Layer menu already
+    // runs to the bottom of a 1080p window.
+    actions.extend(crate::ArrangeOp::ALL.into_iter().map(|op| {
+        act(
+            &format!("action.layer.arrange-{}", op.as_str()),
+            &as_menu_label(op.label()),
+            "layer.arrange",
+            "has_multiple_layers",
+        )
+        .command(command_id::LAYER_ARRANGE)
+        .arg(op.as_str())
+        .key(op.shortcut())
+    }));
     // One Shape submenu entry per preset, and one Combine entry per boolean
     // op. Both were hand-written lists restating vocabularies that already
     // exist — `ShapePreset` and `BooleanOp` — with the same silent drift risk:
@@ -1613,6 +1631,28 @@ mod tests {
         );
         assert!(!actions_for_context("canvas").is_empty());
         assert!(!actions_for_context("selection").is_empty());
+    }
+
+    /// Arrange's chords are the punctuation ones, and punctuation is where a
+    /// chord quietly falls out of the map.
+    ///
+    /// The shell binds one `Shortcut` per key of this map and hands the chord
+    /// string back on activation, so a chord that normalises to something the
+    /// map is not keyed by is a menu entry with a shortcut printed beside it
+    /// that does nothing. `Ctrl+]` survives `normalize_shortcut` only because
+    /// a one-character part is upper-cased rather than parsed.
+    #[test]
+    fn every_arrange_chord_reaches_the_map_the_shell_binds() {
+        let map = default_shortcut_map();
+        for op in crate::ArrangeOp::ALL {
+            let chord = normalize_shortcut(op.shortcut());
+            assert_eq!(chord, op.shortcut(), "{} was rewritten", op.label());
+            assert!(
+                map.contains_key(&chord),
+                "{} ({chord}) is bound to nothing",
+                op.label()
+            );
+        }
     }
 
     #[test]

@@ -53,6 +53,7 @@ impl SessionState {
             command_id::LAYER_SET_OPACITY => self.cmd_layer_set_opacity(args),
             command_id::LAYER_SET_BLEND => self.cmd_layer_set_blend(args),
             command_id::LAYER_REORDER => self.cmd_layer_reorder(args),
+            command_id::LAYER_ARRANGE => self.cmd_layer_arrange(args),
             command_id::LAYER_GROUP => self.cmd_layer_group(),
             command_id::LAYER_UNGROUP => self.cmd_layer_ungroup(),
             command_id::LAYER_SET_CLIP => self.cmd_layer_set_clip(args),
@@ -850,9 +851,58 @@ impl SessionState {
         let CommandArgs::Reorder { to_index } = args else {
             return Err(CommandError::InvalidArgument("expected reorder index"));
         };
+        let (moving, rest) = self.movable_run()?;
+        let insert_at = (to_index.max(0) as usize).min(rest.len());
+        self.apply_reorder(moving, rest, insert_at)
+    }
+
+    fn cmd_layer_arrange(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        let CommandArgs::Arrange { op } = args else {
+            return Err(CommandError::InvalidArgument("expected an arrange op"));
+        };
+        let Some(op) = crate::ArrangeOp::parse(&op) else {
+            return Err(CommandError::InvalidArgument("unknown arrange op"));
+        };
+        let (moving, rest) = self.movable_run()?;
+        // Where the run sits once it has been lifted out — the number of
+        // layers left behind that were below it.
+        let from = self
+            .graph
+            .as_ref()
+            .and_then(|graph| {
+                let order = graph.stack_order();
+                let first = order.iter().position(|id| moving.contains(id))?;
+                Some(
+                    order[..first]
+                        .iter()
+                        .filter(|id| !moving.contains(id))
+                        .count(),
+                )
+            })
+            .unwrap_or(0);
+        let insert_at = op.destination(from, rest.len());
+        if insert_at == from {
+            return Err(CommandError::Rejected(match op {
+                crate::ArrangeOp::Forward | crate::ArrangeOp::Front => {
+                    "this is already the top layer"
+                }
+                crate::ArrangeOp::Backward | crate::ArrangeOp::Back => {
+                    "this is already the bottom layer"
+                }
+            }));
+        }
+        self.apply_reorder(moving, rest, insert_at)
+    }
+
+    /// Split the stack into the layers a move carries and the ones it does not.
+    ///
+    /// A group carries its contents. Moving the group row on its own would
+    /// leave its members where they were — stacked around whatever the group
+    /// landed next to, still claiming it as their parent, and drawn indented
+    /// under a group that is no longer above them.
+    fn movable_run(&mut self) -> Result<(Vec<LayerId>, Vec<LayerId>), CommandError> {
         let targets = self.structural_target_ids()?;
-        let SessionState { graph, history, .. } = self;
-        let Some(graph) = graph.as_mut() else {
+        let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
         for id in &targets {
@@ -865,20 +915,39 @@ impl SessionState {
                 ));
             }
         }
-        let prev = graph.stack_order();
+        let mut carried: Vec<LayerId> = targets.clone();
+        for id in &targets {
+            if graph.get(*id).is_some_and(|l| l.kind == LayerKind::Group) {
+                carried.extend(graph.descendants_of(*id));
+            }
+        }
         let mut moving: Vec<LayerId> = Vec::new();
         let mut rest: Vec<LayerId> = Vec::new();
-        for id in &prev {
-            if targets.contains(id) {
-                moving.push(*id);
+        for id in graph.stack_order() {
+            if carried.contains(&id) {
+                moving.push(id);
             } else {
-                rest.push(*id);
+                rest.push(id);
             }
         }
         if moving.is_empty() {
             return Err(CommandError::Rejected("there are no layers to reorder"));
         }
-        let insert_at = (to_index.max(0) as usize).min(rest.len());
+        Ok((moving, rest))
+    }
+
+    fn apply_reorder(
+        &mut self,
+        moving: Vec<LayerId>,
+        rest: Vec<LayerId>,
+        insert_at: usize,
+    ) -> Result<CommandEffects, CommandError> {
+        let moved = moving.len();
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
+            return Err(CommandError::Document(DocumentError::NoDocument));
+        };
+        let prev = graph.stack_order();
         let mut next = rest;
         next.splice(insert_at..insert_at, moving);
         if next == prev {
@@ -891,7 +960,7 @@ impl SessionState {
         let generation = graph.generation;
         history.push_graph_applied(
             crate::GraphCommand::SetStackOrder { prev, next },
-            if targets.len() == 1 {
+            if moved == 1 {
                 "Reorder layer"
             } else {
                 "Reorder layers"

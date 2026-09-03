@@ -2158,6 +2158,9 @@ impl AppSession {
                     1.0,
                 ],
             }),
+            cid::LAYER_ARRANGE => Ok(CommandArgs::Arrange {
+                op: arg.unwrap_or("forward").to_owned(),
+            }),
             cid::WORKSPACE_TOGGLE_PANEL => Ok(CommandArgs::TogglePanel {
                 panel_id: arg.unwrap_or("panel.layers").to_owned(),
             }),

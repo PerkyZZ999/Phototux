@@ -57,7 +57,16 @@ asked for.
 
 ## Order, visibility and opacity
 
-Drag a layer in the panel to reorder it. The eye icon beside each row toggles
+**Layer ▸ Arrange** moves the active layer through the stack: Bring to Front
+(<kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>]</kbd>), Bring Forward
+(<kbd>Ctrl</kbd> <kbd>]</kbd>), Send Backward (<kbd>Ctrl</kbd> <kbd>[</kbd>)
+and Send to Back (<kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>[</kbd>). Moving a
+group takes everything inside it along. At the top or the bottom of the stack
+the command tells you it is already there rather than doing nothing quietly.
+
+Dragging rows in the panel is not implemented yet.
+
+The eye icon beside each row toggles
 visibility — a hidden layer contributes nothing to the composite and is
 skipped by Merge Visible and Flatten.
 

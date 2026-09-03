@@ -1188,7 +1188,7 @@ ApplicationWindow {
                 onObjectAdded: (index, object) => layerMenu.insertItem(index, object)
                 onObjectRemoved: (index, object) => layerMenu.removeItem(object)
             }
-            // Nine submenus, because the flat Layer menu carried thirty-one
+            // Ten submenus, because the flat Layer menu carried thirty-one
             // entries and ran past the bottom of a 1080p window — the last of
             // them unreachable however correctly they rendered. Each is
             // declared here and populated from the engine; a submenu the
@@ -1221,6 +1221,19 @@ ApplicationWindow {
                     delegate: actionMenuItem
                     onObjectAdded: (index, object) => smartMenu.insertItem(index, object)
                     onObjectRemoved: (index, object) => smartMenu.removeItem(object)
+                }
+            }
+            // Photoshop files Arrange between the group entries and Combine
+            // Shapes, next to Align and Distribute — the other things that
+            // move a layer without changing what is in it.
+            ThemedMenu {
+                id: arrangeMenu
+                title: qsTr("&Arrange")
+                Instantiator {
+                    model: root.actionsForMenu("layer.arrange")
+                    delegate: actionMenuItem
+                    onObjectAdded: (index, object) => arrangeMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => arrangeMenu.removeItem(object)
                 }
             }
             ThemedMenu {

@@ -1957,3 +1957,129 @@ fn grouping_adjacent_layers_leaves_the_stack_where_it_was() {
     assert_eq!(after[3], before[3]);
     assert_eq!(after[4], before[4]);
 }
+fn arrange(s: &mut SessionState, op: crate::ArrangeOp) -> Result<(), CommandError> {
+    s.invoke(
+        command_id::LAYER_ARRANGE,
+        CommandArgs::Arrange {
+            op: op.as_str().to_owned(),
+        },
+    )
+    .map(|_| ())
+}
+
+#[test]
+fn bring_forward_moves_the_active_layer_up_one_place() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[1]];
+    let _ = s.graph.as_mut().expect("graph").set_active(before[1]);
+    arrange(&mut s, crate::ArrangeOp::Forward).expect("bring forward");
+    let after = stack_of(&s);
+    assert_eq!(after[1], before[2], "the layer above swapped down");
+    assert_eq!(after[2], before[1], "and the moved one is above it");
+    assert_eq!(after[0], before[0], "nothing below moved");
+}
+
+#[test]
+fn send_to_back_puts_the_layer_at_the_bottom() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    let top = *before.last().expect("a top layer");
+    s.selected_layer_ids = vec![top];
+    let _ = s.graph.as_mut().expect("graph").set_active(top);
+    arrange(&mut s, crate::ArrangeOp::Back).expect("send to back");
+    assert_eq!(stack_of(&s)[0], top);
+}
+
+#[test]
+fn bring_to_front_puts_the_layer_on_top() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[0]];
+    let _ = s.graph.as_mut().expect("graph").set_active(before[0]);
+    arrange(&mut s, crate::ArrangeOp::Front).expect("bring to front");
+    assert_eq!(*stack_of(&s).last().expect("a top layer"), before[0]);
+}
+
+/// A refusal, not a silent no-op: the menu entry stays enabled at the ends of
+/// the stack, so pressing it there has to say why nothing happened.
+#[test]
+fn arranging_past_the_end_says_so() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    let top = *before.last().expect("a top layer");
+    s.selected_layer_ids = vec![top];
+    let _ = s.graph.as_mut().expect("graph").set_active(top);
+    let err = arrange(&mut s, crate::ArrangeOp::Forward).expect_err("nowhere to go");
+    assert!(
+        matches!(err, CommandError::Rejected(m) if m.contains("top")),
+        "the refusal names which end it hit"
+    );
+    assert_eq!(stack_of(&s), before, "and nothing moved");
+}
+
+#[test]
+fn an_unknown_arrange_op_is_refused() {
+    let (mut s, _) = session_with_layers(1);
+    let before = stack_of(&s);
+    let err = s
+        .invoke(
+            command_id::LAYER_ARRANGE,
+            CommandArgs::Arrange {
+                op: "sideways".to_owned(),
+            },
+        )
+        .expect_err("no such op");
+    assert!(matches!(err, CommandError::InvalidArgument(_)));
+    assert_eq!(stack_of(&s), before);
+}
+
+/// Moving a group has to carry its contents.
+///
+/// The group row on its own would leave its members where they were: stacked
+/// around whatever the group landed next to, still naming it as their parent,
+/// and drawn indented under a group no longer above them.
+#[test]
+fn moving_a_group_carries_what_is_inside_it() {
+    let (mut s, _) = session_with_layers(3);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[3], before[4]];
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    let group = s
+        .graph
+        .as_ref()
+        .expect("graph")
+        .active_id()
+        .expect("the group is active");
+    let members = s.graph.as_ref().expect("graph").descendants_of(group);
+    assert_eq!(members.len(), 2);
+
+    s.selected_layer_ids = vec![group];
+    arrange(&mut s, crate::ArrangeOp::Back).expect("send the group to the back");
+
+    let after = stack_of(&s);
+    let at = |id: LayerId| after.iter().position(|x| *x == id).expect("in the stack");
+    assert!(
+        members.iter().all(|id| at(*id) < at(group)),
+        "the members went with it and are still below their group"
+    );
+    assert_eq!(
+        at(group),
+        members.len(),
+        "the run landed at the bottom, group on top of its own members"
+    );
+}
+
+#[test]
+fn undoing_an_arrange_puts_the_order_back() {
+    let (mut s, _) = session_with_layers(2);
+    let before = stack_of(&s);
+    s.selected_layer_ids = vec![before[0]];
+    let _ = s.graph.as_mut().expect("graph").set_active(before[0]);
+    arrange(&mut s, crate::ArrangeOp::Front).expect("bring to front");
+    assert_ne!(stack_of(&s), before);
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+    assert_eq!(stack_of(&s), before);
+}

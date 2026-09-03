@@ -400,6 +400,38 @@ from a raster layer. A test asserts raster is the only unbadged kind and that no
 two kinds share a badge or a label. `LayerKind` also owns each kind's display
 name and Phosphor stem, for the same reason and checked the same way.
 
+### Arranging the stack
+
+`layer.reorder` has existed since the stack did, with locks, undo and a
+`SetStackOrder` history entry — and nothing in the shell ever called it. The
+panel has no drag, and the arrows in its header move the *panel*, not the
+layer, so the only way to change stacking order was to delete layers and add
+them back in the order you wanted. A fully implemented command with no way in
+is worse than a missing one, because everything about it reads as finished.
+
+Layer ▸ Arrange is Photoshop's four entries with Photoshop's four chords, in a
+submenu because Photoshop's is one and because the Layer menu already ran to
+the bottom of a 1080p window. `ArrangeOp` owns the vocabulary — wire name,
+label, chord and the arithmetic that turns a direction into a destination index
+— and the registry generates the entries from it, so a fifth op cannot arrive
+with no way to reach it. `layer.arrange` resolves the op against the stack and
+then goes through the same move as `layer.reorder`: one code path, one history
+label, one undo.
+
+Both carry a group's contents. Moving the group row on its own would leave its
+members where they were, stacked around whatever the group landed next to,
+still naming it as their parent, and drawn indented under a group no longer
+above them.
+
+At either end of the stack the command **refuses** rather than doing nothing:
+the menu entry stays enabled there, so pressing it has to say why the layer did
+not move.
+
+The chords are the punctuation ones, which is where a chord quietly falls out
+of the map the shell binds — `Ctrl+]` survives normalisation only because a
+one-character part is upper-cased rather than parsed. A test pins all four
+against that map.
+
 ### Grouping gathers its members
 
 Grouping used to set parents and leave the stack alone, so grouping layers that
