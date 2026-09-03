@@ -372,6 +372,46 @@ mod tests {
         );
     }
 
+    /// A combo box's label is a `Label` beside it, and nothing connects them.
+    ///
+    /// Same shape as the slider check below: the control carries no text of its
+    /// own, so without a name it reaches assistive technology as an anonymous
+    /// "combo box" and the user has to guess from the selected value what it
+    /// selects. Four of them shipped that way — the effect picker, UI density,
+    /// font family and text alignment.
+    ///
+    /// A component *definition* and a `delegate:` are exempt: their instances
+    /// carry the text, which Qt uses as the name already.
+    #[test]
+    fn every_combo_box_tells_assistive_technology_what_it_selects() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if name == "ThemedComboBox.qml" {
+                continue;
+            }
+            for start in instantiations_of(&text, "ThemedComboBox") {
+                let opener = text
+                    .lines()
+                    .nth(start.saturating_sub(1))
+                    .unwrap_or_default();
+                if opener.contains("component ") || opener.contains("delegate:") {
+                    continue;
+                }
+                let body = body_at_line(&text, start);
+                checked += 1;
+                assert!(
+                    body.contains("Accessible.name"),
+                    "{name}:{start} is an unnamed combo box — its label is a \
+                     Label beside it, which nothing connects to it"
+                );
+            }
+        }
+        assert!(
+            checked >= 4,
+            "found {checked} combo boxes — the scan broke rather than the shell"
+        );
+    }
+
     /// A `ToolButton` that keeps the Basic background is a pale grey square.
     ///
     /// Not on the unstyled-control list above, because a `ToolButton` with its

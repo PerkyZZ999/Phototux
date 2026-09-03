@@ -695,6 +695,7 @@ ColumnLayout {
             ThemedComboBox {
                 id: fontFamilyCombo
                 Layout.fillWidth: true
+                Accessible.name: qsTr("Font family")
                 enabled: AppSession.textLayerActive
                 model: {
                     try {
@@ -775,6 +776,7 @@ ColumnLayout {
             ThemedComboBox {
                 id: alignCombo
                 Layout.fillWidth: true
+                Accessible.name: qsTr("Text alignment")
                 enabled: AppSession.textLayerActive
                 model: [qsTr("Left"), qsTr("Center"), qsTr("Right")]
                 currentIndex: AppSession.textAlignment

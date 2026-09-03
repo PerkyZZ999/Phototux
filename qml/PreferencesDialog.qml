@@ -225,6 +225,7 @@ Dialog {
                     Layout.fillWidth: true
                 }
                 ThemedComboBox {
+                    Accessible.name: qsTr("UI density")
                     model: [qsTr("Dense"), qsTr("Comfortable")]
                     currentIndex: AppSession.prefUiDensity === "comfortable" ? 1 : 0
                     onActivated: AppSession.setPrefUiDensity(

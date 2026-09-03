@@ -4098,6 +4098,10 @@ ApplicationWindow {
 
                     ListView {
                         id: historyList
+                        // The rows were already list items; the list itself was
+                        // not, so they had no collection to belong to.
+                        Accessible.role: Accessible.List
+                        Accessible.name: qsTr("History")
                         anchors.fill: parent
                         clip: true
                         reuseItems: true
@@ -4156,6 +4160,15 @@ ApplicationWindow {
                             Accessible.name: historyRow.undone
                                              ? qsTr("%1 (undone)").arg(historyRow.label)
                                              : historyRow.label
+                            // The kind sits in a muted trailing column that
+                            // reads as part of the row visually and as a
+                            // separate label otherwise; position is what a
+                            // screen reader needs to know where it is in the
+                            // timeline.
+                            Accessible.description: qsTr("%1, %2 of %3")
+                                                    .arg(historyRow.kind)
+                                                    .arg(index + 1)
+                                                    .arg(historyList.count)
 
                             HoverHandler { id: historyHover }
                             TapHandler {
