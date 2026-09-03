@@ -2279,7 +2279,6 @@ impl AppSession {
             "help.about" => {
                 self.request_host(phototux_engine::HostRequest::ShowAbout);
             }
-            "prefs.open" => self.open_preferences(),
             // Shortcut and palette route through the same activation the tool
             // shelf uses, so leaving an in-progress transform or crop is
             // cancelled identically however the tool was switched.
@@ -2403,11 +2402,6 @@ impl AppSession {
                 self.add_guide("h".into(), y);
             }
             "view.clear_guides" => self.clear_guides(),
-            "workspace.reset" => self.reset_workspace(),
-            op if op.starts_with("panel.toggle:") => {
-                let panel = op.trim_start_matches("panel.toggle:");
-                self.toggle_panel_by_id(&format!("panel.{panel}"));
-            }
             _ => {
                 self.notify(NoticeLevel::Warning, format!("Unknown host op: {op}"));
             }
@@ -3015,6 +3009,71 @@ mod tests {
             checked > 0,
             "no tool ids found in qml/ — the parse broke, not the invariant"
         );
+    }
+
+    /// The action registry and the host dispatcher name the same host ops.
+    ///
+    /// An action either invokes a command or asks the host to do something no
+    /// command covers — open a file dialog, reach the clipboard, talk to the
+    /// GPU. The second kind is a bare string matched by `dispatch_host_op`,
+    /// and the only thing that catches a mismatch today is the catch-all arm,
+    /// which raises a toast *if the user clicks the entry*. A renamed or
+    /// mistyped op therefore ships as a menu item that does nothing, and the
+    /// person who finds it is the user.
+    ///
+    /// The other direction matters as much and is quieter still: an arm no
+    /// action names is unreachable, because `dispatch_host_op` is private and
+    /// its one caller passes `action.host_op`. Three such arms had
+    /// accumulated — `prefs.open`, `workspace.reset` and a `panel.toggle:`
+    /// prefix — each a second, dead route to a handler the command path
+    /// already reaches through `HostFollowUp`.
+    ///
+    /// Reading the arms out of this file as text is what makes the two
+    /// vocabularies comparable; the alternative is a third list of op names
+    /// for someone to forget. Arms are matched at their exact indentation, so
+    /// the string literals *inside* an arm body are not mistaken for patterns.
+    #[test]
+    fn the_registry_and_the_host_dispatcher_name_the_same_host_ops() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the ui crate can read its own source");
+        let body = source
+            .split("fn dispatch_host_op(&mut self, op: &str, arg: Option<&str>) {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    }").next())
+            .expect("dispatch_host_op is where this test thinks it is");
+        let arms: Vec<&str> = body
+            .lines()
+            .filter_map(|line| line.strip_prefix("            \""))
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert!(
+            arms.len() > 40,
+            "found {} arms — the scan broke rather than the host",
+            arms.len()
+        );
+
+        let declared: Vec<String> = phototux_engine::default_actions()
+            .into_iter()
+            .filter_map(|action| action.host_op)
+            .collect();
+        for action in phototux_engine::default_actions() {
+            let Some(op) = action.host_op.as_deref() else {
+                continue;
+            };
+            assert!(
+                arms.contains(&op),
+                "{} asks the host for {op:?}, which no arm answers — the entry \
+                 would raise a toast and do nothing",
+                action.id
+            );
+        }
+        for arm in arms {
+            assert!(
+                declared.iter().any(|op| op == arm),
+                "dispatch_host_op answers {arm:?}, which no action asks for — \
+                 nothing can reach it, because host ops arrive only from the registry"
+            );
+        }
     }
 
     /// The canvas creates shapes directly, not only through the Layer menu, so
