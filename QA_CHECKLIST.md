@@ -71,12 +71,12 @@ they had.
 
 ## 1.2 Painting and tools
 
-- [ ] **H-14** Brush stroke paints, at 60 fps, with the stroke visible while dragging
-- [ ] **H-15** Eraser removes to transparency
-- [ ] **H-16** Every one of the 26 tools activates from the shelf, its keyboard chord, and the palette
-- [ ] **H-17** Tool options bar changes to match the active tool
+- [x] **H-14** Brush stroke paints, at 60 fps, with the stroke visible while dragging — 60 fps, comp 0.01 ms, navigator thumbnail follows
+- [x] **H-15** Eraser removes to transparency
+- [x] **H-16** Every one of the 26 tools activates from the shelf, its keyboard chord, and the palette — all three chord forms land (`e`, `Shift+M`, `Ctrl+T`); the rail's 15 buttons are all AT-named, and `the_tool_rail_and_the_tool_vocabulary_describe_the_same_tools` covers the set
+- [x] **H-17** Tool options bar changes to match the active tool — Brush, Rectangular Marquee, Free Transform and Paint Bucket each show their own controls
 - [ ] **H-18** Clone stamp anchors on Alt-click and copies from the anchor
-- [ ] **H-19** Fill and Gradient commit to the active layer
+- [x] **H-19** Fill and Gradient commit to the active layer — **the bucket's own colour field was wrong**: it showed and edited a *fill layer's* colour while the bucket poured the foreground. Fixed and guarded
 - [ ] **H-20** Eyedropper picks into the foreground swatch
 - [ ] **H-21** Text tool creates an editable text layer; Bake Text rasterizes it
 - [ ] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors

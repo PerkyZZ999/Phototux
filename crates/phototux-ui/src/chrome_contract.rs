@@ -395,6 +395,39 @@ mod tests {
     ///
     /// The check is on the root `width:` of a dialog file, which is the one
     /// that sets the box. Inner widths are the layout's business.
+    /// The fill-layer colour belongs to the fill-layer inspector, nowhere else.
+    ///
+    /// `fillColorHex` / `setActiveFillHex` describe a `LayerKind::Fill` layer's
+    /// colour and route to `layer.set-fill-color`. The Paint Bucket's options
+    /// bar borrowed them, which put a colour the tool does not use in front of
+    /// the user — `fillActiveLayer` pours `engine.colors.foreground` — and made
+    /// editing that field try to recolour a fill layer, which a raster layer
+    /// refuses. The field showed `#738CBF`, the inspector's default for a layer
+    /// with no fill content, while the bucket poured black.
+    ///
+    /// Two properties one character apart in meaning is exactly the pair to
+    /// pin: a control that shows one value and acts on another looks like it
+    /// works.
+    #[test]
+    fn only_the_fill_layer_inspector_speaks_for_a_fill_layers_colour() {
+        for (name, source) in qml_files() {
+            if name == "PropertiesPanel.qml" {
+                continue;
+            }
+            // The `AppSession.` prefix is what makes this a binding rather
+            // than prose — the comment beside the fix names both properties,
+            // and a guard that fails on its own explanation is a nuisance.
+            for property in ["AppSession.fillColorHex", "AppSession.setActiveFillHex"] {
+                assert!(
+                    !source.contains(property),
+                    "{name} binds {property}, which describes a fill *layer*. A tool \
+                     that pours the foreground must bind foregroundHex / \
+                     setForegroundHex, or it shows one colour and uses another"
+                );
+            }
+        }
+    }
+
     #[test]
     fn no_dialog_pins_itself_to_a_pixel_width() {
         let mut checked = 0;

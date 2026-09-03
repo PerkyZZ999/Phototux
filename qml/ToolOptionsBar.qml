@@ -439,13 +439,21 @@ Rectangle {
                 }
 
                 // ── Paint bucket ──────────────────────────────────────────
+                //
+                // The foreground, because that is what the bucket pours:
+                // `fillActiveLayer` reads `engine.colors.foreground`. It was
+                // bound to `fillColorHex` / `setActiveFillHex`, which are the
+                // *fill layer* inspector's pair — so the field showed a colour
+                // the tool did not use (the #738CBF default whenever the active
+                // layer carried no fill content), and editing it tried to
+                // recolour a fill layer, which a raster layer refuses.
                 Field {
                     visible: root.tool === "tool.fill"
                     label: qsTr("Fill")
                     ThemedTextField {
                         Layout.preferredWidth: 90
-                        source: AppSession.fillColorHex
-                        onEditingFinished: AppSession.setActiveFillHex(text)
+                        source: AppSession.foregroundHex
+                        onEditingFinished: AppSession.setForegroundHex(text)
                         Accessible.name: qsTr("Fill colour hex")
                     }
                 }
