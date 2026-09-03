@@ -220,9 +220,9 @@ they had.
 
 ## 3.5 Web surfaces
 
-- [ ] **U-23** Landing page loads at the top and both themes render
-- [ ] **U-24** Docs site navigation, search and table of contents work
-- [ ] **U-25** Both sites are usable from 320 px to 1440 px+
+- [x] **U-23** Landing page loads at the top and both themes render — opens at `scrollY 0` (the earlier `scrollIntoView` fix holds); the toggle switches root theme and repaints the body
+- [x] **U-24** Docs site navigation, search and table of contents work — nav, search and TOC all present; `/search-index.json` serves 17 entries and "layer mask" returns two relevant pages
+- [x] **U-25** Both sites are usable from 320 px to 1440 px+ — neither page scrolls horizontally at 375 px. On the landing page the architecture table and gallery tabs scroll *inside* their own `overflow-x: auto` containers, which is the rule; nothing escapes containment on the docs site
 - [x] **U-26** The public shortcut reference matches the shipped registry — all 56 chords agree in both directions, and `the_published_reference_lists_the_chords_that_ship` now keeps them that way
 - [x] **U-27** No broken internal links or missing assets on either site — `check-docs-links.py` resolves 70 pages, routes and assets included
 
