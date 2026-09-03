@@ -15,6 +15,7 @@ default = []
 gpu-tests = []
 
 [dependencies]
+tracing = { workspace = true }
 wgpu = { version = "30.0.0", default-features = true, features = ["vulkan"] }
 ash = "0.38.0"
 pollster = { workspace = true }

@@ -524,9 +524,9 @@ impl Default for AppSession {
                 session.io_error = format!("Open failed: {error}");
             }
         }
-        eprintln!(
-            "[phototux] AppSession ready {:.2} ms",
-            started.elapsed().as_secs_f64() * 1000.0
+        tracing::info!(
+            ms = (started.elapsed().as_secs_f64() * 100_000.0).round() / 100.0,
+            "AppSession ready"
         );
         session
     }
@@ -919,7 +919,7 @@ impl AppSession {
             return;
         }
         self.notify(NoticeLevel::Error, format!("{operation} failed: {error}"));
-        eprintln!("[phototux] {operation}: {error}");
+        tracing::warn!(operation, %error, "operation failed");
     }
 
     /// Post a message to the toast channel.
@@ -952,7 +952,7 @@ impl AppSession {
             "Graphics device lost — the document is preserved. Use Recover to restore the canvas.",
         );
         self.publish_announcement();
-        eprintln!("[phototux] GPU lost — document authority preserved");
+        tracing::error!("GPU lost — document authority preserved");
     }
 
     fn sync_from_engine(&mut self) {
@@ -5915,9 +5915,9 @@ impl AppSession {
             return;
         };
         self.startup_ms = start.elapsed().as_secs_f32() * 1000.0;
-        eprintln!(
-            "[phototux] first interactive frame {:.2} ms",
-            self.startup_ms
+        tracing::info!(
+            ms = f64::from((self.startup_ms * 100.0).round()) / 100.0,
+            "first interactive frame"
         );
         self.startup_ms_changed();
     }

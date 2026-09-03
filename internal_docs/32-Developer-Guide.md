@@ -662,6 +662,34 @@ Every asynchronous workflow has operation and correlation IDs. Structured spans 
 
 Instrumentation is optional for correctness. Disabled sinks have low bounded overhead. Ring buffers report overflow. Logs are not APIs; tests inspect semantic state or structured test sinks. Error messages include remedy for users while diagnostic records retain stable code and sanitized cause chain.
 
+### What ships today
+
+Diagnostics go through `tracing`, with a `tracing-subscriber` installed in
+`main` before anything else runs. `RUST_LOG` selects the level and defaults to
+`info`, because the startup timings were unconditional before and hiding them by
+default would be a regression for anyone reading a session log. Lines carry no
+timestamp and no target column: they are read beside Qt's own output, and the
+two should look alike.
+
+The above is the target shape, not a description of coverage. What exists is
+levels and fields on the startup path, GPU device loss, per-operation GPU and
+I/O failures, and the stroke-journal write — the sites that used to be
+`eprintln!` with a hand-written `[phototux]` prefix, no level, and no way to
+turn them down. Spans, correlation ids and redaction policy are not
+implemented.
+
+Three canvas lines stay outside this — `shared RHI device configured`,
+`canvas renderer initialized` and `first canvas render entered` are
+`std::fprintf` from `phototux_canvas_item.cpp`. Routing them through `tracing`
+needs an FFI callback into Rust, which is more handwritten C++ than the canvas
+exemption invites for logging, so they keep the old prefix and are visibly not
+part of the filtered stream. `RUST_LOG=warn` silences everything else and
+leaves exactly those three.
+
+Benchmark and test output stays `eprintln!` on purpose: `budget_harness`
+reports measurements, and the GPU parity tests report why they skipped. Those
+are results, not diagnostics, and belong on stderr whatever the log level.
+
 ## Architecture Conformance
 
 Architecture checks combine review, compile boundaries, static policy, and tests:

@@ -30,6 +30,11 @@ phototux_io = { path = "crates/phototux-io" }
 image = { version = "=0.25.9", default-features = false }
 percent-encoding = "2.3.2"
 thiserror = "2.0.18"
+# Diagnostics. AGENTS.md has asked for "tracing with fields on hot paths,
+# not format! spam" since the workspace existed; until now the code had
+# eprintln! with a hand-written prefix, no levels and no way to filter.
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt", "env-filter"] }
 pollster = "1.0.1"
 cc = "1.2.67"
 serde = { version = "1.0.219", features = ["derive"] }

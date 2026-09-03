@@ -169,7 +169,7 @@ impl GpuContext {
         {
             let flag = Arc::clone(&device_lost);
             device.set_device_lost_callback(move |_reason, message| {
-                eprintln!("[phototux_gpu] device lost: {message}");
+                tracing::error!(%message, "wgpu device lost");
                 flag.store(true, Ordering::SeqCst);
             });
         }
@@ -177,7 +177,7 @@ impl GpuContext {
             let flag = Arc::clone(&device_lost);
             device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
                 let text = error.to_string();
-                eprintln!("[phototux_gpu] uncaptured error: {text}");
+                tracing::error!(error = %text, "wgpu uncaptured error");
                 if text.to_ascii_lowercase().contains("lost") {
                     flag.store(true, Ordering::SeqCst);
                 }

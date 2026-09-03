@@ -199,7 +199,7 @@ fn worker_loop(commands: Receiver<FileCommand>, events: Sender<FileEvent>, cance
                 // Recovery bookkeeping: a failure here must not interrupt
                 // painting, and there is nothing for the user to act on.
                 if let Err(error) = write_stroke_journal(&stroke) {
-                    eprintln!("[phototux] stroke journal: {error}");
+                    tracing::warn!(%error, "stroke journal write failed");
                 }
                 continue;
             }
