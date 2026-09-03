@@ -98,7 +98,7 @@ they had.
 - [~] **H-32** Each selection tool makes a selection (rect, ellipse, lasso, polygon, wand, colour range) — rect and ellipse verified; the remaining four not exercised
 - [x] **H-33** Combine modes: replace, add, subtract, intersect — Shift-drag unions the rects and the Mode row switches to Add live, with the "Shift add · Alt subtract" hint shown
 - [x] **H-34** Select All / Deselect / Invert — Ctrl+A, Ctrl+Shift+I and Ctrl+D all land
-- [!] **H-35** Modify: expand, contract, feather, border — the prompt opens with the registry's default radius and Expand applies correctly. **Typing a radius and confirming hangs the window** ([QA-006](QA_ISSUES.md#qa-006--typing-into-a-spin-box-then-confirming-wedges-the-window))
+- [x] **H-35** Modify: expand, contract, feather, border — the prompt opens with the registry's default radius and Expand applies. A radius above the default used to block the UI thread for minutes ([QA-006](QA_ISSUES.md#qa-006--select--modify-blocks-the-ui-thread-for-minutes)); **fixed** — 38× faster at radius 40, and the exact reproduction now completes
 - [ ] **H-36** Selection ↔ mask conversion both ways
 - [ ] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel
 - [ ] **H-38** Crop commits and discards the outside

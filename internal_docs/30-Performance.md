@@ -380,6 +380,29 @@ Profiles **SHOULD** distinguish:
 - copying, decompression, color conversion, raster kernels, graph planning, and serialization;
 - cancellation cleanup and stale discarded work.
 
+### Algorithmic cost before profiling
+
+The first question about a slow CPU stage is its complexity, not its constant
+factor. Selection ▸ Modify is the worked example: a naive per-pixel scan over a
+disc structuring element is O(w · h · r²), which on 1920×1080 is 77 ms at the
+default radius of 2 and 25 s at radius 40 — and it ran on the UI thread, so the
+window simply stopped responding. No amount of profiling or thread tuning fixes
+an exponent.
+
+The disc is a union of horizontal spans, so a dilate is a vertical accumulation
+of horizontal sliding-window maxima; a monotonic deque makes each pass O(w)
+whatever the window width, and the whole operation O(w · h · r). That is 38×
+at radius 40 and about 590× at the 512 the UI allows.
+
+Two rules the episode illustrates. **An operation whose cost grows with a user
+control needs its worst case measured at that control's maximum**, not at its
+default — the default was the only radius that felt instant, which is exactly
+why the dialog looked like it worked. And **an optimisation of a pure function
+should be held to the implementation it replaced**, by differential test across
+shapes, radii and edges, rather than by re-deriving the right answer: that is
+what caught the erode's horizontal edge rule, where outside-the-image counts as
+empty and a truncated window does not.
+
 Flame graphs or call trees are analysis artifacts, not stable metrics. Function names can change while semantic stages remain. Optimizing CPU utilization upward is not itself success: busy-waiting and speculative work can consume all cores while worsening latency and power. Worker count tuning **MUST** include interaction, export, save, and thermal scenarios.
 
 ## GPU and wgpu Profiling

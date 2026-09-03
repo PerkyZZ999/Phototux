@@ -24,7 +24,7 @@ the entry says so rather than inventing one.
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
-| [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | open |
+| [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
 
 ---
 
@@ -346,7 +346,7 @@ what "active" means, rather than only tightening the rect.
 | **Severity** | **high** — the window stops responding for as long as the operation runs, which at the radius the UI permits is over an hour |
 | **Area** | `phototux_engine` — `selection.rs`; reached from `qml/SelectionModifyDialog.qml` |
 | **Checklist item** | [H-35](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** — separable disc morphology |
 | **Also logged as** | warrants a `T-nnn` row in the Interactive-Stability-Checklist |
 
 **Observed.** Choosing a radius above the default in Select ▸ Modify and
@@ -408,4 +408,41 @@ the UI thread with the cancel path `a_running_file_operation_can_be_cancelled`
 already guards for file work. Fixing the algorithm first is what makes the
 common case correct; the worker is what makes the extreme case honest.
 
-**Resolution.** *(in progress — see Phase 3)*
+**Resolution — fixed.** `morph_mask_r8` now walks the disc as a union of
+horizontal spans and takes a sliding-window extreme along each, using a
+monotonic deque so every pass is O(w) whatever the window width. The whole
+operation is O(w · h · r).
+
+Measured again on the same 1920×1080 fixture, release build:
+
+| Radius | Before | After | Speedup |
+|---|---|---|---|
+| 2 | 77 ms | 51 ms | 1.5× |
+| 8 | 1.0 s | 157 ms | 6.5× |
+| 20 | 6.7 s | 348 ms | 19× |
+| 40 | 25.3 s | 671 ms | **38×** |
+| 512 | ~67 min | 6.8 s | ~590× |
+
+The result is bit-identical. `the_fast_morphology_agrees_with_the_naive_one`
+keeps the old implementation as a `#[cfg(test)]` reference and compares the two
+across radii, shapes and edges, and
+`the_fast_morphology_agrees_on_a_grey_mask` does the same on non-binary values,
+because a max/min filter that only ever sees 0 and 255 cannot show a mistake in
+which extreme it keeps.
+
+That test earned its place on its first run: it caught the erode's horizontal
+edge rule. The naive form treats an out-of-bounds sample *inside the disc* as
+empty, so a pixel within `half` of the left or right edge cannot survive an
+erode at all — and the fast path was truncating the window instead, which is
+the dilate rule. Only the vertical half of that rule had been carried over.
+
+Verified in an isolated KWin session with the exact reproduction above: the
+dialog closes, the selection expands, and the process returns to state `S`.
+
+**Residual, deliberately not fixed here.** 6.8 s at radius 512 is still a
+UI-thread block, and the operation still has no progress and no cancel. That is
+a smaller and different problem from the one reported — the reported defect was
+that the window stopped responding for minutes on an ordinary radius — and
+moving selection morphology onto the file worker, with the cancel path
+`a_running_file_operation_can_be_cancelled` already guards, remains worth
+doing.
