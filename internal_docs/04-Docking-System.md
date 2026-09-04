@@ -141,6 +141,15 @@ helper and the binding at every seam — because a missing binding is silent:
 `maximumHeight` is an `int`, so an undefined value reads as 0 and the grip
 falls back to the absolute bound.
 
+**Shipped rule — a tear-off and a dock is a round trip.** `redock` used to
+append, so a panel torn from the middle of the stack came back at the bottom in
+a group of its own: the workspace after was not the workspace before.
+`FloatingPanelPlacement` records the panel's `dock_index` and whether it was
+`tabbed` with the panel above it, and a redock with no explicit drop position
+restores both. An explicit position still wins — dragging a floating panel onto
+the stack is the user saying where it belongs now, and joining it to whatever
+happens to sit above that point would be a group they did not ask for.
+
 ## Drag Transaction Workflow
 
 ```mermaid
