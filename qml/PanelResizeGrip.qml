@@ -36,9 +36,18 @@ Item {
 
     property int _startHeight: 0
 
-    /// The height this drag has reached, given a pointer `y` inside the grip.
-    function heightAt(pointerY) {
-        var wanted = root._startHeight + (pointerY - grip.pressY)
+    /// The height this drag has reached, for a pointer at scene `y`.
+    ///
+    /// Scene coordinates, not the grip's own. The grip rides on the header of
+    /// the panel *below* the one being resized, so growing that panel moves
+    /// this item down by exactly the amount the drag just added — and a delta
+    /// measured against a moved origin subtracts the resize from itself. The
+    /// first motion event landed the right height and every one after it
+    /// pulled back towards where the drag started, so the seam crawled at a
+    /// fraction of the pointer instead of following it. The scene does not
+    /// move.
+    function heightAt(sceneY) {
+        var wanted = root._startHeight + (sceneY - grip.pressSceneY)
         return Math.max(root.minimumHeight,
                         Math.min(root.maximumHeight, Math.round(wanted)))
     }
@@ -63,15 +72,19 @@ Item {
         hoverEnabled: true
         cursorShape: Qt.SizeVerCursor
         preventStealing: true
-        property real pressY: 0
+        property real pressSceneY: 0
+
+        function sceneY(mouse) {
+            return grip.mapToItem(null, mouse.x, mouse.y).y
+        }
 
         onPressed: function (mouse) {
             root._startHeight = root.currentHeight
-            grip.pressY = mouse.y
+            grip.pressSceneY = grip.sceneY(mouse)
         }
         onPositionChanged: function (mouse) {
             if (grip.pressed)
-                root.previewed(root.heightAt(mouse.y))
+                root.previewed(root.heightAt(grip.sceneY(mouse)))
         }
         // Computed from the release position rather than from whatever the last
         // preview happened to be. Motion events are not guaranteed — a fast
@@ -79,14 +92,18 @@ Item {
         // and a resize that depends on having seen them commits the height it
         // started with.
         onReleased: function (mouse) {
-            root.committed(root.heightAt(mouse.y))
+            root.committed(root.heightAt(grip.sceneY(mouse)))
         }
     }
 
     // Keyboard path: the grip is focusable and resizes in steps, so the dock is
     // adjustable without a pointer.
     Accessible.role: Accessible.Separator
-    Accessible.name: qsTr("Resize the panel above, %1 pixels").arg(root.currentHeight)
+    // `currentHeight` is -1 for a panel the dock is sizing itself, and a
+    // screen reader was being told "Resize the panel above, -1 pixels".
+    Accessible.name: root.currentHeight >= 0
+                     ? qsTr("Resize the panel above, %1 pixels").arg(root.currentHeight)
+                     : qsTr("Resize the panel above, automatic height")
     Accessible.description: qsTr("Up and down arrows resize")
     activeFocusOnTab: true
     Keys.onUpPressed: root.committed(Math.max(root.minimumHeight, root.currentHeight - 16))
