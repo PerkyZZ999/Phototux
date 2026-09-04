@@ -30,6 +30,7 @@ the entry says so rather than inventing one.
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | open |
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | open |
+| [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
 
 ---
 
@@ -691,3 +692,44 @@ QML tab strip and `document_tabs_json` guards both read. (4) is a new lookup and
 a decision about what "already open" means for a document that has been
 `Save As`-ed since. Handbook [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--document-session-model)
 owns the session model these all sit in.
+
+## QA-012 — A torn-off panel is a window with no panel in it
+
+| | |
+|---|---|
+| **Severity** | low |
+| **Area** | `qml/Main.qml` — floating panel windows |
+| **Checklist item** | [H-42](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** Tearing off the Navigator opens a window titled "Navigator"
+containing two lines of prose — "Navigator (floating) · Close window or Dock to
+return this panel to the right stack." — and a Dock button. The panel's actual
+content is not in it. The thumbnail, the zoom controls, everything the panel is
+for stays behind in the dock's place, which now shows the panel's *neighbour*
+grown to fill the space.
+
+Docking it back works, and the panel returns with its content intact — but it
+returns as its own group at the bottom of the stack rather than to the group it
+was torn from, so a tear-off and re-dock is not a round trip.
+
+**Steps to reproduce.**
+
+1. Open any document.
+2. Navigator panel header → the tear-off button (the rightmost icon).
+3. The floating window has the text and the button, and no Navigator.
+4. Press Dock. The panel is back in the right stack, in a new group of its own.
+
+**Root cause.** The floating window is a placeholder by construction: the
+`Instantiator` in `Main.qml` builds a `Window` whose content is the explanatory
+label and the Dock button, and never reparents or re-instantiates the panel
+into it. Nothing is broken — the window does exactly what it was written to do.
+
+**Why not a quick fix.** Moving a live panel into another window means either
+reparenting the item into a second `QQuickWindow`, which is the thing
+[T-027](internal_docs/Appendix/Interactive-Stability-Checklist.md) got a
+process abort out of and would want its geometry write-back re-examined, or
+instantiating a second copy of the panel bound to the same host properties,
+which is cheap for the Navigator and not obviously right for panels that hold
+their own view state. The re-dock grouping is a smaller, separable question:
+`park`/`pin` do not record which group a panel left.
