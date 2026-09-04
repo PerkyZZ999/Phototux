@@ -767,6 +767,74 @@ mod tests {
         );
     }
 
+    /// Pixels written to the GPU have to reach the screen.
+    ///
+    /// The host writes layer and mask textures directly through
+    /// `phototux_canvas`, which changes what the canvas *would* draw but does
+    /// not ask it to draw anything. `recomposite` is that request. A handler
+    /// that writes pixels and does not make it leaves the user looking at the
+    /// composite from before the edit, with no error and nothing to click:
+    /// `Select ▸ Selection to Mask` wrote the mask and looked like a no-op
+    /// until some unrelated edit forced a repaint.
+    ///
+    /// Three writers legitimately do not call it, and are named here rather
+    /// than inferred: the two load paths present through `record_composite`
+    /// once the whole document is in place, and the colour-profile conversion
+    /// is a follow-up whose `CommandEffects` carries `recomposite` for it.
+    #[test]
+    fn a_handler_that_writes_pixels_asks_for_a_new_frame() {
+        const PRESENTS_ANOTHER_WAY: [&str; 3] = [
+            "finish_opened_ptx",
+            "open_psd_pixels",
+            "apply_convert_pixels",
+        ];
+        let source = include_str!("lib.rs");
+        let mut checked = 0;
+        let mut current = "?";
+        let mut body = String::new();
+        let mut bodies: Vec<(&str, String)> = Vec::new();
+        for line in source.lines() {
+            let is_item = line.starts_with("    fn ")
+                || line.starts_with("    pub fn ")
+                || line.starts_with("    pub(crate) fn ");
+            if is_item {
+                bodies.push((current, std::mem::take(&mut body)));
+                current = line
+                    .split("fn ")
+                    .nth(1)
+                    .and_then(|rest| rest.split('(').next())
+                    .unwrap_or("?")
+                    .trim();
+            }
+            if !line.trim_start().starts_with("//") {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        bodies.push((current, body));
+        for (name, body) in bodies {
+            if !body.contains("phototux_canvas::write_layer_rgba(")
+                && !body.contains("phototux_canvas::write_mask_r8(")
+            {
+                continue;
+            }
+            if PRESENTS_ANOTHER_WAY.contains(&name) {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                body.contains("self.recomposite()"),
+                "`{name}` writes pixels to the GPU without calling \
+                 `recomposite` — the canvas will keep showing the composite \
+                 from before the edit"
+            );
+        }
+        assert!(
+            checked > 8,
+            "found {checked} pixel writers — the scan broke rather than the shell"
+        );
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {

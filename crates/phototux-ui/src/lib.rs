@@ -7939,6 +7939,14 @@ impl AppSession {
         }
         self.engine.announce("Selection copied to layer mask");
         self.mark_dirty();
+        // The mask is on the GPU now, and nothing else will ask for a new
+        // frame: `CommandEffects::host_chrome` carries `recomposite: false`,
+        // because the command that raised this follow-up did not itself touch
+        // any pixels. Without this the mask was written and the canvas went on
+        // showing the composite from before it — Select ▸ Selection to Mask
+        // looked like it had done nothing at all until some later edit
+        // happened to force a repaint.
+        self.recomposite();
         self.sync_from_engine();
         self.emit_layer_fields();
         self.status_text = self.engine.status_summary();

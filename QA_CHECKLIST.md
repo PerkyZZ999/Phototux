@@ -130,7 +130,11 @@ they had.
 - [x] **H-33** Combine modes: replace, add, subtract, intersect — Shift-drag unions the rects and the Mode row switches to Add live, with the "Shift add · Alt subtract" hint shown
 - [x] **H-34** Select All / Deselect / Invert — Ctrl+A, Ctrl+Shift+I and Ctrl+D all land
 - [x] **H-35** Modify: expand, contract, feather, border — the prompt opens with the registry's default radius and Expand applies. A radius above the default used to block the UI thread for minutes ([QA-006](QA_ISSUES.md#qa-006--select--modify-blocks-the-ui-thread-for-minutes)); **fixed** — 38× faster at radius 40, and the exact reproduction now completes
-- [ ] **H-36** Selection ↔ mask conversion both ways
+- [x] **H-36** Selection ↔ mask conversion both ways — **failed first**: Selection to Mask
+      wrote the mask and left the canvas showing the composite from before it, so the
+      command looked like a no-op. Fixed in `T-039`; re-verified both directions —
+      Selection to Mask now masks the layer the moment it runs, and Mask to Selection
+      restores a pixel selection after Ctrl+D has cleared one
 - [~] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel — arming it
       shows the options bar with Rotate and Constrain; the first drag begins the session
       ("Transform in progress", Apply/Cancel live, a Rotate slider and the hint "Drag to
