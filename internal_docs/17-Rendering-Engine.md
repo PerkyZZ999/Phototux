@@ -374,6 +374,21 @@ Overlay graph is separate from document graph. Changing ant phase, cursor, guide
 
 Pixel selection coverage itself is document state, but marching ants are overlay. Brush predicted preview is transient and reconciled with commit. Text edit selection is interaction state, while text content/style is document state. Export excludes overlays unless an explicit export command requests a document annotation class.
 
+**Shipped rule — the overlays clip; the canvas does not.** Every overlay
+positioned from document coordinates lives inside `canvasOverlays`, a plain
+`Item` filling the viewport with `clip: true`, and `PhototuxCanvas` is its
+sibling rather than its child. A QML item paints outside its parent unless the
+parent clips, and `docToScreenX` / `docToScreenY` are free to land anywhere: the
+free-transform box drew its top edge and handles across the document tab strip,
+on top of the tab labels, whenever a layer was dragged upward.
+
+The clip is on the container and not on `canvasHost` because clipping there
+would take the `QQuickRhiItem` with it, and the item the whole zero-copy
+present goes through is the one thing in the shell not to clip or re-parent
+casually. `canvas_overlays_are_clipped_and_the_canvas_is_not` pins both halves.
+The children keep the `z` values they had, which ordered them among themselves
+and still do; nothing outside the container sat between them and the toasts.
+
 ## Cache and Memory Budgets
 
 Cache classes:

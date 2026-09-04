@@ -1447,4 +1447,45 @@ mod tests {
             "found {checked} seams — the scan broke rather than the dock"
         );
     }
+    /// Document overlays are clipped to the viewport; the canvas is not.
+    ///
+    /// A QML child paints outside its parent unless the parent clips, and the
+    /// canvas overlays are positioned from document coordinates through
+    /// `docToScreen*`, which are free to land anywhere. The free-transform box
+    /// did: drag a layer up and its top edge and handles were drawn across the
+    /// document tab strip, on top of the tab labels.
+    ///
+    /// The second half is the one worth pinning. `clip: true` on `canvasHost`
+    /// would fix the symptom and take `PhototuxCanvas` with it — the
+    /// `QQuickRhiItem` the whole zero-copy present goes through, and the one
+    /// thing in the shell not to clip or re-parent casually (handbook 17).
+    #[test]
+    fn canvas_overlays_are_clipped_and_the_canvas_is_not() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        let at = shell
+            .find("id: canvasOverlays")
+            .expect("the overlay container is there to read");
+        let line = shell[..at].matches('\n').count();
+        let body = body_at_line(&shell, line);
+        assert!(
+            body.contains("clip: true"),
+            "canvasOverlays does not clip, so an overlay positioned from \
+             document coordinates paints over the chrome around the canvas"
+        );
+        assert!(
+            body.contains("id: transformChrome"),
+            "the free-transform box is outside the clipping container — the \
+             scan broke, or an overlay was moved out of it"
+        );
+        assert!(
+            !body.contains("PhototuxCanvas {"),
+            "PhototuxCanvas is inside the clipping container. The zero-copy \
+             present must not be clipped or re-parented casually; keep it a \
+             sibling of canvasOverlays"
+        );
+    }
 }

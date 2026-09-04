@@ -28,7 +28,7 @@ the entry says so rather than inventing one.
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
-| [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | open |
+| [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | **fixed** |
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | **fixed** |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
@@ -695,7 +695,7 @@ this one rather than exposing a panel for geometry that is still invisible.
 | **Severity** | low |
 | **Area** | `qml/Main.qml` — canvas overlays |
 | **Checklist item** | [H-37](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** The transform bounding box follows the layer's document bounds
 as they move, and nothing clips it to the canvas viewport. Dragging a layer
@@ -725,6 +725,26 @@ clipped casually (handbook 17). The overlay layer wants its own clipping
 container sized to the viewport, with the canvas item outside it, and that is a
 change to the canvas scene graph rather than a property flip. It is also worth
 doing once for every overlay rather than for this one.
+
+**Resolution.** Done as described, and for every overlay rather than for this
+one. `canvasOverlays` is a plain `Item` filling the viewport with `clip: true`,
+holding the guides, the text editor and its read-only preview, the rulers, the
+brush cursor, the marquee preview, the marching ants, the crop wash and the
+transform box and its handles. `PhototuxCanvas` stays outside it, a sibling —
+the `QQuickRhiItem` is not clipped or re-parented at all.
+
+The children keep the `z` values they had, which ordered them among themselves
+and still do; nothing outside the container sat between them and the toasts, so
+the stacking is unchanged.
+
+`canvas_overlays_are_clipped_and_the_canvas_is_not` pins both halves — the clip,
+and the canvas being outside it — because the tempting one-line version of this
+fix is `clip: true` on `canvasHost`, which works and takes the present path with
+it.
+
+Verified live at 1920×1080: a layer dragged up and to the right during Free
+Transform now has its box cut at the viewport edge, the tab strip above it is
+clean, and the canvas still presents at 60 FPS on the GPU path.
 
 ## QA-011 — A freshly opened document is already marked modified, and the tab strip reorders itself
 

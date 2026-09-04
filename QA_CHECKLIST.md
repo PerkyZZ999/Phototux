@@ -179,8 +179,10 @@ they had.
       shows the options bar with Rotate and Constrain; the first drag begins the session
       ("Transform in progress", Apply/Cancel live, a Rotate slider and the hint "Drag to
       move · handles scale · Enter apply · Esc cancel"). Enter applied a move, Esc
-      cancelled the next one and the layer returned. The bounding box is drawn unclipped
-      and overlaps the tab strip when the layer is moved up ([QA-010](QA_ISSUES.md))
+      cancelled the next one and the layer returned. The bounding box was drawn unclipped
+      and overlapped the tab strip when the layer was moved up ([QA-010](QA_ISSUES.md));
+      every document overlay now lives in a clipping container, with the canvas item
+      outside it, and the box is cut at the viewport edge
 - [x] **H-38** Crop commits and discards the outside — dragging showed the kept region and
       "Crop 1220 × 619" in the options bar; Apply resized the document to 1220×619, re-fit
       the zoom to 84% and clipped the stroke at the new edge

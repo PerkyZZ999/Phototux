@@ -2643,245 +2643,300 @@ ApplicationWindow {
                 }
             }
 
-            // Guide lines overlay
-            Repeater {
-                model: AppSession.prefShowGuides ? root.guidesModel : []
-                delegate: Rectangle {
-                    required property var modelData
-                    z: 3
-                    color: Theme.canvasGuide
-                    visible: AppSession.hasDocument
-                    x: modelData.o === "v" ? root.docToScreenX(modelData.p) : 0
-                    y: modelData.o === "h" ? root.docToScreenY(modelData.p) : 0
-                    width: modelData.o === "v" ? 1 : canvasHost.width
-                    height: modelData.o === "h" ? 1 : canvasHost.height
-                }
-            }
-
-            // Live on-canvas text editor (presentation until bake/commit).
-            // Qt Quick TextEdit has no `background` property (Controls TextArea does);
-            // wrapping with a Rectangle keeps chrome without aborting QML creation.
+            // Everything the shell draws *over* the document lives in here,
+            // and this is the only item in the canvas that clips.
             //
-            // A `Loader` rather than an `Item` that hides: while the frame is
-            // up the editor holds the keyboard, and Qt does not move active
-            // focus off a child whose *ancestor* merely became invisible.
-            // Bake Text turns the layer into pixels and the frame goes away,
-            // but a hidden-and-still-focused `TextEdit` went on accepting the
-            // shortcut override for every printable key — so every single-key
-            // tool shortcut was dead until something else was clicked, with
-            // nothing on screen to explain why. Destroying the editor releases
-            // the keyboard for real; `visible: false` does not.
-            Loader {
-                id: textCanvasEditorHost
+            // A QML child paints outside its parent unless the parent clips,
+            // and these are positioned from document coordinates through
+            // `docToScreen*`, which are free to land anywhere. The
+            // free-transform box did: drag a layer up and its top edge and
+            // handles were drawn across the document tab strip, on top of
+            // the tab labels. The box was right — it was just painted over
+            // chrome that has nothing to do with it.
+            //
+            // The clip goes here rather than on `canvasHost`, because that
+            // would take `PhototuxCanvas` with it, and the `QQuickRhiItem`
+            // the whole zero-copy present goes through is the one thing in
+            // the shell not to clip or re-parent casually (handbook 17). It
+            // stays outside, a sibling of this.
+            //
+            // The children keep the `z` values they had, which ordered them
+            // among themselves and still do; nothing outside sat between
+            // them and the toasts.
+            Item {
+                id: canvasOverlays
+                anchors.fill: parent
+                clip: true
                 z: 3
-                active: AppSession.hasDocument && AppSession.textLayerActive
-                        && AppSession.activeTool === "tool.text"
-                visible: active
-                x: root.docToScreenX(AppSession.textOriginX + 4)
-                y: root.docToScreenY(AppSession.textOriginY + 4)
-                width: Math.max(
-                    48,
-                    (AppSession.textFrameW > 0
-                     ? AppSession.textFrameW
-                     : Math.max(64, AppSession.docWidth - AppSession.textOriginX - 8))
-                    * AppSession.zoom)
-                height: Math.max(
-                    28,
-                    (AppSession.textFrameH > 0
-                     ? AppSession.textFrameH
-                     : Math.max(AppSession.textFontSize * 2, 48))
-                    * AppSession.zoom)
 
-                sourceComponent: Item {
-                    Rectangle {
-                        anchors.fill: parent
-                        color: Theme.canvasSelectionPreview
-                        border.color: Theme.primary
-                        border.width: 1
-                        radius: 2
+                // Guide lines overlay
+                Repeater {
+                    model: AppSession.prefShowGuides ? root.guidesModel : []
+                    delegate: Rectangle {
+                        required property var modelData
+                        z: 3
+                        color: Theme.canvasGuide
+                        visible: AppSession.hasDocument
+                        x: modelData.o === "v" ? root.docToScreenX(modelData.p) : 0
+                        y: modelData.o === "h" ? root.docToScreenY(modelData.p) : 0
+                        width: modelData.o === "v" ? 1 : canvasHost.width
+                        height: modelData.o === "h" ? 1 : canvasHost.height
                     }
+                }
 
-                    TextEdit {
-                        id: textCanvasEditor
+                // Live on-canvas text editor (presentation until bake/commit).
+                // Qt Quick TextEdit has no `background` property (Controls TextArea does);
+                // wrapping with a Rectangle keeps chrome without aborting QML creation.
+                //
+                // A `Loader` rather than an `Item` that hides: while the frame is
+                // up the editor holds the keyboard, and Qt does not move active
+                // focus off a child whose *ancestor* merely became invisible.
+                // Bake Text turns the layer into pixels and the frame goes away,
+                // but a hidden-and-still-focused `TextEdit` went on accepting the
+                // shortcut override for every printable key — so every single-key
+                // tool shortcut was dead until something else was clicked, with
+                // nothing on screen to explain why. Destroying the editor releases
+                // the keyboard for real; `visible: false` does not.
+                Loader {
+                    id: textCanvasEditorHost
+                    z: 3
+                    active: AppSession.hasDocument && AppSession.textLayerActive
+                            && AppSession.activeTool === "tool.text"
+                    visible: active
+                    x: root.docToScreenX(AppSession.textOriginX + 4)
+                    y: root.docToScreenY(AppSession.textOriginY + 4)
+                    width: Math.max(
+                        48,
+                        (AppSession.textFrameW > 0
+                         ? AppSession.textFrameW
+                         : Math.max(64, AppSession.docWidth - AppSession.textOriginX - 8))
+                        * AppSession.zoom)
+                    height: Math.max(
+                        28,
+                        (AppSession.textFrameH > 0
+                         ? AppSession.textFrameH
+                         : Math.max(AppSession.textFontSize * 2, 48))
+                        * AppSession.zoom)
+
+                    sourceComponent: Item {
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.canvasSelectionPreview
+                            border.color: Theme.primary
+                            border.width: 1
+                            radius: 2
+                        }
+
+                        TextEdit {
+                            id: textCanvasEditor
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            text: AppSession.textBody
+                            color: AppSession.textColorHex
+                            selectedTextColor: Theme.colorOnPrimary
+                            selectionColor: Theme.primary
+                            font.family: AppSession.textFontFamily
+                            font.pixelSize: Math.max(
+                                                6,
+                                                AppSession.textFontSize * AppSession.zoom)
+                            wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
+                            horizontalAlignment: AppSession.textAlignment === 1
+                                                 ? TextEdit.AlignHCenter
+                                                 : (AppSession.textAlignment === 2
+                                                    ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                            Accessible.name: qsTr("On-canvas text editor")
+                            // Focus can move here from inside a host slot (picking
+                            // the Text tool), so never call the host synchronously.
+                            onActiveFocusChanged: root.refreshShortcutYield()
+                            // And once more as the editor goes away, because the
+                            // focus it held is released by its own destruction —
+                            // after which nothing else would ask.
+                            Component.onDestruction: root.refreshShortcutYield()
+                            onTextChanged: {
+                                if (activeFocus && text !== AppSession.textBody) {
+                                    AppSession.updateActiveText(
+                                                text,
+                                                AppSession.textFontFamily,
+                                                AppSession.textFontSize,
+                                                AppSession.textTracking,
+                                                AppSession.textLineSpacing,
+                                                AppSession.textAlignment,
+                                                AppSession.textColorHex)
+                                }
+                            }
+                            Connections {
+                                target: AppSession
+                                function onTextBodyChanged() {
+                                    if (!textCanvasEditor.activeFocus)
+                                        textCanvasEditor.text = AppSession.textBody
+                                }
+                            }
+                        }
+                    }
+                }
+                // Read-only preview when text layer active but Text tool not selected
+                Text {
+                    id: textPreview
+                    z: 3
+                    visible: AppSession.hasDocument && AppSession.textLayerActive
+                             && AppSession.activeTool !== "tool.text"
+                    x: root.docToScreenX(AppSession.textOriginX + 4)
+                    y: root.docToScreenY(AppSession.textOriginY + 4)
+                    width: Math.max(8, (AppSession.textFrameW > 0
+                                        ? AppSession.textFrameW
+                                        : AppSession.docWidth - 8) * AppSession.zoom)
+                    text: AppSession.textBody
+                    color: AppSession.textColorHex
+                    font.family: AppSession.textFontFamily
+                    font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
+                    lineHeight: AppSession.textLineSpacing
+                    lineHeightMode: Text.ProportionalHeight
+                    horizontalAlignment: AppSession.textAlignment === 1
+                                         ? Text.AlignHCenter
+                                         : (AppSession.textAlignment === 2
+                                            ? Text.AlignRight : Text.AlignLeft)
+                    wrapMode: Text.Wrap
+                }
+
+                // Rulers
+                Rectangle {
+                    id: rulerTop
+                    z: 6
+                    visible: AppSession.hasDocument && AppSession.prefShowRulers
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 18
+                    color: Theme.surfaceRaised
+                    opacity: 0.92
+                    Canvas {
+                        id: rulerTopCanvas
                         anchors.fill: parent
-                        anchors.margins: 2
-                        text: AppSession.textBody
-                        color: AppSession.textColorHex
-                        selectedTextColor: Theme.colorOnPrimary
-                        selectionColor: Theme.primary
-                        font.family: AppSession.textFontFamily
-                        font.pixelSize: Math.max(
-                                            6,
-                                            AppSession.textFontSize * AppSession.zoom)
-                        wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
-                        horizontalAlignment: AppSession.textAlignment === 1
-                                             ? TextEdit.AlignHCenter
-                                             : (AppSession.textAlignment === 2
-                                                ? TextEdit.AlignRight : TextEdit.AlignLeft)
-                        Accessible.name: qsTr("On-canvas text editor")
-                        // Focus can move here from inside a host slot (picking
-                        // the Text tool), so never call the host synchronously.
-                        onActiveFocusChanged: root.refreshShortcutYield()
-                        // And once more as the editor goes away, because the
-                        // focus it held is released by its own destruction —
-                        // after which nothing else would ask.
-                        Component.onDestruction: root.refreshShortcutYield()
-                        onTextChanged: {
-                            if (activeFocus && text !== AppSession.textBody) {
-                                AppSession.updateActiveText(
-                                            text,
-                                            AppSession.textFontFamily,
-                                            AppSession.textFontSize,
-                                            AppSession.textTracking,
-                                            AppSession.textLineSpacing,
-                                            AppSession.textAlignment,
-                                            AppSession.textColorHex)
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.reset()
+                            ctx.fillStyle = Theme.colorOnSurfaceMuted
+                            ctx.font = "10px sans-serif"
+                            var zoom = Math.max(0.001, AppSession.zoom)
+                            var step = 50
+                            while (step * zoom < 40)
+                                step *= 2
+                            for (var d = 0; d <= AppSession.docWidth; d += step) {
+                                var sx = root.docToScreenX(d)
+                                ctx.fillRect(sx, 10, 1, 8)
+                                ctx.fillText(String(d), sx + 2, 10)
                             }
                         }
                         Connections {
                             target: AppSession
-                            function onTextBodyChanged() {
-                                if (!textCanvasEditor.activeFocus)
-                                    textCanvasEditor.text = AppSession.textBody
+                            function onZoomChanged() { rulerTopCanvas.requestPaint() }
+                            function onPanXChanged() { rulerTopCanvas.requestPaint() }
+                            function onPrefShowRulersChanged() { rulerTopCanvas.requestPaint() }
+                        }
+                    }
+                }
+                Rectangle {
+                    id: rulerLeft
+                    z: 6
+                    visible: AppSession.hasDocument && AppSession.prefShowRulers
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.topMargin: AppSession.prefShowRulers ? 18 : 0
+                    width: 18
+                    color: Theme.surfaceRaised
+                    opacity: 0.92
+                    Canvas {
+                        id: rulerLeftCanvas
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.reset()
+                            ctx.fillStyle = Theme.colorOnSurfaceMuted
+                            ctx.font = "10px sans-serif"
+                            var zoom = Math.max(0.001, AppSession.zoom)
+                            var step = 50
+                            while (step * zoom < 40)
+                                step *= 2
+                            for (var d = 0; d <= AppSession.docHeight; d += step) {
+                                var sy = root.docToScreenY(d)
+                                ctx.fillRect(10, sy, 8, 1)
+                                ctx.save()
+                                ctx.translate(2, sy + 2)
+                                ctx.rotate(-Math.PI / 2)
+                                ctx.fillText(String(d), 0, 0)
+                                ctx.restore()
+                            }
+                        }
+                        Connections {
+                            target: AppSession
+                            function onZoomChanged() { rulerLeftCanvas.requestPaint() }
+                            function onPanYChanged() { rulerLeftCanvas.requestPaint() }
+                            function onPrefShowRulersChanged() { rulerLeftCanvas.requestPaint() }
+                        }
+                    }
+                }
+
+                // Brush size cursor (visual guide)
+                Rectangle {
+                    id: brushCursor
+                    visible: AppSession.hasDocument
+                             && (AppSession.activeTool === "tool.brush"
+                                 || AppSession.activeTool === "tool.eraser")
+                             && canvasInput.containsMouse
+                    width: Math.max(4, AppSession.brushSize * AppSession.zoom)
+                    height: width
+                    radius: width / 2
+                    color: "transparent"
+                    border.color: AppSession.activeTool === "tool.eraser"
+                                  ? Theme.error : root.primary
+                    border.width: 1
+                    x: canvasInput.mouseX - width / 2
+                    y: canvasInput.mouseY - height / 2
+                    z: 3
+                }
+
+                // Live marquee drag preview
+                Item {
+                    id: selectionPreview
+                    visible: AppSession.selectionPreviewActive && AppSession.hasDocument
+                    z: 4
+                    x: root.docToScreenX(AppSession.selectionPreviewX)
+                    y: root.docToScreenY(AppSession.selectionPreviewY)
+                    width: Math.max(1, AppSession.selectionPreviewW * AppSession.zoom)
+                    height: Math.max(1, AppSession.selectionPreviewH * AppSession.zoom)
+
+                    Shape {
+                        anchors.fill: parent
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: root.primary
+                            fillColor: "transparent"
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [4, 4]
+                            PathSvg {
+                                path: AppSession.activeTool === "tool.select.ellipse"
+                                      ? ("M " + (selectionPreview.width / 2) + " 0 "
+                                         + "A " + (selectionPreview.width / 2) + " "
+                                         + (selectionPreview.height / 2) + " 0 1 1 "
+                                         + (selectionPreview.width / 2) + " " + selectionPreview.height + " "
+                                         + "A " + (selectionPreview.width / 2) + " "
+                                         + (selectionPreview.height / 2) + " 0 1 1 "
+                                         + (selectionPreview.width / 2) + " 0")
+                                      : ("M 0 0 H " + selectionPreview.width + " V "
+                                         + selectionPreview.height + " H 0 Z")
                             }
                         }
                     }
                 }
-            }
-            // Read-only preview when text layer active but Text tool not selected
-            Text {
-                id: textPreview
-                z: 3
-                visible: AppSession.hasDocument && AppSession.textLayerActive
-                         && AppSession.activeTool !== "tool.text"
-                x: root.docToScreenX(AppSession.textOriginX + 4)
-                y: root.docToScreenY(AppSession.textOriginY + 4)
-                width: Math.max(8, (AppSession.textFrameW > 0
-                                    ? AppSession.textFrameW
-                                    : AppSession.docWidth - 8) * AppSession.zoom)
-                text: AppSession.textBody
-                color: AppSession.textColorHex
-                font.family: AppSession.textFontFamily
-                font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
-                lineHeight: AppSession.textLineSpacing
-                lineHeightMode: Text.ProportionalHeight
-                horizontalAlignment: AppSession.textAlignment === 1
-                                     ? Text.AlignHCenter
-                                     : (AppSession.textAlignment === 2
-                                        ? Text.AlignRight : Text.AlignLeft)
-                wrapMode: Text.Wrap
-            }
 
-            // Rulers
-            Rectangle {
-                id: rulerTop
-                z: 6
-                visible: AppSession.hasDocument && AppSession.prefShowRulers
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 18
-                color: Theme.surfaceRaised
-                opacity: 0.92
-                Canvas {
-                    id: rulerTopCanvas
-                    anchors.fill: parent
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        ctx.reset()
-                        ctx.fillStyle = Theme.colorOnSurfaceMuted
-                        ctx.font = "10px sans-serif"
-                        var zoom = Math.max(0.001, AppSession.zoom)
-                        var step = 50
-                        while (step * zoom < 40)
-                            step *= 2
-                        for (var d = 0; d <= AppSession.docWidth; d += step) {
-                            var sx = root.docToScreenX(d)
-                            ctx.fillRect(sx, 10, 1, 8)
-                            ctx.fillText(String(d), sx + 2, 10)
-                        }
-                    }
-                    Connections {
-                        target: AppSession
-                        function onZoomChanged() { rulerTopCanvas.requestPaint() }
-                        function onPanXChanged() { rulerTopCanvas.requestPaint() }
-                        function onPrefShowRulersChanged() { rulerTopCanvas.requestPaint() }
-                    }
-                }
-            }
-            Rectangle {
-                id: rulerLeft
-                z: 6
-                visible: AppSession.hasDocument && AppSession.prefShowRulers
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.topMargin: AppSession.prefShowRulers ? 18 : 0
-                width: 18
-                color: Theme.surfaceRaised
-                opacity: 0.92
-                Canvas {
-                    id: rulerLeftCanvas
-                    anchors.fill: parent
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        ctx.reset()
-                        ctx.fillStyle = Theme.colorOnSurfaceMuted
-                        ctx.font = "10px sans-serif"
-                        var zoom = Math.max(0.001, AppSession.zoom)
-                        var step = 50
-                        while (step * zoom < 40)
-                            step *= 2
-                        for (var d = 0; d <= AppSession.docHeight; d += step) {
-                            var sy = root.docToScreenY(d)
-                            ctx.fillRect(10, sy, 8, 1)
-                            ctx.save()
-                            ctx.translate(2, sy + 2)
-                            ctx.rotate(-Math.PI / 2)
-                            ctx.fillText(String(d), 0, 0)
-                            ctx.restore()
-                        }
-                    }
-                    Connections {
-                        target: AppSession
-                        function onZoomChanged() { rulerLeftCanvas.requestPaint() }
-                        function onPanYChanged() { rulerLeftCanvas.requestPaint() }
-                        function onPrefShowRulersChanged() { rulerLeftCanvas.requestPaint() }
-                    }
-                }
-            }
-
-            // Brush size cursor (visual guide)
-            Rectangle {
-                id: brushCursor
-                visible: AppSession.hasDocument
-                         && (AppSession.activeTool === "tool.brush"
-                             || AppSession.activeTool === "tool.eraser")
-                         && canvasInput.containsMouse
-                width: Math.max(4, AppSession.brushSize * AppSession.zoom)
-                height: width
-                radius: width / 2
-                color: "transparent"
-                border.color: AppSession.activeTool === "tool.eraser"
-                              ? Theme.error : root.primary
-                border.width: 1
-                x: canvasInput.mouseX - width / 2
-                y: canvasInput.mouseY - height / 2
-                z: 3
-            }
-
-            // Live marquee drag preview
-            Item {
-                id: selectionPreview
-                visible: AppSession.selectionPreviewActive && AppSession.hasDocument
-                z: 4
-                x: root.docToScreenX(AppSession.selectionPreviewX)
-                y: root.docToScreenY(AppSession.selectionPreviewY)
-                width: Math.max(1, AppSession.selectionPreviewW * AppSession.zoom)
-                height: Math.max(1, AppSession.selectionPreviewH * AppSession.zoom)
-
+                // Live lasso / polygonal path preview
                 Shape {
+                    id: selectionPathPreview
                     anchors.fill: parent
+                    z: 4
+                    visible: AppSession.selectionPathActive && AppSession.hasDocument
                     preferredRendererType: Shape.CurveRenderer
                     ShapePath {
                         strokeWidth: 1
@@ -2890,233 +2945,205 @@ ApplicationWindow {
                         strokeStyle: ShapePath.DashLine
                         dashPattern: [4, 4]
                         PathSvg {
-                            path: AppSession.activeTool === "tool.select.ellipse"
-                                  ? ("M " + (selectionPreview.width / 2) + " 0 "
-                                     + "A " + (selectionPreview.width / 2) + " "
-                                     + (selectionPreview.height / 2) + " 0 1 1 "
-                                     + (selectionPreview.width / 2) + " " + selectionPreview.height + " "
-                                     + "A " + (selectionPreview.width / 2) + " "
-                                     + (selectionPreview.height / 2) + " 0 1 1 "
-                                     + (selectionPreview.width / 2) + " 0")
-                                  : ("M 0 0 H " + selectionPreview.width + " V "
-                                     + selectionPreview.height + " H 0 Z")
+                            path: root.selectionPathToSvg(AppSession.selectionPath)
                         }
                     }
                 }
-            }
 
-            // Live lasso / polygonal path preview
-            Shape {
-                id: selectionPathPreview
-                anchors.fill: parent
-                z: 4
-                visible: AppSession.selectionPathActive && AppSession.hasDocument
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeWidth: 1
-                    strokeColor: root.primary
-                    fillColor: "transparent"
-                    strokeStyle: ShapePath.DashLine
-                    dashPattern: [4, 4]
-                    PathSvg {
-                        path: root.selectionPathToSvg(AppSession.selectionPath)
-                    }
-                }
-            }
-
-            // Linear gradient drag preview
-            Shape {
-                id: gradientPreview
-                anchors.fill: parent
-                z: 4
-                visible: canvasInput.gradienting && AppSession.hasDocument
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeWidth: 2
-                    strokeColor: root.primary
-                    fillColor: "transparent"
-                    startX: root.docToScreenX(canvasInput.gradStartX)
-                    startY: root.docToScreenY(canvasInput.gradStartY)
-                    PathLine {
-                        x: root.docToScreenX(canvasInput.gradEndX)
-                        y: root.docToScreenY(canvasInput.gradEndY)
-                    }
-                }
-            }
-
-            // Marching ants for committed rect/ellipse (mask shape uses GPU ants)
-            Item {
-                id: selectionAnts
-                visible: AppSession.selectionActive && AppSession.hasDocument
-                         && AppSession.selectionW > 0 && AppSession.selectionH > 0
-                         && AppSession.selectionShape !== "mask"
-                z: 5
-                x: root.docToScreenX(AppSession.selectionX)
-                y: root.docToScreenY(AppSession.selectionY)
-                width: Math.max(1, AppSession.selectionW * AppSession.zoom)
-                height: Math.max(1, AppSession.selectionH * AppSession.zoom)
-
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.RightButton
-                    onClicked: function (mouse) {
-                        root.openContextMenu(selectionContextMenu, this, mouse.x, mouse.y)
-                    }
-                }
-
+                // Linear gradient drag preview
                 Shape {
+                    id: gradientPreview
                     anchors.fill: parent
+                    z: 4
+                    visible: canvasInput.gradienting && AppSession.hasDocument
                     preferredRendererType: Shape.CurveRenderer
                     ShapePath {
-                        strokeWidth: 1
-                        strokeColor: Theme.canvasOutline
-                        fillColor: "transparent"
-                        strokeStyle: ShapePath.DashLine
-                        dashPattern: [4, 4]
-                        dashOffset: selectionAnts.visible ? frameClock.phase * 12 : 0
-                        PathSvg {
-                            path: AppSession.selectionShape === "ellipse"
-                                  ? ("M " + (selectionAnts.width / 2) + " 0 "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " 0")
-                                  : ("M 0 0 H " + selectionAnts.width + " V "
-                                     + selectionAnts.height + " H 0 Z")
-                        }
-                    }
-                    ShapePath {
-                        strokeWidth: 1
+                        strokeWidth: 2
                         strokeColor: root.primary
                         fillColor: "transparent"
-                        strokeStyle: ShapePath.DashLine
-                        dashPattern: [4, 4]
-                        dashOffset: selectionAnts.visible ? frameClock.phase * 12 + 4 : 0
-                        PathSvg {
-                            path: AppSession.selectionShape === "ellipse"
-                                  ? ("M " + (selectionAnts.width / 2) + " 0 "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " 0")
-                                  : ("M 0 0 H " + selectionAnts.width + " V "
-                                     + selectionAnts.height + " H 0 Z")
+                        startX: root.docToScreenX(canvasInput.gradStartX)
+                        startY: root.docToScreenY(canvasInput.gradStartY)
+                        PathLine {
+                            x: root.docToScreenX(canvasInput.gradEndX)
+                            y: root.docToScreenY(canvasInput.gradEndY)
                         }
                     }
                 }
-            }
 
-            // Crop drag preview
-            Rectangle {
-                id: cropPreview
-                visible: AppSession.cropPreviewActive && AppSession.hasDocument
-                z: 6
-                x: root.docToScreenX(AppSession.cropPreviewX)
-                y: root.docToScreenY(AppSession.cropPreviewY)
-                width: Math.max(1, AppSession.cropPreviewW * AppSession.zoom)
-                height: Math.max(1, AppSession.cropPreviewH * AppSession.zoom)
-                // Accent at 12%, alpha first: an eight-digit hex is
-                // `#AARRGGBB` to Qt, so this had been a pale green fill inside
-                // a cyan border.
-                color: Theme.canvasCropPreview
-                border.color: root.primary
-                border.width: 1
-            }
+                // Marching ants for committed rect/ellipse (mask shape uses GPU ants)
+                Item {
+                    id: selectionAnts
+                    visible: AppSession.selectionActive && AppSession.hasDocument
+                             && AppSession.selectionW > 0 && AppSession.selectionH > 0
+                             && AppSession.selectionShape !== "mask"
+                    z: 5
+                    x: root.docToScreenX(AppSession.selectionX)
+                    y: root.docToScreenY(AppSession.selectionY)
+                    width: Math.max(1, AppSession.selectionW * AppSession.zoom)
+                    height: Math.max(1, AppSession.selectionH * AppSession.zoom)
 
-            // Free-transform handles over document bounds
-            Item {
-                id: transformChrome
-                visible: AppSession.transformActive && AppSession.hasDocument
-                z: 7
-                x: root.docToScreenX(0)
-                y: root.docToScreenY(0)
-                width: Math.max(1, AppSession.docWidth * AppSession.zoom)
-                height: Math.max(1, AppSession.docHeight * AppSession.zoom)
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.RightButton
+                        onClicked: function (mouse) {
+                            root.openContextMenu(selectionContextMenu, this, mouse.x, mouse.y)
+                        }
+                    }
 
+                    Shape {
+                        anchors.fill: parent
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: Theme.canvasOutline
+                            fillColor: "transparent"
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [4, 4]
+                            dashOffset: selectionAnts.visible ? frameClock.phase * 12 : 0
+                            PathSvg {
+                                path: AppSession.selectionShape === "ellipse"
+                                      ? ("M " + (selectionAnts.width / 2) + " 0 "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " 0")
+                                      : ("M 0 0 H " + selectionAnts.width + " V "
+                                         + selectionAnts.height + " H 0 Z")
+                            }
+                        }
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: root.primary
+                            fillColor: "transparent"
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [4, 4]
+                            dashOffset: selectionAnts.visible ? frameClock.phase * 12 + 4 : 0
+                            PathSvg {
+                                path: AppSession.selectionShape === "ellipse"
+                                      ? ("M " + (selectionAnts.width / 2) + " 0 "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " 0")
+                                      : ("M 0 0 H " + selectionAnts.width + " V "
+                                         + selectionAnts.height + " H 0 Z")
+                            }
+                        }
+                    }
+                }
+
+                // Crop drag preview
                 Rectangle {
-                    anchors.fill: parent
-                    color: "transparent"
+                    id: cropPreview
+                    visible: AppSession.cropPreviewActive && AppSession.hasDocument
+                    z: 6
+                    x: root.docToScreenX(AppSession.cropPreviewX)
+                    y: root.docToScreenY(AppSession.cropPreviewY)
+                    width: Math.max(1, AppSession.cropPreviewW * AppSession.zoom)
+                    height: Math.max(1, AppSession.cropPreviewH * AppSession.zoom)
+                    // Accent at 12%, alpha first: an eight-digit hex is
+                    // `#AARRGGBB` to Qt, so this had been a pale green fill inside
+                    // a cyan border.
+                    color: Theme.canvasCropPreview
                     border.color: root.primary
                     border.width: 1
-                    transform: [
-                        Translate {
-                            x: AppSession.transformTx * AppSession.zoom
-                            y: AppSession.transformTy * AppSession.zoom
-                        },
-                        Scale {
-                            origin.x: transformChrome.width / 2
-                            origin.y: transformChrome.height / 2
-                            xScale: AppSession.transformSx
-                            yScale: AppSession.transformSy
-                        },
-                        Rotation {
-                            origin.x: transformChrome.width / 2
-                            origin.y: transformChrome.height / 2
-                            angle: AppSession.transformRot
-                        }
-                    ]
                 }
 
-                Repeater {
-                    model: [
-                        { nx: 0, ny: 0 }, { nx: 0.5, ny: 0 }, { nx: 1, ny: 0 },
-                        { nx: 0, ny: 0.5 }, { nx: 1, ny: 0.5 },
-                        { nx: 0, ny: 1 }, { nx: 0.5, ny: 1 }, { nx: 1, ny: 1 }
-                    ]
-                    delegate: Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 1
-                        color: Theme.surface
+                // Free-transform handles over document bounds
+                Item {
+                    id: transformChrome
+                    visible: AppSession.transformActive && AppSession.hasDocument
+                    z: 7
+                    x: root.docToScreenX(0)
+                    y: root.docToScreenY(0)
+                    width: Math.max(1, AppSession.docWidth * AppSession.zoom)
+                    height: Math.max(1, AppSession.docHeight * AppSession.zoom)
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "transparent"
                         border.color: root.primary
                         border.width: 1
-                        z: 8
-                        property real hx: modelData.nx * transformChrome.width
-                        property real hy: modelData.ny * transformChrome.height
-                        x: hx * AppSession.transformSx
-                           + (1 - AppSession.transformSx) * transformChrome.width / 2
-                           + AppSession.transformTx * AppSession.zoom - width / 2
-                        y: hy * AppSession.transformSy
-                           + (1 - AppSession.transformSy) * transformChrome.height / 2
-                           + AppSession.transformTy * AppSession.zoom - height / 2
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -4
-                            cursorShape: Qt.SizeFDiagCursor
-                            property real startDist: 1
-                            onPressed: function (mouse) {
-                                var cx = transformChrome.width / 2
-                                var cy = transformChrome.height / 2
-                                var dx = parent.x + width / 2 - cx
-                                var dy = parent.y + height / 2 - cy
-                                startDist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                        transform: [
+                            Translate {
+                                x: AppSession.transformTx * AppSession.zoom
+                                y: AppSession.transformTy * AppSession.zoom
+                            },
+                            Scale {
+                                origin.x: transformChrome.width / 2
+                                origin.y: transformChrome.height / 2
+                                xScale: AppSession.transformSx
+                                yScale: AppSession.transformSy
+                            },
+                            Rotation {
+                                origin.x: transformChrome.width / 2
+                                origin.y: transformChrome.height / 2
+                                angle: AppSession.transformRot
                             }
-                            onPositionChanged: function (mouse) {
-                                if (!pressed)
-                                    return
-                                var cx = transformChrome.width / 2
-                                var cy = transformChrome.height / 2
-                                var gx = mapToItem(transformChrome, mouse.x, mouse.y).x
-                                var gy = mapToItem(transformChrome, mouse.x, mouse.y).y
-                                var dx = gx - cx
-                                var dy = gy - cy
-                                var dist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
-                                var factor = dist / startDist
-                                var sx = Math.max(0.05, Math.abs(AppSession.transformSx) * factor)
-                                var sy = Math.max(0.05, Math.abs(AppSession.transformSy) * factor)
-                                var constrain = (mouse.modifiers & Qt.ShiftModifier) !== 0
-                                        || AppSession.transformConstrain
-                                AppSession.updateTransformDraft(
-                                            AppSession.transformTx,
-                                            AppSession.transformTy,
-                                            sx, sy,
-                                            AppSession.transformRot,
-                                            constrain)
-                                startDist = dist
+                        ]
+                    }
+
+                    Repeater {
+                        model: [
+                            { nx: 0, ny: 0 }, { nx: 0.5, ny: 0 }, { nx: 1, ny: 0 },
+                            { nx: 0, ny: 0.5 }, { nx: 1, ny: 0.5 },
+                            { nx: 0, ny: 1 }, { nx: 0.5, ny: 1 }, { nx: 1, ny: 1 }
+                        ]
+                        delegate: Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 1
+                            color: Theme.surface
+                            border.color: root.primary
+                            border.width: 1
+                            z: 8
+                            property real hx: modelData.nx * transformChrome.width
+                            property real hy: modelData.ny * transformChrome.height
+                            x: hx * AppSession.transformSx
+                               + (1 - AppSession.transformSx) * transformChrome.width / 2
+                               + AppSession.transformTx * AppSession.zoom - width / 2
+                            y: hy * AppSession.transformSy
+                               + (1 - AppSession.transformSy) * transformChrome.height / 2
+                               + AppSession.transformTy * AppSession.zoom - height / 2
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                cursorShape: Qt.SizeFDiagCursor
+                                property real startDist: 1
+                                onPressed: function (mouse) {
+                                    var cx = transformChrome.width / 2
+                                    var cy = transformChrome.height / 2
+                                    var dx = parent.x + width / 2 - cx
+                                    var dy = parent.y + height / 2 - cy
+                                    startDist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                                }
+                                onPositionChanged: function (mouse) {
+                                    if (!pressed)
+                                        return
+                                    var cx = transformChrome.width / 2
+                                    var cy = transformChrome.height / 2
+                                    var gx = mapToItem(transformChrome, mouse.x, mouse.y).x
+                                    var gy = mapToItem(transformChrome, mouse.x, mouse.y).y
+                                    var dx = gx - cx
+                                    var dy = gy - cy
+                                    var dist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                                    var factor = dist / startDist
+                                    var sx = Math.max(0.05, Math.abs(AppSession.transformSx) * factor)
+                                    var sy = Math.max(0.05, Math.abs(AppSession.transformSy) * factor)
+                                    var constrain = (mouse.modifiers & Qt.ShiftModifier) !== 0
+                                            || AppSession.transformConstrain
+                                    AppSession.updateTransformDraft(
+                                                AppSession.transformTx,
+                                                AppSession.transformTy,
+                                                sx, sy,
+                                                AppSession.transformRot,
+                                                constrain)
+                                    startDist = dist
+                                }
                             }
                         }
                     }
