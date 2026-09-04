@@ -228,7 +228,9 @@ Rules:
 - density cannot reduce targets below accessibility minimum;
 - native surface scale changes invalidate presentation resources, not document state.
 
-Theme may provide compact/comfortable spacing sets. Density changes preserve hierarchy, focus order, semantic component IDs, and command geography. They do not create a separate product mode.
+Theme may provide two spacing sets. Density changes preserve hierarchy, focus order, semantic component IDs, and command geography. They do not create a separate product mode.
+
+**Shipped rule — the two densities are `dense` and `comfortable`.** This chapter used to name them *compact*/comfortable, which is the only place in the project that says "compact": `Prefs::ui_density` stores `dense | comfortable`, the Preferences combo offers those two, and the constitution's own description of the product is "dense editor chrome". The wording is aligned here rather than in the code, because the shipped vocabulary is the one users and contributors already see. There is no third density, and a test plan that expects one is describing an app that never existed.
 
 A density mode **MUST** drive the layout scale, not only the type scale. The density factor applies to spacing steps, control heights, hit targets, icon boxes, and the fixed chrome extents (tool strip width, dock width, toolbar/status/panel-header heights). Scaling type alone yields larger text inside unchanged chrome, which fails the 200% target above and makes the preference misleading. Corner radii are a fixed visual signature and are exempt.
 

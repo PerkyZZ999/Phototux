@@ -391,12 +391,24 @@ they had.
 - [~] **U-02** Long operations show a busy indicator and a cancel affordance — `a_running_file_operation_can_be_cancelled` guards the call and its `ioBusy` gate; not exercised against a genuinely slow operation
 - [x] **U-03** Errors reach a toast that does not auto-dismiss; info and warnings fade — an I/O failure raises a modal "File operation failed" naming the cause; the info toast carries a dismiss control
 - [x] **U-04** Disabled controls look disabled and say why on hover where non-obvious — greyed entries throughout the Layer menu, matching the active layer's kind and state
-- [~] **U-05** The dirty marker appears on the first edit and clears on save — appears: title `Untitled*`, tab `* Untitled`, status `Unsaved`. Clear-on-save not exercised (portal dialog)
+- [x] **U-05** The dirty marker appears on the first edit and clears on save — appears:
+      title `Untitled*`, tab `* Untitled`, status `Unsaved`. Clear-on-save was recorded
+      here as unexercised because of the portal dialog, but **H-08** had already
+      exercised it on the path that avoids one: Ctrl+S on an already-saved document
+      rewrote the file with no dialog and cleared the marker from both the title and the
+      tab. [QA-011](QA_ISSUES.md) is the related defect — a freshly opened document
+      arrived already marked modified — and is fixed
 - [x] **U-06** No message is written into the status bar, which carries state only — **failed**: three startup writers assigned through local bindings the guard could not see, so after a failed startup open the bar kept reading "Opening …". Fixed, and the guard widened to any binding
 
 ## 3.2 Layout and density
 
-- [~] **U-07** All three densities (Compact, Comfortable, Dense) render without clipping or overlap — Dense and Comfortable verified: no overlap, panels scroll rather than clip, and the tool rail engages its overflow as capacity drops. Compact not yet exercised
+- [x] **U-07** Every density renders without clipping or overlap — Dense and Comfortable
+      verified: no overlap, panels scroll rather than clip, and the tool rail engages its
+      overflow as capacity drops. This item originally asked for **three** densities
+      (Compact, Comfortable, Dense); there are two. `Prefs::ui_density` stores
+      `dense | comfortable` and the Preferences combo offers exactly those. The third
+      came from [25 — Themes](internal_docs/25-Themes.md), the only place in the project
+      that said "compact", which is now aligned to the shipped vocabulary
 - [x] **U-08** The shell holds together from 1280×720 up to 4K — both ends exercised in
       their own KWin session. At 1280×720 the window fills the screen, the tool rail
       engages its `…` overflow, the right dock keeps all three groups, the New
