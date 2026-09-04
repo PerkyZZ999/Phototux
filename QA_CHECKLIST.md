@@ -192,8 +192,15 @@ they had.
 - [ ] **H-42** Panels toggle, tear off, re-dock, auto-hide and resize; state survives restart
 - [x] **H-43** Preferences persist across restart — "Show rulers" and "High contrast
       chrome", both off by default, were still on after a relaunch
-- [ ] **H-44** Assign vs Convert profile behave differently and both are reachable
-- [ ] **H-45** Soft-proof toggles without dirtying the document
+- [x] **H-44** Assign vs Convert profile behave differently and both are reachable — both
+      sit under Image ▸ Color. Assign Profile: Display-P3 left the pixels byte-identical
+      (`#2060C8` before and after); Convert to sRGB rewrote them (`#2060C8` → `#0062CF`,
+      `#DC285A` → `#F00058`) and warned "Converted pixels to sRGB (from Display-P3) — this
+      rewrote layer data" as a toast
+- [x] **H-45** Soft-proof toggles without dirtying the document — Image ▸ Color ▸
+      Soft-Proof: Display-P3 on a freshly created document left the title reading
+      `Untitled — PhotoTux` with no dirty marker, and the state is disclosed as
+      "Soft-proof: Display-P3" in the Document properties
 
 ## 1.6 Non-GUI surfaces
 
@@ -262,7 +269,12 @@ they had.
 - [ ] **E-38** Closing a document while its file operation is running
 - [ ] **E-39** Switching document tabs mid-stroke
 - [ ] **E-40** Opening a dialog while another is open
-- [ ] **E-41** No re-entrant host-slot call from a QML signal handler (handbook 32)
+- [x] **E-41** No re-entrant host-slot call from a QML signal handler (handbook 32) — the
+      eleven `Connections { target: AppSession }` blocks are clean, and
+      `a_handler_for_a_host_signal_does_not_call_the_host_back` now fails on any host-slot
+      call made directly inside one; watched failing against a planted call. The other
+      shape — a reactive `on…Changed:` on a non-AppSession object, which is what T-028
+      was — is held by `refreshShortcutYield` deferring inside the function
 
 ---
 

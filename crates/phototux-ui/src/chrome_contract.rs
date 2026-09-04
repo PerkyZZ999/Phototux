@@ -978,6 +978,83 @@ mod tests {
         );
     }
 
+    /// A handler reacting to a host signal does not call the host back.
+    ///
+    /// An `AppSession` notify signal is emitted while the session is still
+    /// mutably borrowed. A QML handler that reacts to one and calls a slot
+    /// synchronously re-enters that borrow, and qtbridge answers a
+    /// `BorrowConflict` by aborting the process — not by returning an error
+    /// something could catch. Two blockers came from exactly this: tearing a
+    /// panel off (T-027) and opening the Filter Gallery (T-028). The rule is
+    /// `root.afterHostSlot`, which defers to the next turn of the event loop.
+    ///
+    /// This holds the crisply checkable half — the eleven
+    /// `Connections { target: AppSession }` blocks. It does not reach a
+    /// reactive handler written as a plain `on…Changed:` on some other object,
+    /// which is the shape T-028 took; that one is guarded by
+    /// `refreshShortcutYield` deferring inside the function rather than at its
+    /// call sites.
+    #[test]
+    fn a_handler_for_a_host_signal_does_not_call_the_host_back() {
+        let mut blocks = 0;
+        for entry in std::fs::read_dir(qml_dir()).expect("read qml dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
+                continue;
+            }
+            let qml = std::fs::read_to_string(&path).expect("read qml");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            let lines: Vec<&str> = qml.lines().collect();
+            let mut i = 0;
+            while i < lines.len() {
+                if !lines[i].contains("Connections {")
+                    || !lines[i..(i + 3).min(lines.len())]
+                        .iter()
+                        .any(|l| l.contains("target: AppSession"))
+                {
+                    i += 1;
+                    continue;
+                }
+                blocks += 1;
+                let mut depth = 0_i32;
+                let mut j = i;
+                while j < lines.len() {
+                    depth += lines[j].matches('{').count() as i32;
+                    depth -= lines[j].matches('}').count() as i32;
+                    let call = lines[j].split("AppSession.").skip(1).any(|rest| {
+                        rest.split(['.', ' ', ')', ','])
+                            .next()
+                            .is_some_and(|t| t.ends_with('('))
+                    });
+                    if call {
+                        let deferred = lines[j.saturating_sub(2)..=j]
+                            .iter()
+                            .any(|l| l.contains("afterHostSlot"));
+                        assert!(
+                            deferred,
+                            "{name}:{} calls a host slot from inside a \
+                             `Connections {{ target: AppSession }}` block — that \
+                             re-enters the borrow the signal was emitted under \
+                             and aborts the process. Defer it through \
+                             `root.afterHostSlot`",
+                            j + 1
+                        );
+                    }
+                    if depth == 0 && j > i {
+                        break;
+                    }
+                    j += 1;
+                }
+                i = j + 1;
+            }
+        }
+        assert!(
+            blocks >= 8,
+            "found {blocks} AppSession Connections blocks — the scan broke \
+             rather than the shell"
+        );
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {
