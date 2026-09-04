@@ -257,6 +257,38 @@ ApplicationWindow {
         return root.panelDefaultHeight(panelId, dockHeight) >= 0
     }
 
+    /// The tallest a panel may be drawn before the ones below it leave the dock.
+    ///
+    /// The seam had no ceiling that depended on the dock: `PanelResizeGrip`
+    /// clamped at a constant 2000 mirroring `DockTopology::MAX_PANEL_HEIGHT`,
+    /// and neither side subtracted what the panels below needed. One drag to
+    /// the bottom of the screen made the panel above fill the dock and the
+    /// groups below it vanish — not collapsed to a header, not reachable by
+    /// scrolling, simply gone, with the Window menu still listing them as
+    /// visible. Handbook 04 asks the solver to clamp against "minimum/maximum
+    /// constraints **and available logical size**"; this is that second half.
+    ///
+    /// Reserved: this panel's own header, plus a header *and* a minimum body
+    /// for every group below it. Reserving only the headers is not enough —
+    /// the dock is a `GridLayout`, which lays its rows out at the heights they
+    /// ask for and lets the overflow fall off the bottom, so a body below that
+    /// still wants its minimum takes its header with it.
+    ///
+    /// Computed here rather than in the engine because the dock's height is a
+    /// QML fact. The engine keeps its own absolute bounds; clamping only there
+    /// would let the drag run past the limit and snap back on release, which
+    /// is the thing the grip was written to avoid.
+    function panelMaxHeight(panelId, dockHeight) {
+        var row = root.dockStackRow(panelId)
+        if (row >= 1000)
+            return -1
+        var groups = root.dockGroups
+        var reserve = Theme.panelHeaderHeight
+        for (var g = row + 1; g < groups.length; ++g)
+            reserve += Theme.panelHeaderHeight + Theme.dockPanelMinHeight
+        return Math.max(Theme.dockPanelMinHeight, Math.round(dockHeight - reserve))
+    }
+
     /// The docked panel immediately above `panelId`, or "" when it is the first.
     ///
     /// A group's identity for sizing is its *active tab*, because that is the
@@ -3237,6 +3269,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3402,6 +3435,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3596,6 +3630,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3920,6 +3955,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -4092,6 +4128,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }

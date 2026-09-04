@@ -1405,4 +1405,46 @@ mod tests {
             "report_action_error is gone — the scan broke rather than the host"
         );
     }
+    /// Every dock seam has a ceiling that knows about the dock.
+    ///
+    /// `PanelResizeGrip` clamped at a constant 2000, mirroring
+    /// `DockTopology::MAX_PANEL_HEIGHT`, and neither side subtracted what the
+    /// panels below the seam needed — so one drag to the bottom of the screen
+    /// made the panel above fill the dock and every group under it vanish,
+    /// with the Window menu still listing them as visible.
+    ///
+    /// Both halves are pinned, because leaving either out is the same bug: the
+    /// helper that computes the budget, and the binding at every seam that
+    /// uses it. A missing binding is silent — `maximumHeight` is an `int`, so
+    /// an undefined value reads as 0 and the grip falls back to its absolute
+    /// bound — which is exactly how this was first "fixed" without taking
+    /// effect.
+    #[test]
+    fn every_dock_seam_is_clamped_against_the_dock() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        assert!(
+            shell.contains("function panelMaxHeight(panelId, dockHeight)"),
+            "Main.qml has no panelMaxHeight, so a seam has no budget to clamp \
+             against and the panels below it can be pushed off the dock"
+        );
+        let mut checked = 0;
+        for start in instantiations_of(&shell, "PanelResizeGrip") {
+            let body = body_at_line(&shell, start);
+            checked += 1;
+            assert!(
+                body.contains("maximumHeight: root.panelMaxHeight("),
+                "Main.qml:{start} leaves a seam on the absolute 2000 ceiling — \
+                 bind maximumHeight to root.panelMaxHeight so the stack below \
+                 keeps its room"
+            );
+        }
+        assert!(
+            checked >= 5,
+            "found {checked} seams — the scan broke rather than the dock"
+        );
+    }
 }

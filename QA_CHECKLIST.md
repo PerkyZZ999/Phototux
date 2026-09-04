@@ -388,9 +388,11 @@ they had.
       reopen: it does not — closed, then re-shown when the property changed again
 - [!] **U-11** Panel resize seams behave at their extremes — the minimum behaves: the
       panel keeps its header and its scroll bar and nothing is lost. The maximum does
-      not: one drag to the bottom of the screen makes the panel above fill the dock and
-      the four panels below it vanish, with nothing on screen saying where they went
-      ([QA-013](QA_ISSUES.md)). Reset Workspace brings them back, which is itself a
+      did not: one drag to the bottom of the screen made the panel above fill the dock
+      and the four panels below it vanish, with nothing on screen saying where they went
+      ([QA-013](QA_ISSUES.md)). Fixed — the seam's ceiling now comes from the dock, so the
+      same drag leaves every group below with its header and a body, and both halves of
+      the clamp are pinned by a guard. Reset Workspace bringing them back was itself a
       re-verification of `c8e300e`
 - [x] **U-12** High-contrast and reduced-motion preferences take effect — **both failed in
       part**. High contrast does take effect and is measurable (panel headers lift from

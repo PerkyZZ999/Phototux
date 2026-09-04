@@ -118,6 +118,29 @@ Collapse removes content’s occupied extent but retains placement and state. It
 
 Resize starts from a topology revision and adjusts one split ratio or floating rectangle. Solver clamps against minimum/maximum constraints and available logical size. Preview is presentation-only; release commits one workspace transaction. Escape restores original ratio. Double-click **MAY** reset to descriptor-preferred sizes but cannot be the sole reset path.
 
+**Shipped rule — the seam's ceiling comes from the dock, not from a constant.**
+`PanelResizeGrip` clamped at a constant 2000, mirroring
+`DockTopology::MAX_PANEL_HEIGHT`, and neither side subtracted what the panels
+below the seam needed: the "available logical size" half of the sentence above
+was simply missing. One drag to the bottom of the screen made the panel above
+fill the dock and every group under it vanish — not collapsed to a header, not
+reachable by scrolling — while the Window menu still listed them as visible.
+
+`Main.qml`'s `panelMaxHeight` supplies the ceiling now, reserving the panel's
+own header plus a header *and* a minimum body for every group below it.
+Reserving only the headers is not enough: the dock is a `GridLayout`, which
+lays its rows out at the heights they ask for and lets the overflow fall off
+the bottom, so a body below that still wants its minimum takes its header with
+it.
+
+The budget is computed in QML because the dock's height is a QML fact. The
+engine keeps its own absolute bounds; clamping only there would let the drag
+run past the limit and snap back on release, which is what the grip was written
+to avoid. `every_dock_seam_is_clamped_against_the_dock` pins both halves — the
+helper and the binding at every seam — because a missing binding is silent:
+`maximumHeight` is an `int`, so an undefined value reads as 0 and the grip
+falls back to the absolute bound.
+
 ## Drag Transaction Workflow
 
 ```mermaid

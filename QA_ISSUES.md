@@ -906,6 +906,27 @@ where the other constraint already lives, but it makes the drag feel like it
 runs past the limit and snaps back, which is the thing the current comment in
 the grip says it was written to avoid.
 
+**Resolution.** The first shape: the grip learns the budget. `Main.qml`'s new
+`panelMaxHeight` computes it and every seam binds `maximumHeight` to it, so the
+drag stops where it should instead of running past and snapping back.
+
+The reserve is this panel's own header plus a header *and* a minimum body for
+every group below. Reserving only the headers was tried first and was not
+enough — the dock is a `GridLayout`, which lays its rows out at the heights they
+ask for and lets the overflow fall off the bottom, so a body below that still
+wants its minimum takes its header with it.
+
+One thing worth recording, because it nearly shipped: the first attempt bound
+`maximumHeight` at all five seams while the helper it named never landed. That
+failed silently — `maximumHeight` is an `int`, so an undefined value reads as 0,
+`effectiveMaximum` falls back to the absolute 2000, and the drag behaved exactly
+as before. `every_dock_seam_is_clamped_against_the_dock` pins both halves for
+that reason, and both were watched failing.
+
+Verified live at 1920×1080: the same drag to the bottom of the screen now leaves
+Navigator with its header and a body and Layers with its header, all still there
+to drag back.
+
 ## QA-014 — Convert to Profile rewrites every pixel with nothing to undo it
 
 | | |

@@ -25,11 +25,22 @@ Item {
     /// Reported on release, once.
     signal committed(int height)
 
-    /// Floor and ceiling mirror `DockTopology::MIN_PANEL_HEIGHT` / `MAX`.
-    /// The engine clamps too — this is so the drag *feels* bounded rather than
-    /// running past the limit and snapping back on release.
-    readonly property int minimumHeight: 64
-    readonly property int maximumHeight: 2000
+    /// Floor mirrors `DockTopology::MIN_PANEL_HEIGHT`. The engine clamps too —
+    /// this is so the drag *feels* bounded rather than running past the limit
+    /// and snapping back on release.
+    readonly property int minimumHeight: Theme.dockPanelMinHeight
+    /// Ceiling, which the dock supplies because only it knows how much room
+    /// the panels below the seam still need.
+    ///
+    /// It was a constant 2000, mirroring `DockTopology::MAX_PANEL_HEIGHT`, and
+    /// neither side subtracted the stack below — so one drag to the bottom of
+    /// the screen made the panel above fill the dock and every group under it
+    /// vanish, with nothing on screen saying where they had gone. A negative
+    /// value means the dock could not work one out, and the absolute bound
+    /// stands.
+    property int maximumHeight: 2000
+    readonly property int effectiveMaximum: maximumHeight > minimumHeight
+                                            ? maximumHeight : 2000
 
     implicitHeight: 5
     z: 30
@@ -49,7 +60,7 @@ Item {
     function heightAt(sceneY) {
         var wanted = root._startHeight + (sceneY - grip.pressSceneY)
         return Math.max(root.minimumHeight,
-                        Math.min(root.maximumHeight, Math.round(wanted)))
+                        Math.min(root.effectiveMaximum, Math.round(wanted)))
     }
 
     // The seam is a hairline until you approach it, then it lights up. A
@@ -107,7 +118,7 @@ Item {
     Accessible.description: qsTr("Up and down arrows resize")
     activeFocusOnTab: true
     Keys.onUpPressed: root.committed(Math.max(root.minimumHeight, root.currentHeight - 16))
-    Keys.onDownPressed: root.committed(Math.min(root.maximumHeight, root.currentHeight + 16))
+    Keys.onDownPressed: root.committed(Math.min(root.effectiveMaximum, root.currentHeight + 16))
 
     // Focus is otherwise invisible on a hairline.
     Rectangle {

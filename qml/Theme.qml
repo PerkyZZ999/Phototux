@@ -111,6 +111,8 @@ QtObject {
     readonly property int inlineBtn: Math.round(22 * densityScale)
     /// Height the right dock holds back for the panels stacked under Properties.
     readonly property int dockStackReserve: Math.round(280 * densityScale)
+    /// Floor for a dock panel's body, mirroring `DockTopology::MIN_PANEL_HEIGHT`.
+    readonly property int dockPanelMinHeight: 64
 
     // Density / a11y packs (prefs → AppSession); Theme remains single token source.
     property bool highContrast: false
