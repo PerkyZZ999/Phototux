@@ -754,6 +754,17 @@ ApplicationWindow {
 
     Connections {
         target: AppSession
+        // Deferred: the signal is emitted from inside the file-event pump,
+        // which holds the session borrowed, and every branch of
+        // `executeDestructiveAction` calls back into it. See `afterHostSlot`.
+        function onDocumentSaved() {
+            if (root.pendingDestructiveAction.length > 0)
+                root.afterHostSlot(root.continueAfterSave)
+        }
+    }
+
+    Connections {
+        target: AppSession
         function onPendingHostRequestChanged() {
             // Deferred: the request is published from inside a host slot, and
             // every branch of the handler calls back into AppSession — both to
@@ -932,6 +943,23 @@ ApplicationWindow {
             return
         }
         executeDestructiveAction(action)
+    }
+
+    /// Finish a close or quit the user answered with Save.
+    ///
+    /// Choosing Save in the unsaved-changes prompt saved the document and then
+    /// stopped: the close never happened, and File ▸ Quit ▸ Save left the
+    /// application running. Nothing resumed the action, because a save is
+    /// asynchronous — it goes out to the file worker — and the prompt's button
+    /// handler is long finished by the time it lands.
+    ///
+    /// Only a save that *landed* continues: `AppSession.documentSaved` is
+    /// emitted from `handle_file_saved`, so a failed write leaves the document
+    /// open, which is the safe half of the choice.
+    function continueAfterSave() {
+        var action = root.pendingDestructiveAction
+        if (action.length > 0)
+            root.executeDestructiveAction(action)
     }
 
     function discardAndContinue() {
@@ -4301,6 +4329,11 @@ ApplicationWindow {
             root.lastBrowsedFolder = currentFolder
             AppSession.saveDocument(selectedFile.toString())
         }
+        // Backing out of the file dialog abandons the close or quit that
+        // opened it. Leaving the action pending would arm it against the next
+        // successful save: an ordinary Ctrl+S half an hour later would close
+        // the document the user was still working in.
+        onRejected: root.pendingDestructiveAction = ""
     }
 
     FileDialog {

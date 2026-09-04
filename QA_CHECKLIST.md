@@ -252,7 +252,22 @@ they had.
 - [x] **E-13** Save to a path whose parent does not exist — refused with the OS reason
 - [x] **E-14** Disk full during save → atomic replace leaves the previous file intact — covered by `a_failed_write_leaves_the_previous_contents_intact` and `a_failed_write_leaves_no_temporary_behind`; a genuine ENOSPC was not simulated
 - [x] **E-15** Open a file deleted between the dialog and the read — refused with `No such file or directory`. **Found alongside**: a 0-edge raster was refused as "dimensions exceed the 32,768 pixel limit". Fixed
-- [ ] **E-16** Portal file dialog cancelled at every point it can be
+- [x] **E-16** File dialog cancelled at every point it can be — **one gap found and
+      fixed**. No portal runs in the isolated session, so this exercised Qt's own
+      Quick dialog, which is the fallback a user without a portal also gets. Cancel
+      leaves nothing behind at any of the four points: Ctrl+S on an untitled document
+      (no stuck "Saving…", no `ioBusy` lock), Ctrl+O with a document open, and Save
+      or Cancel from the unsaved-changes prompt. Cancelling the save that a Ctrl+W
+      opened correctly abandons the close — the document and its stroke survive.
+      **The gap was the other branch**: answering the prompt with Save wrote the file
+      and then stopped, leaving the document open; File ▸ Quit ▸ Save left the
+      application running. Nothing resumed the parked action, because a save lands
+      asynchronously long after the button handler returns. Fixed via a new
+      `documentSaved` signal, with the dialog's own cancel clearing the parked action
+      so it cannot be picked up by an unrelated Ctrl+S later. Both verified live: the
+      document saves and closes, and after a cancel an ordinary save leaves it open.
+      The I/O error dialog was exercised on the way through, on a save into a folder
+      that does not exist — it reports the real message and the document survives
 - [x] **E-17** `fc-list` unavailable → font list falls back rather than hanging — a spawn failure and a non-zero exit both return `FALLBACK_FONTS`
 - [x] **E-18** colord unavailable → display profile falls back to sRGB — the probe is wrapped in `timeout 1s` so a stuck session bus cannot hang startup, then falls through env → xdg → tagged sRGB
 - [x] **E-19** A long save can be cancelled, and cancelling leaves no partial file — cancel is wired through `CancelToken` and guarded by `a_running_file_operation_can_be_cancelled`; the atomic-write tests cover the no-partial-file half

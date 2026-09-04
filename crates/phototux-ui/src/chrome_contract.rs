@@ -1245,4 +1245,61 @@ mod tests {
             "found {checked} tool buttons — the scan broke rather than the shell"
         );
     }
+    /// A close or quit deferred for a save is either finished or abandoned.
+    ///
+    /// Answering the unsaved-changes prompt with Save wrote the file and then
+    /// stopped: the document stayed open, and File ▸ Quit ▸ Save left the
+    /// application running. The prompt's button handler cannot do the close
+    /// itself — a save goes out to the file worker and lands later — so the
+    /// action is parked in `pendingDestructiveAction` and the shell has to
+    /// pick it up again.
+    ///
+    /// Both halves are pinned here because either one alone is a bug. Without
+    /// the resume, Save does not close. Without the abandon, backing out of
+    /// the file dialog leaves the action armed against the *next* successful
+    /// save, so an ordinary Ctrl+S half an hour later closes the document the
+    /// user is still working in.
+    #[test]
+    fn a_close_deferred_for_a_save_is_finished_or_abandoned() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn handle_file_saved(&mut self, path: PathBuf)")
+            .expect("handle_file_saved is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        assert!(
+            body.contains("mark_persisted("),
+            "the slice missed the function body — the scan broke rather than \
+             the host"
+        );
+        assert!(
+            body.contains("self.document_saved()"),
+            "handle_file_saved does not emit documentSaved, so nothing tells \
+             the shell a save landed and a close answered with Save never \
+             happens"
+        );
+
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        assert!(
+            shell.contains("function onDocumentSaved()"),
+            "Main.qml never handles documentSaved, so a close or quit \
+             answered with Save saves and then stops"
+        );
+        let dialog_at = shell
+            .find("id: saveFileDialog")
+            .expect("saveFileDialog is there to read");
+        let dialog_line = shell[..dialog_at].matches('\n').count();
+        let dialog = body_at_line(&shell, dialog_line);
+        assert!(
+            dialog.contains("pendingDestructiveAction = \"\""),
+            "saveFileDialog does not clear pendingDestructiveAction when it is \
+             dismissed, so backing out of the dialog arms the close against \
+             the next save that succeeds"
+        );
+    }
 }

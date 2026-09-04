@@ -4019,6 +4019,11 @@ impl AppSession {
     fn atspi_projection_json_changed(&mut self);
     #[qsignal]
     fn recovery_entries_json_changed(&mut self);
+    /// A save has landed on disk. Not a property notification — the shell
+    /// needs the *event*, to finish a close or a quit the user answered with
+    /// Save.
+    #[qsignal]
+    fn document_saved(&mut self);
     #[qsignal]
     fn selection_active_changed(&mut self);
     #[qsignal]
@@ -5528,6 +5533,10 @@ impl AppSession {
         self.notify(NoticeLevel::Info, format!("Saved {}", path.display()));
         self.sync_from_engine();
         self.emit_doc_fields();
+        // The shell may be holding a close or a quit that the user answered
+        // with Save. Nothing else says a save *finished*: `dirty` also goes
+        // false when a discard is acknowledged, and the toast is a message.
+        self.document_saved();
     }
 
     fn now_ms() -> f64 {
