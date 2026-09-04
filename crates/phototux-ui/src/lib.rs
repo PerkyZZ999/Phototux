@@ -4938,8 +4938,15 @@ impl AppSession {
     fn reset_workspace(&mut self) {
         self.workspace.reset_essentials();
         self.prefs.reset_workspace_essentials();
+        // The reset is not done until the shell is told. This slot used to end
+        // at the preference fields, which carry panel *visibility* but not the
+        // dock — so an auto-hidden Properties panel stayed hidden while the
+        // toast said "Workspace reset to Essentials", and the only way back
+        // was to toggle the panel off and on in the Window menu.
+        // `persist_workspace_visibility` writes prefs as well, so it replaces
+        // the `persist_prefs` that stood here.
+        self.persist_workspace_visibility();
         self.sync_pref_fields_from_store();
-        self.persist_prefs();
         self.emit_pref_fields();
         self.pref_effective_json_changed();
         self.notify(NoticeLevel::Info, "Workspace reset to Essentials");

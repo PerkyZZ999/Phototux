@@ -694,6 +694,79 @@ mod tests {
         );
     }
 
+    /// A slot that changes the workspace layout must republish it.
+    ///
+    /// `persist_workspace_visibility` is the only thing that tells the shell:
+    /// it applies the workspace to preferences, writes them, and emits the
+    /// five properties QML binds the dock to. A slot that mutates
+    /// `self.workspace` without reaching it — directly, or through
+    /// `commit_workspace_op` — leaves the user looking at the layout they had
+    /// before.
+    ///
+    /// Window ▸ Reset Workspace did exactly that. It reset the workspace and
+    /// the stored preferences and emitted the preference fields, which carry
+    /// panel *visibility* but not the dock, so an auto-hidden panel stayed
+    /// hidden behind a toast reading "Workspace reset to Essentials".
+    ///
+    /// The exceptions are the parts of `WorkspaceState` that are not layout:
+    /// focus, which is neither persisted nor drawn by the dock and publishes
+    /// its own JSON, and `active_preset_id`, which is one property with its own
+    /// notify. Naming exceptions rather than subjects is deliberate — a new
+    /// mutating slot fails this test until someone decides which it is.
+    #[test]
+    fn a_slot_that_changes_the_workspace_layout_republishes_it() {
+        const NOT_LAYOUT: [&str; 3] = ["set_focus_path", "set_panel_context", "active_preset_id"];
+        let source = include_str!("lib.rs");
+        let mut checked = 0;
+        for block in source.split("    #[qslot]").skip(1) {
+            // One slot: up to the next impl-level item, with the comments
+            // dropped. A doc comment that *names* `persist_workspace_visibility`
+            // — such as the one inside `reset_workspace` explaining why it is
+            // called — otherwise satisfies the check by itself, and the guard
+            // passes over the very defect it was written for.
+            let body: String = block
+                .split("\n    }")
+                .next()
+                .unwrap_or(block)
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let body = body.as_str();
+            let name = body
+                .split("fn ")
+                .nth(1)
+                .and_then(|rest| rest.split('(').next())
+                .unwrap_or("?")
+                .trim();
+            let touches: Vec<&str> = body
+                .match_indices("self.workspace.")
+                .filter_map(|(at, _)| {
+                    body[at + "self.workspace.".len()..]
+                        .split(['(', ' ', '.', ';', ')'])
+                        .next()
+                })
+                .collect();
+            if touches.is_empty() || touches.iter().all(|m| NOT_LAYOUT.contains(m)) {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                body.contains("persist_workspace_visibility")
+                    || body.contains("commit_workspace_op"),
+                "`{name}` changes the workspace ({}) without republishing it — \
+                 call `persist_workspace_visibility`, or `commit_workspace_op` \
+                 when the change can be refused",
+                touches.join(", ")
+            );
+        }
+        assert!(
+            checked > 3,
+            "found {checked} workspace-mutating slots — the scan broke rather \
+             than the shell"
+        );
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {
