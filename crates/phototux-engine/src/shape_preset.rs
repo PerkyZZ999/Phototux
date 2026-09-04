@@ -127,6 +127,40 @@ impl ShapePreset {
     /// Every dimension is a fraction of the document so the shape lands in a
     /// usable place at any size, and so a 4K canvas does not open with a shape
     /// too small to grab.
+    /// The same content, moved so its bounds are centred on (`at_x`, `at_y`).
+    ///
+    /// The Shape tool used to discard the click that created the layer: every
+    /// preset landed where `content` puts it, a fraction of the document
+    /// regardless of where the drag began. Photoshop draws the shape where the
+    /// pointer is, and that is this project's placement rule.
+    ///
+    /// The path moves rather than the layer transform, so the anchors a user
+    /// then edits are where the shape actually is — a transform would leave
+    /// the path at the document centre and every edit in a different space
+    /// from the pixels.
+    ///
+    /// The centre is clamped into the document, so a click in the letterbox
+    /// still produces a shape that can be seen and grabbed.
+    #[must_use]
+    pub fn content_at(self, width: u32, height: u32, at_x: f32, at_y: f32) -> ShapeContent {
+        let mut content = self.content(width, height);
+        let Some(bounds) = content.path.bounds() else {
+            return content;
+        };
+        let at_x = at_x.clamp(0.0, width as f32);
+        let at_y = at_y.clamp(0.0, height as f32);
+        let dx = at_x - (bounds.x + bounds.width / 2.0);
+        let dy = at_y - (bounds.y + bounds.height / 2.0);
+        content.path = content.path.translated(dx, dy);
+        if let Some(gradient) = content.gradient.as_mut() {
+            gradient.x0 += dx;
+            gradient.y0 += dy;
+            gradient.x1 += dx;
+            gradient.y1 += dy;
+        }
+        content
+    }
+
     #[must_use]
     pub fn content(self, width: u32, height: u32) -> ShapeContent {
         let w = width as f32;

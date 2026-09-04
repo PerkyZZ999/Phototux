@@ -572,6 +572,14 @@ pub enum CommandArgs {
     },
     TextCreate {
         text: String,
+        /// Where the frame's top-left goes, in document pixels.
+        ///
+        /// The Text tool used to discard the click that created the layer:
+        /// every frame landed at the origin, a thousand pixels from the
+        /// pointer on a 1080p document. Photoshop places the insertion point
+        /// where the Type tool is clicked.
+        x: f32,
+        y: f32,
     },
     TextSetContent {
         content: TextContent,

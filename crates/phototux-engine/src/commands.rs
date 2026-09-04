@@ -2197,7 +2197,7 @@ impl SessionState {
     }
 
     fn cmd_text_create(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
-        let CommandArgs::TextCreate { text } = args else {
+        let CommandArgs::TextCreate { text, x, y } = args else {
             return Err(CommandError::InvalidArgument("expected text"));
         };
         let content = TextContent {
@@ -2208,7 +2208,17 @@ impl SessionState {
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        // The frame's position is the layer's translation — that is what
+        // `textOriginX`/`Y` publish and what the on-canvas editor is drawn
+        // from. Clamped into the document so a click in the letterbox still
+        // produces a frame the user can see.
+        let at_x = x.clamp(0.0, graph.size.width as f32);
+        let at_y = y.clamp(0.0, graph.size.height as f32);
         let id = graph.add_text_top(None, content)?;
+        if let Some(layer) = graph.get_mut(id) {
+            layer.transform.translate_x = at_x;
+            layer.transform.translate_y = at_y;
+        }
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
             .get(id)

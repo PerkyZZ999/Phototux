@@ -1003,4 +1003,100 @@ mod tests {
             "walked {checked} slots — the scan broke rather than the ranges"
         );
     }
+    /// The click that creates a text or shape layer is where it lands.
+    ///
+    /// Both tools used to discard it. `CommandArgs::TextCreate` carried only
+    /// the string and `cmd_text_create` built its content from
+    /// `TextContent::default()`, so a click at the bottom-right of a 1080p
+    /// document put the frame a thousand pixels away at the origin; the shape
+    /// presets landed at their fraction of the document whatever the pointer
+    /// said. Photoshop places both where the tool is clicked, and that is this
+    /// project's placement rule.
+    #[test]
+    fn a_text_layer_lands_where_the_click_was() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P1080);
+        session
+            .invoke(
+                command_id::TEXT_CREATE,
+                CommandArgs::TextCreate {
+                    text: "Hello".into(),
+                    x: 1600.0,
+                    y: 900.0,
+                },
+            )
+            .expect("create text");
+        let placed = session
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .map(|layer| (layer.transform.translate_x, layer.transform.translate_y))
+            .expect("a text layer");
+        assert_eq!(placed, (1600.0, 900.0));
+
+        // A click in the letterbox still has to produce a frame on screen.
+        session
+            .invoke(
+                command_id::TEXT_CREATE,
+                CommandArgs::TextCreate {
+                    text: "Edge".into(),
+                    x: -4000.0,
+                    y: 9000.0,
+                },
+            )
+            .expect("create text");
+        let clamped = session
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .map(|layer| (layer.transform.translate_x, layer.transform.translate_y))
+            .expect("a text layer");
+        assert_eq!(
+            clamped,
+            (0.0, 1080.0),
+            "a click outside the canvas must clamp into it, not place the frame there"
+        );
+    }
+
+    /// Every shape preset centres on the point it was placed at.
+    #[test]
+    fn every_shape_preset_centres_on_the_click() {
+        use crate::ShapePreset;
+        for preset in ShapePreset::ALL {
+            let placed = preset.content_at(1920, 1080, 1500.0, 800.0);
+            let bounds = placed.path.bounds().expect("a preset draws something");
+            let centre = (
+                bounds.x + bounds.width / 2.0,
+                bounds.y + bounds.height / 2.0,
+            );
+            assert!(
+                (centre.0 - 1500.0).abs() < 0.01 && (centre.1 - 800.0).abs() < 0.01,
+                "{:?} centred at {centre:?} rather than the click",
+                preset
+            );
+            // The preset without a click is untouched — the menu path has no
+            // pointer to honour and must keep landing where it always did.
+            let unplaced = preset.content(1920, 1080);
+            assert_eq!(
+                preset
+                    .content_at(
+                        1920,
+                        1080,
+                        unplaced
+                            .path
+                            .bounds()
+                            .map(|b| b.x + b.width / 2.0)
+                            .unwrap_or_default(),
+                        unplaced
+                            .path
+                            .bounds()
+                            .map(|b| b.y + b.height / 2.0)
+                            .unwrap_or_default(),
+                    )
+                    .path,
+                unplaced.path,
+                "{preset:?} moved when placed at its own centre"
+            );
+        }
+    }
 }

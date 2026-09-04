@@ -108,6 +108,19 @@ Conceptual only. Text ranges use one canonical indexing unit, preferably Unicode
 
 Text content contains no embedded executable markup. Paragraph/style records are typed bounded schemas. Overlapping styles are canonicalized into deterministic nonoverlapping effective runs or represented by a defined cascade; arbitrary ambiguous overlap is forbidden.
 
+**Shipped rule — the frame's position is the layer's translation.** Shipped
+`TextContent` carries no origin of its own; `textOriginX` / `textOriginY`, which
+the on-canvas editor is drawn from, publish `layer.transform.translate_x` and
+`_y`. `text.create` therefore places the new layer's translation at the point
+the Type tool was clicked, clamped into the document so a click in the
+letterbox still puts the frame on screen.
+
+The click used not to leave QML at all — `CommandArgs::TextCreate` carried only
+the string, and `cmd_text_create` built from `TextContent::default()` — so a
+click at the bottom-right of a 1080p document put the frame a thousand pixels
+away at the origin, and every use cost a second gesture to drag it back where
+the click had already said it should go.
+
 ## Unicode Content and Normalization
 
 Text storage accepts valid Unicode scalar sequences. Invalid encoded import is rejected or replaced under explicit import-loss policy before document visibility. Internal encoding may be UTF-8, rope, piece table, or another structure, but persistence and command ranges define stable semantic conversion.

@@ -860,6 +860,8 @@ fn every_conversion_to_pixels_can_be_undone() {
                 command_id::TEXT_CREATE,
                 CommandArgs::TextCreate {
                     text: "Hello".into(),
+                    x: 0.0,
+                    y: 0.0,
                 },
             )
             .expect("text layer");

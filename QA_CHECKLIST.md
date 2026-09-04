@@ -122,7 +122,8 @@ they had.
       — the layer is created and is editable from both the on-canvas frame and the
       Character panel (they mirror each other live), and Bake Text converts it to a
       raster layer with the notice "Text baked to pixels — editable text discarded".
-      Two defects: the creating click's position is discarded ([QA-007](QA_ISSUES.md)),
+      Two defects: the creating click's position was discarded ([QA-007](QA_ISSUES.md)) —
+      now fixed, the frame lands under the pointer —
       and the bake uses a 5×7 bitmap alphabet rather than the previewed face
       ([QA-008](QA_ISSUES.md)). A third, found here and fixed in place, was worse
       than either: after the bake every single-key tool shortcut was dead until
@@ -134,8 +135,10 @@ they had.
       fill, stroke and inspector W/H/X/Y; Rasterize Shape was correctly disabled on a
       raster layer. Path Edit does move an anchor (dragging a rectangle's corner
       deformed it and the inspector followed), but the layer was named for its kind
-      rather than the preset — fixed here, commit `d779b06` — and the anchors are
-      never drawn ([QA-009](QA_ISSUES.md)).
+      rather than the preset — fixed here, commit `d779b06`. The creating click's
+      position was discarded too ([QA-007](QA_ISSUES.md)), which is fixed: a preset now
+      centres on the point clicked. The anchors are still never drawn
+      ([QA-009](QA_ISSUES.md)).
 
 ## 1.3 Layers and masks
 

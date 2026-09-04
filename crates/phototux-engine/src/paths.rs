@@ -46,6 +46,24 @@ impl VectorPath {
         Some(crate::Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
     }
 
+    /// Move every anchor and every cubic handle by `dx`, `dy`.
+    ///
+    /// Handles move with their anchors or the curve deforms — they are absolute
+    /// document positions, not offsets from the anchor they belong to.
+    pub fn translated(mut self, dx: f32, dy: f32) -> Self {
+        for point in &mut self.anchors {
+            point.x += dx;
+            point.y += dy;
+        }
+        for (incoming, outgoing) in &mut self.controls {
+            incoming.x += dx;
+            incoming.y += dy;
+            outgoing.x += dx;
+            outgoing.y += dy;
+        }
+        self
+    }
+
     pub fn polyline(name: impl Into<String>, anchors: Vec<PathPoint>, closed: bool) -> Self {
         Self {
             name: name.into(),

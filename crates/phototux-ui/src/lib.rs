@@ -2378,7 +2378,7 @@ impl AppSession {
             "document.flip" => self.flip_canvas(arg != Some("v")),
             "text.bake" => self.bake_text_layer(),
             "layer.align" => self.align_layers(arg.unwrap_or_default().to_owned()),
-            "shape.create" => self.add_shape_layer(arg.unwrap_or("rect").to_owned()),
+            "shape.create" => self.create_shape_layer(arg.unwrap_or("rect"), None),
             "shape.rasterize" => self.rasterize_shape_layer(),
             "smart.create" => self.convert_to_smart_object(),
             "smart.reset" => self.reset_smart_placement(),
@@ -7189,11 +7189,13 @@ impl AppSession {
         }
     }
 
+    /// Create a text layer with its frame at the document point clicked.
     #[qslot]
-    fn add_text_layer(&mut self, text: String) {
-        if let Err(error) =
-            self.invoke_command(command_id::TEXT_CREATE, CommandArgs::TextCreate { text })
-        {
+    fn add_text_layer(&mut self, text: String, x: f32, y: f32) {
+        if let Err(error) = self.invoke_command(
+            command_id::TEXT_CREATE,
+            CommandArgs::TextCreate { text, x, y },
+        ) {
             self.report_action_error(&error);
         }
     }
@@ -7509,10 +7511,19 @@ impl AppSession {
             .map(|error| error.to_string())
     }
 
-    /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
+    /// Create a shape layer centred on the document point clicked.
     #[qslot]
-    fn add_shape_layer(&mut self, kind: String) {
-        let Some(preset) = ShapePreset::parse(&kind) else {
+    fn add_shape_layer(&mut self, kind: String, x: f32, y: f32) {
+        self.create_shape_layer(&kind, Some((x, y)));
+    }
+
+    /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
+    ///
+    /// `at` is where the pointer was, or `None` when the command came from a
+    /// menu and there is no pointer to honour — the preset then lands where it
+    /// always did, a fraction of the document.
+    fn create_shape_layer(&mut self, kind: &str, at: Option<(f32, f32)>) {
+        let Some(preset) = ShapePreset::parse(kind) else {
             // Refused rather than defaulted to a rectangle: a shape the user
             // did not ask for is a document mutation they then have to notice.
             // `shape_create_actions_name_a_known_preset` keeps the shipped
@@ -7525,7 +7536,10 @@ impl AppSession {
         };
         let doc_w = graph.size.width;
         let doc_h = graph.size.height;
-        let content = preset.content(doc_w, doc_h);
+        let content = match at {
+            Some((x, y)) => preset.content_at(doc_w, doc_h, x, y),
+            None => preset.content(doc_w, doc_h),
+        };
         match self.invoke_command(
             command_id::SHAPE_CREATE,
             CommandArgs::ShapeCreate {

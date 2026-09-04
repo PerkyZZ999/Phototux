@@ -25,7 +25,7 @@ the entry says so rather than inventing one.
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | **fixed** |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | **fixed** |
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
-| [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
+| [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | **fixed** |
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | **fixed** |
@@ -557,7 +557,7 @@ doing.
 | **Severity** | medium |
 | **Area** | `qml/CanvasInput.qml`, `phototux_engine` — `commands.rs`, `layer.rs` |
 | **Checklist item** | [H-21](QA_CHECKLIST.md), [H-22](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** With the Text tool active, clicking anywhere on the canvas
 creates a text layer whose frame is at the document origin, not at the click.
@@ -595,6 +595,26 @@ so needs a defensible default rather than a click. `command_conformance.rs`
 holds `every_action_builds_arguments_its_command_accepts` over that last pair,
 so the change is safe to make but is not a one-line edit, and the same work
 should cover the Shape tool rather than being done twice.
+
+**Resolution.** Threaded through, and both tools covered in the same change.
+`CommandArgs::TextCreate` carries `x` and `y`; `cmd_text_create` puts them on
+the new layer's translation, which is what `textOriginX`/`Y` publish and what
+the on-canvas editor is drawn from. `ShapePreset::content_at` centres a preset's
+bounds on the click, moving the *path* rather than the layer transform so the
+anchors a user then edits are where the shape actually is; the gradient's
+endpoints move with it. Both clamp into the document, so a click in the
+letterbox still produces something on screen.
+
+The fourth guard the issue named turned out not to apply: `text.create` has no
+action in the registry — the Type tool is its only caller — so `args_for_action`
+needed nothing. `shape.create` does have menu entries, and those keep the
+unplaced `content`: there is no pointer to honour from a menu, and the preset
+lands where it always did.
+
+Verified live at 1920×1080: a click at the lower right puts the text frame under
+the pointer, and a rectangle placed near the top-left reports X −43, Y −22,
+W 320, H 160 — centred exactly on the document point clicked. Two engine tests,
+both watched failing.
 
 ## QA-008 — Bake Text rasterizes in a bitmap face, not the one the editor shows
 

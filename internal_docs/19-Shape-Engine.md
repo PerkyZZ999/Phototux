@@ -48,6 +48,18 @@ That sharing is why a new shape layer is **named from its path, not its kind**. 
 
 The rounded rectangle's corners are **sampled arcs**, four anchors each, not Béziers: the path model carries anchors and controls that the renderer does not yet read as curves, and a visibly wrong curve is worse than an honest polyline. Its radius is clamped to half the shorter side, because a larger one folds the outline inside out.
 
+**Shipped rule — the click is the placement.** `content_at` centres a preset's
+bounds on the point the tool was clicked, clamped into the document so a click
+in the letterbox still produces a shape that can be seen and grabbed. The
+*path* moves, not the layer transform: the anchors a user then edits have to be
+where the shape actually is, and a transform would leave the path at the
+document centre with every edit in a different space from the pixels. The
+gradient's endpoints move with it.
+
+`content`, without a point, is unchanged and is what the Layer menu uses —
+there is no pointer to honour there, so the preset lands where it always did.
+`every_shape_preset_centres_on_the_click` asserts both, for all nine presets.
+
 ## Gradient shapes
 
 Five shapes, declared by `phototux_engine::GradientKind`:
