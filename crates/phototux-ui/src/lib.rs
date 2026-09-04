@@ -2241,7 +2241,38 @@ impl AppSession {
     }
 
     fn invoke_command(&mut self, id: &str, args: CommandArgs) -> Result<(), CommandError> {
-        let effects = self.engine.invoke(id, args)?;
+        // A profile conversion rewrites every layer's pixels in its host
+        // follow-up, and the snapshot that takes it back has to be of the
+        // document as it is *now* — before the command moves the graph and
+        // before the follow-up touches a pixel. A `TransformSnapshot` carries
+        // the graph beside the pixels, so one entry covers both halves; the
+        // engine records it as a `Transform` step for the host to service
+        // (QA-014).
+        //
+        // Here rather than in `convert_document_profile`, because that slot is
+        // not how the conversion is usually reached: the Image ▸ Color entries
+        // and the command palette both come through `invoke_action`, which
+        // calls this directly. A snapshot taken in the slot would have covered
+        // the one caller that does not use it.
+        let mut snapshot_taken = false;
+        if id == command_id::DOCUMENT_CONVERT_PROFILE
+            && let Some(snapshot) = self.transform_snapshot_now()
+        {
+            self.transform_history.record(snapshot);
+            snapshot_taken = true;
+        }
+        let effects = match self.engine.invoke(id, args) {
+            Ok(effects) => effects,
+            Err(error) => {
+                // A refused conversion that left its snapshot behind would
+                // misalign the stack against the timeline for every step after
+                // it, the way merge and flatten guard with `discard_last`.
+                if snapshot_taken {
+                    self.transform_history.discard_last();
+                }
+                return Err(error);
+            }
+        };
         self.apply_command_effects(effects);
         Ok(())
     }
@@ -4420,7 +4451,11 @@ impl AppSession {
         }
     }
 
-    /// Convert document pixels into `profile` (destructive; DR-012).
+    /// Convert document pixels into `profile` (DR-012).
+    ///
+    /// The undo snapshot is taken in `invoke_command`, not here: the Image ▸
+    /// Color entries and the command palette reach the same command through
+    /// `invoke_action` without passing this slot at all.
     #[qslot]
     fn convert_document_profile(&mut self, profile: String) {
         if let Err(error) = self.invoke_command(

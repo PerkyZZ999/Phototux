@@ -32,7 +32,7 @@ the entry says so rather than inventing one.
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | **fixed** |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
-| [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | open |
+| [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | **fixed** |
 
 ---
 
@@ -1003,7 +1003,7 @@ to drag back.
 | **Severity** | medium |
 | **Area** | `phototux_engine` — `commands.rs`, `phototux_ui` — `apply_convert_pixels` |
 | **Checklist item** | [H-39](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** Image ▸ Color ▸ Convert to Display-P3 rewrites every layer's
 pixels on the GPU and records no history entry at all. Ctrl+Z afterwards walks
@@ -1041,3 +1041,31 @@ Until then the exclusion is explicit rather than silent:
 `every_action_that_edits_the_document_undoes_back_to_where_it_started` names
 `DOCUMENT_CONVERT_PROFILE` in `NOT_UNDOABLE` and points here, so a command that
 newly forgets its undo entry still fails rather than joining a quiet list.
+
+**Resolution.** No new history kind was needed, and the reason is a fact about
+the existing one: a `TransformSnapshot` already carries the whole document graph
+beside every layer's pixels, and `restore_transform_snapshot` puts both back. So
+the host half of a `Transform` entry covers both halves of a conversion.
+
+The pixel-rewriting branch of `document.convert-profile` records a `Transform`
+entry; the retag branch, which touches no pixel, records a
+`GraphCommand::SetColorState` and costs no snapshot. The snapshot is taken in
+`AppSession::invoke_command`, before the engine sees the command, and withdrawn
+with `discard_last` if it refuses — the pattern merge and flatten already use.
+
+The placement is the part worth recording. It was first written into the
+`convert_document_profile` slot, which is the obvious home and the wrong one:
+the Image ▸ Color entries and the command palette both reach the same command
+through `invoke_action`, which calls `invoke_command` directly. The engine
+recorded its step, the host recorded no snapshot, and undo moved the timeline
+while the pixels stayed converted — visible only because the canvas was sampled
+before and after. Moving it to `invoke_command` covers every caller, and
+`a_profile_conversion_snapshots_before_it_rewrites` now points there.
+
+`DOCUMENT_CONVERT_PROFILE` stays in `NOT_UNDOABLE` for the graph-walking test,
+which only reverses graph entries and cannot service the host half; it has its
+own case, `converting_a_profile_records_a_step_of_the_right_kind`.
+
+Verified live at 1920×1080 by sampling the canvas: (40, 90, 160) before,
+(53, 89, 155) after Convert to Display-P3, (40, 90, 160) after Ctrl+Z, and
+(53, 89, 155) again after redo.

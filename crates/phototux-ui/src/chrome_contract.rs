@@ -1535,4 +1535,50 @@ mod tests {
              function — publish! it, so an unchanged path says nothing (T-009)"
         );
     }
+    /// The pixels a profile conversion overwrites are snapshotted first.
+    ///
+    /// The engine's half is a `Transform` history entry; this is the host's.
+    /// A `TransformSnapshot` carries the whole graph beside every layer's
+    /// pixels, which is what lets one entry take back both halves of a
+    /// conversion — but only if the snapshot exists, and only if it was taken
+    /// *before* the pixels were rewritten. Without it the entry would pop
+    /// whatever transform commit happened to be on the stack, restoring an
+    /// unrelated edit, which is exactly what Embed ICC used to do.
+    ///
+    /// The withdrawal matters as much: a refused conversion that left its
+    /// snapshot behind would misalign the timeline against the stack for
+    /// every step after it.
+    ///
+    /// It lives in `invoke_command` rather than in the `convert_document_profile`
+    /// slot because the slot is not how the conversion is usually reached —
+    /// the Image ▸ Color entries and the command palette both go through
+    /// `invoke_action`, which calls `invoke_command` directly. Putting it in
+    /// the slot covered the one caller that does not use it, and the menu
+    /// path went on recording a step with nothing behind it.
+    #[test]
+    fn a_profile_conversion_snapshots_before_it_rewrites() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
+            .expect("invoke_command is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        let snapshot = body
+            .find("transform_history.record(")
+            .expect("invoke_command takes no snapshot, so a conversion cannot be undone");
+        let invoke = body
+            .find("self.engine.invoke(")
+            .expect("the scan broke rather than the host");
+        assert!(
+            snapshot < invoke,
+            "the snapshot is taken after the command — it has to capture the \
+             pixels the conversion is about to overwrite, not the ones it left"
+        );
+        assert!(
+            body.contains("transform_history.discard_last()"),
+            "a refused conversion leaves its snapshot on the stack, and every \
+             step after it then undoes one edit too far"
+        );
+    }
 }

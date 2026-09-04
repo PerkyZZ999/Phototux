@@ -238,10 +238,29 @@ Assign Profile, which had recorded nothing at all.
 `every_action_that_edits_the_document_undoes_back_to_where_it_started` walks
 every action in the registry and asserts, for each one that changes the
 serialised graph, that an entry was recorded and that undo and redo return the
-document exactly. Two commands are named as exceptions rather than skipped:
-soft-proof, which is view chrome that happens to live in the graph, and Convert
-to Profile, whose edit has one half in the graph and one half in GPU pixels
-that no snapshot covers — see QA-014.
+document exactly. Soft-proof is named as an exception rather than skipped: it
+is view chrome that happens to live in the graph, and Photoshop's Proof Colors
+is not undoable either. Convert to Profile is named too, for a different
+reason — see below.
+
+**A transform snapshot carries the graph, which is what makes a profile
+conversion undoable.** `TransformSnapshot` holds the document's size, every
+layer's pixels *and* the graph, and `restore_transform_snapshot` puts all three
+back. That is why Convert to Profile does not need a new `HistoryKind` for its
+two halves: its pixel-rewriting branch records a `Transform` entry, and the
+host's snapshot restores the colour state alongside the pixels it overwrote. A
+retag, which touches no pixel, records a `GraphCommand::SetColorState` instead
+and costs no snapshot.
+
+The snapshot is taken in `AppSession::invoke_command`, before the engine sees
+the command, and withdrawn with `discard_last` if the command refuses. It is
+there rather than in the `convert_document_profile` slot because that slot is
+not how the conversion is usually reached: the Image ▸ Color entries and the
+command palette both go through `invoke_action`, which calls `invoke_command`
+directly — a snapshot taken in the slot covers the one caller that does not use
+it, and the menu path goes on recording a step with nothing behind it.
+`a_profile_conversion_snapshots_before_it_rewrites` pins the order and the
+withdrawal.
 
 ## Redo Execution
 

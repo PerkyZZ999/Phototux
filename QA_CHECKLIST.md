@@ -206,9 +206,12 @@ they had.
       `GraphCommand::SetColorState` carries the document's colour state, and both
       commands record it. Convert to Profile is the third and is not a correction —
       it rewrites every pixel on the GPU with no snapshot ([QA-014](QA_ISSUES.md)) —
-      so it is named in the test's `NOT_UNDOABLE` list rather than skipped silently.
+      so it was named in the test's `NOT_UNDOABLE` list rather than skipped silently.
       Soft-proof is named there too: it is view chrome stored in the graph, and
-      Photoshop's Proof Colors is not undoable either
+      Photoshop's Proof Colors is not undoable either. Convert to Profile is since
+      fixed as well — a transform snapshot carries the graph beside the pixels, so one
+      `Transform` entry takes back both halves — and stays listed only because the
+      graph-walking test cannot service the host half
 - [x] **H-40** History panel lists entries and jumping to one restores that state — entries carry their scope, the undone one is dimmed, and clicking "Add layer" returned the document to 3 layers
 - [x] **H-41** Workspace presets apply; Reset Workspace restores defaults — **failed first**:
       Reset Workspace announced itself but left an auto-hidden panel hidden. Fixed in

@@ -1529,12 +1529,38 @@ impl SessionState {
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        let prev = graph.color.clone();
         let from = graph.color.assigned_profile.clone();
         let plan = graph.color.begin_convert(profile.clone());
         if !plan.rewrite_pixels {
             graph.color.mark_converted();
         }
         graph.bump_generation();
+        let generation = graph.generation;
+        let next = graph.color.clone();
+        // Two shapes of edit, and they take back differently (QA-014).
+        //
+        // A retag touches only the colour state, so it records the same graph
+        // entry Assign Profile does. A conversion that rewrites pixels has one
+        // half in the graph and one on the GPU, and neither `Graph` nor
+        // `Transform` covers both on its own — but a `TransformSnapshot`
+        // carries the whole graph alongside every layer's pixels, so the
+        // *host* half already covers both. The entry is therefore a Transform
+        // one, and the host takes its snapshot before invoking, exactly as
+        // merge and flatten do.
+        if plan.rewrite_pixels {
+            self.history.push_transform("Convert profile", generation);
+        } else {
+            self.history.push_graph_applied(
+                crate::GraphCommand::SetColorState { prev, next },
+                "Convert profile",
+                generation,
+            );
+        }
+        let graph = self
+            .graph
+            .as_ref()
+            .ok_or(CommandError::Document(DocumentError::NoDocument))?;
         let mut effects = CommandEffects {
             recomposite: plan.rewrite_pixels,
             dirty: true,

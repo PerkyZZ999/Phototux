@@ -414,14 +414,19 @@ mod tests {
             let Some(id) = action.command_id.as_deref() else {
                 continue;
             };
-            // History's own three, which are what does the undoing, and the
-            // two that genuinely cannot be taken back yet. Soft-proof is view
-            // chrome that happens to be stored in the graph — Photoshop's
-            // Proof Colors is not undoable either — and Convert to Profile
-            // rewrites every layer's pixels on the GPU behind a warning, with
-            // no snapshot to come back to (QA-014). Named rather than skipped
-            // by a `continue` on failure, so adding a command that forgets its
-            // undo entry fails here instead of quietly joining them.
+            // History's own three, which are what does the undoing, and
+            // soft-proof, which is view chrome that happens to be stored in
+            // the graph — Photoshop's Proof Colors is not undoable either.
+            // Named rather than skipped by a `continue` on failure, so adding
+            // a command that forgets its undo entry fails here instead of
+            // quietly joining them.
+            //
+            // Convert to Profile used to be here too (QA-014). Its
+            // pixel-rewriting branch records a `Transform` entry now, and the
+            // host's snapshot carries the whole graph beside the pixels, so it
+            // takes back both halves; this test only walks the graph, which
+            // the entry does not reverse on its own, so it stays listed with
+            // its own case below.
             const NOT_UNDOABLE: [&str; 5] = [
                 command_id::HISTORY_UNDO,
                 command_id::HISTORY_REDO,
@@ -1158,6 +1163,53 @@ mod tests {
                 .as_ref()
                 .is_some_and(|g| g.paths.paths.is_empty()),
             "undoing the first anchor left an empty path behind"
+        );
+    }
+    /// Convert to Profile records something to take it back.
+    ///
+    /// It recorded nothing at all: the graph moved, every layer's pixels were
+    /// rewritten on the GPU behind a warning, and Ctrl+Z walked straight past
+    /// the conversion to whatever came before it. The edit has one half in the
+    /// graph and one in pixels, and neither `HistoryKind::Graph` nor
+    /// `Transform` covers both on its own — but a `TransformSnapshot` carries
+    /// the whole graph beside the pixels, so the host half already does.
+    ///
+    /// This is the engine's share of that: a retag records a graph entry, and
+    /// a conversion that rewrites pixels records a `Transform` one for the
+    /// host to service. The host's share — taking the snapshot before invoking
+    /// and withdrawing it on refusal — is `convert_document_profile`.
+    #[test]
+    fn converting_a_profile_records_a_step_of_the_right_kind() {
+        use crate::history::HistoryKind;
+        let entry_kind = |profile: &str| {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            let before = session.history.entries_undo().len();
+            session
+                .invoke(
+                    command_id::DOCUMENT_CONVERT_PROFILE,
+                    CommandArgs::ConvertProfile {
+                        profile: profile.to_owned(),
+                    },
+                )
+                .expect("convert");
+            let entries = session.history.entries_undo();
+            assert_eq!(
+                entries.len(),
+                before + 1,
+                "converting to {profile} recorded nothing to undo"
+            );
+            entries.last().expect("an entry").kind
+        };
+        assert_eq!(
+            entry_kind("Display-P3"),
+            HistoryKind::Transform,
+            "a conversion that rewrites pixels needs the host's snapshot"
+        );
+        assert_eq!(
+            entry_kind("sRGB"),
+            HistoryKind::Graph,
+            "a retag touches only the graph and must not cost a pixel snapshot"
         );
     }
 }
