@@ -51,6 +51,17 @@ ApplicationWindow {
             return []
         }
     }
+    /// Anchor positions of the path the Path Edit tool is editing.
+    ///
+    /// Republished only when it changes — see `AppSession::sync_path_edit_fields`
+    /// and T-009.
+    readonly property var pathAnchorModel: {
+        try {
+            return JSON.parse(AppSession.pathGeometryJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
     readonly property var actionDescriptors: {
         try {
             return JSON.parse(AppSession.actionsJson || "[]")
@@ -3032,6 +3043,74 @@ ApplicationWindow {
                                       : ("M 0 0 H " + selectionAnts.width + " V "
                                          + selectionAnts.height + " H 0 Z")
                             }
+                        }
+                    }
+                }
+
+                // Path Edit anchors and outline.
+                //
+                // The tool worked and drew nothing: dragging the point where an
+                // anchor happened to be moved it, the outline followed and the
+                // inspector updated, but the canvas showed no handles, no path
+                // and no selection — while the tool's own copy read "Drag
+                // anchors to move. Click empty to add". Hit-testing is
+                // host-side, so the pointer found anchors the screen never
+                // showed.
+                //
+                // Only while the tool is active, matching Free Transform: a
+                // path outline permanently over the artwork is chrome the
+                // canvas does not otherwise have.
+                Item {
+                    id: pathEditChrome
+                    visible: AppSession.hasDocument
+                             && AppSession.activeTool === "tool.path-edit"
+                             && root.pathAnchorModel.length > 0
+                    anchors.fill: parent
+                    z: 7
+
+                    // The outline, so the anchors read as one path rather than
+                    // a scatter of squares.
+                    Shape {
+                        anchors.fill: parent
+                        visible: root.pathAnchorModel.length > 1
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: Theme.primary
+                            fillColor: "transparent"
+                            PathSvg {
+                                path: {
+                                    var pts = root.pathAnchorModel
+                                    if (pts.length < 2)
+                                        return ""
+                                    var d = "M " + root.docToScreenX(pts[0].x)
+                                            + " " + root.docToScreenY(pts[0].y)
+                                    for (var i = 1; i < pts.length; ++i)
+                                        d += " L " + root.docToScreenX(pts[i].x)
+                                                + " " + root.docToScreenY(pts[i].y)
+                                    return AppSession.pathClosed ? d + " Z" : d
+                                }
+                            }
+                        }
+                    }
+
+                    // Handles keep their size in *screen* pixels: an anchor
+                    // that shrank with the zoom would be ungrabbable on a 4K
+                    // document viewed to fit.
+                    Repeater {
+                        model: root.pathAnchorModel
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            readonly property bool picked: index === AppSession.pathEditSelected
+                            width: picked ? 10 : 8
+                            height: width
+                            radius: 1
+                            x: root.docToScreenX(modelData.x) - width / 2
+                            y: root.docToScreenY(modelData.y) - height / 2
+                            color: picked ? Theme.primary : Theme.surface
+                            border.color: Theme.primary
+                            border.width: 1
                         }
                     }
                 }

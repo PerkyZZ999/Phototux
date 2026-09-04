@@ -1488,4 +1488,51 @@ mod tests {
              sibling of canvasOverlays"
         );
     }
+    /// Path Edit draws the anchors it asks the user to drag.
+    ///
+    /// The tool worked and drew nothing: dragging the point where an anchor
+    /// happened to be moved it, the outline followed and the inspector
+    /// updated, but the canvas showed no handles, no path and no selection —
+    /// while the tool's own copy read "Drag anchors to move. Click empty to
+    /// add". Hit-testing is host-side, so the pointer found anchors the screen
+    /// never showed.
+    ///
+    /// The projection is pinned alongside the overlay because one without the
+    /// other is the same bug in a different place, and because the projection
+    /// has to be published conditionally: it is rebuilt on every sync, and
+    /// T-009 is what a per-frame republish of an overlay projection does to
+    /// AT-SPI.
+    #[test]
+    fn path_edit_draws_the_anchors_it_asks_for() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        assert!(
+            shell
+                .lines()
+                .any(|line| line.trim() == "id: pathEditChrome"),
+            "there is no Path Edit overlay, so the tool asks the user to drag \
+             anchors it never draws"
+        );
+        assert!(
+            shell.contains("AppSession.pathGeometryJson"),
+            "the Path Edit overlay is not reading the published anchor \
+             geometry — the scan broke, or it is drawing something else"
+        );
+
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn sync_path_edit_fields(&mut self)")
+            .expect("sync_path_edit_fields is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        assert!(
+            body.contains("publish!("),
+            "the path geometry is emitted unconditionally from a per-sync \
+             function — publish! it, so an unchanged path says nothing (T-009)"
+        );
+    }
 }

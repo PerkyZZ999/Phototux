@@ -27,7 +27,7 @@ the entry says so rather than inventing one.
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | **fixed** |
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
-| [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
+| [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | **fixed** |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | **fixed** |
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | **fixed** |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
@@ -665,7 +665,7 @@ omission is part of this issue.
 | **Severity** | medium |
 | **Area** | `qml/Main.qml` — canvas overlays |
 | **Checklist item** | [H-22](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** The Path Edit tool works. With a shape layer active, dragging
 the point where an anchor happens to be moves it, the outline follows, and the
@@ -707,6 +707,35 @@ selected anchor needs its own treatment. That is a small feature, not a patch.
 Making `inspector.path` visible for more than the `Shape` subject is a
 separate and much smaller question, but it should be answered together with
 this one rather than exposing a panel for geometry that is still invisible.
+
+**Resolution.** Built, and the two follow-on questions answered with it now
+that the geometry is visible.
+
+`pathGeometryJson` publishes the active path's anchors in document space —
+through `publish!`, not an unconditional emit, because it is rebuilt on every
+sync and T-009 is what a per-frame republish does to AT-SPI. `pathEditChrome`
+draws the outline and the handles, at a constant size in *screen* pixels so an
+anchor stays grabbable on a 4K document viewed to fit, with the selected anchor
+filled rather than hollow. Visible only while the tool is active, matching Free
+Transform.
+
+The raster-layer half turned out to be worse than this issue recorded. The
+click did **not** add an anchor to the document path list: it was refused, and
+silently. `with_active_path_mut` needed `graph.paths.active` to already be
+`Some` and nothing ever created the first path, so on a raster layer the tool
+did nothing at all — three clicks left the count at zero. Adding an anchor now
+starts a path when there is none, recorded in the same undo entry so undo
+removes the path with the anchor that caused it; moving, deleting and closing
+still refuse, because a path that does not exist is a real refusal there. The
+refusal is also no longer swallowed — `path_add_anchor` reports it.
+
+`inspector.path` is registered for every layer now, closed by default: a
+specialist group, and the first screen of the inspector has to stay readable.
+
+Verified live at 1920×1080: a shape layer shows four handles and its outline,
+dragging one deforms the shape and highlights the anchor dragged, and three
+clicks on a raster layer build a visible three-anchor path with the panel
+reading "3 anchors · open".
 
 ## QA-010 — The free-transform box is drawn outside the canvas viewport
 

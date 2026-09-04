@@ -2792,6 +2792,26 @@ impl SessionState {
         &mut self,
         f: impl FnOnce(&mut crate::paths::VectorPath) -> Result<(), CommandError>,
     ) -> Result<(Option<LayerId>, crate::GraphCommand), CommandError> {
+        self.with_active_path_inner(false, f)
+    }
+
+    /// The document's path store, or the active shape layer's path, ready to
+    /// edit — creating the first document path when `start_new` says the caller
+    /// is adding an anchor.
+    ///
+    /// Only adding creates. Moving, deleting or closing a path that does not
+    /// exist is a real refusal and stays one; but Path Edit's first click on a
+    /// non-shape layer had nowhere to put the anchor and was refused silently,
+    /// so the tool did nothing at all on a raster layer — the count stayed at
+    /// zero and its own copy went on saying "Click empty to add".
+    ///
+    /// The `prev` snapshot is taken before the new path exists, so undo removes
+    /// it with the anchor that caused it.
+    fn with_active_path_inner(
+        &mut self,
+        start_new: bool,
+        f: impl FnOnce(&mut crate::paths::VectorPath) -> Result<(), CommandError>,
+    ) -> Result<(Option<LayerId>, crate::GraphCommand), CommandError> {
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
@@ -2824,13 +2844,19 @@ impl SessionState {
             ))
         } else {
             let prev = graph.paths.clone();
-            let idx = graph
+            let existing = graph
                 .paths
                 .active
-                .ok_or(CommandError::Rejected("select a path first"))?;
-            if idx >= graph.paths.paths.len() {
-                return Err(CommandError::Rejected("select a path first"));
-            }
+                .filter(|idx| *idx < graph.paths.paths.len());
+            let idx = match existing {
+                Some(idx) => idx,
+                None if start_new => graph.paths.add(crate::paths::VectorPath::polyline(
+                    "Path",
+                    Vec::new(),
+                    false,
+                )),
+                None => return Err(CommandError::Rejected("select a path first")),
+            };
             f(&mut graph.paths.paths[idx])?;
             let next = graph.paths.clone();
             Ok((None, crate::GraphCommand::SetPaths { prev, next }))
@@ -3097,7 +3123,7 @@ impl SessionState {
             return Err(CommandError::InvalidArgument("expected PathAddAnchor"));
         };
         let mut inserted_at = 0usize;
-        let (shape_id, cmd) = self.with_active_path_mut(|path| {
+        let (shape_id, cmd) = self.with_active_path_inner(true, |path| {
             let point = crate::paths::PathPoint { x, y };
             inserted_at = index.unwrap_or(path.anchors.len()).min(path.anchors.len());
             path.anchors.insert(inserted_at, point);

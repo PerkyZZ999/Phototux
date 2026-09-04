@@ -137,8 +137,10 @@ they had.
       deformed it and the inspector followed), but the layer was named for its kind
       rather than the preset — fixed here, commit `d779b06`. The creating click's
       position was discarded too ([QA-007](QA_ISSUES.md)), which is fixed: a preset now
-      centres on the point clicked. The anchors are still never drawn
-      ([QA-009](QA_ISSUES.md)).
+      centres on the point clicked. The anchors were never drawn
+      ([QA-009](QA_ISSUES.md)) — also fixed: the outline and its handles are on the
+      canvas while the tool is active, and the first click on a raster layer starts a
+      path instead of being refused in silence
 
 ## 1.3 Layers and masks
 

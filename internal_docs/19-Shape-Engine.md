@@ -60,6 +60,31 @@ gradient's endpoints move with it.
 there is no pointer to honour there, so the preset lands where it always did.
 `every_shape_preset_centres_on_the_click` asserts both, for all nine presets.
 
+**Shipped rule — Path Edit draws what it asks you to grab.** The tool worked
+and drew nothing: hit-testing is host-side, so dragging the point where an
+anchor happened to be moved it and the inspector followed, while the canvas
+showed no handles, no outline and no selection. `pathGeometryJson` publishes the
+active path's anchors in document space and `pathEditChrome` draws them —
+handles at a constant size in *screen* pixels, since an anchor that shrank with
+the zoom would be ungrabbable on a 4K document viewed to fit, and the selected
+one filled rather than hollow. Visible only while the tool is active, matching
+Free Transform.
+
+The projection goes out through `publish!` rather than an unconditional emit:
+it is rebuilt on every sync, and a per-frame republish of an overlay projection
+is what flooded AT-SPI and killed a session in T-009.
+
+Two things that only showed once the geometry was visible. The **first click on
+a non-shape layer was refused silently** — `with_active_path_mut` needed
+`graph.paths.active` to already be `Some` and nothing ever created the first
+path, so Path Edit did nothing at all on a raster layer while its own copy said
+"Click empty to add". Adding an anchor now starts a path when there is none;
+moving, deleting and closing still refuse, because those are real refusals. And
+the **Path group was scoped to the `Shape` subject**, so a raster layer's
+anchors had no panel: the count, the Closed toggle and Delete Anchor were
+unreachable. It is registered for every layer now, closed by default — a
+specialist group, and the first screen of the inspector has to stay readable.
+
 ## Gradient shapes
 
 Five shapes, declared by `phototux_engine::GradientKind`:

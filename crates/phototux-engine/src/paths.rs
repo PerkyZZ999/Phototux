@@ -46,6 +46,27 @@ impl VectorPath {
         Some(crate::Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
     }
 
+    /// Anchor positions for the canvas overlay, as `[{"x":…,"y":…},…]`.
+    ///
+    /// Document space; the shell scales to screen. A projection rather than a
+    /// property per anchor, for the same reason `guidesJson` is one — the
+    /// count is not fixed — and published through `publish!` so an unchanged
+    /// path emits nothing. T-009 is the standing warning here: a per-frame
+    /// republish of an overlay projection flooded AT-SPI and killed the
+    /// session.
+    #[must_use]
+    pub fn anchors_json(&self) -> String {
+        let mut out = String::from("[");
+        for (index, point) in self.anchors.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!("{{\"x\":{},\"y\":{}}}", point.x, point.y));
+        }
+        out.push(']');
+        out
+    }
+
     /// Move every anchor and every cubic handle by `dx`, `dy`.
     ///
     /// Handles move with their anchors or the curve deforms — they are absolute

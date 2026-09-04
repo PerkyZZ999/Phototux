@@ -410,7 +410,15 @@ pub fn default_disclosure_groups() -> Vec<DisclosureGroupDescriptor> {
             &[S::SmartObject],
         ),
         group("inspector.shape", "Shape", 2, true, &[S::Shape]),
-        group("inspector.path", "Path", 2, true, &[S::Shape]),
+        // Every layer, closed by default. The document carries its own path
+        // list that Path Edit writes to whatever layer is active, so scoping
+        // this group to `Shape` left a raster layer's anchors with no panel at
+        // all — the count, the Closed toggle and Delete Anchor were
+        // unreachable, and the only sign anything had happened was Layer ▸
+        // Shape ▸ Stroke Path to Layer. Closed rather than open because it is
+        // a specialist group and the first screen of the inspector has to stay
+        // readable.
+        group("inspector.path", "Path", 2, false, layers),
         group("inspector.transform", "Transform and Crop", 2, true, layers),
         group("inspector.align", "Align and Distribute", 2, true, layers),
         group("inspector.mask", "Masks", 2, true, layers),

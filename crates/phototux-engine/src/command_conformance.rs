@@ -1099,4 +1099,65 @@ mod tests {
             );
         }
     }
+    /// Path Edit's first click on a raster layer starts a path.
+    ///
+    /// It used to be refused, silently: `with_active_path_mut` needed
+    /// `graph.paths.active` to already be `Some` and nothing ever created the
+    /// first one, so on a raster layer the tool did nothing at all while its
+    /// own copy went on saying "Click empty to add". Only *adding* creates —
+    /// moving, deleting or closing a path that does not exist is a real
+    /// refusal and stays one.
+    #[test]
+    fn the_first_path_anchor_starts_a_path() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        assert!(
+            session
+                .graph
+                .as_ref()
+                .is_some_and(|g| g.paths.paths.is_empty()),
+            "a new document has no paths"
+        );
+
+        session
+            .invoke(
+                command_id::PATH_MOVE_ANCHOR,
+                CommandArgs::PathMoveAnchor {
+                    index: 0,
+                    x: 10.0,
+                    y: 10.0,
+                },
+            )
+            .expect_err("moving an anchor of a path that does not exist is a refusal");
+
+        for (index, (x, y)) in [(10.0, 10.0), (40.0, 30.0)].into_iter().enumerate() {
+            session
+                .invoke(
+                    command_id::PATH_ADD_ANCHOR,
+                    CommandArgs::PathAddAnchor { x, y, index: None },
+                )
+                .unwrap_or_else(|e| panic!("anchor {index}: {e:?}"));
+        }
+        let anchors = session
+            .graph
+            .as_ref()
+            .and_then(|g| g.paths.active.and_then(|i| g.paths.paths.get(i)))
+            .map(|path| path.anchors.len());
+        assert_eq!(anchors, Some(2), "both anchors landed on one new path");
+
+        // Undo removes the path with the anchor that created it.
+        session
+            .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        session
+            .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        assert!(
+            session
+                .graph
+                .as_ref()
+                .is_some_and(|g| g.paths.paths.is_empty()),
+            "undoing the first anchor left an empty path behind"
+        );
+    }
 }

@@ -494,6 +494,7 @@ pub struct AppSession {
     path_closed: bool,
     path_anchor_count: i32,
     path_edit_selected: i32,
+    path_geometry_json: String,
     text_frame_w: f32,
     text_frame_h: f32,
     text_wrap: bool,
@@ -798,6 +799,7 @@ impl AppSession {
             path_closed: false,
             path_anchor_count: 0,
             path_edit_selected: -1,
+            path_geometry_json: "[]".into(),
             text_frame_w: 0.0,
             text_frame_h: 0.0,
             text_wrap: false,
@@ -1435,6 +1437,7 @@ impl AppSession {
             self.path_closed = false;
             self.path_anchor_count = 0;
             self.path_edit_selected = -1;
+            self.clear_path_geometry();
             return;
         };
         let path = graph.active_id().and_then(|id| {
@@ -1457,13 +1460,33 @@ impl AppSession {
                     .path_edit_anchor
                     .and_then(|i| i32::try_from(i).ok())
                     .unwrap_or(-1);
+                // `publish!` rather than an unconditional emit: this runs on
+                // every sync, and a projection republished per frame is what
+                // flooded AT-SPI and killed a session in T-009.
+                let geometry = path.anchors_json();
+                publish!(
+                    self,
+                    path_geometry_json,
+                    geometry,
+                    path_geometry_json_changed
+                );
             }
             None => {
                 self.path_closed = false;
                 self.path_anchor_count = 0;
                 self.path_edit_selected = -1;
+                self.clear_path_geometry();
             }
         }
+    }
+
+    fn clear_path_geometry(&mut self) {
+        publish!(
+            self,
+            path_geometry_json,
+            "[]".to_owned(),
+            path_geometry_json_changed
+        );
     }
 
     fn sync_filter_preview_fields(&mut self) {
@@ -3908,6 +3931,11 @@ impl AppSession {
         Notify = pref_reduced_motion_changed
     );
     qproperty!(
+        "pathGeometryJson",
+        Member = path_geometry_json,
+        Notify = path_geometry_json_changed
+    );
+    qproperty!(
         "guidesJson",
         Member = guides_json,
         Notify = guides_json_changed
@@ -4335,6 +4363,8 @@ impl AppSession {
     fn pref_reduced_motion_changed(&mut self);
     #[qsignal]
     fn guides_json_changed(&mut self);
+    #[qsignal]
+    fn path_geometry_json_changed(&mut self);
     #[qsignal]
     fn grid_spacing_changed(&mut self);
     #[qsignal]
@@ -8566,10 +8596,12 @@ impl AppSession {
 
     #[qslot]
     fn path_add_anchor(&mut self, x: f32, y: f32) {
-        let _ = self.invoke_command(
+        if let Err(error) = self.invoke_command(
             command_id::PATH_ADD_ANCHOR,
             CommandArgs::PathAddAnchor { x, y, index: None },
-        );
+        ) {
+            self.report_action_error(&error);
+        }
         self.sync_path_edit_fields();
         self.emit_path_edit_fields();
     }
