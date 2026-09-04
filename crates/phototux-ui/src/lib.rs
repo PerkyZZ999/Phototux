@@ -273,6 +273,9 @@ pub struct AppSession {
     active_mask_flag: i32,
     /// Whether the active layer clips to the one below it.
     active_layer_clips: bool,
+    active_layer_locked: bool,
+    active_lock_pixels: bool,
+    active_lock_position: bool,
     mask_edit_active: bool,
     mask_density: f32,
     mask_feather: f32,
@@ -626,6 +629,9 @@ impl AppSession {
             layer_model: <crate::layer_model::LayerListModel as qtbridge::QObjectHolder>::default_with_attached_qobject(),
             active_mask_flag: 0,
             active_layer_clips: false,
+            active_layer_locked: false,
+            active_lock_pixels: false,
+            active_lock_position: false,
             mask_edit_active: false,
             mask_density: 1.0,
             mask_feather: 0.0,
@@ -1079,6 +1085,24 @@ impl AppSession {
             active_layer_clips,
             self.engine.active_layer_clips(),
             active_layer_clips_changed
+        );
+        publish!(
+            self,
+            active_layer_locked,
+            self.engine.active_layer_change_blocked(),
+            active_layer_locked_changed
+        );
+        publish!(
+            self,
+            active_lock_pixels,
+            self.engine.active_lock_pixels(),
+            active_lock_pixels_changed
+        );
+        publish!(
+            self,
+            active_lock_position,
+            self.engine.active_lock_position(),
+            active_lock_position_changed
         );
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
@@ -2211,6 +2235,10 @@ impl AppSession {
                 self.has_document && self.active_layer_kind == "smart-object" && !busy
             }
             "group_selected" => self.has_document && self.active_layer_kind == "group" && !busy,
+            // The lock is a refusal at the command (QA-001); this is the same
+            // rule reaching the chrome, so a locked layer's menu entries and
+            // sliders look as unavailable as they are.
+            "active_layer_unlocked" => self.has_document && !self.active_layer_locked && !busy,
             // Bake Text and Rasterize Shape each refuse anything else with a
             // sentence naming the kind they wanted. A menu entry that is
             // always live and always answers "this is not a text layer"
@@ -2221,6 +2249,25 @@ impl AppSession {
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
+        }
+    }
+
+    /// Whether an action may run: its own enablement tag, and — for anything
+    /// that would change the active layer — the lock.
+    ///
+    /// Derived from `CHANGES_ACTIVE_LAYER` rather than tagged action by
+    /// action, so the menus and the commands cannot disagree about what a
+    /// locked layer allows: one list decides both. Tagging forty actions by
+    /// hand is how the two would drift.
+    fn action_is_enabled(&self, action: &phototux_engine::ActionDescriptor) -> bool {
+        if !self.action_enablement(&action.enablement) {
+            return false;
+        }
+        match action.command_id.as_deref() {
+            Some(id) if phototux_engine::command_id::CHANGES_ACTIVE_LAYER.contains(&id) => {
+                !self.active_layer_locked
+            }
+            _ => true,
         }
     }
 
@@ -3218,6 +3265,21 @@ impl AppSession {
         Notify = edit_target_label_changed
     );
     qproperty!(
+        "activeLayerLocked",
+        Member = active_layer_locked,
+        Notify = active_layer_locked_changed
+    );
+    qproperty!(
+        "activeLockPixels",
+        Member = active_lock_pixels,
+        Notify = active_lock_pixels_changed
+    );
+    qproperty!(
+        "activeLockPosition",
+        Member = active_lock_position,
+        Notify = active_lock_position_changed
+    );
+    qproperty!(
         "activeLayerKind",
         Member = active_layer_kind,
         Notify = active_layer_kind_changed
@@ -3988,6 +4050,12 @@ impl AppSession {
     #[qsignal]
     fn active_layer_kind_changed(&mut self);
     #[qsignal]
+    fn active_layer_locked_changed(&mut self);
+    #[qsignal]
+    fn active_lock_pixels_changed(&mut self);
+    #[qsignal]
+    fn active_lock_position_changed(&mut self);
+    #[qsignal]
     fn active_layer_name_changed(&mut self);
     #[qsignal]
     fn selected_layer_count_changed(&mut self);
@@ -4403,7 +4471,7 @@ impl AppSession {
             self.notify(NoticeLevel::Warning, format!("Unknown action: {id}"));
             return;
         };
-        if !self.action_enablement(&action.enablement) {
+        if !self.action_is_enabled(action) {
             let label = action.label.replace('&', "");
             let reason = if self.io_busy
                 && matches!(
@@ -4473,7 +4541,7 @@ impl AppSession {
     #[qslot]
     fn action_enabled(&mut self, id: String) -> bool {
         phototux_engine::action_by_id(&id)
-            .map(|a| self.action_enablement(&a.enablement))
+            .map(|a| self.action_is_enabled(a))
             .unwrap_or(false)
     }
 

@@ -748,6 +748,29 @@ impl SessionState {
         self.active_layer().is_some_and(|l| l.clips_to_below)
     }
 
+    /// Whether the active layer's pixels are locked against painting.
+    #[must_use]
+    pub fn active_lock_pixels(&self) -> bool {
+        self.active_layer().is_some_and(|l| l.locks.pixels)
+    }
+
+    /// Whether the active layer is pinned in place.
+    #[must_use]
+    pub fn active_lock_position(&self) -> bool {
+        self.active_layer().is_some_and(|l| l.locks.position)
+    }
+
+    /// Whether the active layer refuses to be restyled — the state behind
+    /// [`crate::layer::Layer::change_blocked`], published so the shell can
+    /// disable the controls the commands would refuse.
+    ///
+    /// A slider that moves and then snaps back is a worse answer than a
+    /// slider that will not move.
+    #[must_use]
+    pub fn active_layer_change_blocked(&self) -> bool {
+        self.active_layer().is_some_and(Layer::change_blocked)
+    }
+
     /// The active layer's kind (`raster`, `text`, …), empty when there is none.
     #[must_use]
     pub fn active_layer_kind(&self) -> String {

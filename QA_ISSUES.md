@@ -19,7 +19,7 @@ the entry says so rather than inventing one.
 
 | ID | Severity | Area | Summary | Status |
 |---|---|---|---|---|
-| [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | open |
+| [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | **fixed** |
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
@@ -45,8 +45,8 @@ the entry says so rather than inventing one.
 | **Severity** | medium |
 | **Area** | `phototux_engine` — `commands.rs`, `layer.rs` |
 | **Checklist item** | [E-29](QA_CHECKLIST.md) |
-| **Status** | open |
-| **Also logged as** | not yet — GUI-observable, so it warrants a `T-nnn` row when addressed |
+| **Status** | **fixed** |
+| **Also logged as** | [T-043](internal_docs/Appendix/Interactive-Stability-Checklist.md) |
 
 **Observed.** With **Lock All** set on a layer, painting, deleting and flipping
 are all refused, as they should be. Changing the layer's **opacity**, its
@@ -103,7 +103,43 @@ exist, one enablement tag derived from it, and a conformance test asserting that
 every command whose `MutationClass` says it edits a layer refuses under Lock All
 — so the set cannot silently grow a hole again.
 
-**Resolution.** *(pending)*
+**Resolution.** Fixed as suggested, with the set expressed as a partition rather
+than a `MutationClass` filter — `MutationClass::Document` covers canvas resizes
+and selection edits too, so it cannot answer "does this change a *layer*".
+
+`Layer::change_blocked()` reads `locked || locks.all` and nothing else: locking
+pixels stops the brush and leaves the blend mode editable, which is what
+Photoshop does. `command_id::CHANGES_ACTIVE_LAYER` names the forty commands the
+lock refuses and `KEEPS_WORKING_WHEN_LOCKED` names the rest with a reason for
+each, and `every_command_is_classified_against_the_lock` partitions
+`command_id::ALL` between them, so a new command fails the build until it is
+classified. The check itself runs once, at the top of `SessionState::invoke`,
+rather than as a precondition repeated in thirty bodies — which is how the hole
+opened in the first place.
+
+The enablement half reads the same list. `AppSession::action_is_enabled` greys
+any action whose command is in `CHANGES_ACTIVE_LAYER`, so the whole Filter menu,
+the Layer Style entries and the mask entries dim together, and `activeLayerLocked`
+disables the Layers panel's blend combo and opacity slider. Filter Gallery is
+gated by the new `active_layer_unlocked` tag: opening it changes nothing, but
+everything it then offers is refused, and a dialog that opens only to say no is
+worse than an entry that says so up front.
+
+Two things surfaced once the state was visible. The three lock buttons had no
+checked state at all — they looked identical whether the lock was on or off, so
+the only way to find out was to try an edit and be refused; they now take the
+primary prominence when engaged, and the Layer menu's three entries are
+checkable. And Lock All was a one-way trap: it set pixels and position through
+an `||` in the arguments the action built, and left them set when it was turned
+off, so locking and unlocking left the layer pinned and unpaintable with every
+button showing nothing. Lock All is now a superset switch both ways, and
+clearing any individual lock releases it.
+
+Verified live at 1920×1080: Lock All greys the Filter menu including the
+gallery, disables the blend combo and the opacity slider and its readout, and a
+second click returns all of it. Six engine tests, four of them watched failing
+first — including `the_narrow_locks_leave_a_layer_restylable`, the counterweight
+that fails if the predicate is made over-broad.
 
 ---
 

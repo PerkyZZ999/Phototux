@@ -1754,6 +1754,19 @@ impl Layer {
         self.locked || self.locks.all || self.locks.position
     }
 
+    /// Whether this layer may be restyled — opacity, blend, effects, styles,
+    /// masks, and the payload of a text, shape or smart layer.
+    ///
+    /// The third of the three lock predicates, and the one that was missing.
+    /// `locks.pixels` and `locks.position` are deliberately absent: locking
+    /// pixels stops the brush and leaves the blend mode editable, which is
+    /// what Photoshop does, and locking position stops the move tool.
+    /// Only Lock All, and the legacy whole-layer `locked` flag, mean "cannot
+    /// change".
+    pub fn change_blocked(&self) -> bool {
+        self.locked || self.locks.all
+    }
+
     /// `0` = no mask, `1` = mask enabled, `2` = mask disabled.
     pub fn mask_flag(&self) -> u8 {
         match &self.mask {
@@ -2007,6 +2020,20 @@ mod tests {
     fn paint_blocked_on_group() {
         let g = Layer::group(LayerId(2), "G");
         assert!(g.paint_blocked());
+    }
+
+    #[test]
+    fn change_blocked_answers_only_to_lock_all() {
+        let mut layer = Layer::new(LayerId(1), "A");
+        assert!(!layer.change_blocked());
+        layer.locks.pixels = true;
+        layer.locks.position = true;
+        assert!(
+            !layer.change_blocked(),
+            "locking pixels or position must leave the blend mode editable"
+        );
+        layer.locks.all = true;
+        assert!(layer.change_blocked());
     }
 
     #[test]

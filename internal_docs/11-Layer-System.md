@@ -317,6 +317,47 @@ Opacity is a finite normalized scalar with defined clamping at command validatio
 
 Blend mode descriptors define source/destination input spaces, premultiplication expectations, channel function, alpha equation, range behavior, NaN handling, precision floor, and fallback. IDs are stable semantic identifiers, not UI labels or shader function names. Unknown modes preserve the layer but render a disclosed fallback or unavailable state; they are never silently replaced in authoritative data.
 
+### Shipped rule — the three locks and what each one stops
+
+`LockFlags` carries four flags and three of them ship. Each has one predicate
+on `Layer`, and no command consults the flags directly:
+
+| Predicate | Reads | Stops |
+| --- | --- | --- |
+| `paint_blocked` | `locked`, `all`, `pixels`, non-raster kind | the brush, fill, gradient and every pixel write |
+| `position_blocked` | `locked`, `all`, `position` | the move tool, align and distribute |
+| `change_blocked` | `locked`, `all` | opacity, blend, blend-if, clipping, masks, effects, styles, and a text, shape or smart layer's payload |
+
+`change_blocked` is the one that was missing, and its absence is what made
+Lock All mean "cannot delete, cannot paint, cannot move" rather than "cannot
+change": `reject_locked_layers` was the only reader of `locks.all` and had a
+single caller, so opacity, blend mode and filter effects all went through on a
+locked layer while the refusal message the delete path printed said "unlock it
+to change it". `locks.pixels` and `locks.position` are deliberately absent from
+it — locking pixels stops the brush and leaves the blend mode editable, which
+is what Photoshop does.
+
+The refusal is checked once, at the top of `SessionState::invoke`, against
+`command_id::CHANGES_ACTIVE_LAYER`. `command_id::KEEPS_WORKING_WHEN_LOCKED`
+holds the rest, with a reason for each, and
+`every_command_is_classified_against_the_lock` partitions `command_id::ALL`
+between the two so a new command cannot land on neither side. The shell reads
+the same list: `AppSession::action_is_enabled` greys any action whose command
+is in it, so the Filter menu, the Layer Style entries and the mask entries dim
+together, and the Layers panel's blend combo and opacity slider disable with
+them. A slider that moves and then snaps back is a worse answer than a slider
+that will not move.
+
+Lock All is a superset switch in both directions: turning it on sets the other
+flags and turning it off clears them, and clearing any individual lock releases
+Lock All with it — the predicates fold `all` in, so a flag cleared under a
+standing Lock All would go on blocking with nothing on screen saying which lock
+still held.
+
+`locks.alpha` — Photoshop's *Lock transparent pixels* — is serialised and
+accepted by `layer.set-locks` but has no reader and no way to set it; see
+QA-002.
+
 ### Shipped layer styles
 
 Eight styles, declared by `phototux_engine::LayerStyle`, which answers for its own kind key, label, enabled flag and defaults.

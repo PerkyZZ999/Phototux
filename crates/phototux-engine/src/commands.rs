@@ -29,12 +29,40 @@ impl SessionState {
         command_id::ALL.contains(&id)
     }
 
+    /// Refuse a command that would change a layer the user has locked.
+    ///
+    /// One check for the whole set, at the one place every command passes
+    /// through, rather than a precondition repeated in thirty bodies — see
+    /// [`command_id::CHANGES_ACTIVE_LAYER`] for what is in the set and
+    /// [`command_id::KEEPS_WORKING_WHEN_LOCKED`] for why each of the rest is not.
+    ///
+    /// Without a document, or with no active layer, there is nothing to protect
+    /// and the command goes on to fail on its own terms — a lock must not become
+    /// the reason a command reports for something else being wrong.
+    fn reject_if_active_layer_locked(&self, id: &str) -> Result<(), CommandError> {
+        if !command_id::CHANGES_ACTIVE_LAYER.contains(&id) {
+            return Ok(());
+        }
+        let blocked = self
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.active_id().and_then(|active| graph.get(active)))
+            .is_some_and(crate::layer::Layer::change_blocked);
+        if blocked {
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
+        }
+        Ok(())
+    }
+
     /// Invoke a named command. Graph/history mutations for document scope run here;
     /// GPU stroke/selection/transform undo follow-ups are returned in [`CommandEffects::host_history`].
     ///
     /// # Errors
     /// Returns [`CommandError`] when the command is unknown, preconditions fail, or graph mutation fails.
     pub fn invoke(&mut self, id: &str, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        self.reject_if_active_layer_locked(id)?;
         match id {
             command_id::HISTORY_UNDO => self.cmd_history_undo(),
             command_id::HISTORY_REDO => self.cmd_history_redo(),
@@ -267,15 +295,34 @@ impl SessionState {
                 match arg {
                     Some("pixels") => locks.pixels = !locks.pixels,
                     Some("position") => locks.position = !locks.position,
-                    Some("all") => locks.all = !locks.all,
                     Some("alpha") => locks.alpha = !locks.alpha,
-                    _ => locks.all = !locks.all,
+                    // Lock All is a superset switch, both ways. It used to
+                    // turn the others on through an `||` in the returned
+                    // flags and leave them on when it was turned off, so
+                    // locking everything and then unlocking it left the layer
+                    // pinned and unpaintable with all three buttons off.
+                    _ => {
+                        let next = !locks.all;
+                        locks = crate::layer::LockFlags {
+                            pixels: next,
+                            position: next,
+                            all: next,
+                            alpha: next,
+                        };
+                    }
+                }
+                // Turning an individual lock off has to release Lock All with
+                // it: the predicates fold `all` in, so the flag the user just
+                // cleared would go on blocking with nothing on screen saying
+                // which lock was still holding.
+                if !(locks.pixels && locks.position) {
+                    locks.all = false;
                 }
                 Ok(CommandArgs::SetLocks {
-                    pixels: locks.pixels || locks.all,
-                    position: locks.position || locks.all,
+                    pixels: locks.pixels,
+                    position: locks.position,
                     all: locks.all,
-                    alpha: locks.alpha || locks.all,
+                    alpha: locks.alpha,
                 })
             }
             _ => {

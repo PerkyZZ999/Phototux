@@ -288,7 +288,14 @@ they had.
 
 ## 2.4 Permission and command-precondition errors
 
-- [!] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should, with a message — pixels and position are correct. **Lock All permits opacity, blend and effects** ([QA-001](QA_ISSUES.md#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer)); the alpha lock is unreachable and unread ([QA-002](QA_ISSUES.md#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads))
+- [!] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should,
+      with a message — pixels and position were correct. **Lock All permitted opacity,
+      blend and effects** ([QA-001](QA_ISSUES.md#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer)):
+      now fixed, and the same list greys the menus and the panel controls, so nothing
+      moves and snaps back. Two more surfaced once the state was visible — the lock
+      buttons showed no checked state, and Lock All left pixels and position locked
+      when turned off; both fixed. The alpha lock is still unreachable and unread
+      ([QA-002](QA_ISSUES.md#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads))
 - [x] **E-30** Every command invoked with no document open — typed errors throughout, no panics
 - [x] **E-31** Every command invoked with no active layer — typed refusals throughout
 - [~] **E-32** Commands that need a selection, invoked without one — `selection.to-mask` and `mask.to-selection` refuse. `selection.invert` and `selection.modify` succeed as no-ops; defensible (inverting nothing is Select All) and the menu entries are enablement-gated, so not logged

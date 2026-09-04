@@ -59,8 +59,19 @@ ColumnLayout {
     }
 
     /// One lock toggle. Three buttons that differ only in label and action.
+    ///
+    /// `checked` matters as much as the click: the three buttons used to look
+    /// identical whether the lock was on or off, so the only way to find out
+    /// was to try an edit and watch it be refused.
     component LockButton: ThemedButton {
         required property string actionId
+        checkable: true
+        // `ThemedButton` draws hover, press and focus but not `checked`, so an
+        // engaged lock borrows the primary prominence — the same fill the
+        // active tool takes in the rail. The binding on `checked` survives the
+        // click: Qt's own write does not remove it, and the host publishes the
+        // real state a moment later.
+        prominence: checked ? "primary" : "normal"
         Layout.fillWidth: true
         enabled: AppSession.hasDocument
     }
@@ -78,7 +89,9 @@ ColumnLayout {
             textRole: "label"
             valueRole: "id"
             familyRole: "family"
-            enabled: root.hasLayer
+            // A locked layer refuses `layer.set-blend`, so the combo must not
+            // offer it — it would change on screen and then be corrected back.
+            enabled: root.hasLayer && !AppSession.activeLayerLocked
             // Dimmed rather than blanked when the object selection disagrees:
             // the combo still has to show *a* mode, and "Mixed" beside it says
             // which layers it would apply to.
@@ -100,7 +113,7 @@ ColumnLayout {
             from: 0
             to: 1
             value: AppSession.activeOpacity
-            enabled: root.hasLayer
+            enabled: root.hasLayer && !AppSession.activeLayerLocked
             opacity: AppSession.inspectorOpacityMixed ? 0.85 : 1.0
             Accessible.name: AppSession.inspectorOpacityMixed
                              ? qsTr("Opacity mixed across selection")
@@ -112,8 +125,10 @@ ColumnLayout {
             text: AppSession.inspectorOpacityMixed
                   ? qsTr("Mixed")
                   : (Math.round(opacitySlider.value * 100) + "%")
-            color: AppSession.inspectorOpacityMixed
-                   ? Theme.colorOnSurfaceMuted : Theme.primary
+            color: !opacitySlider.enabled
+                   ? Theme.colorOnSurfaceDisabled
+                   : (AppSession.inspectorOpacityMixed
+                      ? Theme.colorOnSurfaceMuted : Theme.primary)
             font.pixelSize: Theme.fontMono
             font.family: "Noto Sans Mono"
             font.italic: AppSession.inspectorOpacityMixed
@@ -147,16 +162,19 @@ ColumnLayout {
         LockButton {
             text: qsTr("Pixels")
             actionId: "action.layer.lock-pixels"
+            checked: AppSession.activeLockPixels
             onClicked: AppSession.invokeAction(actionId)
         }
         LockButton {
             text: qsTr("Position")
             actionId: "action.layer.lock-position"
+            checked: AppSession.activeLockPosition
             onClicked: AppSession.invokeAction(actionId)
         }
         LockButton {
             text: qsTr("All")
             actionId: "action.layer.lock-all"
+            checked: AppSession.activeLayerLocked
             onClicked: AppSession.invokeAction(actionId)
         }
     }

@@ -781,4 +781,162 @@ mod tests {
             "the rect is kept, not clamped"
         );
     }
+    /// Every command is on one side of the lock or the other.
+    ///
+    /// The partition is the point. A precondition written into thirty command
+    /// bodies grows holes silently — that is how Lock All came to mean "cannot
+    /// delete, cannot paint, cannot move" while opacity, blend mode and
+    /// effects all went through. Adding a command now fails here until it is
+    /// classified, and the two lists carry the reasoning next to the names.
+    #[test]
+    fn every_command_is_classified_against_the_lock() {
+        for id in command_id::ALL {
+            let changes = command_id::CHANGES_ACTIVE_LAYER.contains(id);
+            let keeps = command_id::KEEPS_WORKING_WHEN_LOCKED.contains(id);
+            assert!(
+                changes || keeps,
+                "{id} is in neither CHANGES_ACTIVE_LAYER nor \
+                 KEEPS_WORKING_WHEN_LOCKED — decide whether a locked layer \
+                 should stand in its way, and say why in the list you add it to"
+            );
+            assert!(!(changes && keeps), "{id} is in both lock lists");
+        }
+        for id in command_id::CHANGES_ACTIVE_LAYER
+            .iter()
+            .chain(command_id::KEEPS_WORKING_WHEN_LOCKED)
+        {
+            assert!(
+                command_id::ALL.contains(id),
+                "{id} is classified against the lock but is not a registered command"
+            );
+        }
+    }
+
+    /// A locked layer refuses every command that would change it.
+    ///
+    /// Drives the list rather than a handful of hand-picked commands, so the
+    /// check cannot drift from the classification above.
+    #[test]
+    fn a_locked_layer_refuses_every_command_that_would_change_it() {
+        for id in command_id::CHANGES_ACTIVE_LAYER {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            session
+                .invoke(
+                    command_id::LAYER_SET_LOCKS,
+                    CommandArgs::SetLocks {
+                        pixels: false,
+                        position: false,
+                        all: true,
+                        alpha: false,
+                    },
+                )
+                .expect("lock all");
+
+            let error = session
+                .invoke(id, args_for(id))
+                .expect_err("a locked layer must refuse this");
+            assert!(
+                matches!(error, CommandError::Rejected(why) if why.contains("locked")),
+                "{id} was refused for the wrong reason: {error:?} — the lock \
+                 must be the thing that stops it, not a missing argument"
+            );
+        }
+    }
+
+    /// Locking pixels or position does not lock the blend mode.
+    ///
+    /// The counterweight to the test above: an over-broad predicate that
+    /// refused everything under any lock would pass it and would be wrong.
+    /// Photoshop's Lock Pixels stops the brush and leaves opacity and blend
+    /// editable, and Lock Position stops the move tool.
+    #[test]
+    fn the_narrow_locks_leave_a_layer_restylable() {
+        for (pixels, position) in [(true, false), (false, true)] {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            session
+                .invoke(
+                    command_id::LAYER_SET_LOCKS,
+                    CommandArgs::SetLocks {
+                        pixels,
+                        position,
+                        all: false,
+                        alpha: false,
+                    },
+                )
+                .expect("set locks");
+            session
+                .invoke(
+                    command_id::LAYER_SET_OPACITY,
+                    CommandArgs::SetOpacity { opacity: 0.5 },
+                )
+                .unwrap_or_else(|e| {
+                    panic!("pixels={pixels} position={position} blocked opacity: {e:?}")
+                });
+        }
+    }
+    /// Lock All lets go of everything it took.
+    ///
+    /// The three toggles used to look identical whether their lock was on or
+    /// off, which hid this: turning Lock All on set pixels and position too,
+    /// through an `||` in the arguments the action built, and turning it off
+    /// left them set. The layer stayed pinned and unpaintable with every
+    /// button showing nothing.
+    #[test]
+    fn lock_all_releases_what_it_took() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let toggle_all = |session: &mut SessionState| {
+            let args = session
+                .args_for_action(command_id::LAYER_SET_LOCKS, Some("all"))
+                .expect("lock args");
+            session
+                .invoke(command_id::LAYER_SET_LOCKS, args)
+                .expect("set locks");
+        };
+
+        toggle_all(&mut session);
+        assert!(
+            session.active_layer_change_blocked(),
+            "Lock All did not lock"
+        );
+        assert!(session.active_lock_pixels() && session.active_lock_position());
+
+        toggle_all(&mut session);
+        assert!(
+            !session.active_layer_change_blocked()
+                && !session.active_lock_pixels()
+                && !session.active_lock_position(),
+            "unlocking Lock All left the layer pinned or unpaintable"
+        );
+    }
+
+    /// Turning one lock off releases Lock All with it.
+    ///
+    /// `paint_blocked` and `change_blocked` both fold `all` in, so a cleared
+    /// pixel lock under a standing Lock All would go on blocking with nothing
+    /// on screen saying which lock still held.
+    #[test]
+    fn clearing_one_lock_releases_lock_all() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        for arg in ["all", "pixels"] {
+            let args = session
+                .args_for_action(command_id::LAYER_SET_LOCKS, Some(arg))
+                .expect("lock args");
+            session
+                .invoke(command_id::LAYER_SET_LOCKS, args)
+                .expect("set locks");
+        }
+        assert!(!session.active_lock_pixels(), "the pixel lock is off");
+        assert!(
+            !session.active_layer_change_blocked(),
+            "Lock All still holds after one of its locks was cleared"
+        );
+        assert!(
+            session.active_lock_position(),
+            "the position lock was not the one the user touched"
+        );
+    }
 }

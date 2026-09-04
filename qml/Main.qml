@@ -581,6 +581,9 @@ ApplicationWindow {
                 + AppSession.panelVisibilityJson
                 + root.activeLayerClips
                 + root.activeMaskEnabled
+                + AppSession.activeLayerLocked
+                + AppSession.activeLockPixels
+                + AppSession.activeLockPosition
     }
 
     function actionIsEnabled(actionId) {
@@ -592,6 +595,7 @@ ApplicationWindow {
         return actionId.indexOf("action.view.toggle-") === 0
                 || actionId.indexOf("action.window.panel-") === 0
                 || actionId === "action.layer.toggle-clip"
+                || actionId.indexOf("action.layer.lock-") === 0
     }
 
     function actionIsChecked(actionId) {
@@ -606,6 +610,15 @@ ApplicationWindow {
             return AppSession.prefSnap
         case "action.layer.toggle-clip":
             return root.activeLayerClips
+        // The three locks are toggles and never said so: the menu entries and
+        // the panel's buttons looked identical whether the lock was on or off,
+        // so the only way to find out was to try an edit and be refused.
+        case "action.layer.lock-pixels":
+            return AppSession.activeLockPixels
+        case "action.layer.lock-position":
+            return AppSession.activeLockPosition
+        case "action.layer.lock-all":
+            return AppSession.activeLayerLocked
         }
         // Every Window-menu panel toggle reads the one registry map, so a new
         // panel needs no case of its own. It used to say that above a list of
