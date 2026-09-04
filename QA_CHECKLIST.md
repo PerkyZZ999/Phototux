@@ -72,7 +72,11 @@ they had.
 - [x] **H-08** Save an already-saved document (Save) → writes in place with no dialog —
       Ctrl+S rewrote the same path (2532 → 2786 bytes) with no dialog, and cleared the
       dirty marker from both the title and the tab
-- [ ] **H-09** Export to each raster format (PNG, JPEG, WebP, TIFF, BMP, GIF)
+- [x] **H-09** Export to each raster format (PNG, JPEG, WebP, TIFF, BMP, GIF) — **failed
+      first**: the Export dialog offered four of the six. `phototux_io` writes all six;
+      the filter list was hand-written in QML and had gone stale, so BMP and GIF could
+      be opened and never saved. The list is now published from `RasterFormat::ALL` and
+      a GIF exported at 640×360 carries the adjustment layer's effect
 - [ ] **H-10** Export to PSD → layered file, compatibility report lists anything unrepresentable
 - [ ] **H-11** Close a dirty document → prompts before discarding
 - [ ] **H-12** Open a second document → tab strip shows both, switching preserves each one's state

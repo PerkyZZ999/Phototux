@@ -845,6 +845,35 @@ mod tests {
         );
     }
 
+    /// The export dialog does not keep its own list of formats.
+    ///
+    /// `RasterFormat::ALL` is the vocabulary; `exportNameFiltersJson`
+    /// publishes it. A second list written into `Main.qml` had gone stale in
+    /// the quiet direction — four of the six formats the writer handles — so
+    /// BMP and GIF could be opened and never saved again, and nothing failed.
+    #[test]
+    fn the_export_dialog_takes_its_formats_from_the_engine() {
+        let qml = std::fs::read_to_string(qml_dir().join("Main.qml")).expect("read Main.qml");
+        let export = qml
+            .split("id: exportFileDialog")
+            .nth(1)
+            .expect("Main.qml declares exportFileDialog");
+        let body = export.split("\n    }").next().unwrap_or(export);
+        assert!(
+            body.contains("nameFilters: root.exportNameFilters"),
+            "the export dialog binds `nameFilters` to something other than the \
+             published list — a hand-written one goes stale the moment a \
+             format is added to `RasterFormat`"
+        );
+        for stale in ["PNG images (", "JPEG images (", "WebP images ("] {
+            assert!(
+                !body.contains(stale),
+                "the export dialog still spells out `{stale}…` — that list \
+                 belongs to `RasterFormat`"
+            );
+        }
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {

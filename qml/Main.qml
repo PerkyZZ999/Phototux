@@ -487,6 +487,15 @@ ApplicationWindow {
             AppSession.beginTransform()
     }
 
+    /// Export file-dialog filters, as the host publishes them.
+    readonly property var exportNameFilters: {
+        try {
+            return JSON.parse(AppSession.exportNameFiltersJson || "[]")
+        } catch (e) {
+            return ["PNG images (*.png)"]
+        }
+    }
+
     function shortcutForAction(actionId) {
         return root.actionShortcutMap[actionId] || ""
     }
@@ -4289,13 +4298,11 @@ ApplicationWindow {
         id: exportFileDialog
         title: qsTr("Export Image")
         fileMode: FileDialog.SaveFile
-        nameFilters: [
-            qsTr("PNG images (*.png)"),
-            qsTr("JPEG images (*.jpg *.jpeg)"),
-            qsTr("WebP images (*.webp)"),
-            qsTr("TIFF images (*.tif *.tiff)"),
-            qsTr("Photoshop subset (*.psd)")
-        ]
+        // From `RasterFormat::ALL`, not written out here. The list that used
+        // to live in this file offered four of the six formats the writer
+        // handles, so BMP and GIF could be opened and never saved again, and
+        // nothing anywhere failed.
+        nameFilters: root.exportNameFilters
         defaultSuffix: selectedNameFilter.extensions.length > 0
                        ? selectedNameFilter.extensions[0] : "png"
         onAccepted: {

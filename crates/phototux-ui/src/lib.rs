@@ -87,6 +87,21 @@ fn recovery_entries_view_json(entries: &[phototux_io::RecoveryEntry]) -> String 
     serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
 }
 
+/// File-dialog name filters for Export, in the order the dialog lists them.
+///
+/// Every raster format the writer handles, then the Photoshop subset, which is
+/// not a `RasterFormat` because it is layered rather than flat. Deriving the
+/// raster half means a format added to `phototux_io` reaches the dialog by
+/// existing, rather than by someone also remembering the QML.
+fn export_name_filters_json() -> String {
+    let mut filters: Vec<String> = phototux_io::RasterFormat::ALL
+        .iter()
+        .map(|format| format.name_filter())
+        .collect();
+    filters.push("Photoshop subset (*.psd)".to_owned());
+    serde_json::to_string(&filters).unwrap_or_else(|_| "[]".into())
+}
+
 /// The active layer's blend ranges, as the Properties panel reads them.
 ///
 /// Stops are published as `0..=255` because that is the scale on Photoshop's
@@ -314,6 +329,12 @@ pub struct AppSession {
     /// The gradient shapes, for the tool options.
     gradient_kinds_json: String,
     align_ops_json: String,
+    /// File-dialog name filters for Export, built from `RasterFormat::ALL`.
+    ///
+    /// Published rather than written out in QML: the hand-written list there
+    /// offered four of the six formats the writer handles, so BMP and GIF
+    /// could be opened and never saved again.
+    export_name_filters_json: String,
     tool_slots_json: String,
     selection_preview_active: bool,
     selection_preview_x: i32,
@@ -658,6 +679,7 @@ impl AppSession {
             )
             .unwrap_or_else(|_| "[]".into()),
             align_ops_json: phototux_engine::align_ops_json(),
+            export_name_filters_json: export_name_filters_json(),
             tool_slots_json: phototux_engine::tool_slots_json(),
             selection_preview_active: false,
             selection_preview_x: 0,
@@ -3346,6 +3368,11 @@ impl AppSession {
         Notify = align_ops_json_changed
     );
     qproperty!(
+        "exportNameFiltersJson",
+        Member = export_name_filters_json,
+        Notify = export_name_filters_json_changed
+    );
+    qproperty!(
         "selectionPreviewActive",
         Member = selection_preview_active,
         Notify = selection_preview_active_changed
@@ -3998,6 +4025,8 @@ impl AppSession {
     fn gradient_kinds_json_changed(&mut self);
     #[qsignal]
     fn align_ops_json_changed(&mut self);
+    #[qsignal]
+    fn export_name_filters_json_changed(&mut self);
     #[qsignal]
     fn tool_slots_json_changed(&mut self);
     #[qsignal]

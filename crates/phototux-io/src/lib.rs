@@ -49,6 +49,61 @@ pub enum RasterFormat {
 }
 
 impl RasterFormat {
+    /// Every format this crate can read and write.
+    ///
+    /// The export dialog's filter list is built from this rather than written
+    /// out beside it. The hand-written copy in QML had gone stale in the
+    /// direction that is hard to notice: it offered four of the six, so BMP
+    /// and GIF could be opened and never saved, and nothing failed.
+    pub const ALL: [Self; 6] = [
+        Self::Png,
+        Self::Jpeg,
+        Self::Webp,
+        Self::Tiff,
+        Self::Bmp,
+        Self::Gif,
+    ];
+
+    /// Display name for a file-dialog filter, without the extensions.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Png => "PNG images",
+            Self::Jpeg => "JPEG images",
+            Self::Webp => "WebP images",
+            Self::Tiff => "TIFF images",
+            Self::Bmp => "BMP images",
+            Self::Gif => "GIF images",
+        }
+    }
+
+    /// Every extension that names this format, first one preferred.
+    ///
+    /// The same list `from_path` matches on, so a format cannot offer an
+    /// extension the reader would then refuse.
+    #[must_use]
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Self::Png => &["png"],
+            Self::Jpeg => &["jpg", "jpeg"],
+            Self::Webp => &["webp"],
+            Self::Tiff => &["tif", "tiff"],
+            Self::Bmp => &["bmp"],
+            Self::Gif => &["gif"],
+        }
+    }
+
+    /// A Qt file-dialog name filter, e.g. `JPEG images (*.jpg *.jpeg)`.
+    #[must_use]
+    pub fn name_filter(self) -> String {
+        let globs: Vec<String> = self
+            .extensions()
+            .iter()
+            .map(|ext| format!("*.{ext}"))
+            .collect();
+        format!("{} ({})", self.label(), globs.join(" "))
+    }
+
     /// Infer an export format from a destination extension.
     ///
     /// # Errors
@@ -444,6 +499,33 @@ mod tests {
     /// `checked_rgba_len` folded four conditions into `DimensionsTooLarge`,
     /// two of which are the opposite — a file is free to declare a zero edge,
     /// and its reader was then told the image was too large to open.
+    /// Every format the writer handles is offered by the dialog, and every
+    /// extension the dialog offers is one the reader accepts. The two used to
+    /// be separate lists — one in Rust, one in QML — and BMP and GIF fell out
+    /// of the second.
+    #[test]
+    fn every_format_offers_extensions_its_own_reader_accepts() {
+        for format in RasterFormat::ALL {
+            assert!(
+                !format.extensions().is_empty(),
+                "{format:?} offers no extension"
+            );
+            for ext in format.extensions() {
+                let path = std::path::PathBuf::from(format!("x.{ext}"));
+                assert_eq!(
+                    RasterFormat::from_path(&path).expect("known extension"),
+                    format,
+                    "{format:?} offers .{ext}, which `from_path` reads as something else"
+                );
+            }
+            let filter = format.name_filter();
+            assert!(
+                filter.contains(format.label()) && filter.contains("(*."),
+                "{format:?} builds a malformed filter: {filter}"
+            );
+        }
+    }
+
     #[test]
     fn a_zero_edge_is_not_reported_as_too_large() {
         let empty = |w, h| {
