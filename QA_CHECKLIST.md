@@ -264,11 +264,28 @@ they had.
 
 ## 2.5 Concurrency and ordering
 
-- [ ] **E-36** Rapid tool switching mid-stroke
-- [ ] **E-37** Undo during an in-flight save
-- [ ] **E-38** Closing a document while its file operation is running
-- [ ] **E-39** Switching document tabs mid-stroke
-- [ ] **E-40** Opening a dialog while another is open
+- [x] **E-36** Rapid tool switching mid-stroke — pressed `E` then `M` during a held brush
+      drag and released over the canvas: the stroke ended where the first switch happened,
+      the tool became the last one pressed, no marquee was created from the tail of the
+      drag, and the process stayed healthy (state `S`, 9% CPU, clean log)
+- [~] **E-37** Undo during an in-flight save — the race was **not reproduced**: a `.ptx`
+      write of a 1080p document finishes faster than injected input can interleave, and
+      saying it passed on that basis would be a claim, not a check. The machinery it
+      depends on is now covered instead:
+      `a_save_that_finishes_after_an_edit_does_not_report_the_document_clean` holds that a
+      save pinned to an older generation answers `false`, which is what leaves the
+      document dirty. Watched failing against a `mark_persisted` that always returned true
+- [x] **E-38** Closing a document while its file operation is running — answered by
+      enablement rather than by a race: `action.file.close` is registered under the
+      `has_document_io_idle` predicate, one of nineteen actions gated that way, so Close
+      is unavailable for the duration of the operation
+- [x] **E-39** Switching document tabs mid-stroke — dragging a brush stroke off the canvas
+      and releasing it over the tab strip neither switched tabs nor crashed; a deliberate
+      click afterwards switched cleanly and each document kept its own size, zoom,
+      selection and layers
+- [x] **E-40** Opening a dialog while another is open — with New Document up, Ctrl+O did
+      nothing: the modal blocks the shortcut rather than stacking a second dialog
+      (T-018's fix). Escape dismissed the one that was open
 - [x] **E-41** No re-entrant host-slot call from a QML signal handler (handbook 32) — the
       eleven `Connections { target: AppSession }` blocks are clean, and
       `a_handler_for_a_host_signal_does_not_call_the_host_back` now fails on any host-slot

@@ -1117,6 +1117,28 @@ mod tests {
         );
     }
 
+    /// An edit that lands while a save is in flight leaves the document dirty.
+    ///
+    /// The save pins the generation it started with and hands that back when
+    /// the write completes. If the user undid, painted or did anything else in
+    /// between, the file on disk is a generation the document has moved past,
+    /// and `mark_persisted` says so by answering `false` — the host reads that
+    /// as "still dirty". Clearing the flag unconditionally would tell the user
+    /// their work was saved when the very edit they just made was not in it.
+    #[test]
+    fn a_save_that_finishes_after_an_edit_does_not_report_the_document_clean() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let pinned = s.document_generation();
+        // The edit that races the write.
+        s.bump_document_generation();
+        assert!(
+            !s.mark_persisted(pinned),
+            "a save of an older generation must not report the document clean"
+        );
+        assert!(s.is_dirty_vs_persisted());
+    }
+
     #[test]
     fn snapshot_lease_and_save_receipt() {
         let mut s = SessionState::default();
