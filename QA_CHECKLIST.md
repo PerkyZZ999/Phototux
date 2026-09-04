@@ -78,7 +78,10 @@ they had.
       be opened and never saved. The list is now published from `RasterFormat::ALL` and
       a GIF exported at 640×360 carries the adjustment layer's effect
 - [ ] **H-10** Export to PSD → layered file, compatibility report lists anything unrepresentable
-- [ ] **H-11** Close a dirty document → prompts before discarding
+- [x] **H-11** Close a dirty document → prompts before discarding — Ctrl+W on a painted
+      document raises "Unsaved changes · Save the document as .ptx, discard changes, or
+      cancel?" with Save / Discard / Cancel. An earlier close that did *not* prompt was
+      correct: the document was clean and its tab was lying about it (T-040, fixed)
 - [ ] **H-12** Open a second document → tab strip shows both, switching preserves each one's state
 - [x] **H-13** Autosave fires and Recovery restores a document after a simulated unclean exit —
       exercised repeatedly across this pass: every `kill` of the app was followed by a

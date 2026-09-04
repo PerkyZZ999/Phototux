@@ -874,6 +874,45 @@ mod tests {
         }
     }
 
+    /// The modified flag is written in one place.
+    ///
+    /// `dirty` has two published views — the `dirty` property, which the
+    /// window title and the close prompt bind to, and the `dirty` field inside
+    /// `documentTabsJson`, which the tab strip is handed. A write that
+    /// publishes one and not the other leaves them disagreeing, and they
+    /// disagreed in the direction that matters: a freshly opened `.ptx` showed
+    /// an unsaved marker on its tab, and `Ctrl+W` closed it with no prompt,
+    /// because the flag the prompt reads was the correct one.
+    #[test]
+    fn the_modified_flag_is_written_in_one_place() {
+        let source = include_str!("lib.rs");
+        let writes: Vec<(usize, &str)> = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.trim_start().starts_with("self.dirty = "))
+            .map(|(i, line)| (i + 1, line.trim()))
+            .collect();
+        assert_eq!(
+            writes.len(),
+            1,
+            "`self.dirty` is written at {} places: {writes:?} — every write goes \
+             through `set_dirty`, which publishes the property *and* the tab \
+             strip",
+            writes.len()
+        );
+        let setter = source
+            .split("fn set_dirty(&mut self, dirty: bool) {")
+            .nth(1)
+            .expect("lib.rs declares `set_dirty`");
+        let body = setter.split("\n    }").next().unwrap_or(setter);
+        assert!(
+            body.contains("self.dirty = dirty;")
+                && body.contains("self.dirty_changed();")
+                && body.contains("self.refresh_document_tabs_json();"),
+            "`set_dirty` no longer publishes both views of the flag"
+        );
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {

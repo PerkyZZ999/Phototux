@@ -903,7 +903,6 @@ impl AppSession {
         self.engine.document_path = Some(path.display().to_string());
         self.record_composite(ms);
         self.document_name = title;
-        self.dirty = true;
         self.io_busy = false;
         self.compatibility_report.clear();
         self.publish_pixel_snapshot_from_gpu();
@@ -1879,11 +1878,28 @@ impl AppSession {
         self.refresh_document_tabs_json();
     }
 
+    /// Write the modified flag and publish it to both views.
+    ///
+    /// `dirty` is published twice: as the `dirty` property the window title
+    /// and the close prompt bind to, and inside `documentTabsJson`, which the
+    /// tab strip is *handed* rather than binding. Three callers set the field
+    /// and emitted only the property, so the strip kept whatever it had last
+    /// been published with — a freshly opened `.ptx` wore an unsaved marker on
+    /// a document `Ctrl+W` would then close without asking, because the flag
+    /// the prompt reads was correctly `false`. Every write goes through here;
+    /// `the_modified_flag_is_written_in_one_place` holds that.
+    fn set_dirty(&mut self, dirty: bool) {
+        if self.dirty == dirty {
+            return;
+        }
+        self.dirty = dirty;
+        self.dirty_changed();
+        self.refresh_document_tabs_json();
+    }
+
     fn mark_dirty(&mut self) {
         if !self.dirty {
-            self.dirty = true;
-            self.dirty_changed();
-            self.refresh_document_tabs_json();
+            self.set_dirty(true);
         }
     }
 
@@ -2709,7 +2725,7 @@ impl AppSession {
         self.active_doc_id = None;
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
-        self.dirty = false;
+        self.set_dirty(false);
         Ok(())
     }
 
@@ -2747,7 +2763,7 @@ impl AppSession {
         self.engine.set_viewport(viewport_width, viewport_height);
         self.smart_sources = parked.smart_sources.into_iter().collect();
         self.document_name = parked.title;
-        self.dirty = parked.dirty;
+        self.set_dirty(parked.dirty);
         self.active_doc_id = Some(id);
         self.doc_registry.set_active_id(Some(id));
         if let Some(graph) = self.engine.graph.as_ref() {
@@ -5306,8 +5322,7 @@ impl AppSession {
             FileEvent::Opened { path, raster } => self.handle_raster_opened(path, raster),
             FileEvent::PtxOpened { path, document } => {
                 self.apply_opened_ptx(path, document);
-                self.dirty = false;
-                self.dirty_changed();
+                self.set_dirty(false);
             }
             FileEvent::PsdOpened {
                 path,
@@ -5409,7 +5424,7 @@ impl AppSession {
                 self.engine.replace_graph(graph);
                 self.record_composite(ms);
                 self.document_name = layer_name;
-                self.dirty = false;
+                self.set_dirty(false);
                 self.io_busy = false;
                 self.publish_pixel_snapshot_from_gpu();
                 self.sync_from_engine();
@@ -5448,7 +5463,9 @@ impl AppSession {
         self.engine.replace_graph(graph);
         self.record_composite(ms);
         self.document_name = title;
-        self.dirty = true;
+        // A PSD import has no `.ptx` of its own yet, so it is genuinely
+        // unsaved work — unlike a `.ptx` open, which is the file on disk.
+        self.set_dirty(true);
         self.io_busy = false;
         self.compatibility_report = format_report(&report);
         self.publish_pixel_snapshot_from_gpu();
@@ -5499,9 +5516,9 @@ impl AppSession {
         self.io_busy = false;
         if let Some(pinned) = self.pending_save_generation.take() {
             let clean = self.engine.mark_persisted(pinned);
-            self.dirty = !clean;
+            self.set_dirty(!clean);
         } else {
-            self.dirty = false;
+            self.set_dirty(false);
         }
         self.engine.document_path = Some(path.display().to_string());
         self.document_name = path
@@ -5610,7 +5627,7 @@ impl AppSession {
         {
             self.open_new_gpu_document();
             self.document_name = "Untitled".to_owned();
-            self.dirty = false;
+            self.set_dirty(false);
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
         }
@@ -5636,7 +5653,7 @@ impl AppSession {
         {
             self.open_new_gpu_document();
             self.document_name = "Untitled".to_owned();
-            self.dirty = false;
+            self.set_dirty(false);
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
         }
@@ -5924,14 +5941,14 @@ impl AppSession {
             if let Err(error) = self.activate_document_id(next_id) {
                 self.notify(NoticeLevel::Info, error);
                 self.document_name = "Untitled".to_owned();
-                self.dirty = false;
+                self.set_dirty(false);
                 self.sync_from_engine();
                 self.emit_doc_fields();
                 self.refresh_document_tabs_json();
             }
         } else {
             self.document_name = "Untitled".to_owned();
-            self.dirty = false;
+            self.set_dirty(false);
             self.sync_from_engine();
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
@@ -5960,10 +5977,7 @@ impl AppSession {
 
     #[qslot]
     fn acknowledge_discard(&mut self) {
-        if self.dirty {
-            self.dirty = false;
-            self.dirty_changed();
-        }
+        self.set_dirty(false);
     }
 
     #[qslot]
