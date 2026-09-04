@@ -405,6 +405,8 @@ Dialog {
                         background: Rectangle {
                             radius: Theme.radiusXs
                             color: deletePresetBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                            border.color: deletePresetBtn.visualFocus ? Theme.focusRing : "transparent"
+                            border.width: 1
                         }
                         onClicked: AppSession.deleteUserWorkspacePreset(modelData.id)
                     }

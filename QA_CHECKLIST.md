@@ -314,9 +314,29 @@ they had.
 ## 3.2 Layout and density
 
 - [~] **U-07** All three densities (Compact, Comfortable, Dense) render without clipping or overlap — Dense and Comfortable verified: no overlap, panels scroll rather than clip, and the tool rail engages its overflow as capacity drops. Compact not yet exercised
-- [ ] **U-08** The shell holds together from 1280×720 up to 4K
+- [x] **U-08** The shell holds together from 1280×720 up to 4K — both ends exercised in
+      their own KWin session. At 1280×720 the window fills the screen, the tool rail
+      engages its `…` overflow, the right dock keeps all three groups, the New
+      Document dialog fits inside the shell, and a 1080p document opens at 46% zoom
+      with the options bar and status bar intact. At 3840×2160 maximised, nothing
+      stretches that should not: the welcome card and the New Document dialog keep
+      their natural size and stay centred, the tool rail shows all seventeen tools
+      with no overflow, and a 4K document opens at 84% zoom with Properties,
+      Navigator and Layers all readable
 - [x] **U-09** No dialog pins itself to a pixel width — `no_dialog_pins_itself_to_a_pixel_width` green
-- [ ] **U-10** Every dialog is reachable, dismissable by Escape, and returns focus
+- [x] **U-10** Every dialog is reachable, dismissable by Escape, and returns focus — nine
+      exercised end to end: New Document, Image Size, Canvas Size, Filter Gallery,
+      Feather Selection, Preferences, Command Palette, About, and Unsaved changes.
+      Each opened from its Photoshop home, closed on Escape, and handed focus back —
+      proved each time by a bare tool shortcut landing straight after (`m` →
+      `tool.select.rect`, `b` → `tool.brush`), which only reaches the shell if the
+      window has focus. Escape on Unsaved changes cancels rather than discards: the
+      document and its selection survive. Three are state-driven and open no other
+      way — recovery, compatibility report, and I/O error; the first and last are
+      driven imperatively by `open()`. The compatibility dialog is the one driven by
+      a `visible:` binding a close would write to, so a standalone Qt 6 probe checked
+      whether `Popup.close()` breaks that binding and leaves the dialog unable to
+      reopen: it does not — closed, then re-shown when the property changed again
 - [!] **U-11** Panel resize seams behave at their extremes — the minimum behaves: the
       panel keeps its header and its scroll bar and nothing is lost. The maximum does
       not: one drag to the bottom of the screen makes the panel above fill the dock and
@@ -341,10 +361,34 @@ they had.
 ## 3.4 Accessibility basics
 
 - [x] **U-18** Every interactive control has an accessible name — icon-only tool buttons, sliders and combo boxes each have a guard; AT-SPI queries in this pass returned named elements throughout
-- [ ] **U-19** Keyboard-only operation reaches every primary flow
-- [ ] **U-20** Focus is always visible and its order follows the layout
+- [x] **U-19** Keyboard-only operation reaches every primary flow — driven with no pointer
+      at all: `Alt+F` opens the File menu and the arrow keys walk it, stepping over the
+      disabled entries; `Ctrl+N` opens New Document with Create already focused; the
+      single-letter tool shortcuts switch tools (`m`, `b`, `h`, each confirmed in the
+      status bar); `Ctrl+Shift+P` opens the command palette with its filter focused, and
+      typing `invert` then Return ran the filter — Properties gained its Effects group;
+      `Ctrl+Z` took it away again; `Ctrl+W` raised the close prompt and Escape cancelled
+      it with the document and its selection intact. The tool rail itself is not in the
+      tab chain, which matches Photoshop: tools are reached by their letters
+- [!] **U-20** Focus is always visible and its order follows the layout — **order passes,
+      visibility failed**. Tab order follows the layout: the toolbar left to right,
+      skipping the disabled buttons, then into the right dock's panel headers, and within
+      the Properties panel a disclosure header hands off to the control below it. But
+      focus was invisible on every icon-only button: AT-SPI reported it moving from Redo
+      to About PhotoTux while a pixel diff of the whole window found nothing had changed.
+      Eleven hand-rolled `ToolButton` backgrounds drew hover and checked and not focus.
+      Fixed — all eleven plus `ChromeIconToolButton` now paint `Theme.focusRing` on
+      `visualFocus`; verified live on the toolbar's New button and on the Properties
+      header's Collapse all groups
 - [x] **U-21** Live regions announce without flooding — mask sliders report their values ("Mask density, 100 percent", "Mask feather, 0.0 pixels"); T-009's status-bar flood remains fixed
-- [ ] **U-22** No meaning conveyed by colour alone
+- [x] **U-22** No meaning conveyed by colour alone — every state that carries an accent
+      also carries a shape or a word. Notices pair the accent with a per-level glyph
+      (`info`, `warning`, `x-circle`) from `NoticeLevel::icon_key`; the active tool takes
+      a filled slot and a left bar, not just a tint; the dirty marker is a `*` in the
+      title and the tab plus the word Unsaved in the status bar; disabled controls dim
+      *and* stop responding; the selection is a dashed outline; the GPU badge spells out
+      GPU ACCELERATED. The one marginal case is the menu highlight, which is a fill one
+      step lighter than the menu — legible, but the least of these
 
 ## 3.5 Web surfaces
 

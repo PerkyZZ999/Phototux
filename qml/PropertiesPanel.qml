@@ -1555,7 +1555,8 @@ ColumnLayout {
                                 radius: Theme.radiusSm
                                 color: opButton.hovered && opButton.enabled
                                        ? Theme.surfaceContainerHigh : "transparent"
-                                border.color: Theme.borderSubtle
+                                border.color: opButton.visualFocus
+                                              ? Theme.focusRing : Theme.borderSubtle
                                 border.width: 1
                             }
                         }

@@ -60,6 +60,11 @@ RowLayout {
         background: Rectangle {
             radius: Theme.radiusXs
             color: btn.hovered && btn.enabled ? Theme.surfaceContainerHigh : "transparent"
+            // Every panel header carries four or five of these, all icon-only,
+            // and they are in the tab chain. Without this a keyboard user
+            // tabbing into the dock sees nothing at all move.
+            border.color: btn.visualFocus ? Theme.focusRing : "transparent"
+            border.width: 1
         }
     }
 

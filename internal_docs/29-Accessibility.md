@@ -214,6 +214,8 @@ Focus rules:
 
 Visible focus uses [25 — Themes](25-Themes.md) contrast requirements and remains visible on selected/invalid/pressed controls. Pointer interaction may move focus according to host convention, but hover never does. Focus cannot land on disabled/decorative nodes.
 
+**Shipped rule — an icon-only button draws its own focus ring.** Qt Quick Controls put every `Button`, and so every `ToolButton`, in the tab chain by default, but the ring is the control's own to paint. Eleven icon-only buttons across the shell hand-roll their background — the toolbar's file and history actions, every panel header, the options bar's mode, align and distribute runs, the layer visibility eye, the tool-strip overflow, and two dialog close buttons — and each drew hover and checked but not focus. Tabbing across the chrome therefore moved an invisible cursor: AT-SPI reported focus travelling from Redo to About PhotoTux while a pixel diff of the whole window found nothing had changed. Every one now paints `Theme.focusRing` on `visualFocus` — `visualFocus` rather than `activeFocus`, matching `ThemedButton`, so a click does not leave a ring behind it. `every_focusable_control_draws_its_focus` and `every_icon_button_draws_its_focus` fail the build on a control that stops.
+
 ```mermaid
 stateDiagram-v2
     [*] --> StableFocus

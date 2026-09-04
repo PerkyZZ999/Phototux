@@ -1166,4 +1166,83 @@ mod tests {
             "found {checked} file dialogs — the scan broke rather than the shell"
         );
     }
+    /// Every focusable shared control has to draw where keyboard focus is.
+    ///
+    /// `ChromeIconToolButton` did not, and it is the type that needs it most:
+    /// icon-only, unlabelled, and used for the toolbar's Undo and Redo and for
+    /// every panel header's actions. Those buttons are in the tab chain — Qt
+    /// Quick Controls give `Button` `activeFocusOnTab` by default — so tabbing
+    /// across the chrome moved focus through them with nothing on screen
+    /// saying so. AT-SPI reported the focus moving from "Redo" to "About
+    /// PhotoTux" while a pixel diff of the whole window found no change at all.
+    ///
+    /// The listed types are the shared controls a keyboard reaches. The ones
+    /// left out are left out for a reason: `ThemedMenuItem` is driven by
+    /// `highlighted` rather than focus, because a menu moves a highlight and
+    /// not the focus; `ThemedScrollBar`, `ThemedBusyIndicator`, `ThemedIcon`,
+    /// `ThemedToolTip`, `ThemedMenu` and the two dialog bars take no focus of
+    /// their own.
+    #[test]
+    fn every_focusable_control_draws_its_focus() {
+        const FOCUSABLE: [&str; 8] = [
+            "ChromeIconToolButton.qml",
+            "ThemedButton.qml",
+            "ThemedCheckBox.qml",
+            "ThemedComboBox.qml",
+            "ThemedSlider.qml",
+            "ThemedSpinBox.qml",
+            "ThemedTextField.qml",
+            "DisclosureGroup.qml",
+        ];
+        let mut checked = 0;
+        for component in FOCUSABLE {
+            let text = std::fs::read_to_string(qml_dir().join(component))
+                .unwrap_or_else(|e| panic!("{component}: {e}"));
+            let draws = text.lines().any(|line| {
+                let line = line.trim_start();
+                !line.starts_with("//")
+                    && (line.contains("visualFocus") || line.contains("activeFocus"))
+            });
+            checked += 1;
+            assert!(
+                draws,
+                "{component} never reads visualFocus or activeFocus, so keyboard \
+                 focus lands on it invisibly — give it a Theme.focusRing border"
+            );
+        }
+        assert_eq!(
+            checked,
+            FOCUSABLE.len(),
+            "the scan broke rather than the shell"
+        );
+    }
+
+    /// The same requirement for the icon buttons written out in place.
+    ///
+    /// Eleven `ToolButton`s across the shell hand-roll their own background —
+    /// the panel headers, the options bar's mode and align runs, the layer
+    /// visibility eye, the tool-strip overflow, two dialog close buttons — and
+    /// every one of them was drawing hover and checked but not focus. They are
+    /// the same control as `ChromeIconToolButton` wearing a different padding,
+    /// so they answer the same question.
+    #[test]
+    fn every_icon_button_draws_its_focus() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            for start in instantiations_of(&text, "ToolButton") {
+                let body = body_at_line(&text, start);
+                checked += 1;
+                assert!(
+                    body.contains("visualFocus"),
+                    "{name}:{start} draws hover and checked but not focus, so a \
+                     keyboard lands on it invisibly — add a Theme.focusRing \
+                     border on visualFocus"
+                );
+            }
+        }
+        assert!(
+            checked >= 10,
+            "found {checked} tool buttons — the scan broke rather than the shell"
+        );
+    }
 }

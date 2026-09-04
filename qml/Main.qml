@@ -2341,6 +2341,8 @@ ApplicationWindow {
                 background: Rectangle {
                     radius: Theme.radiusSm
                     color: toolOverflowBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                    border.color: toolOverflowBtn.visualFocus ? Theme.focusRing : "transparent"
+                    border.width: 1
                 }
                 ThemedToolTip {
                     visible: parent.hovered
