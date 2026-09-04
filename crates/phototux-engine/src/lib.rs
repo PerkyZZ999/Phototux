@@ -139,6 +139,7 @@ pub use snapshot_publish::{
 pub use stroke::{
     BrushParams, BrushTextureKind, Dab, DabMode, DabSource, StrokeBuilder, dab_coverage,
     paint_dabs_rgba, paint_dabs_rgba_from, stamp_dab_rgba, stamp_dab_rgba_from,
+    stamp_dab_rgba_within,
 };
 pub use stroke_journal::{
     BrushParamsSnapshot, DabSnapshot, JournalStroke, StrokeJournal, StrokeSample,

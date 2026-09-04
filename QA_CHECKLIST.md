@@ -134,7 +134,7 @@ they had.
       something else was clicked, because the hidden on-canvas editor kept the
       keyboard — see T-037 in the
       [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md).
-- [~] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors
+- [x] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors
       — `Layer ▸ Shape` lists all nine presets and Star built correct geometry with
       fill, stroke and inspector W/H/X/Y; Rasterize Shape was correctly disabled on a
       raster layer. Path Edit does move an anchor (dragging a rectangle's corner
@@ -175,7 +175,15 @@ they had.
 
 ## 1.4 Selection and transform
 
-- [~] **H-32** Each selection tool makes a selection (rect, ellipse, lasso, polygon, wand, colour range) — rect and ellipse verified; the remaining four not exercised
+- [x] **H-32** Each selection tool makes a selection (rect, ellipse, lasso, polygon,
+      wand, colour range) — rect and ellipse verified earlier; lasso and polygonal lasso
+      exercised since. The lasso closes a freehand loop into marching ants and the status
+      bar changes to `pixel selection`; the polygonal lasso draws its rubber band from the
+      last anchor, takes vertices by click and commits on Enter. Exercising them surfaced
+      something the item never asked: a selection **did not confine the brush** at all,
+      while a gradient over the same selection clipped to the pixel
+      ([QA-016](QA_ISSUES.md)) — now fixed, on layer pixels and layer masks alike, with a
+      device-backed parity fixture against the CPU reference
 - [x] **H-33** Combine modes: replace, add, subtract, intersect — Shift-drag unions the rects and the Mode row switches to Add live, with the "Shift add · Alt subtract" hint shown
 - [x] **H-34** Select All / Deselect / Invert — Ctrl+A, Ctrl+Shift+I and Ctrl+D all land
 - [x] **H-35** Modify: expand, contract, feather, border — the prompt opens with the registry's default radius and Expand applies. A radius above the default used to block the UI thread for minutes ([QA-006](QA_ISSUES.md#qa-006--select--modify-blocks-the-ui-thread-for-minutes)); **fixed** — 38× faster at radius 40, and the exact reproduction now completes
@@ -184,7 +192,7 @@ they had.
       command looked like a no-op. Fixed in `T-039`; re-verified both directions —
       Selection to Mask now masks the layer the moment it runs, and Mask to Selection
       restores a pixel selection after Ctrl+D has cleared one
-- [~] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel — arming it
+- [x] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel — arming it
       shows the options bar with Rotate and Constrain; the first drag begins the session
       ("Transform in progress", Apply/Cancel live, a Rotate slider and the hint "Drag to
       move · handles scale · Enter apply · Esc cancel"). Enter applied a move, Esc
@@ -265,7 +273,7 @@ they had.
 - [x] **E-02** Document dimension of 0 or 1 is handled or refused, not crashed — **failed**: `check_size` only tested the upper bound, so a `.ptx` or PSD declaring 0x0 opened as a degenerate document. Fixed
 - [x] **E-03** Layer count at the composite cap (`MAX_LAYERS`); one more is refused — stops at 16 with `LayerLimitReached`
 - [x] **E-04** Group nesting at `MAX_NESTING_DEPTH` (64); one deeper is refused — unreachable in practice: the 16-layer cap stops nesting at 14, which is what the constant's own comment predicts
-- [!] **E-05** Every adjustment slot at both ends of its declared range — **two
+- [x] **E-05** Every adjustment slot at both ends of its declared range — **two
       findings, both fixed**. A NaN slot produced NaN pixels in all ten kinds; fixed at
       the command and in `clamped()`. And three slots' editor ranges were narrower than
       what `clamped()` kept ([QA-004](QA_ISSUES.md#qa-004--an-adjustments-editor-range-and-its-clamp-disagree)),
@@ -273,7 +281,7 @@ they had.
       the one table, and a test walks every slot of every kind in both directions
 - [x] **E-06** Blur radius at `MAX_BLUR_RADIUS` and at 0 — both ends accepted, and the command refuses without a blur effect present
 - [x] **E-07** Opacity at 0 and 1; zoom at min and max — opacity clamps at the layer, including out-of-range input. Zoom **failed**: `f32::clamp` propagates NaN, so `set_zoom(NaN)` stored NaN and the camera could not be recovered. Fixed at all three camera entries
-- [!] **E-08** Selection of zero area, and one covering the whole canvas — zero area
+- [x] **E-08** Selection of zero area, and one covering the whole canvas — zero area
       refused, one pixel and whole-canvas accepted, past-the-edge kept whole. **A
       marquee entirely off-canvas reported a selection covering no pixels**
       ([QA-005](QA_ISSUES.md#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection)):
@@ -325,7 +333,7 @@ they had.
 
 ## 2.4 Permission and command-precondition errors
 
-- [!] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should,
+- [x] **E-29** Every lock flag (pixels, position, alpha, all) refuses the edits it should,
       with a message — pixels and position were correct. **Lock All permitted opacity,
       blend and effects** ([QA-001](QA_ISSUES.md#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer)):
       now fixed, and the same list greys the menus and the panel controls, so nothing
@@ -337,7 +345,7 @@ they had.
       the GPU, and the fourth of four icon toggles in Photoshop's order
 - [x] **E-30** Every command invoked with no document open — typed errors throughout, no panics
 - [x] **E-31** Every command invoked with no active layer — typed refusals throughout
-- [~] **E-32** Commands that need a selection, invoked without one — `selection.to-mask` and `mask.to-selection` refuse. `selection.invert` and `selection.modify` succeed as no-ops; defensible (inverting nothing is Select All) and the menu entries are enablement-gated, so not logged
+- [x] **E-32** Commands that need a selection, invoked without one — `selection.to-mask` and `mask.to-selection` refuse. `selection.invert` and `selection.modify` succeed as no-ops; defensible (inverting nothing is Select All) and the menu entries are enablement-gated, so not logged
 - [x] **E-33** Commands that need a specific layer kind, invoked on the wrong kind — all five refuse in plain English
 - [x] **E-34** Merge Down on the bottom layer; Merge Group outside a group — both refuse, as does Ungroup
 - [x] **E-35** Every enablement tag actually disables its menu entry when false — Apply/Delete/Toggle Mask greyed with no mask; Merge Group, Ungroup and Bake Text greyed on a plain raster layer
@@ -412,7 +420,7 @@ they had.
       a `visible:` binding a close would write to, so a standalone Qt 6 probe checked
       whether `Popup.close()` breaks that binding and leaves the dialog unable to
       reopen: it does not — closed, then re-shown when the property changed again
-- [!] **U-11** Panel resize seams behave at their extremes — the minimum behaves: the
+- [x] **U-11** Panel resize seams behave at their extremes — the minimum behaves: the
       panel keeps its header and its scroll bar and nothing is lost. The maximum does
       did not: one drag to the bottom of the screen made the panel above fill the dock
       and the four panels below it vanish, with nothing on screen saying where they went
@@ -431,7 +439,13 @@ they had.
 
 - [x] **U-13** No unstyled Qt Controls reach the user — `no_unstyled_controls_reach_the_user` and `no_attached_tool_tips_reach_the_user` both green
 - [x] **U-14** Every icon resolves; no blank buttons — `every_icon_key_is_packaged_into_the_qrc` checks both directions, panels included
-- [~] **U-15** Colours come from `Theme.qml`; no second palette — panel chrome is tokenised. Six canvas-overlay colours are literals ([QA-003](QA_ISSUES.md#qa-003--canvas-overlay-colours-are-a-second-palette)); not swapped mechanically because none is an exact substitute and doing so would change what the user sees
+- [x] **U-15** Colours come from `Theme.qml`; no second palette — panel chrome is tokenised.
+      Six canvas-overlay colours were literals ([QA-003](QA_ISSUES.md#qa-003--canvas-overlay-colours-are-a-second-palette));
+      they are now seven named tokens (`canvasGrid`, `canvasGuide`, `canvasSelectionPreview`,
+      `canvasOutline`, `canvasCropPreview`, `checkerLight`, `checkerDark`), each carrying the
+      value it replaced rather than a nearby chrome token, since none was an exact substitute.
+      `chrome_colours_come_from_the_theme` fails the build on a new literal, excepting by name
+      the two places a colour belongs to the artwork rather than the chrome
 - [x] **U-16** Photoshop-consistent placement for every panel, tool and menu entry — Layer menu order matches Photoshop's, Arrange carries Photoshop's four chords, tool rail is Photoshop's slot order
 - [x] **U-17** Every user-facing string is `qsTr(...)` and free of internal jargon — no untranslated `text:`/`title:`/`placeholderText:` literals in `qml/`
 
@@ -447,7 +461,7 @@ they had.
       `Ctrl+Z` took it away again; `Ctrl+W` raised the close prompt and Escape cancelled
       it with the document and its selection intact. The tool rail itself is not in the
       tab chain, which matches Photoshop: tools are reached by their letters
-- [!] **U-20** Focus is always visible and its order follows the layout — **order passes,
+- [x] **U-20** Focus is always visible and its order follows the layout — **order passes,
       visibility failed**. Tab order follows the layout: the toolbar left to right,
       skipping the disabled buttons, then into the right dock's panel headers, and within
       the Properties panel a disclosure header hands off to the control below it. But

@@ -19,6 +19,7 @@ struct Uniforms {
     texture_kind: u32,
     texture_strength: f32,
     preserve_alpha: u32,
+    use_selection: u32,
 };
 
 fn tip_noise(p: vec2<f32>) -> f32 {
@@ -29,6 +30,10 @@ fn tip_noise(p: vec2<f32>) -> f32 {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var src_tex: texture_2d<f32>;
 @group(0) @binding(2) var src_samp: sampler;
+// The document's selection channel, R8. Always bound: with no selection the
+// stamper binds a 1x1 white texture instead, so there is one layout, one
+// pipeline set, and no branch that can bind nothing.
+@group(0) @binding(3) var sel_tex: texture_2d<f32>;
 
 // Mirrors phototux_engine::stroke's retouch constants; the CPU reference and
 // this shader must move a pixel by the same amount per dab.
@@ -58,6 +63,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (u.texture_kind != 0u && u.texture_strength > 0.001) {
         let n = tip_noise(in.uv * 1024.0);
         a = a * (1.0 - u.texture_strength + u.texture_strength * n);
+    }
+    // A selection bounds every dab, whatever the mode: it scales coverage, so
+    // a partly selected pixel is partly painted and the selection's own soft
+    // edge carries into the stroke. This is the same rule `fill_rgba` and
+    // `gradient_rgba` already applied on the CPU — the brush simply never saw
+    // the mask, so it painted through selections that clipped a gradient
+    // exactly (QA-016).
+    if (u.use_selection != 0u) {
+        a = a * textureSampleLevel(sel_tex, src_samp, in.uv, 0.0).r;
     }
     if (a <= 0.001) {
         discard;
@@ -126,6 +140,11 @@ struct StampUniforms {
     texture_strength: f32,
     /// Photoshop's *Lock transparent pixels*, as `0` / `1`.
     preserve_alpha: u32,
+    /// Whether the bound mask is a real selection rather than the 1x1 stand-in.
+    use_selection: u32,
+    /// `StampUniforms` is a uniform buffer, so its size rounds up to 16 bytes.
+    /// Stated rather than left to the compiler: `Pod` requires no padding gaps.
+    _pad: [u32; 3],
 }
 
 /// The shader's code for a dab mode.
@@ -195,6 +214,12 @@ pub struct BrushStamper {
     /// across input events the way a user expects.
     source: wgpu::Texture,
     source_view: wgpu::TextureView,
+    /// A 1x1 fully-selected mask, bound when the document has no selection.
+    ///
+    /// One bind layout and one pipeline set either way. The alternative — a
+    /// second layout for the unselected case — is two of everything and a
+    /// branch that can bind the wrong one.
+    unselected_view: wgpu::TextureView,
     sampler: wgpu::Sampler,
     width: u32,
     height: u32,
@@ -231,6 +256,19 @@ impl BrushStamper {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    // The selection channel. Sampled with the same filtering
+                    // sampler as the source, so the mask's own soft edge
+                    // carries into the dab rather than stepping.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
                         count: None,
                     },
                 ],
@@ -323,6 +361,40 @@ impl BrushStamper {
             view_formats: &[],
         });
         let source_view = source.create_view(&wgpu::TextureViewDescriptor::default());
+        let unselected = ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("stamp-no-selection"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        ctx.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &unselected,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255_u8],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        let unselected_view = unselected.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = ctx.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("stamp-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -351,6 +423,7 @@ impl BrushStamper {
             uniform_bufs: Vec::new(),
             source,
             source_view,
+            unselected_view,
             sampler,
             width: w,
             height: h,
@@ -369,7 +442,7 @@ impl BrushStamper {
         }
     }
 
-    fn uniforms_for(&self, req: StampRequest) -> StampUniforms {
+    fn uniforms_for(&self, req: StampRequest, use_selection: bool) -> StampUniforms {
         let w = self.width as f32;
         let h = self.height as f32;
         let max_dim = w.max(h);
@@ -398,20 +471,28 @@ impl BrushStamper {
             texture_kind,
             texture_strength: req.params.texture_strength.clamp(0.0, 1.0),
             preserve_alpha: u32::from(req.params.preserve_alpha),
+            use_selection: u32::from(use_selection),
+            _pad: [0; 3],
         }
     }
 
     /// Stamp one dab (convenience wrapper around [`Self::stamp_batch`]).
     pub fn stamp(&mut self, ctx: &GpuContext, target: &wgpu::Texture, request: StampRequest) {
-        self.stamp_batch(ctx, target, &[request]);
+        self.stamp_batch(ctx, target, &[request], None);
     }
 
     /// Stamp many dabs in a single GPU submission.
+    ///
+    /// `selection` is the document's selection channel when one is active, and
+    /// `None` when nothing is selected. It is not the same as passing an empty
+    /// mask: an empty mask is all zeros, and multiplying coverage by it would
+    /// refuse every stroke made without a selection.
     pub fn stamp_batch(
         &mut self,
         ctx: &GpuContext,
         target: &wgpu::Texture,
         requests: &[StampRequest],
+        selection: Option<&wgpu::TextureView>,
     ) {
         if requests.is_empty() {
             return;
@@ -428,7 +509,7 @@ impl BrushStamper {
         let binds: Vec<wgpu::BindGroup> = drawable
             .iter()
             .map(|dab| {
-                let uniforms = self.uniforms_for(dab.request);
+                let uniforms = self.uniforms_for(dab.request, selection.is_some());
                 let ubo = &self.uniform_bufs[dab.slot];
                 ctx.queue
                     .write_buffer(ubo, 0, bytemuck::bytes_of(&uniforms));
@@ -447,6 +528,12 @@ impl BrushStamper {
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(
+                                selection.unwrap_or(&self.unselected_view),
+                            ),
                         },
                     ],
                 })
@@ -662,7 +749,7 @@ mod tests {
         let ctx = crate::GpuContext::new().expect("gpu");
         let mut stamper = BrushStamper::new(&ctx, 64, 64);
         let tex = ctx.create_cleared_texture(64, 64, [0.0, 0.0, 0.0, 0.0]);
-        stamper.stamp_batch(&ctx, &tex, &[]);
+        stamper.stamp_batch(&ctx, &tex, &[], None);
     }
 
     #[test]
@@ -721,7 +808,7 @@ mod gpu_tests {
 
         let mut stamper = BrushStamper::new(&ctx, W, H);
         let target = engine.layer_texture(id).expect("layer texture").clone();
-        stamper.stamp_batch(&ctx, &target, requests);
+        stamper.stamp_batch(&ctx, &target, requests, None);
 
         let rgba = engine.read_layer_rgba(&ctx, id).expect("readback");
         rgba.chunks_exact(4).map(|px| px[3]).collect()

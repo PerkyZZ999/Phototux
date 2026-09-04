@@ -1138,12 +1138,17 @@ fn stamp_requests_into(
     target: PaintTarget,
     requests: &[StampRequest],
 ) -> Result<(), String> {
+    // A selection bounds a stroke, on the layer and on its mask alike — the
+    // same rule Fill and Gradient already followed, which the brush did not
+    // (QA-016). `None` when nothing is selected: the mask is all zeros then,
+    // and handing it over would refuse every stroke made without a selection.
+    let selection = doc.selection.is_active().then(|| doc.selection.view());
     match target {
         PaintTarget::LayerPixels => {
             let Some(tex) = doc.engine.layer_texture(layer) else {
                 return Err("layer texture missing".into());
             };
-            doc.stamper.stamp_batch(&doc.ctx, tex, requests);
+            doc.stamper.stamp_batch(&doc.ctx, tex, requests, selection);
             // Report the region the batch could touch, so the composite can
             // re-blend it instead of the whole canvas. Falls back to the
             // unbounded mark if any dab's bounds cannot be established.
@@ -1157,7 +1162,8 @@ fn stamp_requests_into(
             let Some(tex) = doc.engine.mask_texture(layer) else {
                 return Err("layer mask texture missing".into());
             };
-            doc.mask_stamper.stamp_batch(&doc.ctx, tex, requests);
+            doc.mask_stamper
+                .stamp_batch(&doc.ctx, tex, requests, selection);
             doc.engine.mark_mask_painted(layer);
         }
     }

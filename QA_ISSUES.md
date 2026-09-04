@@ -34,6 +34,7 @@ the entry says so rather than inventing one.
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | **fixed** |
 | [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | **fixed** |
 | [QA-015](#qa-015--undoing-a-conversion-to-pixels-leaves-the-pixels-behind) | medium | `phototux_engine` / history | Undo restores the semantic layer and leaves the raster it was converted into | **fixed** |
+| [QA-016](#qa-016--a-selection-does-not-confine-the-brush) | **high** | `phototux_gpu` / brush | Painting ignores the selection that Fill and Gradient both honour | **fixed** |
 
 ---
 
@@ -1225,4 +1226,97 @@ step after it.
 
 Re-verified live: bake, Ctrl+Z, select another layer — the canvas is clean and
 the layer is editable again; Ctrl+Shift+Z brings the shaped glyphs back.
+
+## QA-016 — A selection does not confine the brush
+
+| | |
+|---|---|
+| **Severity** | **high** |
+| **Area** | `phototux_gpu` — `brush.rs`; `phototux_canvas` — `document_gpu.rs`; `phototux_engine` — `stroke.rs` |
+| **Checklist item** | [H-32](QA_CHECKLIST.md) / [H-14](QA_CHECKLIST.md) |
+| **Status** | **fixed** |
+| **Found** | while exercising the four untested selection tools for H-32 |
+
+**Observed.** With an active pixel selection, a brush stroke paints straight
+through it — inside and outside alike, with no edge at the selection boundary.
+The same document, the same layer and the same selection clip a **gradient**
+exactly, to the pixel, on all four sides.
+
+So the application honours the selection for two of its three pixel operations
+and ignores it for the one people reach for most. A user who selects a region to
+protect the rest of the layer and then paints destroys the pixels they believed
+they had protected, and nothing on screen warns them.
+
+**Steps to reproduce.**
+
+1. New 1080p document; select a plain raster layer.
+2. Rectangular Marquee: drag a box in the middle of the canvas. The status bar
+   reads `pixel selection` and the marching ants are drawn.
+3. Brush: drag a stroke that starts well left of the box and ends well right of
+   it.
+4. The stroke is continuous across the whole drag. Nothing stops at the ants.
+5. Undo. With the same selection still up, drag a **gradient** over the same
+   span — it fills only the box, clipped precisely at the ants.
+
+**Root cause.** The paint path never sees the mask. `phototux_gpu/src/brush.rs`
+contains no reference to the selection at all: `StampUniforms` has no selection
+field, the stamp bind-group layout has three entries (uniforms, source texture,
+sampler) and no mask binding, and the fragment shader computes coverage from the
+dab falloff and the brush texture only.
+
+Fill and Gradient take a different route. `fill_layer` and `apply_gradient` in
+`document_gpu.rs` both read `doc.selection.snapshot_cpu()`, test it with
+`mask_has_selection`, and hand the mask to `fill_rgba` / `gradient_rgba` as
+per-pixel coverage. That is a CPU read-modify-write, which a whole-layer
+operation can afford and a per-dab hot path cannot — which is presumably why the
+brush was never wired the same way, and then never wired at all.
+
+The CPU reference in `phototux_engine/src/stroke.rs` has the same hole, so the
+headless path and the GPU path agree with each other and both disagree with the
+user.
+
+**Why the pass missed it until now.** [H-32](QA_CHECKLIST.md) asks whether each
+selection tool *makes* a selection, and every one of them does. Nothing in the
+checklist asked whether a selection then *constrains* an edit. The gap was in
+the test plan, not only in the code — [H-14](QA_CHECKLIST.md) covers the brush
+painting at 60 fps and says nothing about what bounds it.
+
+**Resolution.** The handbook already specified the rule and the code did not
+implement it — [12 — Selection System](internal_docs/12-Selection-System.md#coverage-semantics)
+gives `effective = clamp(selection × tool × mask × operation_opacity, 0, 1)`, and
+[14 — Brush Engine](internal_docs/14-Brush-Engine.md) restates it as
+`scope_coverage`. So this was closed by making the code match the specification,
+not by choosing a new behaviour.
+
+The selection channel is bound into both stamp pipelines — `BrushStamper` for
+layer pixels and `MaskStamper` for layer masks — and multiplied into coverage
+*before* the mode switch, so it bounds painting, erasing and every retouch mode
+alike, and the mask's own soft edge carries into the stroke instead of stepping.
+The CPU reference gained the same rule as `stamp_dab_rgba_within`.
+
+Three things had to be got right, and each fails silently:
+
+- **Absence is not emptiness.** `None` means unrestricted; an empty mask is all
+  zeros, so multiplying by it unconditionally would refuse every stroke made
+  without a selection. That is a worse bug than the one being fixed, and the
+  most likely way to introduce it.
+- **The predicate is cached.** The paint path asks once per dab batch, and
+  scanning a document-sized mask there would be megabytes per input event.
+  `SelectionMask::is_active` is recomputed in `upload`, the one place its CPU
+  mirror reaches the GPU, so it costs nothing on the hot path and cannot drift.
+- **One bind layout, not two.** With no selection the stampers bind a 1×1 white
+  stand-in rather than switching layouts, so there is no second pipeline set and
+  no branch that can bind the wrong one.
+
+`a_selection_bounds_the_brush_the_way_the_reference_does` (device-backed,
+`--features gpu-tests`) measures the shader against the CPU reference with a
+hard-edged half-mask under a dab that straddles the boundary; it was watched
+failing from both sides. `a_selection_bounds_a_dab_and_no_selection_does_not`
+covers the rule headlessly, including the absent-selection direction.
+
+Re-verified live, with the comparison that exposed it: the same brush drag that
+previously ran the full canvas width now stops exactly at the marquee's edges,
+a drag made after Ctrl+D still paints the full width, and erasing on a layer
+mask hides the layer only within the selection — intact left of it, gone
+within, intact right of it.
 

@@ -165,6 +165,36 @@ This equation is informative; individual commands must declare whether selection
 
 An empty selection ordinarily means no pixels selected, not “selection restriction disabled.” Commands that choose to treat absence of an explicit selection as unrestricted must model that distinction. PhotoTux therefore distinguishes `SelectionConstraint::None` from an active empty coverage field where necessary. User-facing “Clear Selection” normally returns to the unrestricted state according to product policy, while saved empty channels remain mathematically empty. The exact active-slot representation **MUST** avoid ambiguity.
 
+**Shipped rule — the brush multiplies by the selection, like everything else.**
+The coverage equation above was correct and the paint path did not implement it.
+`fill_layer` and `apply_gradient` read the selection mask and passed it as
+per-pixel coverage; `BrushStamper` had no mask binding at all, so a stroke
+painted straight through a selection that clipped a gradient to the pixel
+(QA-016). A user who selected a region to protect the rest of a layer and then
+painted destroyed what they believed was safe.
+
+The mask is now bound into both stamp pipelines — layer pixels and layer masks —
+and multiplied into coverage before the mode switch, so it applies to painting,
+erasing and every retouch mode alike, and the selection's own soft edge carries
+into the stroke instead of stepping. The CPU reference gained the same rule as
+`stamp_dab_rgba_within`, and `a_selection_bounds_the_brush_the_way_the_reference_does`
+measures the two against each other on a device.
+
+Two details are load-bearing:
+
+- **Absence is not emptiness.** `None` means unrestricted; an empty mask is all
+  zeros and multiplying by it refuses every stroke. This is the distinction this
+  chapter already draws between `SelectionConstraint::None` and an active empty
+  coverage field, and it is the failure the fix could most easily have
+  introduced — a brush that silently paints nothing whenever no selection
+  exists. `a_selection_bounds_a_dab_and_no_selection_does_not` asserts both
+  directions.
+- **The predicate is cached, not scanned.** The paint path asks once per dab
+  batch, and scanning a document-sized mask there would be megabytes per input
+  event. `SelectionMask` recomputes `is_active` in `upload`, the single place
+  its CPU mirror reaches the GPU, so the answer costs nothing on the hot path
+  and cannot drift from the mask.
+
 ## Coordinate Spaces and Extent
 
 Active pixel selection is defined in document space. Integer pixel cells align with the document raster convention. Sample positions, pixel-center convention, and edge inclusion are fixed across CPU and GPU paths. Canvas resize, origin shift, and crop commands state whether selection moves with document coordinates, clips to new canvas, or retains off-canvas coverage.

@@ -508,6 +508,28 @@ pub fn stamp_dab_rgba(pixels: &mut [u8], width: u32, height: u32, dab: Dab, para
     stamp_dab_rgba_from(pixels, width, height, dab, params, None);
 }
 
+/// Stamp one dab bounded by a selection.
+///
+/// `selection` is a document-sized R8 coverage channel — the CPU mirror of the
+/// GPU selection mask — and it scales the dab's coverage per pixel, so a
+/// partly-selected pixel is partly painted and the selection's soft edge
+/// carries into the stroke. `None` means *nothing is selected*, which is not
+/// the same as an empty mask: an empty mask is all zeros and would refuse the
+/// whole stroke.
+///
+/// This is the reference the GPU stamp is measured against (QA-016); the
+/// shader states the same rule as a multiply into coverage.
+pub fn stamp_dab_rgba_within(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    dab: Dab,
+    params: &BrushParams,
+    selection: Option<&[u8]>,
+) {
+    stamp_dab_rgba_inner(pixels, width, height, dab, params, None, selection);
+}
+
 /// Stamp one dab, sampling `source` for the modes that read other pixels.
 ///
 /// A source-reading mode with no snapshot leaves the pixel alone rather than
@@ -519,6 +541,18 @@ pub fn stamp_dab_rgba_from(
     dab: Dab,
     params: &BrushParams,
     source: Option<DabSource<'_>>,
+) {
+    stamp_dab_rgba_inner(pixels, width, height, dab, params, source, None);
+}
+
+fn stamp_dab_rgba_inner(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    dab: Dab,
+    params: &BrushParams,
+    source: Option<DabSource<'_>>,
+    selection: Option<&[u8]>,
 ) {
     let params = params.clamped();
     if width == 0 || height == 0 || pixels.len() < (width * height * 4) as usize {
@@ -550,6 +584,10 @@ pub fn stamp_dab_rgba_from(
         use_noise,
         tex_s,
         source,
+        // A mask that is not document-sized is not a selection we can trust to
+        // index; dropping it paints everywhere, which is the behaviour without
+        // one, rather than indexing past the end of it.
+        selection: selection.filter(|m| m.len() >= (width as usize) * (height as usize)),
     };
     for y in y0..=y1 {
         for x in x0..=x1 {
@@ -569,6 +607,8 @@ struct DabStamp<'a> {
     tex_s: f32,
     /// Pixels a source-reading mode samples; `None` for the rest.
     source: Option<DabSource<'a>>,
+    /// The document's selection coverage, when one is active.
+    selection: Option<&'a [u8]>,
 }
 
 fn stamp_dab_pixel(
@@ -586,6 +626,11 @@ fn stamp_dab_pixel(
     if stamp.use_noise {
         let n = tip_noise(x as u32, y as u32);
         cover *= 1.0 - stamp.tex_s + stamp.tex_s * n;
+    }
+    // A selection bounds every dab, whatever the mode.
+    if let Some(mask) = stamp.selection {
+        let at = (y as u32 * width + x as u32) as usize;
+        cover *= f32::from(mask.get(at).copied().unwrap_or(0)) / 255.0;
     }
     if cover <= 0.001 {
         return;
@@ -1354,5 +1399,67 @@ mod tests {
             },
         );
         assert_eq!(pixels[3], 0, "the unlocked eraser did erase");
+    }
+
+    /// A selection bounds a dab, and a *missing* selection does not.
+    ///
+    /// The brush used to ignore the selection entirely while Fill and Gradient
+    /// clipped to it exactly, so painting destroyed pixels the user had
+    /// selected a region to protect (QA-016). Both halves matter and they fail
+    /// in opposite directions: without the rule the brush paints everywhere,
+    /// and with the rule applied to an absent selection it paints nowhere,
+    /// because "nothing selected" is an all-zero mask.
+    #[test]
+    fn a_selection_bounds_a_dab_and_no_selection_does_not() {
+        const W: u32 = 40;
+        const H: u32 = 8;
+
+        let dab = Dab {
+            x: 20.0,
+            y: 4.0,
+            radius: 8.0,
+            pressure: 1.0,
+        };
+        let params = BrushParams {
+            size: 16.0,
+            hardness: 0.95,
+            color: [1.0, 1.0, 1.0, 1.0],
+            ..BrushParams::default()
+        };
+        let alpha_at = |buf: &[u8], x: u32| buf[((4 * W + x) * 4 + 3) as usize];
+
+        // Selected: x < 20.
+        let mut mask = vec![0_u8; (W * H) as usize];
+        for y in 0..H {
+            for x in 0..20 {
+                mask[(y * W + x) as usize] = 255;
+            }
+        }
+
+        let mut bounded = vec![0_u8; (W * H * 4) as usize];
+        stamp_dab_rgba_within(&mut bounded, W, H, dab, &params, Some(&mask));
+        assert!(
+            alpha_at(&bounded, 16) > 0,
+            "nothing was painted inside the selection"
+        );
+        assert_eq!(
+            alpha_at(&bounded, 24),
+            0,
+            "the dab painted past the selection's edge"
+        );
+
+        // No selection is not an empty selection.
+        let mut everywhere = vec![0_u8; (W * H * 4) as usize];
+        stamp_dab_rgba_within(&mut everywhere, W, H, dab, &params, None);
+        assert!(
+            alpha_at(&everywhere, 24) > 0,
+            "with nothing selected the dab was refused — an absent selection \
+             was read as an empty one, so every stroke would paint nothing"
+        );
+
+        // And the plain entry point is unchanged by any of this.
+        let mut plain = vec![0_u8; (W * H * 4) as usize];
+        stamp_dab_rgba(&mut plain, W, H, dab, &params);
+        assert_eq!(plain, everywhere, "the unbounded paths disagree");
     }
 }

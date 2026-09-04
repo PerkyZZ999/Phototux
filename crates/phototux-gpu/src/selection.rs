@@ -9,8 +9,21 @@ pub struct SelectionMask {
     width: u32,
     height: u32,
     texture: wgpu::Texture,
+    /// Cached view of `texture`, for the paint path.
+    ///
+    /// Built once because the paint path binds it once per dab batch, and the
+    /// texture is only ever created here — `upload` writes into it rather than
+    /// replacing it, so the view cannot go stale.
+    view: wgpu::TextureView,
     /// CPU mirror used for boolean ops and marching-ants bounds (one-shot edits only).
     cpu: Vec<u8>,
+    /// Whether any pixel is selected, recomputed whenever the mirror uploads.
+    ///
+    /// Cached rather than scanned on demand because the paint path asks once
+    /// per dab batch. A whole-mask scan there would be megabytes per input
+    /// event; here it is one scan per *edit* to the selection, which is rare
+    /// and already doing more work than that.
+    active: bool,
 }
 
 impl SelectionMask {
@@ -33,13 +46,35 @@ impl SelectionMask {
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let cpu = vec![0_u8; (width as usize) * (height as usize)];
         Self {
             width,
             height,
             texture,
+            view,
             cpu,
+            active: false,
         }
+    }
+
+    /// The mask as a bindable view, for an edit that has to respect it.
+    #[must_use]
+    pub fn view(&self) -> &wgpu::TextureView {
+        &self.view
+    }
+
+    /// Whether anything is selected.
+    ///
+    /// "Nothing selected" and "everything selected" are different states with
+    /// the same effect on an edit, and only this one can be answered without
+    /// looking at every pixel. An edit that consults the mask must check this
+    /// first: an empty mask is all zeros, so multiplying coverage by it
+    /// unconditionally would block every edit whenever the user had no
+    /// selection at all.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 
     pub fn width(&self) -> u32 {
@@ -206,7 +241,8 @@ impl SelectionMask {
         Ok(())
     }
 
-    fn upload(&self, ctx: &GpuContext) {
+    fn upload(&mut self, ctx: &GpuContext) {
+        self.active = crate::fill::mask_has_selection(&self.cpu);
         ctx.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
