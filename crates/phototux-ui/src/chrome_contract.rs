@@ -658,6 +658,16 @@ mod tests {
     #[test]
     fn nothing_writes_a_message_into_the_status_bar() {
         let source = include_str!("lib.rs");
+        // Joined onto one line first. `rustfmt` wraps a long assignment after
+        // the `=`, and a line-at-a-time scan cannot see the right-hand side of
+        // one that did: the colour-profile conversion wrote a destructive-edit
+        // warning into the status bar for months in plain sight of this test.
+        let source: String = source
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace("=\n", "= ");
         let mut assignments = 0;
         for (i, line) in source.lines().enumerate() {
             let trimmed = line.trim();

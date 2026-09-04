@@ -2258,9 +2258,10 @@ impl AppSession {
                     // rather than doing nothing. The engine-side test
                     // `selection_modify_actions_carry_a_parsable_argument`
                     // keeps the shipped registry out of this branch.
-                    self.status_text =
-                        format!("Unreadable selection op: {}", arg.unwrap_or_default());
-                    self.status_text_changed();
+                    self.notify(
+                        NoticeLevel::Warning,
+                        format!("Unreadable selection op: {}", arg.unwrap_or_default()),
+                    );
                 }
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
@@ -2451,8 +2452,15 @@ impl AppSession {
             graph.color.mark_converted();
             graph.bump_generation();
         }
-        self.status_text =
-            format!("Converted pixels to {to} (from {from}) — this rewrote layer data");
+        // A message, not the summary: the status bar carries state that stays
+        // true, and the next refresh would erase this. It is also the one
+        // sentence that says the conversion was destructive, so losing it is
+        // worse than losing most.
+        self.notify(
+            NoticeLevel::Warning,
+            format!("Converted pixels to {to} (from {from}) — this rewrote layer data"),
+        );
+        self.status_text = self.engine.status_summary();
         self.status_text_changed();
     }
 
