@@ -2574,11 +2574,22 @@ ApplicationWindow {
             // Live on-canvas text editor (presentation until bake/commit).
             // Qt Quick TextEdit has no `background` property (Controls TextArea does);
             // wrapping with a Rectangle keeps chrome without aborting QML creation.
-            Item {
+            //
+            // A `Loader` rather than an `Item` that hides: while the frame is
+            // up the editor holds the keyboard, and Qt does not move active
+            // focus off a child whose *ancestor* merely became invisible.
+            // Bake Text turns the layer into pixels and the frame goes away,
+            // but a hidden-and-still-focused `TextEdit` went on accepting the
+            // shortcut override for every printable key — so every single-key
+            // tool shortcut was dead until something else was clicked, with
+            // nothing on screen to explain why. Destroying the editor releases
+            // the keyboard for real; `visible: false` does not.
+            Loader {
                 id: textCanvasEditorHost
                 z: 3
-                visible: AppSession.hasDocument && AppSession.textLayerActive
-                         && AppSession.activeTool === "tool.text"
+                active: AppSession.hasDocument && AppSession.textLayerActive
+                        && AppSession.activeTool === "tool.text"
+                visible: active
                 x: root.docToScreenX(AppSession.textOriginX + 4)
                 y: root.docToScreenY(AppSession.textOriginY + 4)
                 width: Math.max(
@@ -2594,50 +2605,58 @@ ApplicationWindow {
                      : Math.max(AppSession.textFontSize * 2, 48))
                     * AppSession.zoom)
 
-                Rectangle {
-                    anchors.fill: parent
-                    color: "#22000000"
-                    border.color: Theme.primary
-                    border.width: 1
-                    radius: 2
-                }
-
-                TextEdit {
-                    id: textCanvasEditor
-                    anchors.fill: parent
-                    anchors.margins: 2
-                    text: AppSession.textBody
-                    color: AppSession.textColorHex
-                    selectedTextColor: Theme.colorOnPrimary
-                    selectionColor: Theme.primary
-                    font.family: AppSession.textFontFamily
-                    font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
-                    wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
-                    horizontalAlignment: AppSession.textAlignment === 1
-                                         ? TextEdit.AlignHCenter
-                                         : (AppSession.textAlignment === 2
-                                            ? TextEdit.AlignRight : TextEdit.AlignLeft)
-                    Accessible.name: qsTr("On-canvas text editor")
-                    // Focus can move here from inside a host slot (picking the
-                    // Text tool), so never call the host synchronously.
-                    onActiveFocusChanged: root.refreshShortcutYield()
-                    onTextChanged: {
-                        if (activeFocus && text !== AppSession.textBody) {
-                            AppSession.updateActiveText(
-                                        text,
-                                        AppSession.textFontFamily,
-                                        AppSession.textFontSize,
-                                        AppSession.textTracking,
-                                        AppSession.textLineSpacing,
-                                        AppSession.textAlignment,
-                                        AppSession.textColorHex)
-                        }
+                sourceComponent: Item {
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "#22000000"
+                        border.color: Theme.primary
+                        border.width: 1
+                        radius: 2
                     }
-                    Connections {
-                        target: AppSession
-                        function onTextBodyChanged() {
-                            if (!textCanvasEditor.activeFocus)
-                                textCanvasEditor.text = AppSession.textBody
+
+                    TextEdit {
+                        id: textCanvasEditor
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        text: AppSession.textBody
+                        color: AppSession.textColorHex
+                        selectedTextColor: Theme.colorOnPrimary
+                        selectionColor: Theme.primary
+                        font.family: AppSession.textFontFamily
+                        font.pixelSize: Math.max(
+                                            6,
+                                            AppSession.textFontSize * AppSession.zoom)
+                        wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
+                        horizontalAlignment: AppSession.textAlignment === 1
+                                             ? TextEdit.AlignHCenter
+                                             : (AppSession.textAlignment === 2
+                                                ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                        Accessible.name: qsTr("On-canvas text editor")
+                        // Focus can move here from inside a host slot (picking
+                        // the Text tool), so never call the host synchronously.
+                        onActiveFocusChanged: root.refreshShortcutYield()
+                        // And once more as the editor goes away, because the
+                        // focus it held is released by its own destruction —
+                        // after which nothing else would ask.
+                        Component.onDestruction: root.refreshShortcutYield()
+                        onTextChanged: {
+                            if (activeFocus && text !== AppSession.textBody) {
+                                AppSession.updateActiveText(
+                                            text,
+                                            AppSession.textFontFamily,
+                                            AppSession.textFontSize,
+                                            AppSession.textTracking,
+                                            AppSession.textLineSpacing,
+                                            AppSession.textAlignment,
+                                            AppSession.textColorHex)
+                            }
+                        }
+                        Connections {
+                            target: AppSession
+                            function onTextBodyChanged() {
+                                if (!textCanvasEditor.activeFocus)
+                                    textCanvasEditor.text = AppSession.textBody
+                            }
                         }
                     }
                 }

@@ -84,7 +84,11 @@ they had.
       raster layer with the notice "Text baked to pixels — editable text discarded".
       Two defects: the creating click's position is discarded ([QA-007](QA_ISSUES.md)),
       and the bake uses a 5×7 bitmap alphabet rather than the previewed face
-      ([QA-008](QA_ISSUES.md)).
+      ([QA-008](QA_ISSUES.md)). A third, found here and fixed in place, was worse
+      than either: after the bake every single-key tool shortcut was dead until
+      something else was clicked, because the hidden on-canvas editor kept the
+      keyboard — see T-037 in the
+      [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md).
 - [ ] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors
 
 ## 1.3 Layers and masks
