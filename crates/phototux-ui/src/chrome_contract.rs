@@ -913,6 +913,71 @@ mod tests {
         );
     }
 
+    /// Every animation answers to the reduced-motion preference.
+    ///
+    /// "Reduced motion" is an accessibility preference, not a taste one: a
+    /// user who sets it has asked the shell to stop moving. It reached the
+    /// slider's scale and the toast fade and not the scroll bar, which went on
+    /// growing and fading in the corner of the eye — the exact motion the
+    /// preference exists to stop.
+    ///
+    /// An animation satisfies this by sitting in a `Behavior` that is
+    /// `enabled: !Theme.reducedMotion`, or by reading the flag in its own
+    /// duration.
+    #[test]
+    fn every_animation_answers_to_reduced_motion() {
+        let mut checked = 0;
+        for entry in std::fs::read_dir(qml_dir()).expect("read qml dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
+                continue;
+            }
+            let qml = std::fs::read_to_string(&path).expect("read qml");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            for (i, line) in qml.lines().enumerate() {
+                let trimmed = line.trim_start();
+                // A declaration, not a reference: `loops: Animation.Infinite`
+                // names the enum and animates nothing on its own.
+                let declares = (trimmed.contains("Animation") || trimmed.contains("Animator"))
+                    && trimmed.contains('{')
+                    && !trimmed.contains("Animation.");
+                if !declares || trimmed.starts_with("//") {
+                    continue;
+                }
+                // A `FrameAnimation` is the shell's clock, not a transition:
+                // it polls the file worker and measures frame rate, and
+                // stopping it would stop those. What it *publishes* answers to
+                // the preference instead — the phase driving the selection's
+                // marching ants holds still.
+                if line.contains("FrameAnimation") {
+                    continue;
+                }
+                checked += 1;
+                // Two lines above — the `Behavior on …` header and its
+                // `enabled:` — and four below, for a flag read inside the
+                // animation's own body. Deliberately tight: a wider window
+                // reaches the *previous* `Behavior`'s `enabled:` line and
+                // passes an animation that has none of its own, which is how
+                // the first draft of this test missed the scroll bar.
+                let from = i.saturating_sub(2);
+                let window = qml
+                    .lines()
+                    .skip(from)
+                    .take(i - from + 5)
+                    .collect::<Vec<_>>();
+                assert!(
+                    window.iter().any(|l| l.contains("Theme.reducedMotion")),
+                    "{name}:{} animates without consulting `Theme.reducedMotion`",
+                    i + 1
+                );
+            }
+        }
+        assert!(
+            checked >= 4,
+            "found {checked} animations — the scan broke rather than the shell"
+        );
+    }
+
     /// Icon-only buttons have no text to fall back on either.
     #[test]
     fn every_icon_only_tool_button_is_named() {

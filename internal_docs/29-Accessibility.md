@@ -413,6 +413,10 @@ Zooming document canvas is not equivalent to scaling UI. Both controls are indep
 
 Reduced motion affects panel reflow, popovers, selection animation, indeterminate progress, and canvas navigation animation; it does not remove state/progress. Flashing is avoided. Animation cannot be required to understand sequence.
 
+**What answers to it in the shipping shell.** The whole of it — there are five things that move, and every one now reads `Theme.reducedMotion`: the slider handle's grow-under-pointer, the toast fade, the scroll bar's width and opacity, the busy indicator's spin, and the selection's marching ants. The last two are the ones the specification calls out by name and the ones that were missed: the spinner turned forever, and the ants crawled around every selection, both of them continuous motion a user cannot dismiss. The spinner now holds still and stays on screen, because its *presence* is what says work is in progress; the ants stop advancing while the outline stays exactly where it was.
+
+The frame clock is the one exception, and it is not a transition: `FrameAnimation` in `Main.qml` polls the file worker and measures frame rate, so it keeps running. What it *publishes* answers to the preference instead — the phase that drives the ants stops advancing. `every_animation_answers_to_reduced_motion` reads every `.qml` file and fails on any animation declaration that does not consult the flag, with that clock named as the single exemption.
+
 ## Input Alternatives
 
 Supported input semantics include keyboard, mouse, pen, touchpad, sticky/slow keys, switch/virtual action adapters, and assistive API. Core actions do not depend on device provenance for correctness.

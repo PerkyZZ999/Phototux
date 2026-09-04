@@ -53,8 +53,13 @@ BusyIndicator {
                 }
             }
 
+            // Stops spinning under the accessibility preference, and stays on
+            // screen: the ring's *presence* is what says work is in progress,
+            // and a perpetual rotation is exactly the motion the preference is
+            // asked about. Everything else that animates in the shell is a
+            // brief transition; this one never ends on its own.
             RotationAnimator on rotation {
-                running: control.running && control.visible
+                running: control.running && control.visible && !Theme.reducedMotion
                 from: 0
                 to: 360
                 duration: 1000

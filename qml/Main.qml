@@ -3066,7 +3066,14 @@ ApplicationWindow {
                         startupReported = true
                         AppSession.reportInteractive()
                     }
-                    phase = (phase + frameTime * 2.0) % 1000.0
+                    // The clock itself keeps running under reduced motion —
+                    // it polls the worker and measures frame rate — but the
+                    // phase it publishes stops advancing, so the selection's
+                    // marching ants hold still. A dashed outline that crawls
+                    // around every selection is continuous motion, and it is
+                    // the one piece of it a user cannot dismiss.
+                    if (!Theme.reducedMotion)
+                        phase = (phase + frameTime * 2.0) % 1000.0
                     AppSession.pollEngine()
                     if (frameTime > 0) {
                         var inst = 1.0 / frameTime
