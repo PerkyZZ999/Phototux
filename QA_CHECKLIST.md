@@ -317,7 +317,12 @@ they had.
 - [ ] **U-08** The shell holds together from 1280×720 up to 4K
 - [x] **U-09** No dialog pins itself to a pixel width — `no_dialog_pins_itself_to_a_pixel_width` green
 - [ ] **U-10** Every dialog is reachable, dismissable by Escape, and returns focus
-- [ ] **U-11** Panel resize seams behave at their extremes
+- [!] **U-11** Panel resize seams behave at their extremes — the minimum behaves: the
+      panel keeps its header and its scroll bar and nothing is lost. The maximum does
+      not: one drag to the bottom of the screen makes the panel above fill the dock and
+      the four panels below it vanish, with nothing on screen saying where they went
+      ([QA-013](QA_ISSUES.md)). Reset Workspace brings them back, which is itself a
+      re-verification of `c8e300e`
 - [x] **U-12** High-contrast and reduced-motion preferences take effect — **both failed in
       part**. High contrast does take effect and is measurable (panel headers lift from
       `#131315` to `#1F1F23`, borders from `#1A1A1D` to `#2B2B30`). Reduced motion reached

@@ -31,6 +31,7 @@ the entry says so rather than inventing one.
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | open |
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | open |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
+| [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
 
 ---
 
@@ -733,3 +734,48 @@ instantiating a second copy of the panel bound to the same host properties,
 which is cheap for the Navigator and not obviously right for panels that hold
 their own view state. The re-dock grouping is a smaller, separable question:
 `park`/`pin` do not record which group a panel left.
+
+## QA-013 — One seam drag can evict every panel below it
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `qml/PanelResizeGrip.qml`, `phototux_engine` — `dock.rs` |
+| **Checklist item** | [U-11](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** Dragging a dock seam downward past the bottom of the window makes
+the panel above it fill the entire dock, and Navigator, Swatches, Layers and
+History disappear — not collapsed to a header, not reachable by scrolling the
+dock, simply gone. The Window menu still shows all four as visible, and they
+come back with Window ▸ Reset Workspace, but nothing on screen says where they
+went or how to get them back.
+
+The other extreme is fine: dragging the same seam upward clamps at the minimum,
+the panel keeps its header and its scroll bar, and nothing is lost.
+
+**Steps to reproduce.**
+
+1. Open any document; the right dock holds Properties, Navigator/Swatches and
+   Layers/History.
+2. Press on the seam above the Navigator header and drag to the bottom of the
+   screen.
+3. Properties fills the dock. The other three panels are not on screen.
+
+**Root cause.** The clamp has no upper bound that depends on the dock.
+`PanelResizeGrip.maximumHeight` is the constant 2000, mirroring
+`DockTopology::MAX_PANEL_HEIGHT`, and neither side subtracts what the panels
+below need. Handbook [04](internal_docs/04-Docking-System.md) asks for exactly
+that — "Solver clamps against minimum/maximum constraints **and available
+logical size**" — and the available-logical-size half is the part that is
+missing.
+
+**Why not a quick fix.** The ceiling a drag should respect is the dock's height
+minus the sum of the minimums of every panel below the seam, which the grip
+does not know: it is handed one panel's `currentHeight` and nothing about its
+siblings. Either the grip learns the remaining budget — a new published value,
+recomputed as the group changes — or the engine clamps on commit and the
+preview follows what it returns. The second is the smaller change and matches
+where the other constraint already lives, but it makes the drag feel like it
+runs past the limit and snaps back, which is the thing the current comment in
+the grip says it was written to avoid.
