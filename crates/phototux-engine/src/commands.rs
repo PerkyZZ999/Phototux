@@ -2331,8 +2331,17 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         }
         let generation = self.bump_document_generation();
-        self.history
-            .push_graph_applied(command, "Bake text", generation);
+        // The command is applied but not pushed onto the graph stack, and the
+        // entry is a Transform one: this conversion has one half in the graph
+        // and one on the GPU, where the host writes the pixels it just
+        // produced. A `Graph` entry reverses the graph and never asks the
+        // host, so the undo restored the semantic layer and left the baked
+        // pixels behind it — the layer drew twice, and saving persisted both.
+        // A `TransformSnapshot` carries the whole graph beside every layer's
+        // pixels, so one Transform entry takes back both halves; the host
+        // snapshots before invoking, exactly as a profile conversion does
+        // (QA-015, and see `command_id::CONVERTS_TO_PIXELS`).
+        self.history.push_transform("Bake text", generation);
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -2403,8 +2412,17 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         }
         let generation = self.bump_document_generation();
-        self.history
-            .push_graph_applied(command, "Rasterize shape", generation);
+        // The command is applied but not pushed onto the graph stack, and the
+        // entry is a Transform one: this conversion has one half in the graph
+        // and one on the GPU, where the host writes the pixels it just
+        // produced. A `Graph` entry reverses the graph and never asks the
+        // host, so the undo restored the semantic layer and left the baked
+        // pixels behind it — the layer drew twice, and saving persisted both.
+        // A `TransformSnapshot` carries the whole graph beside every layer's
+        // pixels, so one Transform entry takes back both halves; the host
+        // snapshots before invoking, exactly as a profile conversion does
+        // (QA-015, and see `command_id::CONVERTS_TO_PIXELS`).
+        self.history.push_transform("Rasterize shape", generation);
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -3094,8 +3112,18 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         }
         let generation = self.bump_document_generation();
+        // The command is applied but not pushed onto the graph stack, and the
+        // entry is a Transform one: this conversion has one half in the graph
+        // and one on the GPU, where the host writes the pixels it just
+        // produced. A `Graph` entry reverses the graph and never asks the
+        // host, so the undo restored the semantic layer and left the baked
+        // pixels behind it — the layer drew twice, and saving persisted both.
+        // A `TransformSnapshot` carries the whole graph beside every layer's
+        // pixels, so one Transform entry takes back both halves; the host
+        // snapshots before invoking, exactly as a profile conversion does
+        // (QA-015, and see `command_id::CONVERTS_TO_PIXELS`).
         self.history
-            .push_graph_applied(command, "Rasterize smart object", generation);
+            .push_transform("Rasterize smart object", generation);
         Ok(CommandEffects::document_edit(generation))
     }
 

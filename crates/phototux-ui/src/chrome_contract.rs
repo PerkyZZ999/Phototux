@@ -1535,6 +1535,65 @@ mod tests {
              function — publish! it, so an unchanged path says nothing (T-009)"
         );
     }
+    /// A conversion to pixels is snapshotted before it runs.
+    ///
+    /// Bake Text, Rasterize Shape and Rasterize Smart Object each replace a
+    /// layer's semantic content with the raster the host writes immediately
+    /// afterwards. The engine records a `Transform` entry for them, and a
+    /// `Transform` entry with no snapshot behind it pops whatever transform
+    /// happens to be on the stack — restoring an unrelated edit, which is
+    /// exactly what Embed ICC used to do.
+    ///
+    /// Both ends read `CONVERTS_TO_PIXELS`, so the risk this guards is not the
+    /// list going stale but `invoke_command` being rewritten to name the ids
+    /// individually again — at which point a fourth conversion joins the list,
+    /// records its entry, and takes back somebody else's edit.
+    ///
+    /// It also pins the withdrawal. A refused conversion that left its
+    /// snapshot behind would misalign the stack against the timeline for every
+    /// step after it.
+    #[test]
+    fn every_conversion_to_pixels_is_snapshotted_before_it_runs() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
+            .expect("invoke_command is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+
+        assert!(
+            body.contains("command_id::CONVERTS_TO_PIXELS.contains(&id)"),
+            "invoke_command does not snapshot the conversions to pixels from \
+             their own list — a fourth one would record a Transform entry with \
+             nothing behind it and take back an unrelated edit"
+        );
+        assert!(
+            body.contains("self.transform_history.record(snapshot)"),
+            "nothing records the snapshot, so the entry has nothing to restore"
+        );
+        assert!(
+            body.contains("self.transform_history.discard_last()"),
+            "a refused conversion leaves its snapshot on the stack, which \
+             misaligns it against the timeline for every step after it"
+        );
+
+        // Every id in the family reaches this function at all — a conversion
+        // invoked around it would be snapshotted by nobody.
+        for id in phototux_engine::command_id::CONVERTS_TO_PIXELS {
+            let constant = id
+                .replace(['.', '-'], "_")
+                .to_uppercase()
+                .replace("SMARTOBJECT_RASTERIZE", "SMART_RASTERIZE");
+            assert!(
+                source.contains(&format!("command_id::{constant}")),
+                "{id} is in CONVERTS_TO_PIXELS and the host never names it — \
+                 it cannot be reached, or it is reached by a path that does \
+                 not go through invoke_command"
+            );
+        }
+    }
+
     /// Bake Text is rendered by Qt, in the face the editor shows.
     ///
     /// The engine's `bake_text_rgba8` draws a built-in 5×7 ASCII alphabet,

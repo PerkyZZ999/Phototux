@@ -33,6 +33,7 @@ the entry says so rather than inventing one.
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | **fixed** |
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | **fixed** |
 | [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | **fixed** |
+| [QA-015](#qa-015--undoing-a-conversion-to-pixels-leaves-the-pixels-behind) | medium | `phototux_engine` / history | Undo restores the semantic layer and leaves the raster it was converted into | **fixed** |
 
 ---
 
@@ -1160,3 +1161,68 @@ own case, `converting_a_profile_records_a_step_of_the_right_kind`.
 Verified live at 1920×1080 by sampling the canvas: (40, 90, 160) before,
 (53, 89, 155) after Convert to Display-P3, (40, 90, 160) after Ctrl+Z, and
 (53, 89, 155) again after redo.
+
+## QA-015 — Undoing a conversion to pixels leaves the pixels behind
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `phototux_engine` — `commands.rs`, history; `phototux_ui` — `invoke_command` |
+| **Checklist item** | [H-39](QA_CHECKLIST.md) / [H-21](QA_CHECKLIST.md) |
+| **Status** | **fixed** |
+| **Found** | while re-verifying [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) |
+
+**Observed.** Bake a text layer, then press Ctrl+Z. The layer comes back
+editable — the `T` badge returns in the Layers panel, the Character panel
+repopulates, the on-canvas frame reappears — and the baked glyphs are **still in
+the layer's raster**. The layer now draws twice: its live text preview over the
+pixels of the bake it just took back. Selecting a different layer makes it
+unambiguous, because the preview stops drawing and the baked glyphs stay on the
+canvas.
+
+Saving after that undo persists both: a `.ptx` whose text layer carries editable
+words *and* a raster of those same words.
+
+`shape.rasterize` and `smartobject.rasterize` had the same defect. All three
+convert a layer's semantic content to pixels the same way.
+
+**Steps to reproduce.**
+
+1. New 1080p document, press `t`, click the canvas, type anything.
+2. Layer ▸ Bake Text — the layer becomes a raster layer.
+3. Ctrl+Z. The Layers panel shows a text layer again.
+4. Click a different layer so the text preview stops drawing.
+5. The baked glyphs are still on the canvas.
+
+**Root cause.** The conversion has one half in the graph and one on the GPU, and
+the history entry only covered the first. `cmd_text_bake` recorded a
+`GraphCommand::Batch(SetKind + SetText)` through `push_graph_applied`, so the
+entry's kind was `Graph` — and a `Graph` entry reverses the graph and never asks
+the host ([20 — History / Undo](internal_docs/20-History-Undo.md)). The pixels
+were written *outside* the command, by the host's `write_layer_rgba` immediately
+after `invoke_command` returned. Nothing recorded them, so nothing took them
+back.
+
+The existing guard `every_conversion_to_pixels_can_be_undone` passed throughout,
+because it asserted the engine restored the kind and the payload — which it did.
+The half it could not see was the half that was broken.
+
+**Resolution.** The mechanism already existed: a `TransformSnapshot` carries the
+whole graph beside every layer's pixels, which is what
+[QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it)
+used for the profile conversion. All three conversions now record a `Transform`
+entry rather than a `Graph` one, and the host snapshots before invoking — from
+`command_id::CONVERTS_TO_PIXELS`, so both ends read one list and a fourth
+conversion cannot be added to one end only.
+
+The two engine tests that asserted the engine restored the payload were the
+wrong shape once the restore moved to the host; they now assert what the engine
+can prove — that the conversion happens, that it pushes exactly one entry, and
+that the entry is a `Transform` one. `every_conversion_to_pixels_is_snapshotted_before_it_runs`
+is the other end, and it also pins the withdrawal: a refused conversion that
+left its snapshot behind would misalign the stack against the timeline for every
+step after it.
+
+Re-verified live: bake, Ctrl+Z, select another layer — the canvas is clean and
+the layer is editable again; Ctrl+Shift+Z brings the shaped glyphs back.
+

@@ -772,20 +772,19 @@ fn only_a_pixel_layer_can_be_wrapped() {
     assert!(error.is_user_correctable(), "{error:?}");
 }
 
+/// Rasterizing a smart object drops the source it was standing in for.
+///
+/// The undo is `every_conversion_to_pixels_can_be_undone`'s: the restore comes
+/// from the host's `TransformSnapshot`, because this conversion also writes
+/// pixels the engine cannot see.
 #[test]
-fn rasterizing_a_smart_object_drops_the_source_and_undoes() {
+fn rasterizing_a_smart_object_drops_the_source() {
     let mut s = session_with_a_smart_object();
     s.invoke(command_id::SMART_RASTERIZE, CommandArgs::None)
         .expect("rasterize");
     let layer = active_layer(&s);
     assert_eq!(layer.kind, crate::LayerKind::Raster);
     assert!(layer.smart.is_none());
-
-    let SessionState { graph, history, .. } = &mut s;
-    history.undo_next(graph.as_mut().expect("graph"));
-    let layer = active_layer(&s);
-    assert_eq!(layer.kind, crate::LayerKind::SmartObject);
-    assert!(layer.smart.is_some(), "undo lost the source");
 }
 
 #[test]
@@ -798,13 +797,16 @@ fn rasterizing_something_that_is_not_a_smart_object_is_refused() {
     assert!(error.is_user_correctable(), "{error:?}");
 }
 
-/// Rasterizing a shape discards the only copy of its editable path, so it has
-/// to be recoverable. It used to write the kind and the payload straight onto
-/// the graph and push nothing.
+/// Rasterizing a shape discards the only copy of its editable path.
+///
+/// It used to write the kind and the payload straight onto the graph and push
+/// nothing, which made that permanent. The undo itself is
+/// `every_conversion_to_pixels_can_be_undone`'s: the restore comes from the
+/// host's `TransformSnapshot`, because this conversion also writes pixels the
+/// engine cannot see.
 #[test]
-fn rasterizing_a_shape_undoes() {
+fn rasterizing_a_shape_drops_the_path() {
     let mut s = session_with_a_shape();
-    let before = active_shape(&s);
     s.invoke(command_id::SHAPE_RASTERIZE, CommandArgs::None)
         .expect("rasterize");
     let layer = active_layer(&s);
@@ -813,16 +815,6 @@ fn rasterizing_a_shape_undoes() {
     assert!(
         layer.asset_key.is_some(),
         "a rasterized shape needs somewhere to keep its pixels"
-    );
-
-    let SessionState { graph, history, .. } = &mut s;
-    history.undo_next(graph.as_mut().expect("graph"));
-    let layer = active_layer(&s);
-    assert_eq!(layer.kind, crate::LayerKind::Shape);
-    assert_eq!(
-        layer.shape.as_ref().map(|c| &c.path),
-        Some(&before.path),
-        "undo did not bring the geometry back"
     );
 }
 
@@ -844,6 +836,18 @@ fn rasterizing_something_that_is_not_a_shape_is_refused() {
 /// onto the graph and pushing no history entry at all, which made the edit
 /// permanent — one of them had even been written into the panel's help text as
 /// though it were the design.
+///
+/// The entry's *kind* is as much of the contract as its existence. These
+/// conversions have one half in the graph and one on the GPU, where the host
+/// writes the pixels the command just produced. A `Graph` entry reverses the
+/// graph and never asks the host, so undo restored an editable text layer and
+/// left the baked glyphs sitting in its raster: the layer drew twice, its live
+/// preview over the pixels of the bake it had just taken back, and saving
+/// persisted both (QA-015). Only a `Transform` entry reaches the host, and
+/// only a `TransformSnapshot` carries the graph beside every layer's pixels —
+/// so the restore is the *host's*, and what the engine can prove is that it
+/// asked for one. `every_conversion_to_pixels_is_snapshotted_before_it_runs`
+/// is the other end.
 ///
 /// A table rather than three tests, so a fourth conversion has somewhere
 /// obvious to be added and fails here if it forgets.
@@ -874,6 +878,7 @@ fn every_conversion_to_pixels_can_be_undone() {
     for (command, build) in cases {
         let mut s = build();
         let before = active_layer(&s);
+        let entries_before = s.history.entries_undo().len();
         assert_ne!(
             before.kind,
             crate::LayerKind::Raster,
@@ -893,27 +898,36 @@ fn every_conversion_to_pixels_can_be_undone() {
             "{command} left the layer with nowhere to keep its pixels"
         );
 
-        let SessionState { graph, history, .. } = &mut s;
-        assert!(
-            history.undo_next(graph.as_mut().expect("graph")).is_some(),
-            "{command} pushed no history entry — the conversion is permanent"
-        );
-        let restored = active_layer(&s);
-        assert_eq!(restored.kind, before.kind, "{command}: kind not restored");
+        let entry = s
+            .history
+            .entries_undo()
+            .last()
+            .expect("the entry the conversion just pushed")
+            .clone();
         assert_eq!(
-            (
-                restored.text.is_some(),
-                restored.shape.is_some(),
-                restored.smart.is_some()
-            ),
-            (
-                before.text.is_some(),
-                before.shape.is_some(),
-                before.smart.is_some()
-            ),
-            "{command}: the payload did not come back with the kind"
+            s.history.entries_undo().len(),
+            entries_before + 1,
+            "{command} pushed no history entry, or pushed more than one — \
+             the conversion is permanent, or one undo will not undo it"
+        );
+        assert_eq!(
+            entry.kind,
+            crate::HistoryKind::Transform,
+            "{command} records a {} step; only a Transform one reaches the \
+             host, so the pixels it wrote would survive the undo that takes \
+             back its kind",
+            entry.kind.as_str()
         );
     }
+
+    let listed: Vec<&str> = cases.iter().map(|(id, _)| *id).collect();
+    assert_eq!(
+        listed,
+        command_id::CONVERTS_TO_PIXELS,
+        "this table and CONVERTS_TO_PIXELS disagree about the family — the \
+         host snapshots from that list, so a conversion missing from it \
+         records an entry with nothing behind it"
+    );
 }
 
 #[test]

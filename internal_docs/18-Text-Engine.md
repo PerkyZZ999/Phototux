@@ -467,6 +467,13 @@ which made discarding a layer's words permanent; the same defect was in
 `shape.rasterize` and `smartobject.rasterize`, and
 `every_conversion_to_pixels_can_be_undone` now covers the family.
 
+The entry's *kind* turned out to matter as much as its existence. All three
+recorded a `Graph` entry, which reverses the graph and never asks the host — so
+undo restored an editable text layer and left the baked glyphs in its raster,
+and the layer drew twice (QA-015). They record `Transform` entries now, and the
+host snapshots before invoking; see
+[20 — History / Undo](20-History-Undo.md#undo-execution).
+
 **Shipped rule — the bake is rendered in the face the editor shows.** Two
 rasterizers can answer `text.bake`, and which one does is a visible product
 decision, not an implementation detail. `phototux_engine` may not link Qt, so

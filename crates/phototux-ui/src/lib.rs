@@ -2260,21 +2260,28 @@ impl AppSession {
     }
 
     fn invoke_command(&mut self, id: &str, args: CommandArgs) -> Result<(), CommandError> {
-        // A profile conversion rewrites every layer's pixels in its host
-        // follow-up, and the snapshot that takes it back has to be of the
-        // document as it is *now* — before the command moves the graph and
-        // before the follow-up touches a pixel. A `TransformSnapshot` carries
-        // the graph beside the pixels, so one entry covers both halves; the
-        // engine records it as a `Transform` step for the host to service
-        // (QA-014).
+        // Some commands change the graph and the pixels together, and the
+        // snapshot that takes both back has to be of the document as it is
+        // *now* — before the command moves the graph and before the host
+        // follow-up touches a pixel. A `TransformSnapshot` carries the graph
+        // beside every layer's pixels, so one entry covers both halves; the
+        // engine records it as a `Transform` step for the host to service.
         //
-        // Here rather than in `convert_document_profile`, because that slot is
-        // not how the conversion is usually reached: the Image ▸ Color entries
-        // and the command palette both come through `invoke_action`, which
-        // calls this directly. A snapshot taken in the slot would have covered
-        // the one caller that does not use it.
+        // A profile conversion rewrites every layer's pixels (QA-014). The
+        // conversions to pixels — bake text, rasterize shape, rasterize smart
+        // object — replace a layer's semantic content with the raster the host
+        // writes straight afterwards, and they used to record a `Graph` entry,
+        // which reverses the graph and never asks the host: undo restored an
+        // editable text layer and left the baked glyphs in its raster, so the
+        // layer drew twice and saving persisted both (QA-015).
+        //
+        // Here rather than in each slot, because a slot is not how these are
+        // usually reached: the menus and the command palette both come through
+        // `invoke_action`, which calls this directly. A snapshot taken in the
+        // slot would have covered the one caller that does not use it.
         let mut snapshot_taken = false;
-        if id == command_id::DOCUMENT_CONVERT_PROFILE
+        if (id == command_id::DOCUMENT_CONVERT_PROFILE
+            || command_id::CONVERTS_TO_PIXELS.contains(&id))
             && let Some(snapshot) = self.transform_snapshot_now()
         {
             self.transform_history.record(snapshot);

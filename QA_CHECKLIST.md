@@ -198,7 +198,7 @@ they had.
 
 ## 1.5 History, workspace, colour
 
-- [!] **H-39** Undo/redo across every mutating command, including the two host-side
+- [x] **H-39** Undo/redo across every mutating command, including the two host-side
       stacks — **three gaps found in the colour submenu**. A new conformance test walks
       `default_actions()`, invokes each action's command, and for every one that
       changed the serialised graph asserts an undo entry was recorded, that undo
@@ -215,7 +215,13 @@ they had.
       Photoshop's Proof Colors is not undoable either. Convert to Profile is since
       fixed as well — a transform snapshot carries the graph beside the pixels, so one
       `Transform` entry takes back both halves — and stays listed only because the
-      graph-walking test cannot service the host half
+      graph-walking test cannot service the host half.
+      A **fourth** gap surfaced later, in the other direction: Bake Text, Rasterize
+      Shape and Rasterize Smart Object each recorded a `Graph` entry for an edit whose
+      other half the host writes to the GPU, so undo restored the semantic layer and
+      left the raster it had been converted into ([QA-015](QA_ISSUES.md)). All three
+      now record `Transform` entries with a host snapshot behind them, and the pair of
+      guards reads one list at both ends
 - [x] **H-40** History panel lists entries and jumping to one restores that state — entries carry their scope, the undone one is dimmed, and clicking "Add layer" returned the document to 3 layers
 - [x] **H-41** Workspace presets apply; Reset Workspace restores defaults — **failed first**:
       Reset Workspace announced itself but left an auto-hidden panel hidden. Fixed in

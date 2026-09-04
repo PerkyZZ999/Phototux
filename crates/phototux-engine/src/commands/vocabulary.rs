@@ -421,6 +421,28 @@ pub mod command_id {
         WORKSPACE_TOGGLE_PANEL,
         WORKSPACE_APPLY_PRESET,
     ];
+
+    /// Commands that replace a layer's semantic content with pixels.
+    ///
+    /// Each of these has one half in the graph — the kind change and the
+    /// payload clear — and one half on the GPU, where the host writes the
+    /// glyphs or the shape it just rasterized. Neither `Graph` nor `Stroke`
+    /// covers both: a `Graph` entry reverses the graph and never asks the
+    /// host, so undoing a bake used to restore an editable text layer while
+    /// leaving the baked glyphs sitting in its raster. The layer then drew
+    /// twice — its live preview over the pixels of the bake it had just taken
+    /// back — and saving persisted both.
+    ///
+    /// A `TransformSnapshot` carries the whole graph beside every layer's
+    /// pixels, so a `Transform` entry covers both halves at once, exactly as
+    /// a profile conversion does (QA-014). The host snapshots before invoking;
+    /// these commands record the entry.
+    ///
+    /// The list is here rather than restated at each end because the two ends
+    /// have to agree: an entry recorded with no snapshot behind it pops
+    /// whatever transform happens to be on the stack, and a snapshot with no
+    /// entry misaligns the stack against the timeline for every step after it.
+    pub const CONVERTS_TO_PIXELS: &[&str] = &[TEXT_BAKE, SHAPE_RASTERIZE, SMART_RASTERIZE];
 }
 
 /// Host follow-up after a successful command (canvas / pixel / chrome work).
