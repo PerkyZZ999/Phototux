@@ -65,7 +65,12 @@ they had.
       layer and an Invert adjustment round-tripped, editor and composite intact. Marked
       partial only because the reopened document arrives already flagged as modified
       ([QA-011](QA_ISSUES.md)); the content itself came back correctly
-- [ ] **H-06** Open a layered PSD → layers import, compatibility report discloses what was dropped
+- [x] **H-06** Open a layered PSD → layers import, compatibility report discloses what was
+      dropped — a PSD exported from PhotoTux reopened with both its raster layers and the
+      composite intact, and a Compatibility report dialog naming `[psd.subset]` and
+      `[psd.effects]`. The `[psd.effects]` line is shown for every layered PSD rather than
+      only for files that carry styles or vector masks — a blanket disclosure trains users
+      to dismiss it, but it is not wrong
 - [x] **H-07** Save a new document (Save As) → file written, title loses the dirty `*` —
       wrote `qa-doc.ptx` (2532 bytes); title became `qa-doc.ptx — PhotoTux` and the tab
       lost its asterisk
@@ -77,12 +82,20 @@ they had.
       the filter list was hand-written in QML and had gone stale, so BMP and GIF could
       be opened and never saved. The list is now published from `RasterFormat::ALL` and
       a GIF exported at 640×360 carries the adjustment layer's effect
-- [ ] **H-10** Export to PSD → layered file, compatibility report lists anything unrepresentable
+- [x] **H-10** Export to PSD → layered file, compatibility report lists anything
+      unrepresentable — a four-layer document (text, shape, raster, background) wrote a
+      24 MB layered PSD carrying its two raster layers, and the report said exactly which
+      two were left out: "Only raster layers are written to PSD. These were left out:
+      Shape layer, Text layer. Rasterize them first to keep them." Confirmed with an
+      external parse: the file's layer count is 2
 - [x] **H-11** Close a dirty document → prompts before discarding — Ctrl+W on a painted
       document raises "Unsaved changes · Save the document as .ptx, discard changes, or
       cancel?" with Save / Discard / Cancel. An earlier close that did *not* prompt was
       correct: the document was clean and its tab was lying about it (T-040, fixed)
-- [ ] **H-12** Open a second document → tab strip shows both, switching preserves each one's state
+- [x] **H-12** Open a second document → tab strip shows both, switching preserves each
+      one's state — switching back to a four-layer document restored its layers, its
+      active tool, the on-canvas text frame and the Character panel. The strip reorders
+      itself as you switch, which is [QA-011](QA_ISSUES.md)
 - [x] **H-13** Autosave fires and Recovery restores a document after a simulated unclean exit —
       exercised repeatedly across this pass: every `kill` of the app was followed by a
       Recover dialog listing the autosaves with per-entry Restore/Discard and Discard All,
@@ -177,7 +190,8 @@ they had.
       Reset Workspace announced itself but left an auto-hidden panel hidden. Fixed in
       `c8e300e` (T-038) and re-verified: auto-hide Properties, reset, panel returns
 - [ ] **H-42** Panels toggle, tear off, re-dock, auto-hide and resize; state survives restart
-- [ ] **H-43** Preferences persist across restart
+- [x] **H-43** Preferences persist across restart — "Show rulers" and "High contrast
+      chrome", both off by default, were still on after a relaunch
 - [ ] **H-44** Assign vs Convert profile behave differently and both are reachable
 - [ ] **H-45** Soft-proof toggles without dirtying the document
 
@@ -222,7 +236,9 @@ they had.
 - [x] **E-20** Truncated PNG / JPEG / `.ptx` / PSD → parse error, not a panic — empty, one byte, header-only, half and pure garbage all refused with typed errors
 - [x] **E-21** `.ptx` from a future version → refused with a version message — names both the file's version and the build's
 - [x] **E-22** `.ptx` with an unknown layer kind or extension blob → round-trips or refuses cleanly — covered by `extension_blob_roundtrips_in_graph_json`
-- [ ] **E-23** PSD with features outside the subset → imports what it can, discloses the rest
+- [x] **E-23** PSD with features outside the subset → imports what it can, discloses the
+      rest — covered by H-06: the import took the raster layers and disclosed the subset
+      boundary and the unimported effects rather than failing
 - [x] **E-24** A file whose extension lies about its content — PNG to the `.ptx` reader, `.ptx` to the PSD reader and to the raster decoder: each refused by content, not extension
 - [x] **E-25** Corrupt `preferences.json` → falls back to defaults rather than refusing to start — `unwrap_or_default`, and the sparse-file case is covered by four existing tests
 - [x] **E-26** Corrupt workspace / dock topology JSON → falls back to the default layout — `from_json` validates then falls back to `essentials()`
@@ -268,7 +284,12 @@ they had.
 - [x] **U-09** No dialog pins itself to a pixel width — `no_dialog_pins_itself_to_a_pixel_width` green
 - [ ] **U-10** Every dialog is reachable, dismissable by Escape, and returns focus
 - [ ] **U-11** Panel resize seams behave at their extremes
-- [ ] **U-12** High-contrast and reduced-motion preferences take effect
+- [x] **U-12** High-contrast and reduced-motion preferences take effect — **both failed in
+      part**. High contrast does take effect and is measurable (panel headers lift from
+      `#131315` to `#1F1F23`, borders from `#1A1A1D` to `#2B2B30`). Reduced motion reached
+      two of five animated surfaces; the busy indicator spun forever and the selection's
+      marching ants crawled regardless. Fixed in `fefbe02` and verified: with the
+      preference on, the selection outline is pixel-identical across two seconds
 
 ## 3.3 Visual language
 
