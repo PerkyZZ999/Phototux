@@ -61,10 +61,11 @@ they had.
 - [x] **H-04** Open a PNG → canvas shows it, layer list shows it, title carries the filename —
       640×360 PNG opened at zoom-to-fit 160%, layer named `qa-open.png`, title
       `qa-open.png — PhotoTux`, tab clean
-- [~] **H-05** Open a `.ptx` → layers, masks, styles and adjustments all return — a raster
-      layer and an Invert adjustment round-tripped, editor and composite intact. Marked
-      partial only because the reopened document arrives already flagged as modified
-      ([QA-011](QA_ISSUES.md)); the content itself came back correctly
+- [x] **H-05** Open a `.ptx` → layers, masks, styles and adjustments all return — a raster
+      layer and an Invert adjustment round-tripped, editor and composite intact. It had
+      been marked partial because the reopened document arrived already flagged as
+      modified ([QA-011](QA_ISSUES.md)); that was the tab lying rather than the flag, and
+      both are fixed
 - [x] **H-06** Open a layered PSD → layers import, compatibility report discloses what was
       dropped — a PSD exported from PhotoTux reopened with both its raster layers and the
       composite intact, and a Compatibility report dialog naming `[psd.subset]` and
@@ -94,8 +95,10 @@ they had.
       correct: the document was clean and its tab was lying about it (T-040, fixed)
 - [x] **H-12** Open a second document → tab strip shows both, switching preserves each
       one's state — switching back to a four-layer document restored its layers, its
-      active tool, the on-canvas text frame and the Character panel. The strip reorders
-      itself as you switch, which is [QA-011](QA_ISSUES.md)
+      active tool, the on-canvas text frame and the Character panel. The strip used to
+      reorder itself as you switched ([QA-011](QA_ISSUES.md)); it now keeps the order tabs
+      were opened in, re-verified with three tabs, and re-opening a file already open
+      raises its tab instead of making a second
 - [x] **H-13** Autosave fires and Recovery restores a document after a simulated unclean exit —
       exercised repeatedly across this pass: every `kill` of the app was followed by a
       Recover dialog listing the autosaves with per-entry Restore/Discard and Discard All,

@@ -371,7 +371,22 @@ pub struct SessionState {
     pub colors: ColorState,
     pub guides: ViewGuides,
     pub brush_presets: BrushPresetLibrary,
+    /// Where `Save` writes, or `None` for a document that has never been
+    /// saved as `.ptx`.
+    ///
+    /// Deliberately *not* set by a raster or PSD import: those have no `.ptx`
+    /// of their own yet, and writing `.ptx` bytes over the file they came from
+    /// would destroy it. [`Self::source_path`] is the one that answers "where
+    /// did this come from".
     pub document_path: Option<String>,
+    /// The file this document was loaded from, whatever its format.
+    ///
+    /// Separate from `document_path` because the two answer different
+    /// questions and only agree for a `.ptx`. This one is what says a file is
+    /// already open, and what the file dialogs start from; conflating them
+    /// meant re-opening an imported PNG made a second tab with its own
+    /// history, and a save from one silently lost the other's edits.
+    pub source_path: Option<String>,
     /// Generation last successfully persisted (save receipt); `None` if never saved.
     pub last_persisted_generation: Option<u64>,
     /// Ephemeral filter gallery preview (not document authority until commit).
@@ -426,6 +441,7 @@ impl Default for SessionState {
             guides: ViewGuides::default(),
             brush_presets: BrushPresetLibrary::with_defaults(),
             document_path: None,
+            source_path: None,
             last_persisted_generation: None,
             filter_preview: None,
             dirty_rect: None,

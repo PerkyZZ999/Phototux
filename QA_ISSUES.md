@@ -29,7 +29,7 @@ the entry says so rather than inventing one.
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | open |
-| [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | open |
+| [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | **fixed** |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
 | [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | open |
@@ -733,7 +733,7 @@ doing once for every overlay rather than for this one.
 | **Severity** | medium |
 | **Area** | `phototux_ui` — `lib.rs`, `phototux_engine` — `document_registry.rs` |
 | **Checklist item** | [H-05](QA_CHECKLIST.md), [H-12](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 Three things go wrong around opening a document. They are filed together
 because they are all the document-session model and would be fixed in one
@@ -787,6 +787,38 @@ QML tab strip and `document_tabs_json` guards both read. (4) is a new lookup and
 a decision about what "already open" means for a document that has been
 `Save As`-ed since. Handbook [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--document-session-model)
 owns the session model these all sit in.
+
+**Resolution.** All four.
+
+(1) and (2) went together and were fixed earlier, in
+[T-040](internal_docs/Appendix/Interactive-Stability-Checklist.md): `dirty` was
+published twice — as a property and inside `documentTabsJson` — and three
+writers set the field while emitting only the property, so the *tab* was the one
+lying, not the title. Every write now goes through `set_dirty`, which publishes
+both, and `finish_opened_ptx` no longer marks an opened document modified at
+all. A PSD import still does, deliberately: it has no `.ptx` of its own yet.
+
+(3) The strip's order is now the order tabs were opened, held in
+`DocumentRegistry::order` and independent of which tab is active. Activating
+moves a document between the parked vector and the host's active slot without
+touching it; closing removes it, through the new `forget`.
+
+(4) "Already open" is answered by a new `SessionState::source_path` — the file a
+document was *loaded from*, whatever its format. It is deliberately not
+`document_path`, which is where `Save` writes: the two agree only for a `.ptx`,
+because a raster or PSD import has no `.ptx` yet and writing one over the file it
+came from would destroy it. That distinction is what the issue's "what does
+already open mean" was asking for, and conflating them is why the naive lookup
+would have missed every imported PNG.
+
+`source_path` also turned out to be what the file dialogs should have been
+starting from: an imported PNG's `documentPath` is empty, so the browser opened
+wherever it was last used rather than in the folder the image came from.
+
+Verified live: three tabs keep their order when the leftmost is clicked, and
+re-opening the launch file raises the existing tab with "/tmp/qa_a.png is
+already open" rather than making a second. Two registry tests, both watched
+failing.
 
 ## QA-012 — A torn-off panel is a window with no panel in it
 

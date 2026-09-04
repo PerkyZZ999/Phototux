@@ -691,7 +691,10 @@ ApplicationWindow {
     /// encoded before it can stand in for a url — a folder with a space in it
     /// otherwise produces a url the dialog cannot resolve and silently ignores.
     function documentFolder() {
-        var path = AppSession.documentPath || ""
+        // `sourcePath`, not `documentPath`: an imported PNG has no `.ptx` to
+        // save over, so `documentPath` is empty for it — and the folder the
+        // user wants is still the one they imported from.
+        var path = AppSession.sourcePath || AppSession.documentPath || ""
         var cut = path.lastIndexOf("/")
         if (cut <= 0)
             return ""

@@ -361,6 +361,7 @@ pub struct AppSession {
     crop_preview_h: i32,
     compatibility_report: String,
     document_path: String,
+    source_path: String,
     graph_revision: i32,
     active_opacity: f32,
     active_blend: String,
@@ -708,6 +709,7 @@ impl AppSession {
             crop_preview_h: 0,
             compatibility_report: String::new(),
             document_path: String::new(),
+            source_path: String::new(),
             graph_revision: 0,
             active_opacity: 1.0,
             active_blend: "normal".to_owned(),
@@ -907,6 +909,7 @@ impl AppSession {
         }
         self.engine.replace_graph(graph);
         self.engine.document_path = Some(path.display().to_string());
+        self.engine.source_path = self.engine.document_path.clone();
         self.record_composite(ms);
         self.document_name = title;
         self.io_busy = false;
@@ -1238,6 +1241,12 @@ impl AppSession {
             document_path,
             self.engine.document_path.clone().unwrap_or_default(),
             document_path_changed
+        );
+        publish!(
+            self,
+            source_path,
+            self.engine.source_path.clone().unwrap_or_default(),
+            source_path_changed
         );
         publish!(
             self,
@@ -3556,6 +3565,11 @@ impl AppSession {
         Notify = document_path_changed
     );
     qproperty!(
+        "sourcePath",
+        Member = source_path,
+        Notify = source_path_changed
+    );
+    qproperty!(
         "graphRevision",
         Member = graph_revision,
         Notify = graph_revision_changed
@@ -4164,6 +4178,8 @@ impl AppSession {
     fn compatibility_report_changed(&mut self);
     #[qsignal]
     fn document_path_changed(&mut self);
+    #[qsignal]
+    fn source_path_changed(&mut self);
     #[qsignal]
     fn graph_revision_changed(&mut self);
     #[qsignal]
@@ -5497,6 +5513,10 @@ impl AppSession {
                 self.engine.replace_graph(graph);
                 self.record_composite(ms);
                 self.document_name = layer_name;
+                // Where it came from, not where Save writes: a raster import
+                // has no `.ptx` yet, and `document_path` stays unset so Save
+                // asks. This is what says the file is already open.
+                self.engine.source_path = Some(path.display().to_string());
                 self.set_dirty(false);
                 self.io_busy = false;
                 self.publish_pixel_snapshot_from_gpu();
@@ -5536,6 +5556,7 @@ impl AppSession {
         self.engine.replace_graph(graph);
         self.record_composite(ms);
         self.document_name = title;
+        self.engine.source_path = Some(path.display().to_string());
         // A PSD import has no `.ptx` of its own yet, so it is genuinely
         // unsaved work — unlike a `.ptx` open, which is the file on disk.
         self.set_dirty(true);
@@ -5594,6 +5615,7 @@ impl AppSession {
             self.set_dirty(false);
         }
         self.engine.document_path = Some(path.display().to_string());
+        self.engine.source_path = self.engine.document_path.clone();
         self.document_name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -5758,6 +5780,27 @@ impl AppSession {
                 return;
             }
         };
+        // Already open? Raise that tab rather than making a second one.
+        // Without this the same file ended up in two tabs with two independent
+        // histories, and a save from one silently lost the other's edits.
+        // Photoshop raises the existing tab; so does this.
+        let wanted = path.display().to_string();
+        if let Some(id) = self
+            .doc_registry
+            .tab_for_path(&wanted, self.engine.source_path.as_deref())
+        {
+            if self.active_doc_id != Some(id) {
+                if let Err(error) = self.activate_document_id(id) {
+                    self.fail_io("Open", &error);
+                    return;
+                }
+            }
+            self.notify(
+                NoticeLevel::Info,
+                format!("{} is already open", path.display()),
+            );
+            return;
+        }
         self.io_busy = true;
         self.io_error.clear();
         self.compatibility_report.clear();
@@ -6009,6 +6052,12 @@ impl AppSession {
         // Nothing parks these on the way out, and each one is a whole document
         // of pixels: closing tabs without this leaks one per smart object.
         self.smart_sources.clear();
+        // Out of the strip order too, not only out of the active slot: closing
+        // is the one path that removes a tab, and a closed active document is
+        // never parked, so nothing else would take it out.
+        if let Some(id) = self.active_doc_id {
+            self.doc_registry.forget(id);
+        }
         self.active_doc_id = None;
         self.doc_registry.set_active_id(None);
         self.selection_preview_active = false;

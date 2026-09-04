@@ -59,6 +59,15 @@ pub struct SmartSource {
 #[derive(Debug)]
 pub struct DocumentRegistry {
     parked: Vec<ParkedDocument>,
+    /// Strip order, oldest tab first, independent of which one is active.
+    ///
+    /// The strip used to be built as "active first, then whatever order the
+    /// parked vector happened to be in" — and parking pushes to the end of
+    /// that vector, so switching tabs shuffled twice: the tab you clicked
+    /// jumped to position 0 and the one you left went to the back. Nothing
+    /// else in the shell moves under the pointer like that, and a strip of
+    /// three or more became unreadable.
+    order: Vec<OpenDocumentId>,
     active_id: Option<OpenDocumentId>,
     next_id: u64,
 }
@@ -73,6 +82,7 @@ impl DocumentRegistry {
     pub fn new() -> Self {
         Self {
             parked: Vec::new(),
+            order: Vec::new(),
             active_id: None,
             next_id: 1,
         }
@@ -101,8 +111,23 @@ impl DocumentRegistry {
         let id = OpenDocumentId(self.next_id);
         self.next_id = self.next_id.wrapping_add(1).max(1);
         self.active_id = Some(id);
+        self.order.push(id);
         let _ = title;
         Ok(id)
+    }
+
+    /// Drop a document from the session entirely.
+    ///
+    /// Closing is the one path that removes a tab: activating only moves a
+    /// document between the parked vector and the host's active slot, and the
+    /// strip order must survive that. A closed *active* document is never
+    /// parked, so nothing else would take it out of the order.
+    pub fn forget(&mut self, id: OpenDocumentId) {
+        self.order.retain(|open| *open != id);
+        self.parked.retain(|doc| doc.id != id);
+        if self.active_id == Some(id) {
+            self.active_id = None;
+        }
     }
 
     /// Set / clear the active id without parking (close last doc).
@@ -149,7 +174,11 @@ impl DocumentRegistry {
         }
     }
 
-    /// Tab strip model for QML (active first, then parked order).
+    /// Tab strip model for QML, in the order the tabs were opened.
+    ///
+    /// The active document's title and dirty flag come from the caller because
+    /// it is the host's live session, not a parked record. Its *position*
+    /// comes from the same order as everyone else's.
     pub fn tabs_json(&self, active_title: &str, active_dirty: bool) -> String {
         #[derive(Serialize)]
         struct Tab {
@@ -158,24 +187,51 @@ impl DocumentRegistry {
             dirty: bool,
             active: bool,
         }
-        let mut tabs = Vec::new();
-        if let Some(aid) = self.active_id {
-            tabs.push(Tab {
-                id: aid.0,
-                title: active_title.to_owned(),
-                dirty: active_dirty,
-                active: true,
-            });
-        }
-        for d in &self.parked {
-            tabs.push(Tab {
-                id: d.id.0,
-                title: d.title.clone(),
-                dirty: d.dirty,
-                active: false,
-            });
-        }
+        let tabs: Vec<Tab> = self
+            .order
+            .iter()
+            .filter_map(|id| {
+                if self.active_id == Some(*id) {
+                    return Some(Tab {
+                        id: id.0,
+                        title: active_title.to_owned(),
+                        dirty: active_dirty,
+                        active: true,
+                    });
+                }
+                self.parked.iter().find(|doc| doc.id == *id).map(|doc| Tab {
+                    id: doc.id.0,
+                    title: doc.title.clone(),
+                    dirty: doc.dirty,
+                    active: false,
+                })
+            })
+            .collect();
         serde_json::to_string(&tabs).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// The tab already holding `path`, if the session has one.
+    ///
+    /// Opening a file that is already open used to make a second tab with its
+    /// own history, so a save from one silently lost the other's edits.
+    /// Photoshop raises the existing tab, and so does this.
+    ///
+    /// The active document is not in `parked`, so the caller passes its path
+    /// separately — the host owns that session, and the registry has no view
+    /// of it.
+    pub fn tab_for_path(&self, path: &str, active_path: Option<&str>) -> Option<OpenDocumentId> {
+        if path.is_empty() {
+            return None;
+        }
+        if let (Some(active), Some(id)) = (active_path, self.active_id)
+            && active == path
+        {
+            return Some(id);
+        }
+        self.parked
+            .iter()
+            .find(|doc| doc.session.source_path.as_deref() == Some(path))
+            .map(|doc| doc.id)
     }
 }
 
@@ -257,5 +313,79 @@ mod tests {
             );
         }
         assert!(reg.begin_active("overflow").is_err());
+    }
+    /// The strip keeps the order tabs were opened in.
+    ///
+    /// It used to be "active first, then whatever order the parked vector
+    /// happened to be in", and parking pushes to the end of that vector — so
+    /// switching tabs shuffled twice: the one clicked jumped to position 0 and
+    /// the one left behind went to the back.
+    #[test]
+    fn the_strip_keeps_the_order_tabs_were_opened_in() {
+        let titles = |json: &str| {
+            serde_json::from_str::<serde_json::Value>(json)
+                .expect("tabs json")
+                .as_array()
+                .expect("array")
+                .iter()
+                .map(|tab| tab["title"].as_str().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let park = |reg: &mut DocumentRegistry, id, title: &str| {
+            reg.park_active(
+                id,
+                title.to_owned(),
+                SessionState::default(),
+                Vec::new(),
+                Vec::new(),
+                false,
+            );
+        };
+
+        let mut reg = DocumentRegistry::new();
+        let a = reg.begin_active("A").expect("open A");
+        park(&mut reg, a, "A");
+        let b = reg.begin_active("B").expect("open B");
+        park(&mut reg, b, "B");
+        let c = reg.begin_active("C").expect("open C");
+
+        assert_eq!(titles(&reg.tabs_json("C", false)), ["A", "B", "C"]);
+
+        // Switch to A: park C, take A. The strip must not move.
+        park(&mut reg, c, "C");
+        let taken = reg.take_parked(a).expect("A is parked");
+        reg.set_active_id(Some(taken.id));
+        assert_eq!(
+            titles(&reg.tabs_json("A", false)),
+            ["A", "B", "C"],
+            "the strip reordered itself when the active tab changed"
+        );
+
+        // Closing takes a tab out of the order for good.
+        reg.forget(a);
+        park(&mut reg, b, "B");
+        assert_eq!(titles(&reg.tabs_json("", false)), ["B", "C"]);
+    }
+
+    /// A file that is already open is found by path, not opened twice.
+    #[test]
+    fn a_file_already_open_is_found_by_path() {
+        let mut reg = DocumentRegistry::new();
+        let a = reg.begin_active("A").expect("open A");
+        let session = SessionState {
+            source_path: Some("/tmp/a.ptx".to_owned()),
+            ..SessionState::default()
+        };
+        reg.park_active(a, "A".into(), session, Vec::new(), Vec::new(), false);
+
+        let b = reg.begin_active("B").expect("open B");
+        assert_eq!(reg.tab_for_path("/tmp/a.ptx", Some("/tmp/b.ptx")), Some(a));
+        assert_eq!(reg.tab_for_path("/tmp/b.ptx", Some("/tmp/b.ptx")), Some(b));
+        assert_eq!(reg.tab_for_path("/tmp/c.ptx", Some("/tmp/b.ptx")), None);
+        assert_eq!(
+            reg.tab_for_path("", Some("")),
+            None,
+            "an untitled document has no path to match"
+        );
     }
 }
