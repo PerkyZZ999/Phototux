@@ -118,13 +118,17 @@ they had.
 - [x] **H-19** Fill and Gradient commit to the active layer — **the bucket's own colour field was wrong**: it showed and edited a *fill layer's* colour while the bucket poured the foreground. Fixed and guarded
 - [x] **H-20** Eyedropper picks into the foreground swatch — filled `#CC3366`, set the
       foreground to `#111111`, sampled the canvas, and the field read `#CC3366` again
-- [~] **H-21** Text tool creates an editable text layer; Bake Text rasterizes it
+- [x] **H-21** Text tool creates an editable text layer; Bake Text rasterizes it
       — the layer is created and is editable from both the on-canvas frame and the
       Character panel (they mirror each other live), and Bake Text converts it to a
       raster layer with the notice "Text baked to pixels — editable text discarded".
-      Two defects: the creating click's position was discarded ([QA-007](QA_ISSUES.md)) —
-      now fixed, the frame lands under the pointer —
-      and the bake uses a 5×7 bitmap alphabet rather than the previewed face
+      Two defects, both now fixed: the creating click's position was discarded
+      ([QA-007](QA_ISSUES.md)) — the frame now lands under the pointer — and the bake
+      used a 5×7 bitmap alphabet rather than the previewed face
+      ([QA-008](QA_ISSUES.md)). Re-verified live: `PhotoTux QA gjpqy` at 24 pt Noto
+      Sans baked with proportional advances, real lowercase and true descenders,
+      pixel-identical in placement to the preview, and Ctrl+Z restored the editable
+      layer
       ([QA-008](QA_ISSUES.md)). A third, found here and fixed in place, was worse
       than either: after the bake every single-key tool shortcut was dead until
       something else was clicked, because the hidden on-canvas editor kept the

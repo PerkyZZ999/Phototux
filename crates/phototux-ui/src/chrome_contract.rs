@@ -1535,6 +1535,73 @@ mod tests {
              function — publish! it, so an unchanged path says nothing (T-009)"
         );
     }
+    /// Bake Text is rendered by Qt, in the face the editor shows.
+    ///
+    /// The engine's `bake_text_rgba8` draws a built-in 5×7 ASCII alphabet,
+    /// because `phototux_engine` may not link Qt. Correct as a headless
+    /// reference; wrong as what a user gets, and for a while it was both — a
+    /// Noto Sans layer turned into blocky monospaced capitals with no
+    /// lowercase the instant it was baked (QA-008).
+    ///
+    /// Two things have to hold in the shell for the Qt path to answer, and
+    /// both fail silently. The renderer has to exist and be wired to the
+    /// host's request signal — without it every bake quietly falls back and
+    /// the only difference is the glyphs. And it has to be offscreen *by
+    /// position*: `grabToImage` renders the item's own scene-graph node, and
+    /// an invisible item has none, so `visible: false` would grab nothing and
+    /// fall back on every bake while looking perfectly reasonable in review.
+    #[test]
+    fn bake_text_is_rendered_in_the_face_the_editor_shows() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+
+        let at = shell
+            .lines()
+            .position(|line| line.trim() == "id: textRasterHost")
+            .expect(
+                "there is no offscreen text renderer, so Bake Text falls back \
+                 to the engine's 5×7 alphabet on every bake",
+            );
+        let body: String = shell
+            .lines()
+            .skip(at)
+            .take(40)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let x = body
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("x: "))
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .expect("the renderer pins its own x, so it cannot drift on screen");
+        assert!(
+            x <= -1024,
+            "the text renderer sits at x: {x}, which is on screen — it has to \
+             be offscreen by position, because an invisible item has no node \
+             to grab"
+        );
+        assert!(
+            !body.contains("visible: false"),
+            "the text renderer is hidden with `visible: false`; grabToImage \
+             would return nothing and every bake would fall back"
+        );
+
+        assert!(
+            shell.contains("function onTextRasterRequested()"),
+            "nothing in the shell answers the host's render request, so the \
+             renderer is there and never asked"
+        );
+        assert!(
+            shell.contains("AppSession.textRasterReady(")
+                && shell.contains("AppSession.textRasterFailed("),
+            "the renderer reports only one of success and failure — a bake \
+             that cannot be rendered would hang instead of falling back"
+        );
+    }
+
     /// A torn-off panel carries the panel, not a description of it.
     ///
     /// The floating window used to hold two lines of prose and a Dock button.

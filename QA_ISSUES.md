@@ -26,12 +26,12 @@ the entry says so rather than inventing one.
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | **fixed** |
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | **fixed** |
-| [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
+| [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | **fixed** |
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | **fixed** |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | **fixed** |
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | **fixed** |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | **fixed** |
-| [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
+| [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | **fixed** |
 | [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | **fixed** |
 
 ---
@@ -654,7 +654,7 @@ both watched failing.
 | **Severity** | medium |
 | **Area** | `phototux_engine` — `text_bake.rs` |
 | **Checklist item** | [H-21](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** The on-canvas text editor and the read-only preview both render
 in the layer's chosen family — Noto Sans at 24 pt by default, with real
@@ -688,6 +688,38 @@ edit. Handbook 18 describes the full engine, and the
 [gap analysis](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) does
 not currently record that the shipping bake ignores the selected face — that
 omission is part of this issue.
+
+**Resolution.** The first shape: an adapter in `phototux_ui`, with
+`bake_text_rgba8` kept as the headless fallback.
+
+`text_adapter` owns the host half. It describes the bake — text, family, pixel
+size, colour, alignment, wrap, line height, tracking, and the surface size — and
+the shell renders it through Qt's own text stack, the same stack that drew the
+on-canvas preview, then hands back a PNG the adapter composes into the document
+buffer. No new C++, no second font stack in Rust, and by construction the bake
+now matches the preview it replaces.
+
+Three things had to be true, and each fails silently:
+
+- The geometry stays the engine's. `BAKE_MARGIN` duplicates the engine bake's
+  inset — the engine cannot depend on the host crate — and
+  `the_adapter_and_the_engine_bake_share_a_margin` asserts they agree, so
+  falling back cannot nudge the text sideways as well as change its shapes.
+- The renderer is offscreen by *position*. `grabToImage` renders the item's own
+  scene-graph node, and an invisible item has none, so `visible: false` would
+  grab nothing and silently fall back on every bake.
+- Nothing is committed until the pixels exist. A shell that cannot render says
+  why and the host bakes through the engine; a shell that never answers leaves
+  an editable text layer rather than a raster layer with no glyphs in it.
+
+`bake_text_is_rendered_in_the_face_the_editor_shows` guards the shell's half,
+and the handbook's [18 — Text Engine](internal_docs/18-Text-Engine.md) and the
+gap analysis now both record which rasterizer answers.
+
+Re-verified live: `PhotoTux QA gjpqy` at 24 pt Noto Sans baked with proportional
+advances, real lowercase and true descenders, in the same position as the
+preview; the log recorded no fallback; the temporary PNG was removed; and
+Ctrl+Z restored the editable text layer.
 
 ## QA-009 — Path Edit asks the user to drag anchors it never draws
 
@@ -996,7 +1028,7 @@ panel id onto one, and the floating window loads what it returns.
 | **Severity** | medium |
 | **Area** | `qml/PanelResizeGrip.qml`, `phototux_engine` — `dock.rs` |
 | **Checklist item** | [U-11](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** Dragging a dock seam downward past the bottom of the window makes
 the panel above it fill the entire dock, and Navigator, Swatches, Layers and

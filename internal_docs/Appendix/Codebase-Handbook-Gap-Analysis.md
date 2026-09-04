@@ -188,7 +188,13 @@ Prefer these over gated P11/P12 work. Sync checklist checkboxes when closing a r
 | — | P11 tiling / spill / sparse | Large-doc / memory evidence | **Do not start** (DR-029) |
 | — | P12 plugin host | No product need | **Do not start** (DR-029) |
 
-**Closed this refresh:** U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6); U9 progressive disclosure (summaries, host-derived badges, registry-order conformance, expand/collapse-all); right-dock height distribution (T-024 / T-026 — tabbed dock groups show one panel per group, so the collapse-to-header case no longer arises); dialog and control contrast (T-029).
+**Closed this refresh:** text bake shaping — `text.bake` rasterised through the
+engine's built-in 5×7 ASCII alphabet regardless of the layer's family, so a
+baked layer changed face and lost its lowercase the instant it stopped being
+editable ([QA-008](../../QA_ISSUES.md)). `phototux_ui`'s `text_adapter` and the
+shell's offscreen renderer now bake through Qt's own text stack — the same one
+that drew the preview — with the engine bake kept as the headless fallback
+([18 — Text Engine](../18-Text-Engine.md)). U7 user-named workspace presets (Preferences Save/Delete; prefs schema 6); U9 progressive disclosure (summaries, host-derived badges, registry-order conformance, expand/collapse-all); right-dock height distribution (T-024 / T-026 — tabbed dock groups show one panel per group, so the collapse-to-header case no longer arises); dialog and control contrast (T-029).
 
 ---
 

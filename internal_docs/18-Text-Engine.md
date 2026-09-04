@@ -465,7 +465,45 @@ leave a raster layer still carrying its text — or a text layer with none.
 `text.bake` shipped writing both straight onto the graph and pushing nothing,
 which made discarding a layer's words permanent; the same defect was in
 `shape.rasterize` and `smartobject.rasterize`, and
-`every_conversion_to_pixels_can_be_undone` now covers the family. Preparation may fail after allocating temporary outlines; authority remains semantic text until history inverse reservation and atomic commit succeed. Partial GPU uploads or atlas corruption roll back leases without inventing path layers. Security-relevant failures during conversion are indistinguishable in user messaging from resource failures insofar as both refuse commit; diagnostics distinguish them for developers under redaction rules.
+`every_conversion_to_pixels_can_be_undone` now covers the family.
+
+**Shipped rule — the bake is rendered in the face the editor shows.** Two
+rasterizers can answer `text.bake`, and which one does is a visible product
+decision, not an implementation detail. `phototux_engine` may not link Qt, so
+its `bake_text_rgba8` draws a built-in 5×7 ASCII alphabet: deterministic and
+headless, and the reference every engine test measures against. It shipped as
+the *only* answer, which meant a Noto Sans layer became blocky monospaced
+capitals with no lowercase the instant it stopped being editable — the user saw
+one thing while the text was live and a different thing the moment it was
+pixels (QA-008).
+
+The split this chapter asks for is the fix: the portable core keeps text
+semantics, and a Linux-native adapter resolves the face. `phototux_ui`'s
+`text_adapter` owns the host half. It describes the bake — text, family, pixel
+size, colour, alignment, wrap, line height, tracking, and the surface size — and
+the shell renders it through Qt's own text stack, the same stack that drew the
+on-canvas preview, then hands back a PNG the adapter composes into the document
+buffer.
+
+Three constraints hold this together, and each of them fails silently:
+
+- **The geometry is the engine's.** `BAKE_MARGIN` duplicates the engine bake's
+  inset because the engine cannot depend on the host crate, and
+  `the_adapter_and_the_engine_bake_share_a_margin` asserts the two agree. A
+  drift would move every baked layer by a few pixels depending on which
+  rasterizer answered.
+- **The renderer is offscreen by position, not by visibility.**
+  `grabToImage` renders the item's own scene-graph node, and an invisible item
+  has none — `visible: false` would grab nothing and fall back on every bake
+  while reading perfectly sensibly.
+- **The engine bake stays the fallback, and the bake stays uncommitted until
+  pixels exist.** A shell that cannot render reports why; the host logs it and
+  bakes through the engine. A shell that never answers leaves an editable text
+  layer rather than a raster layer with no glyphs in it.
+
+`bake_text_is_rendered_in_the_face_the_editor_shows` guards the shell's half.
+
+Preparation may fail after allocating temporary outlines; authority remains semantic text until history inverse reservation and atomic commit succeed. Partial GPU uploads or atlas corruption roll back leases without inventing path layers. Security-relevant failures during conversion are indistinguishable in user messaging from resource failures insofar as both refuse commit; diagnostics distinguish them for developers under redaction rules.
 
 ## Concurrency, Cancellation, and Consistency
 

@@ -11,6 +11,7 @@ mod host_undo;
 mod layer_model;
 mod prefs;
 mod selection_path;
+mod text_adapter;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -521,6 +522,14 @@ pub struct AppSession {
     text_line_spacing: f32,
     text_alignment: i32,
     text_color_hex: String,
+    /// The layer a shaped text bake is waiting on, if one is in flight.
+    ///
+    /// `Some` only between the request and the shell's answer. It is taken, not
+    /// read, so a second answer to the same request — a duplicated signal, a
+    /// late failure after a success — finds nothing and does nothing.
+    pending_text_bake: Option<LayerId>,
+    /// The bake the shell should render, as JSON. Empty until one is asked for.
+    text_raster_request_json: String,
     pref_show_grid: bool,
     pref_show_rulers: bool,
     pref_snap: bool,
@@ -823,6 +832,8 @@ impl AppSession {
             text_line_spacing: 1.2,
             text_alignment: 0,
             text_color_hex: "#000000".into(),
+            pending_text_bake: None,
+            text_raster_request_json: String::new(),
             pref_show_grid: false,
             pref_show_rulers: false,
             pref_snap: true,
@@ -4041,6 +4052,11 @@ impl AppSession {
         Notify = text_color_hex_changed
     );
     qproperty!(
+        "textRasterRequestJson",
+        Member = text_raster_request_json,
+        Notify = text_raster_request_json_changed
+    );
+    qproperty!(
         "textFrameW",
         Member = text_frame_w,
         Notify = text_frame_w_changed
@@ -4180,6 +4196,12 @@ impl AppSession {
     /// Save.
     #[qsignal]
     fn document_saved(&mut self);
+    /// The shell should render `textRasterRequestJson` and answer.
+    ///
+    /// An event, not a property notification: two identical bakes in a row
+    /// publish the same JSON, and the second must still be rendered.
+    #[qsignal]
+    fn text_raster_requested(&mut self);
     #[qsignal]
     fn selection_active_changed(&mut self);
     #[qsignal]
@@ -4435,6 +4457,8 @@ impl AppSession {
     fn text_alignment_changed(&mut self);
     #[qsignal]
     fn text_color_hex_changed(&mut self);
+    #[qsignal]
+    fn text_raster_request_json_changed(&mut self);
     #[qsignal]
     fn text_frame_w_changed(&mut self);
     #[qsignal]
@@ -7280,33 +7304,134 @@ impl AppSession {
         }
     }
 
-    /// Bake active text layer to raster pixels (CPU glyph bake → GPU upload).
+    /// Bake the active text layer to pixels, in the face the editor shows.
+    ///
+    /// Two renderers answer this, and which one does is the whole of QA-008.
+    /// The engine's `bake_text_rgba8` draws a 5×7 ASCII alphabet — right for a
+    /// headless reference, wrong as the thing a user gets, because the canvas
+    /// changed face the instant the text became pixels. So the request goes to
+    /// the shell first, which renders the layer through Qt's own text stack —
+    /// the same stack that drew the preview — and calls back with a PNG.
+    ///
+    /// The bake is not *committed* here. Nothing changes until the pixels
+    /// exist: a shell that never answers, or answers with a failure, leaves an
+    /// editable text layer rather than a raster layer with no glyphs in it.
     #[qslot]
     fn bake_text_layer(&mut self) {
-        let Some(id) = self.active_id() else {
+        let Some((id, content, w, h)) = self.text_bake_target() else {
             return;
         };
-        let Some(graph) = self.engine.graph.as_ref() else {
+        let path =
+            std::env::temp_dir().join(format!("phototux-text-{}-{}.png", std::process::id(), id.0));
+        let path = path.to_string_lossy().into_owned();
+        match text_adapter::raster_request_json(&content, w, h, &path) {
+            Ok(request) => {
+                self.pending_text_bake = Some(id);
+                self.text_raster_request_json = request;
+                self.text_raster_request_json_changed();
+                self.text_raster_requested();
+            }
+            Err(error) => {
+                // The request could not even be described. Nothing is wrong
+                // with the shell, so asking it would only lose the reason.
+                tracing::warn!(error = %error, "text bake request");
+                self.finish_text_bake_with_fallback(id, &content, w, h);
+            }
+        }
+    }
+
+    /// The shell rendered the text; take the pixels and commit the bake.
+    ///
+    /// `path` is the file this host named in its own request — the shell
+    /// echoes it back rather than choosing one, so a stale or foreign path is
+    /// a mismatch to refuse, not a file to read.
+    #[qslot]
+    fn text_raster_ready(&mut self, path: String) {
+        let Some(id) = self.pending_text_bake.take() else {
             return;
         };
-        let Some(layer) = graph.get(id) else {
+        let Some((current, content, w, h)) = self.text_bake_target() else {
             return;
         };
-        if layer.kind != LayerKind::Text {
-            self.notify(NoticeLevel::Warning, "Select a text layer to bake it.");
+        if current != id {
+            // The active layer moved while the shell was rendering. Baking the
+            // new layer with the old layer's glyphs would be worse than not
+            // baking at all.
             return;
         }
-        let Some(content) = layer.text.clone() else {
-            return;
-        };
-        let (w, h) = (graph.size.width, graph.size.height);
-        let pixels = match bake_text_rgba8(&content, w, h) {
-            Ok(p) => p,
+        let rendered = phototux_io::decode_path(std::path::Path::new(&path));
+        let _ = std::fs::remove_file(&path);
+        let pixels = match rendered.map_err(|e| e.to_string()).and_then(|raster| {
+            text_adapter::compose_into_document(
+                raster.pixels(),
+                raster.width(),
+                raster.height(),
+                w,
+                h,
+            )
+        }) {
+            Ok(pixels) => pixels,
             Err(error) => {
-                self.report_gpu("bake text", &error);
+                tracing::warn!(error = %error, "shaped text bake");
+                self.finish_text_bake_with_fallback(id, &content, w, h);
                 return;
             }
         };
+        self.commit_text_bake(id, pixels);
+    }
+
+    /// The shell could not render the text — fall back to the engine bake.
+    ///
+    /// Reported at `warn`, not to the user: the bake still happens, and a
+    /// notice about a renderer they did not choose would be noise. The visible
+    /// difference is the face, which the log names the reason for.
+    #[qslot]
+    fn text_raster_failed(&mut self, reason: String) {
+        let Some(id) = self.pending_text_bake.take() else {
+            return;
+        };
+        tracing::warn!(reason = %reason, "text render fell back to the engine bake");
+        let Some((current, content, w, h)) = self.text_bake_target() else {
+            return;
+        };
+        if current != id {
+            return;
+        }
+        self.finish_text_bake_with_fallback(id, &content, w, h);
+    }
+
+    /// The active layer, if it is text with content worth baking.
+    fn text_bake_target(&mut self) -> Option<(LayerId, TextContent, u32, u32)> {
+        let id = self.active_id()?;
+        let graph = self.engine.graph.as_ref()?;
+        let layer = graph.get(id)?;
+        if layer.kind != LayerKind::Text {
+            self.notify(NoticeLevel::Warning, "Select a text layer to bake it.");
+            return None;
+        }
+        let content = layer.text.clone()?;
+        Some((id, content, graph.size.width, graph.size.height))
+    }
+
+    fn finish_text_bake_with_fallback(
+        &mut self,
+        id: LayerId,
+        content: &TextContent,
+        w: u32,
+        h: u32,
+    ) {
+        match bake_text_rgba8(content, w, h) {
+            Ok(pixels) => self.commit_text_bake(id, pixels),
+            Err(error) => self.report_gpu("bake text", &error),
+        }
+    }
+
+    /// Turn the layer into a raster one and upload the glyphs.
+    ///
+    /// Ordered so a refused command leaves the pixels unwritten: the command
+    /// discards the editable text, and writing glyphs onto a layer that is
+    /// still text would show baked type the user could still edit.
+    fn commit_text_bake(&mut self, id: LayerId, pixels: Vec<u8>) {
         if let Err(error) = self.invoke_command(command_id::TEXT_BAKE, CommandArgs::None) {
             self.report_action_error(&error);
             return;

@@ -4913,4 +4913,107 @@ ApplicationWindow {
         }
     }
 
+    // Offscreen text renderer for Bake Text (QA-008).
+    //
+    // The engine's bake draws a built-in 5×7 ASCII alphabet, because
+    // `phototux_engine` may not link Qt. That is right for a headless
+    // reference and wrong for what a user gets: a Noto Sans layer became
+    // blocky monospaced capitals with no lowercase the instant it was baked.
+    // Here Qt shapes and rasterises the layer's actual face — the same text
+    // stack that drew the on-canvas preview, so the two agree.
+    //
+    // Offscreen by position, not by `visible: false`. `grabToImage` renders
+    // the item's own scene-graph node, and an invisible item has none, so it
+    // would grab nothing and every bake would fall back. A negative x keeps
+    // the node and shows the user nothing.
+    Item {
+        id: textRasterHost
+        property var request: null
+        x: -32000
+        y: 0
+        width: Math.max(1, textRasterHost.request ? textRasterHost.request.width : 1)
+        height: Math.max(1, textRasterHost.request ? textRasterHost.request.height : 1)
+
+        Text {
+            id: textRasterSource
+            anchors.fill: parent
+            text: textRasterHost.request ? textRasterHost.request.text : ""
+            // Transparent, not a black, when there is no request: the item has
+            // no text either, so the fallback never draws — and a document
+            // colour hard-coded here would be a literal the theme guard is
+            // right to reject.
+            color: textRasterHost.request ? textRasterHost.request.color : "transparent"
+            opacity: textRasterHost.request ? textRasterHost.request.opacity : 1
+            font.family: textRasterHost.request
+                         ? textRasterHost.request.family : "Noto Sans"
+            font.pixelSize: textRasterHost.request
+                            ? Math.max(1, textRasterHost.request.pixelSize) : 24
+            font.letterSpacing: textRasterHost.request
+                                ? textRasterHost.request.letterSpacing : 0
+            lineHeight: textRasterHost.request
+                        ? Math.max(0.1, textRasterHost.request.lineHeight) : 1
+            lineHeightMode: Text.ProportionalHeight
+            wrapMode: (textRasterHost.request && textRasterHost.request.wrap)
+                      ? Text.Wrap : Text.NoWrap
+            horizontalAlignment: {
+                var a = textRasterHost.request ? textRasterHost.request.alignment : 0
+                return a === 1 ? Text.AlignHCenter
+                               : (a === 2 ? Text.AlignRight : Text.AlignLeft)
+            }
+            verticalAlignment: Text.AlignTop
+        }
+
+        /// Render `req` and answer the host, or tell it why we could not.
+        ///
+        /// Split from the request handler so the properties above are applied
+        /// and laid out before the grab: `grabToImage` snapshots the node as
+        /// it is now, and grabbing in the same turn we set the text would
+        /// capture the *previous* bake.
+        function renderRequest(req) {
+            textRasterHost.request = req
+            Qt.callLater(textRasterHost.grabRequest)
+        }
+
+        function grabRequest() {
+            var req = textRasterHost.request
+            if (!req) {
+                AppSession.textRasterFailed("no request")
+                return
+            }
+            var started = textRasterSource.grabToImage(function (result) {
+                // Fires from the render loop, not from inside a host slot, so
+                // these calls are not re-entrant.
+                if (!result) {
+                    AppSession.textRasterFailed("the grab returned nothing")
+                    return
+                }
+                if (!result.saveToFile(req.path)) {
+                    AppSession.textRasterFailed("could not write " + req.path)
+                    return
+                }
+                AppSession.textRasterReady(req.path)
+            }, Qt.size(req.width, req.height))
+            if (!started)
+                AppSession.textRasterFailed("this item cannot be grabbed")
+        }
+    }
+
+    Connections {
+        target: AppSession
+        function onTextRasterRequested() {
+            var req = null
+            try {
+                req = JSON.parse(AppSession.textRasterRequestJson)
+            } catch (e) {
+                // The host built this JSON, so a parse failure is a bug, not
+                // user input. Fall back rather than leave the bake hanging.
+                root.afterHostSlot(function () {
+                    AppSession.textRasterFailed("unreadable render request")
+                })
+                return
+            }
+            root.afterHostSlot(function () { textRasterHost.renderRequest(req) })
+        }
+    }
+
 }
