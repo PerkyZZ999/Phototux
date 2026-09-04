@@ -1,5 +1,6 @@
 //! Gesture-level undo stack (DR-004).
 
+use crate::color_mgmt::DocumentColorState;
 use crate::document::DocumentGraph;
 use crate::filter_plan::FilterPlan;
 use crate::layer::{
@@ -138,6 +139,18 @@ pub enum GraphCommand {
         prev: PathDocument,
         next: PathDocument,
     },
+    /// The document's colour tagging — assigned profile, soft-proof and the
+    /// embedded ICC bytes.
+    ///
+    /// Photoshop makes Assign Profile undoable and so does this; the state is
+    /// a handful of strings and a byte vector, so the whole struct is the
+    /// smallest honest unit. Convert to Profile is *not* covered by this on
+    /// its own: when a conversion rewrites pixels the graph half is only half
+    /// the edit.
+    SetColorState {
+        prev: DocumentColorState,
+        next: DocumentColorState,
+    },
     /// Layer effect styles (drop shadow, stroke, outer glow, colour overlay).
     SetStyles {
         id: LayerId,
@@ -245,6 +258,10 @@ impl GraphCommand {
             }
             Self::SetPaths { next, .. } => {
                 graph.paths = next.clone();
+                true
+            }
+            Self::SetColorState { next, .. } => {
+                graph.color = next.clone();
                 true
             }
             Self::SetStyles { id, next, .. } => {
@@ -453,6 +470,10 @@ impl GraphCommand {
                 next: prev.clone(),
             },
             Self::SetPaths { prev, next } => Self::SetPaths {
+                prev: next.clone(),
+                next: prev.clone(),
+            },
+            Self::SetColorState { prev, next } => Self::SetColorState {
                 prev: next.clone(),
                 next: prev.clone(),
             },

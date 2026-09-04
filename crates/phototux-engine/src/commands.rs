@@ -1434,11 +1434,27 @@ impl SessionState {
         if profile.trim().is_empty() {
             return Err(CommandError::InvalidArgument("empty profile"));
         }
-        let Some(graph) = self.graph.as_mut() else {
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        // Assigning a profile retags the document without touching a pixel,
+        // and Photoshop lets you take it back. It recorded nothing at all: the
+        // generation moved, the document went dirty, and Ctrl+Z walked past it
+        // to whatever came before.
+        let prev = graph.color.clone();
         graph.color.assign_profile(profile);
+        if graph.color == prev {
+            return Err(CommandError::Rejected("profile unchanged"));
+        }
         graph.bump_generation();
+        let generation = graph.generation;
+        let next = graph.color.clone();
+        history.push_graph_applied(
+            crate::GraphCommand::SetColorState { prev, next },
+            "Assign profile",
+            generation,
+        );
         Ok(CommandEffects {
             recomposite: false,
             dirty: true,
@@ -1449,7 +1465,7 @@ impl SessionState {
             host_history: None,
             host_follow_up: HostFollowUp::None,
             created_layer: None,
-            generation: graph.generation,
+            generation,
         })
     }
 
@@ -1494,11 +1510,12 @@ impl SessionState {
         let CommandArgs::SetIcc { bytes } = args else {
             return Err(CommandError::InvalidArgument("expected SetIcc"));
         };
-        let Some(graph) = self.graph.as_mut() else {
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let prev = graph.color.embedded_icc.clone();
-        if prev == bytes {
+        let prev = graph.color.clone();
+        if prev.embedded_icc == bytes {
             return Err(CommandError::Rejected("ICC unchanged"));
         }
         if let Err(reason) = graph.color.set_embedded_icc(bytes) {
@@ -1511,7 +1528,17 @@ impl SessionState {
         } else {
             "Clear ICC"
         };
-        self.history.push_transform(label, generation);
+        // A graph entry, not a transform one. The ICC bytes live in the graph
+        // and the host has never had a snapshot of them, so the `Transform`
+        // entry this used to record sent undo to the host's transform stack —
+        // which would restore whatever layer pixels were last committed there,
+        // reversing an unrelated edit and leaving the profile embedded.
+        let next = graph.color.clone();
+        history.push_graph_applied(
+            crate::GraphCommand::SetColorState { prev, next },
+            label,
+            generation,
+        );
         self.announce(label);
         Ok(CommandEffects {
             recomposite: false,

@@ -184,7 +184,21 @@ they had.
 
 ## 1.5 History, workspace, colour
 
-- [ ] **H-39** Undo/redo across every mutating command, including the two host-side stacks
+- [!] **H-39** Undo/redo across every mutating command, including the two host-side
+      stacks — **three gaps found in the colour submenu**. A new conformance test walks
+      `default_actions()`, invokes each action's command, and for every one that
+      changed the serialised graph asserts an undo entry was recorded, that undo
+      restores the document exactly, and that redo puts it back; 42 actions reach the
+      graph. Assign Profile edited the document and recorded nothing. Embed/Clear ICC
+      recorded a `Transform` entry, which routes undo to the host's transform snapshot
+      stack — a stack it never wrote to — so undoing it would have restored an
+      unrelated layer-pixel commit and left the profile embedded. Both fixed: a new
+      `GraphCommand::SetColorState` carries the document's colour state, and both
+      commands record it. Convert to Profile is the third and is not a correction —
+      it rewrites every pixel on the GPU with no snapshot ([QA-014](QA_ISSUES.md)) —
+      so it is named in the test's `NOT_UNDOABLE` list rather than skipped silently.
+      Soft-proof is named there too: it is view chrome stored in the graph, and
+      Photoshop's Proof Colors is not undoable either
 - [x] **H-40** History panel lists entries and jumping to one restores that state — entries carry their scope, the undone one is dimmed, and clicking "Add layer" returned the document to 3 layers
 - [x] **H-41** Workspace presets apply; Reset Workspace restores defaults — **failed first**:
       Reset Workspace announced itself but left an auto-hidden panel hidden. Fixed in

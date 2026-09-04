@@ -224,6 +224,25 @@ it captures the pixels the command is about to replace. When the command
 refuses, `discard_last` withdraws it — otherwise a refused edit would leave a
 no-op step on the undo stack.
 
+**A host-side kind is a claim about where the state lives.** `HistoryKind`
+routes an entry: `Graph` reverses the document graph and never asks the host,
+while `Selection` and `Transform` ask the host and never touch the graph. An
+entry filed under the wrong kind does not fail — it undoes something else.
+Embed/Clear ICC recorded a `Transform` entry for bytes that live in the graph,
+so undoing it would have popped the host's transform stack, restored whatever
+layer pixels were last committed there, and left the profile embedded. It now
+records `GraphCommand::SetColorState`, which carries the document's whole
+colour state — assigned profile, soft-proof and embedded ICC — and so does
+Assign Profile, which had recorded nothing at all.
+
+`every_action_that_edits_the_document_undoes_back_to_where_it_started` walks
+every action in the registry and asserts, for each one that changes the
+serialised graph, that an entry was recorded and that undo and redo return the
+document exactly. Two commands are named as exceptions rather than skipped:
+soft-proof, which is view chrome that happens to live in the graph, and Convert
+to Profile, whose edit has one half in the graph and one half in GPU pixels
+that no snapshot covers — see QA-014.
+
 ## Redo Execution
 
 Redo resolves the next record in active suffix and applies forward representation. It revalidates resources and invariants. Deterministic replay uses pinned algorithm/schema/resources, not current defaults. Redo cannot silently substitute missing fonts, profiles, brushes, or extension operations.

@@ -350,6 +350,139 @@ mod tests {
         }
     }
 
+    /// Blank out the monotonic counters in a serialised graph.
+    ///
+    /// `generation` and each layer's `revision` are meant to move forward, and
+    /// undo bumps them again, so a perfectly restored document still
+    /// serialises differently. `next_id` is the same shape for a different
+    /// reason: layer ids are never recycled, so undoing a layer creation
+    /// removes the layer and deliberately leaves the allocator where it was —
+    /// reusing the id would let a stale reference alias a new layer.
+    ///
+    /// Written out rather than pulled in as a dependency — the engine takes
+    /// serde and thiserror and nothing else, and this is three fields.
+    fn without_counters(json: &str) -> String {
+        const KEYS: [&str; 3] = ["\"generation\":", "\"revision\":", "\"next_id\":"];
+        let mut out = String::with_capacity(json.len());
+        let mut rest = json;
+        loop {
+            let Some((at, key)) = KEYS
+                .iter()
+                .filter_map(|k| rest.find(k).map(|at| (at, *k)))
+                .min_by_key(|(at, _)| *at)
+            else {
+                out.push_str(rest);
+                return out;
+            };
+            out.push_str(&rest[..at]);
+            out.push_str(key);
+            let tail = &rest[at + key.len()..];
+            let digits = tail
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(tail.len());
+            rest = &tail[digits..];
+        }
+    }
+
+    /// Every action that edits the document has to be undoable, and undo has
+    /// to put the document back.
+    ///
+    /// `document_edits_leave_an_undo_entry` asks the first half of this for the
+    /// layer styles and the vector mask — thirteen cases picked by hand. This
+    /// asks both halves of every action the shell actually offers: the menus,
+    /// the command palette and the tool chrome all dispatch through
+    /// `default_actions`, so walking that registry walks the mutating surface a
+    /// user can reach.
+    ///
+    /// The comparison is the serialised graph rather than the generation
+    /// counter, which only ever moves forward — undo bumps it too, so a
+    /// generation that "returned" would prove nothing. A refusal is fine: some
+    /// commands need a document state this fixture does not set up, and the
+    /// registry test above already pins that their arguments are accepted.
+    /// What is not allowed is editing the graph and leaving no way back.
+    #[test]
+    fn every_action_that_edits_the_document_undoes_back_to_where_it_started() {
+        // The monotonic counters are excluded on purpose — see
+        // `without_counters`. Everything that describes the document stays in.
+        let snapshot = |session: &SessionState| {
+            let json = serde_json::to_string(session.graph.as_ref().expect("a document"))
+                .expect("graph json");
+            without_counters(&json)
+        };
+        let mut checked = 0_usize;
+        for action in crate::default_actions() {
+            let Some(id) = action.command_id.as_deref() else {
+                continue;
+            };
+            // History's own three, which are what does the undoing, and the
+            // two that genuinely cannot be taken back yet. Soft-proof is view
+            // chrome that happens to be stored in the graph — Photoshop's
+            // Proof Colors is not undoable either — and Convert to Profile
+            // rewrites every layer's pixels on the GPU behind a warning, with
+            // no snapshot to come back to (QA-014). Named rather than skipped
+            // by a `continue` on failure, so adding a command that forgets its
+            // undo entry fails here instead of quietly joining them.
+            const NOT_UNDOABLE: [&str; 5] = [
+                command_id::HISTORY_UNDO,
+                command_id::HISTORY_REDO,
+                command_id::HISTORY_JUMP,
+                command_id::DOCUMENT_SET_SOFT_PROOF,
+                command_id::DOCUMENT_CONVERT_PROFILE,
+            ];
+            if NOT_UNDOABLE.contains(&id) {
+                continue;
+            }
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            // A second layer, so reorder, merge, group and clip have something
+            // to act on rather than refusing on a one-layer document.
+            let _ = session.invoke(command_id::LAYER_CREATE, CommandArgs::None);
+
+            let Ok(args) = session.args_for_action(id, action.arg.as_deref()) else {
+                continue;
+            };
+            let before = snapshot(&session);
+            let undo_before = session.history.entries_undo().len();
+            if session.invoke(id, args).is_err() {
+                continue;
+            }
+            let after = snapshot(&session);
+            if after == before {
+                continue;
+            }
+            checked += 1;
+
+            assert!(
+                session.history.entries_undo().len() > undo_before,
+                "{} ({id}) edited the graph without recording an undo entry",
+                action.id
+            );
+            session
+                .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+                .unwrap_or_else(|e| panic!("{} ({id}) could not be undone: {e:?}", action.id));
+            assert_eq!(
+                snapshot(&session),
+                before,
+                "{} ({id}) does not undo back to the document it started from",
+                action.id
+            );
+            session
+                .invoke(command_id::HISTORY_REDO, CommandArgs::None)
+                .unwrap_or_else(|e| panic!("{} ({id}) could not be redone: {e:?}", action.id));
+            assert_eq!(
+                snapshot(&session),
+                after,
+                "{} ({id}) does not redo back to the document undo took away",
+                action.id
+            );
+        }
+        assert!(
+            checked >= 40,
+            "only {checked} actions reached the graph — the registry scan broke, \
+             not the wiring"
+        );
+    }
+
     /// `UndoPolicy::Mergeable` was declared on four commands and read by
     /// nothing: a slider drag wrote one history entry per step, and undo walked
     /// back through every one instead of returning to where the gesture began.

@@ -32,6 +32,7 @@ the entry says so rather than inventing one.
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | open |
 | [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
+| [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | open |
 
 ---
 
@@ -779,3 +780,49 @@ preview follows what it returns. The second is the smaller change and matches
 where the other constraint already lives, but it makes the drag feel like it
 runs past the limit and snaps back, which is the thing the current comment in
 the grip says it was written to avoid.
+
+## QA-014 — Convert to Profile rewrites every pixel with nothing to undo it
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `phototux_engine` — `commands.rs`, `phototux_ui` — `apply_convert_pixels` |
+| **Checklist item** | [H-39](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** Image ▸ Color ▸ Convert to Display-P3 rewrites every layer's
+pixels on the GPU and records no history entry at all. Ctrl+Z afterwards walks
+past the conversion to whatever came before it, and there is no way back to the
+pixels the document had. The user is warned — the toast says "this rewrote
+layer data" — so the destruction is disclosed, but disclosure is not undo.
+
+Its two neighbours in the same submenu are now undoable: Assign Profile and
+Embed/Clear ICC both record a `GraphCommand::SetColorState` entry.
+
+**Steps to reproduce.**
+
+1. New document, paint a stroke so there are pixels worth keeping.
+2. Image ▸ Color ▸ Convert to Display-P3. The toast reports the rewrite.
+3. Ctrl+Z. The stroke is undone; the conversion is not.
+
+**Root cause.** The edit has two halves in two different places and the history
+model has no entry kind that covers both. `cmd_document_convert_profile` moves
+the graph's colour state, and `HostFollowUp::ConvertPixels` has the host read
+every layer back, convert it and write it again — without taking a snapshot
+first. `HistoryKind::Graph` reverses the graph and never asks the host;
+`HistoryKind::Transform` asks the host and never touches the graph. There is no
+kind that does both, so a single conversion cannot be recorded as one step.
+
+**Why not a quick fix.** The pieces exist — `transform_snapshot_now` already
+captures every layer's pixels, which is exactly what a conversion overwrites —
+but wiring them up means either a new history kind that carries both halves, or
+splitting the conversion into two entries that undo must always cross together.
+The first changes `HistoryKind`, which the timeline, the History panel and the
+host's two stacks all read; the second reintroduces the coupling
+`HistoryService::undo_next` was written to prevent. It is a Decision Register
+question about what a history entry is, not a correction.
+
+Until then the exclusion is explicit rather than silent:
+`every_action_that_edits_the_document_undoes_back_to_where_it_started` names
+`DOCUMENT_CONVERT_PROFILE` in `NOT_UNDOABLE` and points here, so a command that
+newly forgets its undo entry still fails rather than joining a quiet list.
