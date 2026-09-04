@@ -268,6 +268,28 @@ Sampling and pixel inspection read immutable document/render semantic output, no
 
 Overlay token snapshots carry theme revision, view generation, scale, contrast, and motion. Renderer cache keys separate overlays from document composite. Theme change invalidates overlay/final presentation stages only.
 
+**Shipped tokens — the seven overlay colours.** They lived as hex literals at
+their points of use in `Main.qml`, which is a second palette by any other name
+and is exactly where Qt's `#AARRGGBB` order is invisible: the crop wash had once
+shipped as a pale green fill inside a cyan border because its alpha was read as
+the red channel. Each is now named once in `Theme.qml` at the value it already
+had — naming them is the whole point, not restyling them.
+
+| Token | Value | Paints |
+| --- | --- | --- |
+| `canvasGrid` | `#40FFFFFF` | grid lines over the document |
+| `canvasGuide` | `#E0FF6A00` | a guide the user placed |
+| `canvasSelectionPreview` | `#22000000` | the wash under a marquee being dragged |
+| `canvasOutline` | `#000000` | the marching-ants stroke under the white dashes |
+| `canvasCropPreview` | `#1F3DAEE9` | the wash over what a crop would keep |
+| `checkerLight` / `checkerDark` | `#2A2A2E` / `#222226` | the transparency checkerboard |
+
+`chrome_colours_come_from_the_theme` fails the build on a colour literal
+anywhere in `qml/` outside `Theme.qml`. Two sites are excepted by name and are
+not chrome: the swatch palette the user paints with, and the fallbacks a shape's
+fill and stroke rows show before the layer has one. Both belong to the artwork,
+and theming them would change what the file contains.
+
 ## Motion and Reduced Motion
 
 Motion tokens define semantic durations for focus transition, popover, panel reflow, progress indeterminate animation, selection visualization, and attention. Motion never delays command acceptance or critical information. Durations are bounded.

@@ -2560,7 +2560,7 @@ ApplicationWindow {
                     var step = spacing * zoom
                     if (step < 4)
                         return
-                    ctx.strokeStyle = "#40FFFFFF"
+                    ctx.strokeStyle = Theme.canvasGrid
                     ctx.lineWidth = 1
                     var x0 = root.docToScreenX(0)
                     var y0 = root.docToScreenY(0)
@@ -2614,7 +2614,7 @@ ApplicationWindow {
                 delegate: Rectangle {
                     required property var modelData
                     z: 3
-                    color: "#E0FF6A00"
+                    color: Theme.canvasGuide
                     visible: AppSession.hasDocument
                     x: modelData.o === "v" ? root.docToScreenX(modelData.p) : 0
                     y: modelData.o === "h" ? root.docToScreenY(modelData.p) : 0
@@ -2660,7 +2660,7 @@ ApplicationWindow {
                 sourceComponent: Item {
                     Rectangle {
                         anchors.fill: parent
-                        color: "#22000000"
+                        color: Theme.canvasSelectionPreview
                         border.color: Theme.primary
                         border.width: 1
                         radius: 2
@@ -2934,7 +2934,7 @@ ApplicationWindow {
                     preferredRendererType: Shape.CurveRenderer
                     ShapePath {
                         strokeWidth: 1
-                        strokeColor: "#000000"
+                        strokeColor: Theme.canvasOutline
                         fillColor: "transparent"
                         strokeStyle: ShapePath.DashLine
                         dashPattern: [4, 4]
@@ -2987,7 +2987,7 @@ ApplicationWindow {
                 // Accent at 12%, alpha first: an eight-digit hex is
                 // `#AARRGGBB` to Qt, so this had been a pale green fill inside
                 // a cyan border.
-                color: "#1F3DAEE9"
+                color: Theme.canvasCropPreview
                 border.color: root.primary
                 border.width: 1
             }
@@ -3499,7 +3499,7 @@ ApplicationWindow {
                             var s = 8
                             for (var y = 0; y < height; y += s) {
                                 for (var x = 0; x < width; x += s) {
-                                    ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? "#2a2a2e" : "#222226"
+                                    ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? Theme.checkerLight : Theme.checkerDark
                                     ctx.fillRect(x, y, s, s)
                                 }
                             }

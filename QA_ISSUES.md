@@ -21,7 +21,7 @@ the entry says so rather than inventing one.
 |---|---|---|---|---|
 | [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | **fixed** |
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
-| [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | open |
+| [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | **fixed** |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
@@ -215,7 +215,7 @@ resolution is chosen.
 | **Severity** | low |
 | **Area** | `qml/Main.qml`, `qml/Theme.qml` |
 | **Checklist item** | [U-15](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** Six colours are written as hex literals in `Main.qml` rather than
 taken from `Theme.qml`:
@@ -263,7 +263,19 @@ invisible; a token named once is where it is not. A `no_colour_literals_in_qml`
 guard, with the document-colour sites listed as the exceptions they are, would
 keep the count from growing.
 
-**Resolution.** *(pending)*
+**Resolution.** Seven tokens named in `Theme.qml` — `canvasGrid`, `canvasGuide`,
+`canvasSelectionPreview`, `canvasOutline`, `canvasCropPreview`, and the
+checkerboard's `checkerLight` / `checkerDark`, which had to be a pair for the
+reason this issue gives. Each carries the value the literal already had, so
+nothing on screen changed; the design decision was what to *call* them and where
+they belong — the overlay group in handbook [25](internal_docs/25-Themes.md) —
+not which colours to use.
+
+`chrome_colours_come_from_the_theme` fails the build on a colour literal
+anywhere in `qml/` outside `Theme.qml`. The two document-colour sites are
+excepted by name and by the marker they sit beside rather than by line number,
+so moving them does not silently widen the exception. Watched failing on a
+restored literal before being trusted.
 
 ---
 

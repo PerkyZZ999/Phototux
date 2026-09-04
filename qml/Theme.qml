@@ -46,6 +46,32 @@ QtObject {
     readonly property color tabInactive: "#1A1A1E"
     /// Soft success wash for status chips (GPU path healthy).
     readonly property color successSubtle: "#2E2ECC71"
+    // ---- Canvas overlays -------------------------------------------------
+    //
+    // What the shell draws *over* the document: grid, guides, the marquee's
+    // preview, the crop wash, and the Navigator's transparency checkerboard.
+    // These lived as eight-digit literals at their points of use, which is
+    // exactly where Qt's `#AARRGGBB` order is invisible — the crop wash had
+    // once been a pale green fill inside a cyan border because the alpha was
+    // read as the red channel. Each value is unchanged from the literal it
+    // replaces; naming them is the whole point.
+    //
+    /// Grid lines over the document — white at 25%, which reads on light and
+    /// dark artwork alike without competing with either.
+    readonly property color canvasGrid: "#40FFFFFF"
+    /// A guide the user placed. Orange because nothing else in the shell is.
+    readonly property color canvasGuide: "#E0FF6A00"
+    /// The wash under a selection being dragged, before it commits.
+    readonly property color canvasSelectionPreview: "#22000000"
+    /// The marching-ants stroke. Black under the white dashes, so the outline
+    /// survives on white artwork.
+    readonly property color canvasOutline: "#000000"
+    /// The wash over what a crop would keep — accent at 12%.
+    readonly property color canvasCropPreview: "#1F3DAEE9"
+    /// Transparency checkerboard, light and dark square.
+    readonly property color checkerLight: "#2A2A2E"
+    readonly property color checkerDark: "#222226"
+
     /// Symbolic icons on dark chrome (white; ≥ 3:1 non-text).
     readonly property color iconOnSurface: "#FFFFFF"
     readonly property color iconDisabled: "#9A9AA3"

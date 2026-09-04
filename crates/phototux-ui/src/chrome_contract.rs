@@ -1302,4 +1302,62 @@ mod tests {
              the next save that succeeds"
         );
     }
+    /// Chrome takes its colours from `Theme.qml`, not from the point of use.
+    ///
+    /// Six canvas overlays were eight-digit literals — the grid, a guide, the
+    /// selection preview, the marching-ants stroke, the crop wash and the
+    /// Navigator's checkerboard — which is a second palette by any other name,
+    /// and exactly where Qt's `#AARRGGBB` order is invisible. The crop wash had
+    /// once shipped as a pale green fill inside a cyan border because the alpha
+    /// was read as the red channel. A token named once in `Theme.qml` is where
+    /// that mistake is legible; a literal beside `Rectangle` is where it is not.
+    ///
+    /// Document colours are not chrome and are excepted by name: the swatch
+    /// palette the user paints with, and the fallbacks a shape's fill and
+    /// stroke rows show before the layer has one. Both are values that belong
+    /// to the artwork, and theming them would change what the file contains.
+    #[test]
+    fn chrome_colours_come_from_the_theme() {
+        const DOCUMENT_COLOURS: [(&str, &str); 2] = [
+            ("Main.qml", "model: ["),
+            ("PropertiesPanel.qml", "hex: root.shape."),
+        ];
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if name == "Theme.qml" {
+                continue;
+            }
+            for (number, line) in text.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                    continue;
+                }
+                let Some(at) = line.find("\"#") else { continue };
+                let rest = &line[at + 2..];
+                let digits = rest.chars().take_while(char::is_ascii_hexdigit).count();
+                if !matches!(digits, 3 | 6 | 8) || !rest[digits..].starts_with('"') {
+                    continue;
+                }
+                checked += 1;
+                let allowed = DOCUMENT_COLOURS.iter().any(|(file, marker)| {
+                    *file == name
+                        && text
+                            .lines()
+                            .skip(number.saturating_sub(6))
+                            .take(7)
+                            .any(|near| near.contains(marker))
+                });
+                assert!(
+                    allowed,
+                    "{name}:{} paints chrome from a colour literal — name it in \
+                     Theme.qml instead, where an #AARRGGBB alpha is legible",
+                    number + 1
+                );
+            }
+        }
+        assert!(
+            checked >= 5,
+            "found {checked} colour literals — the scan broke rather than the shell"
+        );
+    }
 }
