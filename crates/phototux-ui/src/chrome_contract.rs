@@ -1535,6 +1535,76 @@ mod tests {
              function — publish! it, so an unchanged path says nothing (T-009)"
         );
     }
+    /// A torn-off panel carries the panel, not a description of it.
+    ///
+    /// The floating window used to hold two lines of prose and a Dock button.
+    /// Tearing the Navigator off left the thumbnail and the zoom controls
+    /// behind in the dock's place, so the feature read as working — a window
+    /// appeared, titled correctly, and docked back — while doing nothing a
+    /// user tears a panel off *for*.
+    ///
+    /// The fix is that each dock body is a `Component`, and both the dock site
+    /// and the floating window load it through a `Loader`. This guards the
+    /// three halves that have to agree: the components exist, `panelBodyFor`
+    /// maps every panel id onto one, and the floating window loads what that
+    /// function returns.
+    ///
+    /// Only one instance is ever built. The dock's `Loader` is `active:
+    /// visible` and a floating panel is not shown in the dock, so a panel is
+    /// either docked or floating, never both.
+    #[test]
+    fn a_torn_off_panel_carries_the_panel_not_a_description_of_it() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+
+        assert!(
+            shell.contains("sourceComponent: root.panelBodyFor(floatWin.modelData)"),
+            "the floating panel window is not loading a panel body — it is \
+             back to describing the panel it was supposed to carry"
+        );
+
+        let at = shell
+            .find("function panelBodyFor(panelId)")
+            .expect("panelBodyFor is there to read");
+        let end = shell[at..]
+            .find("\n    }")
+            .map(|o| at + o)
+            .expect("panelBodyFor is a closed function");
+        let mapping = &shell[at..end];
+
+        for panel in [
+            "panel.properties",
+            "panel.navigator",
+            "panel.swatches",
+            "panel.layers",
+            "panel.history",
+        ] {
+            let component = format!("{}Body", &panel["panel.".len()..]);
+            assert!(
+                mapping.contains(&format!("case \"{panel}\": return {component}")),
+                "{panel} has no body component to travel with — tearing it \
+                 off would open an empty window"
+            );
+            assert!(
+                shell
+                    .lines()
+                    .any(|line| line.trim() == format!("id: {component}")),
+                "{component} is mapped but does not exist, so the floating \
+                 window would load undefined and draw nothing"
+            );
+            assert!(
+                shell
+                    .lines()
+                    .any(|line| line.trim() == format!("sourceComponent: {component}")),
+                "{component} is not loaded at its dock site — the panel body \
+                 was extracted and the dock never got it back"
+            );
+        }
+    }
+
     /// The pixels a profile conversion overwrites are snapshotted first.
     ///
     /// The engine's half is a `Transform` history entry; this is the host's.

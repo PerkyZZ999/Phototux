@@ -216,12 +216,16 @@ they had.
 - [x] **H-41** Workspace presets apply; Reset Workspace restores defaults — **failed first**:
       Reset Workspace announced itself but left an auto-hidden panel hidden. Fixed in
       `c8e300e` (T-038) and re-verified: auto-hide Properties, reset, panel returns
-- [~] **H-42** Panels toggle, tear off, re-dock, auto-hide and resize; state survives
-      restart — all six work and none aborts the process (T-027's class). Two findings:
-      the seam **under-travelled**, moving 60 px for a 120 px drag because it measured
-      the pointer against an item its own resize had moved — fixed in `1d94112`, now
-      118 px for 120, and the height survives a restart. And a torn-off panel is a
-      window containing a message rather than the panel ([QA-012](QA_ISSUES.md))
+- [x] **H-42** Panels toggle, tear off, re-dock, auto-hide and resize; state survives
+      restart — all six work and none aborts the process (T-027's class). Two findings,
+      both now fixed: the seam **under-travelled**, moving 60 px for a 120 px drag
+      because it measured the pointer against an item its own resize had moved — fixed
+      in `1d94112`, now 118 px for 120, and the height survives a restart. And a
+      torn-off panel was a window containing a message rather than the panel
+      ([QA-012](QA_ISSUES.md)) — the five dock bodies are now `Component`s the
+      floating window loads, re-verified live: the torn-off Layers panel carries its
+      blend, opacity, lock and layer rows, selecting a row there drives the document,
+      and Dock returns it to the group it left
 - [x] **H-43** Preferences persist across restart — "Show rulers" and "High contrast
       chrome", both off by default, were still on after a relaunch
 - [x] **H-44** Assign vs Convert profile behave differently and both are reachable — both

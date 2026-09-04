@@ -409,6 +409,22 @@ ApplicationWindow {
         return null
     }
 
+    /// The body component for a panel id, for the floating window to load.
+    ///
+    /// `null` for a panel with no component of its own — none today, and a
+    /// window that draws nothing is a better answer than one that fails to
+    /// build.
+    function panelBodyFor(panelId) {
+        switch (panelId) {
+        case "panel.properties": return propertiesBody
+        case "panel.navigator": return navigatorBody
+        case "panel.swatches": return swatchesBody
+        case "panel.layers": return layersBody
+        case "panel.history": return historyBody
+        }
+        return null
+    }
+
     function tearOffAndClamp(panelId, x, y, width, height) {
         AppSession.tearOffPanel(panelId, x, y, width, height)
         root.reclampFloatingPanels()
@@ -892,17 +908,6 @@ ApplicationWindow {
     }
     function isLassoTool() {
         return AppSession.activeTool === "tool.select.lasso"
-    }
-    // The combo itself lives in the Layers panel's control strip; the shell
-    // only asks it to resync. Guarded because the strip is built with the right
-    // dock, and host state can change before that happens.
-    function syncBlendCombo() {
-        if (typeof layerControls !== "undefined" && layerControls)
-            layerControls.syncBlendCombo()
-    }
-    function syncLayerOpacity() {
-        if (typeof layerControls !== "undefined" && layerControls)
-            layerControls.setLayerOpacity(AppSession.activeOpacity)
     }
     function isPolygonTool() {
         return AppSession.activeTool === "tool.select.polygon"
@@ -1674,6 +1679,633 @@ ApplicationWindow {
         }
     }
 
+    /// The Properties panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: propertiesBody
+        Flickable {
+            id: propertiesFlick
+            // Cap height so Layers/History stay above the status bar. Never go
+            // negative when parent.height is 0 during the first layout pass —
+            // negative preferredHeight collapses the whole right dock to width 0.
+            // Pinned to the preferred height, or the layout squeezes it
+            // straight back: once a panel is dragged taller the stack's
+            // preferred sizes add up to more than the dock, and a
+            // GridLayout resolves that by compressing whatever has no
+            // minimum. The Layers body fills, so it is what yields.
+            contentHeight: propsCol.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            // Pinned on whenever there is more than fits. `AsNeeded`
+            // shows the bar only while flicking, so a panel that had
+            // clipped a section's heading mid-word looked broken
+            // rather than scrollable — the one thing a dense dock has
+            // to say without being touched.
+            ScrollBar.vertical: ThemedScrollBar {
+                policy: propertiesFlick.contentHeight > propertiesFlick.height
+                        ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+            }
+
+            // A fade at the cut, for the same reason: a heading sliced
+            // in half by a hard edge reads as a rendering fault, and
+            // the same heading fading out reads as "there is more".
+            Rectangle {
+                parent: propertiesFlick
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Theme.spaceLg
+                z: 10
+                visible: propertiesFlick.contentHeight - propertiesFlick.contentY
+                         > propertiesFlick.height + 1
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 1.0; color: Theme.surface }
+                }
+            }
+
+            PropertiesPanel {
+                id: propsCol
+                width: parent.width
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.spaceMd
+                // The scroll bar is an overlay, so it lands on top of
+                // whatever is at the right edge — it was clipping the
+                // border of every full-width button. Reserved whether
+                // or not the bar is showing: making the margin depend
+                // on its visibility would feed the content width back
+                // into the height that decides that visibility.
+                anchors.rightMargin: Theme.spaceMd + Theme.spaceSm
+                spacing: Theme.spaceMd
+
+                iconUrl: root.iconUrl
+                runAction: root.runAction
+                isTransformTool: root.isTransformTool
+                isCropTool: root.isCropTool
+                activeLayerHasMask: root.activeLayerHasMask
+                activeMaskEnabled: root.activeMaskEnabled
+                gpuStatus: gpuCanvas.gpuStatus
+                onEmbedIccRequested: root.browseForFile(embedIccFileDialog)
+            }
+        }
+    }
+
+    /// The Navigator panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: navigatorBody
+        Rectangle {
+            id: navigatorPane
+            color: Theme.surfaceSunken
+            clip: true
+
+            readonly property real pad: Theme.spaceSm
+            readonly property real docW: Math.max(1, AppSession.docWidth)
+            readonly property real docH: Math.max(1, AppSession.docHeight)
+            readonly property real availW: width - pad * 2
+            readonly property real availH: height - pad * 2
+            // `fitScale`, not `scale`: every Item already has a `scale`,
+            // the render transform. A property of that name shadows it,
+            // so a reader cannot tell which one a binding meant and a
+            // stray `scale: …` elsewhere in the pane would resize the
+            // whole navigator instead of setting this ratio.
+            readonly property real fitScale: Math.min(availW / docW, availH / docH)
+            readonly property real frameW: docW * fitScale
+            readonly property real frameH: docH * fitScale
+            readonly property real frameX: (width - frameW) / 2
+            readonly property real frameY: (height - frameH) / 2
+            readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * fitScale)
+            readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * fitScale)
+            readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * fitScale)) * fitScale
+            readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * fitScale)) * fitScale
+
+            function panToLocal(lx, ly) {
+                if (!AppSession.hasDocument || frameW < 1 || frameH < 1)
+                    return
+                var docX = ((lx - frameX) / frameW) * docW
+                var docY = ((ly - frameY) / frameH) * docH
+                AppSession.centerViewOn(docX, docY)
+            }
+
+            // Checkerboard backdrop
+            Canvas {
+                anchors.fill: parent
+                onPaint: {
+                    var ctx = getContext("2d")
+                    var s = 8
+                    for (var y = 0; y < height; y += s) {
+                        for (var x = 0; x < width; x += s) {
+                            ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? Theme.checkerLight : Theme.checkerDark
+                            ctx.fillRect(x, y, s, s)
+                        }
+                    }
+                }
+                Component.onCompleted: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+            }
+
+            Rectangle {
+                x: navigatorPane.frameX
+                y: navigatorPane.frameY
+                width: navigatorPane.frameW
+                height: navigatorPane.frameH
+                color: Theme.surfaceContainerHigh
+                border.color: Theme.border
+                border.width: 1
+                opacity: AppSession.hasDocument ? 1 : 0.35
+
+                // The document itself. Without it the Navigator drew a
+                // flat rectangle, so it told the user where they were
+                // relative to nothing — which is the one question the
+                // panel exists to answer. The host rebuilds this on a
+                // throttle; the fill above shows through until the
+                // first one arrives.
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    source: AppSession.navigatorThumbnail
+                    // Tested on the string, not on `source`: assigning
+                    // to a `url` property normalises the value, so
+                    // comparing the result against "" says nothing
+                    // useful about whether the host has published one.
+                    visible: AppSession.navigatorThumbnail.length > 0
+                    fillMode: Image.Stretch
+                    // Already downsampled to panel size by the host, so
+                    // smoothing here would only soften it again.
+                    smooth: false
+                    asynchronous: true
+                    cache: false
+                }
+            }
+
+            Rectangle {
+                visible: AppSession.hasDocument
+                x: Math.max(navigatorPane.frameX,
+                            Math.min(navigatorPane.viewX,
+                                     navigatorPane.frameX + navigatorPane.frameW - width))
+                y: Math.max(navigatorPane.frameY,
+                            Math.min(navigatorPane.viewY,
+                                     navigatorPane.frameY + navigatorPane.frameH - height))
+                width: Math.min(navigatorPane.viewW, navigatorPane.frameW)
+                height: Math.min(navigatorPane.viewH, navigatorPane.frameH)
+                color: "transparent"
+                border.color: Theme.primary
+                border.width: 1.5
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: AppSession.hasDocument
+                cursorShape: Qt.OpenHandCursor
+                onPressed: function (mouse) {
+                    navigatorPane.panToLocal(mouse.x, mouse.y)
+                }
+                onPositionChanged: function (mouse) {
+                    if (pressed)
+                        navigatorPane.panToLocal(mouse.x, mouse.y)
+                }
+            }
+        }
+    }
+
+    /// The Swatches panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: swatchesBody
+        Rectangle {
+            color: Theme.surfaceSunken
+
+            ColumnLayout {
+                id: swatchesCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spaceMd
+                spacing: Theme.spaceSm
+
+                /// Which of the pair the hex field and the palette edit.
+                ///
+                /// The background swatch used to *swap* on click, which
+                /// left no gesture for setting it: you swapped, edited
+                /// what had become the foreground, and swapped back.
+                /// `setBackgroundHex` existed the whole time with
+                /// nothing calling it. Photoshop opens the picker for
+                /// whichever swatch you click, and keeps swap as its own
+                /// control — which this panel's header already has.
+                property bool editingBackground: false
+
+                /// The hex the field shows, written in one place.
+                ///
+                /// This was a conditional binding —
+                /// `editingBackground ? backgroundHex : foregroundHex`
+                /// — and it went stale: after a commit, a palette click
+                /// and a reset in sequence, the field showed the
+                /// foreground while the background swatch was the one
+                /// selected. A conditional binding only tracks the
+                /// branch it evaluated, and `TextField` drops its `text`
+                /// binding the moment the user types, so the two
+                /// mechanisms were repairing each other in an order
+                /// nothing states. One writer and three explicit
+                /// triggers is smaller than the rule you would have to
+                /// remember otherwise.
+                property string editedHex: AppSession.foregroundHex
+                function refreshHex() {
+                    editedHex = editingBackground ? AppSession.backgroundHex
+                                                  : AppSession.foregroundHex
+                }
+                onEditingBackgroundChanged: refreshHex()
+                Connections {
+                    target: AppSession
+                    // Reads only. Calling a slot from a handler that
+                    // reacts to an AppSession signal re-enters a
+                    // borrowed session — see qml/AGENTS.md.
+                    function onForegroundHexChanged() { swatchesCol.refreshHex() }
+                    function onBackgroundHexChanged() { swatchesCol.refreshHex() }
+                }
+                function applyHex(hex) {
+                    if (editingBackground)
+                        AppSession.setBackgroundHex(hex)
+                    else
+                        AppSession.setForegroundHex(hex)
+                    // The host may have refused it, and a refusal emits
+                    // no change signal — so put the field back from the
+                    // colour that actually survived.
+                    refreshHex()
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceMd
+
+                    // Photoshop's colour widget: two overlapping
+                    // squares, a swap arrow at the top right, and the
+                    // black-and-white default mark at the bottom left.
+                    // Both controls used to live in the panel header,
+                    // which is not where anyone coming from Photoshop
+                    // looks for them — and which had run out of room.
+                    Item {
+                        implicitWidth: 58
+                        implicitHeight: 50
+                        Rectangle {
+                            x: 14
+                            y: 18
+                            width: 26
+                            height: 26
+                            radius: Theme.radiusSm
+                            color: AppSession.backgroundHex
+                            border.color: swatchesCol.editingBackground
+                                          ? Theme.primary : Theme.border
+                            border.width: swatchesCol.editingBackground ? 2 : 1
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    swatchesCol.editingBackground = true
+                                    Qt.callLater(function () {
+                                        hexField.forceActiveFocus()
+                                        AppSession.setShortcutInputYield(true)
+                                    })
+                                }
+                                ThemedToolTip {
+                                    visible: parent.containsMouse
+                                    text: qsTr("Background")
+                                }
+                                hoverEnabled: true
+                            }
+                        }
+                        Rectangle {
+                            x: 2
+                            y: 4
+                            width: 26
+                            height: 26
+                            radius: Theme.radiusSm
+                            color: AppSession.foregroundHex
+                            border.color: swatchesCol.editingBackground
+                                          ? Theme.border : Theme.primary
+                            border.width: swatchesCol.editingBackground ? 1 : 2
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    swatchesCol.editingBackground = false
+                                    Qt.callLater(function () {
+                                        hexField.forceActiveFocus()
+                                        AppSession.setShortcutInputYield(true)
+                                    })
+                                }
+                                ThemedToolTip {
+                                    visible: parent.containsMouse
+                                    text: qsTr("Foreground")
+                                }
+                                hoverEnabled: true
+                            }
+                        }
+
+                        // Top right, over the corner of the background
+                        // square, exactly where Photoshop keeps it.
+                        ChromeIconToolButton {
+                            x: 42
+                            y: 0
+                            implicitWidth: 16
+                            implicitHeight: 16
+                            padding: 0
+                            icon.source: root.iconUrl("arrows-left-right")
+                            icon.width: 12
+                            icon.height: 12
+                            onClicked: AppSession.swapFgBg()
+                            Accessible.name: qsTr("Swap foreground and background")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: parent.Accessible.name
+                            }
+                        }
+
+                        // Bottom left. `ColorState::reset_default` has
+                        // been in the engine the whole time with nothing
+                        // reaching it. Not `arrow-counter-clockwise`:
+                        // that is Undo's icon, and a second meaning for
+                        // it in the same window is worse than no icon.
+                        ChromeIconToolButton {
+                            x: 0
+                            y: 34
+                            implicitWidth: 16
+                            implicitHeight: 16
+                            padding: 0
+                            icon.source: root.iconUrl("square-half")
+                            icon.width: 12
+                            icon.height: 12
+                            onClicked: AppSession.resetFgBg()
+                            Accessible.name: qsTr("Reset to black and white")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: parent.Accessible.name
+                            }
+                        }
+                    }
+
+                    // The field follows the host itself. It used to be
+                    // reached by id from a `Connections` at the top of
+                    // this file, which a panel that can be torn off
+                    // into its own window cannot rely on: an id inside
+                    // a `Component` is scoped to that component.
+                    Connections {
+                        target: AppSession
+                        function onForegroundHexChanged() {
+                            if (hexField && !hexField.activeFocus
+                                    && hexField.text !== AppSession.foregroundHex)
+                                hexField.text = AppSession.foregroundHex
+                        }
+                    }
+
+                    ThemedTextField {
+                        id: hexField
+                        Layout.fillWidth: true
+                        // `source`, not `text`: a `TextField` drops its
+                        // `text` binding the moment the user types.
+                        source: swatchesCol.editedHex
+                        Accessible.name: swatchesCol.editingBackground
+                                         ? qsTr("Background hex")
+                                         : qsTr("Foreground hex")
+                        font.family: "Noto Sans Mono"
+                        font.pixelSize: Theme.fontMono
+                        onActiveFocusChanged: root.refreshShortcutYield()
+                        // A `TextField` drops its `text` binding the
+                        // moment the user types, so without restoring
+                        // it the field keeps showing what was typed —
+                        // `notacolour` stayed on screen for good while
+                        // the swatch beside it never moved.
+                        // `applyHex` ends by writing the field, so a
+                        // value the host refused never survives on
+                        // screen.
+                        onEditingFinished: swatchesCol.applyHex(text)
+                        Keys.onReturnPressed: {
+                            swatchesCol.applyHex(text)
+                            event.accepted = true
+                        }
+                    }
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Repeater {
+                        model: [
+                            "#000000", "#FFFFFF", "#FF0000", "#00FF00",
+                            "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
+                            "#808080", "#C0C0C0", "#800000", "#008080"
+                        ]
+                        delegate: Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 2
+                            color: modelData
+                            border.color: Theme.border
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: swatchesCol.applyHex(modelData)
+                            }
+                        }
+                    }
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    visible: AppSession.recentColors.length > 0
+                    Repeater {
+                        model: AppSession.recentColors.length > 0
+                               ? AppSession.recentColors.split("|") : []
+                        delegate: Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 2
+                            color: modelData
+                            border.color: Theme.border
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                // The hex, not `pickRecentColor(index)`:
+                                // that one always sets the foreground,
+                                // so clicking a recent colour while the
+                                // background swatch was selected changed
+                                // the wrong half of the pair.
+                                onClicked: swatchesCol.applyHex(modelData)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Layers panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: layersBody
+        Rectangle {
+            color: Theme.surfaceSunken
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 0
+
+                // Blend, opacity and locks sit above the list, where
+                // Photoshop keeps them. They used to be in Properties,
+                // three panels away from the layer they act on.
+                LayerControlStrip {
+                    id: layerControls
+                    Layout.fillWidth: true
+                    Layout.margins: Theme.spaceSm
+                    // Controls for a layer that is not there read as
+                    // broken chrome rather than as an empty document.
+                    visible: AppSession.hasDocument
+                    blendModes: root.blendModes
+                    iconUrl: root.iconUrl
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible ? 1 : 0
+                    visible: AppSession.hasDocument
+                    color: Theme.border
+                }
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    // A document always has at least one layer, so an
+                    // empty list means there is no document — not that
+                    // the layers went missing.
+                    PanelPlaceholder {
+                        anchors.fill: parent
+                        visible: !AppSession.hasDocument
+                        iconKey: "stack-simple"
+                        iconUrl: root.iconUrl
+                        text: qsTr("No document open")
+                        hint: qsTr("Open or create one to see its layers.")
+                    }
+
+                    LayersPanel {
+                        anchors.fill: parent
+                        visible: AppSession.hasDocument
+                        iconUrl: root.iconUrl
+                        maskEditActive: root.maskEditActive
+                        onContextMenuRequested: function (stackIndex, origin, localX, localY) {
+                            layerContextMenu.targetIndex = stackIndex
+                            root.openContextMenu(layerContextMenu, origin, localX, localY)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The History panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: historyBody
+        Rectangle {
+            color: Theme.surfaceSunken
+
+            // Two empty states, because the guidance differs: with no
+            // document there is nothing to have a history of, and with
+            // one open the list simply has not been written to yet.
+            PanelPlaceholder {
+                anchors.fill: parent
+                visible: historyList.count === 0
+                iconKey: "clock-counter-clockwise"
+                iconUrl: root.iconUrl
+                text: AppSession.hasDocument
+                      ? qsTr("No history yet")
+                      : qsTr("No document open")
+                hint: AppSession.hasDocument
+                      ? qsTr("Edits you make will be listed here, newest last.")
+                      : qsTr("Open or create one to start a history.")
+            }
+
+            ListView {
+                id: historyList
+                // The rows were already list items; the list itself was
+                // not, so they had no collection to belong to.
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("History")
+                anchors.fill: parent
+                clip: true
+                reuseItems: true
+                cacheBuffer: 88
+                model: AppSession.historyModel
+                delegate: Item {
+                    id: historyRow
+                    // Roles from the model item's field names, which
+                    // the derive leaves in snake_case.
+                    required property string label
+                    required property string kind
+                    required property int entry_id
+                    required property bool undone
+
+                    width: historyList.width
+                    height: 22
+
+                    // An undone step is still on the timeline, and
+                    // clicking it walks forward to it. Dimmed rather
+                    // than hidden, the way Photoshop greys the steps
+                    // ahead of where you are.
+                    opacity: historyRow.undone ? 0.45 : 1.0
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: historyHover.hovered
+                               ? Theme.surfaceContainerHigh : "transparent"
+                    }
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.right: historyKind.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.spaceSm
+                        anchors.rightMargin: Theme.spaceSm
+                        text: historyRow.label
+                        color: Theme.colorOnSurfaceVariant
+                        font.pixelSize: Theme.fontBodySm
+                        elide: Text.ElideRight
+                    }
+                    // The kind is taxonomy, not a name: inline it read
+                    // "Brush stroke · stroke". Set to one side, in the
+                    // same muted trailing column the command palette
+                    // uses for an action's menu.
+                    Label {
+                        id: historyKind
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.rightMargin: Theme.spaceSm
+                        text: historyRow.kind
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabelSm
+                    }
+
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: historyRow.undone
+                                     ? qsTr("%1 (undone)").arg(historyRow.label)
+                                     : historyRow.label
+                    // The kind sits in a muted trailing column that
+                    // reads as part of the row visually and as a
+                    // separate label otherwise; position is what a
+                    // screen reader needs to know where it is in the
+                    // timeline.
+                    Accessible.description: qsTr("%1, %2 of %3")
+                                            .arg(historyRow.kind)
+                                            .arg(index + 1)
+                                            .arg(historyList.count)
+
+                    HoverHandler { id: historyHover }
+                    TapHandler {
+                        onTapped: AppSession.jumpHistoryEntry(historyRow.entry_id)
+                    }
+                }
+            }
+        }
+    }
+
     Instantiator {
         model: root.floatingPanelIdKey.length > 0 ? root.floatingPanelIdKey.split("\n") : []
         onObjectRemoved: function (index, object) {
@@ -1761,26 +2393,35 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.spaceSm
-                spacing: Theme.spaceSm
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("%1 (floating)").arg(qsTr(root.panelTitle(modelData)))
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontLabel
-                    font.weight: Font.Medium
-                }
-                Label {
+                spacing: 0
+
+                // The panel itself, not a description of it. This window used
+                // to hold two lines of prose and a Dock button while the
+                // thumbnail, the zoom controls — everything the panel is for —
+                // stayed behind in the dock's place.
+                //
+                // One instance, not two: the dock's `Loader` is `active:
+                // visible` and a floating panel is not shown in the dock, so
+                // exactly one of the two is ever built.
+                Loader {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    text: qsTr("Close window or Dock to return this panel to the right stack.")
-                    color: Theme.colorOnSurfaceVariant
-                    font.pixelSize: Theme.fontBodySm
-                    wrapMode: Text.WordWrap
+                    sourceComponent: root.panelBodyFor(floatWin.modelData)
                 }
-                ThemedButton {
-                    text: qsTr("Dock")
-                    onClicked: root.afterHostSlot(floatWin.requestRedock)
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: Theme.border
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.margins: Theme.spaceSm
+                    spacing: Theme.spaceSm
+                    Item { Layout.fillWidth: true }
+                    ThemedButton {
+                        text: qsTr("Dock")
+                        onClicked: root.afterHostSlot(floatWin.requestRedock)
+                    }
                 }
             }
         }
@@ -3436,15 +4077,11 @@ ApplicationWindow {
                     }
                 }
 
-                Flickable {
-                    id: propertiesFlick
+                Loader {
                     visible: root.panelShowsInDock("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
-                    // Cap height so Layers/History stay above the status bar. Never go
-                    // negative when parent.height is 0 during the first layout pass —
-                    // negative preferredHeight collapses the whole right dock to width 0.
                     Layout.preferredHeight: {
                         if (!visible)
                             return 0
@@ -3460,67 +4097,9 @@ ApplicationWindow {
                                ? chosen
                                : root.panelDefaultHeight("panel.properties", h)
                     }
-                    // Pinned to the preferred height, or the layout squeezes it
-                    // straight back: once a panel is dragged taller the stack's
-                    // preferred sizes add up to more than the dock, and a
-                    // GridLayout resolves that by compressing whatever has no
-                    // minimum. The Layers body fills, so it is what yields.
                     Layout.minimumHeight: Layout.preferredHeight
-                    contentHeight: propsCol.implicitHeight
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    // Pinned on whenever there is more than fits. `AsNeeded`
-                    // shows the bar only while flicking, so a panel that had
-                    // clipped a section's heading mid-word looked broken
-                    // rather than scrollable — the one thing a dense dock has
-                    // to say without being touched.
-                    ScrollBar.vertical: ThemedScrollBar {
-                        policy: propertiesFlick.contentHeight > propertiesFlick.height
-                                ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
-                    }
-
-                    // A fade at the cut, for the same reason: a heading sliced
-                    // in half by a hard edge reads as a rendering fault, and
-                    // the same heading fading out reads as "there is more".
-                    Rectangle {
-                        parent: propertiesFlick
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: Theme.spaceLg
-                        z: 10
-                        visible: propertiesFlick.contentHeight - propertiesFlick.contentY
-                                 > propertiesFlick.height + 1
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: "transparent" }
-                            GradientStop { position: 1.0; color: Theme.surface }
-                        }
-                    }
-
-                    PropertiesPanel {
-                        id: propsCol
-                        width: parent.width
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.margins: Theme.spaceMd
-                        // The scroll bar is an overlay, so it lands on top of
-                        // whatever is at the right edge — it was clipping the
-                        // border of every full-width button. Reserved whether
-                        // or not the bar is showing: making the margin depend
-                        // on its visibility would feed the content width back
-                        // into the height that decides that visibility.
-                        anchors.rightMargin: Theme.spaceMd + Theme.spaceSm
-                        spacing: Theme.spaceMd
-
-                        iconUrl: root.iconUrl
-                        runAction: root.runAction
-                        isTransformTool: root.isTransformTool
-                        isCropTool: root.isCropTool
-                        activeLayerHasMask: root.activeLayerHasMask
-                        activeMaskEnabled: root.activeMaskEnabled
-                        gpuStatus: gpuCanvas.gpuStatus
-                        onEmbedIccRequested: root.browseForFile(embedIccFileDialog)
-                    }
+                    active: visible
+                    sourceComponent: propertiesBody
                 }
 
                 // Navigator
@@ -3592,8 +4171,7 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
-                    id: navigatorPane
+                Loader {
                     visible: root.panelShowsInDock("panel.navigator")
                     Layout.row: root.dockStackRow("panel.navigator") * 2 + 1
                     Layout.column: 0
@@ -3606,116 +4184,8 @@ ApplicationWindow {
                                                                          parent.height))
                                             : 0
                     Layout.minimumHeight: Layout.preferredHeight
-                    color: Theme.surfaceSunken
-                    clip: true
-
-                    readonly property real pad: Theme.spaceSm
-                    readonly property real docW: Math.max(1, AppSession.docWidth)
-                    readonly property real docH: Math.max(1, AppSession.docHeight)
-                    readonly property real availW: width - pad * 2
-                    readonly property real availH: height - pad * 2
-                    // `fitScale`, not `scale`: every Item already has a `scale`,
-                    // the render transform. A property of that name shadows it,
-                    // so a reader cannot tell which one a binding meant and a
-                    // stray `scale: …` elsewhere in the pane would resize the
-                    // whole navigator instead of setting this ratio.
-                    readonly property real fitScale: Math.min(availW / docW, availH / docH)
-                    readonly property real frameW: docW * fitScale
-                    readonly property real frameH: docH * fitScale
-                    readonly property real frameX: (width - frameW) / 2
-                    readonly property real frameY: (height - frameH) / 2
-                    readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * fitScale)
-                    readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * fitScale)
-                    readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * fitScale)) * fitScale
-                    readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * fitScale)) * fitScale
-
-                    function panToLocal(lx, ly) {
-                        if (!AppSession.hasDocument || frameW < 1 || frameH < 1)
-                            return
-                        var docX = ((lx - frameX) / frameW) * docW
-                        var docY = ((ly - frameY) / frameH) * docH
-                        AppSession.centerViewOn(docX, docY)
-                    }
-
-                    // Checkerboard backdrop
-                    Canvas {
-                        anchors.fill: parent
-                        onPaint: {
-                            var ctx = getContext("2d")
-                            var s = 8
-                            for (var y = 0; y < height; y += s) {
-                                for (var x = 0; x < width; x += s) {
-                                    ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? Theme.checkerLight : Theme.checkerDark
-                                    ctx.fillRect(x, y, s, s)
-                                }
-                            }
-                        }
-                        Component.onCompleted: requestPaint()
-                        onWidthChanged: requestPaint()
-                        onHeightChanged: requestPaint()
-                    }
-
-                    Rectangle {
-                        x: navigatorPane.frameX
-                        y: navigatorPane.frameY
-                        width: navigatorPane.frameW
-                        height: navigatorPane.frameH
-                        color: Theme.surfaceContainerHigh
-                        border.color: Theme.border
-                        border.width: 1
-                        opacity: AppSession.hasDocument ? 1 : 0.35
-
-                        // The document itself. Without it the Navigator drew a
-                        // flat rectangle, so it told the user where they were
-                        // relative to nothing — which is the one question the
-                        // panel exists to answer. The host rebuilds this on a
-                        // throttle; the fill above shows through until the
-                        // first one arrives.
-                        Image {
-                            anchors.fill: parent
-                            anchors.margins: 1
-                            source: AppSession.navigatorThumbnail
-                            // Tested on the string, not on `source`: assigning
-                            // to a `url` property normalises the value, so
-                            // comparing the result against "" says nothing
-                            // useful about whether the host has published one.
-                            visible: AppSession.navigatorThumbnail.length > 0
-                            fillMode: Image.Stretch
-                            // Already downsampled to panel size by the host, so
-                            // smoothing here would only soften it again.
-                            smooth: false
-                            asynchronous: true
-                            cache: false
-                        }
-                    }
-
-                    Rectangle {
-                        visible: AppSession.hasDocument
-                        x: Math.max(navigatorPane.frameX,
-                                    Math.min(navigatorPane.viewX,
-                                             navigatorPane.frameX + navigatorPane.frameW - width))
-                        y: Math.max(navigatorPane.frameY,
-                                    Math.min(navigatorPane.viewY,
-                                             navigatorPane.frameY + navigatorPane.frameH - height))
-                        width: Math.min(navigatorPane.viewW, navigatorPane.frameW)
-                        height: Math.min(navigatorPane.viewH, navigatorPane.frameH)
-                        color: "transparent"
-                        border.color: Theme.primary
-                        border.width: 1.5
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: AppSession.hasDocument
-                        cursorShape: Qt.OpenHandCursor
-                        onPressed: function (mouse) {
-                            navigatorPane.panToLocal(mouse.x, mouse.y)
-                        }
-                        onPositionChanged: function (mouse) {
-                            if (pressed)
-                                navigatorPane.panToLocal(mouse.x, mouse.y)
-                        }
-                    }
+                    active: visible
+                    sourceComponent: navigatorBody
                 }
 
                 // Swatches
@@ -3788,259 +4258,14 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
+                Loader {
                     visible: root.panelShowsInDock("panel.swatches")
                     Layout.row: root.dockStackRow("panel.swatches") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? (swatchesCol.implicitHeight + Theme.spaceMd * 2) : 0
-                    color: Theme.surfaceSunken
-
-                    ColumnLayout {
-                        id: swatchesCol
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.spaceMd
-                        spacing: Theme.spaceSm
-
-                        /// Which of the pair the hex field and the palette edit.
-                        ///
-                        /// The background swatch used to *swap* on click, which
-                        /// left no gesture for setting it: you swapped, edited
-                        /// what had become the foreground, and swapped back.
-                        /// `setBackgroundHex` existed the whole time with
-                        /// nothing calling it. Photoshop opens the picker for
-                        /// whichever swatch you click, and keeps swap as its own
-                        /// control — which this panel's header already has.
-                        property bool editingBackground: false
-
-                        /// The hex the field shows, written in one place.
-                        ///
-                        /// This was a conditional binding —
-                        /// `editingBackground ? backgroundHex : foregroundHex`
-                        /// — and it went stale: after a commit, a palette click
-                        /// and a reset in sequence, the field showed the
-                        /// foreground while the background swatch was the one
-                        /// selected. A conditional binding only tracks the
-                        /// branch it evaluated, and `TextField` drops its `text`
-                        /// binding the moment the user types, so the two
-                        /// mechanisms were repairing each other in an order
-                        /// nothing states. One writer and three explicit
-                        /// triggers is smaller than the rule you would have to
-                        /// remember otherwise.
-                        property string editedHex: AppSession.foregroundHex
-                        function refreshHex() {
-                            editedHex = editingBackground ? AppSession.backgroundHex
-                                                          : AppSession.foregroundHex
-                        }
-                        onEditingBackgroundChanged: refreshHex()
-                        Connections {
-                            target: AppSession
-                            // Reads only. Calling a slot from a handler that
-                            // reacts to an AppSession signal re-enters a
-                            // borrowed session — see qml/AGENTS.md.
-                            function onForegroundHexChanged() { swatchesCol.refreshHex() }
-                            function onBackgroundHexChanged() { swatchesCol.refreshHex() }
-                        }
-                        function applyHex(hex) {
-                            if (editingBackground)
-                                AppSession.setBackgroundHex(hex)
-                            else
-                                AppSession.setForegroundHex(hex)
-                            // The host may have refused it, and a refusal emits
-                            // no change signal — so put the field back from the
-                            // colour that actually survived.
-                            refreshHex()
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceMd
-
-                            // Photoshop's colour widget: two overlapping
-                            // squares, a swap arrow at the top right, and the
-                            // black-and-white default mark at the bottom left.
-                            // Both controls used to live in the panel header,
-                            // which is not where anyone coming from Photoshop
-                            // looks for them — and which had run out of room.
-                            Item {
-                                implicitWidth: 58
-                                implicitHeight: 50
-                                Rectangle {
-                                    x: 14
-                                    y: 18
-                                    width: 26
-                                    height: 26
-                                    radius: Theme.radiusSm
-                                    color: AppSession.backgroundHex
-                                    border.color: swatchesCol.editingBackground
-                                                  ? Theme.primary : Theme.border
-                                    border.width: swatchesCol.editingBackground ? 2 : 1
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        onClicked: {
-                                            swatchesCol.editingBackground = true
-                                            Qt.callLater(function () {
-                                                hexField.forceActiveFocus()
-                                                AppSession.setShortcutInputYield(true)
-                                            })
-                                        }
-                                        ThemedToolTip {
-                                            visible: parent.containsMouse
-                                            text: qsTr("Background")
-                                        }
-                                        hoverEnabled: true
-                                    }
-                                }
-                                Rectangle {
-                                    x: 2
-                                    y: 4
-                                    width: 26
-                                    height: 26
-                                    radius: Theme.radiusSm
-                                    color: AppSession.foregroundHex
-                                    border.color: swatchesCol.editingBackground
-                                                  ? Theme.border : Theme.primary
-                                    border.width: swatchesCol.editingBackground ? 1 : 2
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        onClicked: {
-                                            swatchesCol.editingBackground = false
-                                            Qt.callLater(function () {
-                                                hexField.forceActiveFocus()
-                                                AppSession.setShortcutInputYield(true)
-                                            })
-                                        }
-                                        ThemedToolTip {
-                                            visible: parent.containsMouse
-                                            text: qsTr("Foreground")
-                                        }
-                                        hoverEnabled: true
-                                    }
-                                }
-
-                                // Top right, over the corner of the background
-                                // square, exactly where Photoshop keeps it.
-                                ChromeIconToolButton {
-                                    x: 42
-                                    y: 0
-                                    implicitWidth: 16
-                                    implicitHeight: 16
-                                    padding: 0
-                                    icon.source: root.iconUrl("arrows-left-right")
-                                    icon.width: 12
-                                    icon.height: 12
-                                    onClicked: AppSession.swapFgBg()
-                                    Accessible.name: qsTr("Swap foreground and background")
-                                    ThemedToolTip {
-                                        visible: parent.hovered
-                                        text: parent.Accessible.name
-                                    }
-                                }
-
-                                // Bottom left. `ColorState::reset_default` has
-                                // been in the engine the whole time with nothing
-                                // reaching it. Not `arrow-counter-clockwise`:
-                                // that is Undo's icon, and a second meaning for
-                                // it in the same window is worse than no icon.
-                                ChromeIconToolButton {
-                                    x: 0
-                                    y: 34
-                                    implicitWidth: 16
-                                    implicitHeight: 16
-                                    padding: 0
-                                    icon.source: root.iconUrl("square-half")
-                                    icon.width: 12
-                                    icon.height: 12
-                                    onClicked: AppSession.resetFgBg()
-                                    Accessible.name: qsTr("Reset to black and white")
-                                    ThemedToolTip {
-                                        visible: parent.hovered
-                                        text: parent.Accessible.name
-                                    }
-                                }
-                            }
-
-                            ThemedTextField {
-                                id: hexField
-                                Layout.fillWidth: true
-                                // `source`, not `text`: a `TextField` drops its
-                                // `text` binding the moment the user types.
-                                source: swatchesCol.editedHex
-                                Accessible.name: swatchesCol.editingBackground
-                                                 ? qsTr("Background hex")
-                                                 : qsTr("Foreground hex")
-                                font.family: "Noto Sans Mono"
-                                font.pixelSize: Theme.fontMono
-                                onActiveFocusChanged: root.refreshShortcutYield()
-                                // A `TextField` drops its `text` binding the
-                                // moment the user types, so without restoring
-                                // it the field keeps showing what was typed —
-                                // `notacolour` stayed on screen for good while
-                                // the swatch beside it never moved.
-                                // `applyHex` ends by writing the field, so a
-                                // value the host refused never survives on
-                                // screen.
-                                onEditingFinished: swatchesCol.applyHex(text)
-                                Keys.onReturnPressed: {
-                                    swatchesCol.applyHex(text)
-                                    event.accepted = true
-                                }
-                            }
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            Repeater {
-                                model: [
-                                    "#000000", "#FFFFFF", "#FF0000", "#00FF00",
-                                    "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
-                                    "#808080", "#C0C0C0", "#800000", "#008080"
-                                ]
-                                delegate: Rectangle {
-                                    width: 18
-                                    height: 18
-                                    radius: 2
-                                    color: modelData
-                                    border.color: Theme.border
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: swatchesCol.applyHex(modelData)
-                                    }
-                                }
-                            }
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            visible: AppSession.recentColors.length > 0
-                            Repeater {
-                                model: AppSession.recentColors.length > 0
-                                       ? AppSession.recentColors.split("|") : []
-                                delegate: Rectangle {
-                                    width: 18
-                                    height: 18
-                                    radius: 2
-                                    color: modelData
-                                    border.color: Theme.border
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        // The hex, not `pickRecentColor(index)`:
-                                        // that one always sets the foreground,
-                                        // so clicking a recent colour while the
-                                        // background swatch was selected changed
-                                        // the wrong half of the pair.
-                                        onClicked: swatchesCol.applyHex(modelData)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    active: visible
+                    sourceComponent: swatchesBody
                 }
 
                 // Layers panel
@@ -4155,66 +4380,15 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
+                Loader {
                     visible: root.panelShowsInDock("panel.layers")
                     Layout.row: root.dockStackRow("panel.layers") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
                     Layout.fillHeight: visible
                     Layout.preferredHeight: visible ? 180 : 0
-                    color: Theme.surfaceSunken
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        spacing: 0
-
-                        // Blend, opacity and locks sit above the list, where
-                        // Photoshop keeps them. They used to be in Properties,
-                        // three panels away from the layer they act on.
-                        LayerControlStrip {
-                            id: layerControls
-                            Layout.fillWidth: true
-                            Layout.margins: Theme.spaceSm
-                            // Controls for a layer that is not there read as
-                            // broken chrome rather than as an empty document.
-                            visible: AppSession.hasDocument
-                            blendModes: root.blendModes
-                            iconUrl: root.iconUrl
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: visible ? 1 : 0
-                            visible: AppSession.hasDocument
-                            color: Theme.border
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-
-                            // A document always has at least one layer, so an
-                            // empty list means there is no document — not that
-                            // the layers went missing.
-                            PanelPlaceholder {
-                                anchors.fill: parent
-                                visible: !AppSession.hasDocument
-                                iconKey: "stack-simple"
-                                iconUrl: root.iconUrl
-                                text: qsTr("No document open")
-                                hint: qsTr("Open or create one to see its layers.")
-                            }
-
-                            LayersPanel {
-                                anchors.fill: parent
-                                visible: AppSession.hasDocument
-                                iconUrl: root.iconUrl
-                                maskEditActive: root.maskEditActive
-                                onContextMenuRequested: function (stackIndex, origin, localX, localY) {
-                                    layerContextMenu.targetIndex = stackIndex
-                                    root.openContextMenu(layerContextMenu, origin, localX, localY)
-                                }
-                            }
-                        }
-                    }
+                    active: visible
+                    sourceComponent: layersBody
                 }
 
                 // History panel
@@ -4273,7 +4447,7 @@ ApplicationWindow {
                         }
                     }
                 }
-                Rectangle {
+                Loader {
                     visible: root.panelShowsInDock("panel.history")
                     Layout.row: root.dockStackRow("panel.history") * 2 + 1
                     Layout.column: 0
@@ -4286,104 +4460,8 @@ ApplicationWindow {
                                                                          parent.height))
                                             : 0
                     Layout.minimumHeight: Layout.preferredHeight
-                    color: Theme.surfaceSunken
-
-                    // Two empty states, because the guidance differs: with no
-                    // document there is nothing to have a history of, and with
-                    // one open the list simply has not been written to yet.
-                    PanelPlaceholder {
-                        anchors.fill: parent
-                        visible: historyList.count === 0
-                        iconKey: "clock-counter-clockwise"
-                        iconUrl: root.iconUrl
-                        text: AppSession.hasDocument
-                              ? qsTr("No history yet")
-                              : qsTr("No document open")
-                        hint: AppSession.hasDocument
-                              ? qsTr("Edits you make will be listed here, newest last.")
-                              : qsTr("Open or create one to start a history.")
-                    }
-
-                    ListView {
-                        id: historyList
-                        // The rows were already list items; the list itself was
-                        // not, so they had no collection to belong to.
-                        Accessible.role: Accessible.List
-                        Accessible.name: qsTr("History")
-                        anchors.fill: parent
-                        clip: true
-                        reuseItems: true
-                        cacheBuffer: 88
-                        model: AppSession.historyModel
-                        delegate: Item {
-                            id: historyRow
-                            // Roles from the model item's field names, which
-                            // the derive leaves in snake_case.
-                            required property string label
-                            required property string kind
-                            required property int entry_id
-                            required property bool undone
-
-                            width: historyList.width
-                            height: 22
-
-                            // An undone step is still on the timeline, and
-                            // clicking it walks forward to it. Dimmed rather
-                            // than hidden, the way Photoshop greys the steps
-                            // ahead of where you are.
-                            opacity: historyRow.undone ? 0.45 : 1.0
-
-                            Rectangle {
-                                anchors.fill: parent
-                                color: historyHover.hovered
-                                       ? Theme.surfaceContainerHigh : "transparent"
-                            }
-
-                            Label {
-                                anchors.left: parent.left
-                                anchors.right: historyKind.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                anchors.leftMargin: Theme.spaceSm
-                                anchors.rightMargin: Theme.spaceSm
-                                text: historyRow.label
-                                color: Theme.colorOnSurfaceVariant
-                                font.pixelSize: Theme.fontBodySm
-                                elide: Text.ElideRight
-                            }
-                            // The kind is taxonomy, not a name: inline it read
-                            // "Brush stroke · stroke". Set to one side, in the
-                            // same muted trailing column the command palette
-                            // uses for an action's menu.
-                            Label {
-                                id: historyKind
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                anchors.rightMargin: Theme.spaceSm
-                                text: historyRow.kind
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                            }
-
-                            Accessible.role: Accessible.ListItem
-                            Accessible.name: historyRow.undone
-                                             ? qsTr("%1 (undone)").arg(historyRow.label)
-                                             : historyRow.label
-                            // The kind sits in a muted trailing column that
-                            // reads as part of the row visually and as a
-                            // separate label otherwise; position is what a
-                            // screen reader needs to know where it is in the
-                            // timeline.
-                            Accessible.description: qsTr("%1, %2 of %3")
-                                                    .arg(historyRow.kind)
-                                                    .arg(index + 1)
-                                                    .arg(historyList.count)
-
-                            HoverHandler { id: historyHover }
-                            TapHandler {
-                                onTapped: AppSession.jumpHistoryEntry(historyRow.entry_id)
-                            }
-                        }
-                    }
+                    active: visible
+                    sourceComponent: historyBody
                 }
 
                 // Placeholder slots for descriptor panels without a body yet.
@@ -4811,8 +4889,6 @@ ApplicationWindow {
                 AppSession.applySizePreset(presetLabel)
             else
                 AppSession.applyDocumentSize(w, h)
-            root.syncLayerOpacity()
-            root.syncBlendCombo()
         }
     }
 
@@ -4831,16 +4907,6 @@ ApplicationWindow {
 
     Connections {
         target: AppSession
-        function onActiveOpacityChanged() {
-            root.syncLayerOpacity()
-        }
-        function onActiveBlendChanged() {
-            root.syncBlendCombo()
-        }
-        function onForegroundHexChanged() {
-            if (hexField && !hexField.activeFocus && hexField.text !== AppSession.foregroundHex)
-                hexField.text = AppSession.foregroundHex
-        }
         function onIoErrorChanged() {
             if (AppSession.ioError.length > 0)
                 ioErrorDialogLoader.open()

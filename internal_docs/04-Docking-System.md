@@ -150,6 +150,28 @@ restores both. An explicit position still wins — dragging a floating panel ont
 the stack is the user saying where it belongs now, and joining it to whatever
 happens to sit above that point would be a group they did not ask for.
 
+**Shipped rule — the panel travels, and only one copy of it exists.** A torn-off
+window holds the panel itself, not a description of it. Each dock body in
+`Main.qml` is a `Component` — `propertiesBody`, `navigatorBody`, `swatchesBody`,
+`layersBody`, `historyBody` — and both the dock site and the floating window
+load it through a `Loader`, selecting it by panel id through `panelBodyFor`.
+
+This is instantiation, not reparenting. Moving a live item into a second
+`QQuickWindow` is what [T-027](Appendix/Interactive-Stability-Checklist.md)
+aborted the process over, and it is not needed: the dock's `Loader` is
+`active: visible` and a floating panel is not shown in the dock, so tearing off
+destroys the docked instance as it builds the floating one. There are never two
+copies to disagree about view state, which was the other objection to a second
+instance.
+
+The constraint this puts on panel bodies is that a `Component` cannot see `id`s
+declared outside it. A panel that needs to follow host state keeps itself in
+sync through its own `Connections` on `AppSession` rather than being written to
+from elsewhere in the shell — `LayerControlStrip` does this for blend and
+opacity. `a_torn_off_panel_carries_the_panel_not_a_description_of_it` guards
+that the components exist, that every panel id maps to one, and that the
+floating window loads what that map returns.
+
 ## Drag Transaction Workflow
 
 ```mermaid

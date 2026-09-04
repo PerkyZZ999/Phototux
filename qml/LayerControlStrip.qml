@@ -53,6 +53,22 @@ ColumnLayout {
     /// The epsilon matters: the slider emits on every assignment, so writing a
     /// value it already holds would round-trip back to the host and fight the
     /// user mid-drag.
+    // The strip keeps itself in sync rather than being pushed to by the shell.
+    //
+    // It used to be reached by id from `Main.qml`, which a panel that can be
+    // torn off into its own window cannot rely on: an id declared inside a
+    // `Component` is scoped to that component's instances, so the shell's
+    // `typeof layerControls !== "undefined"` guard would have started
+    // answering "undefined" for ever and the combo would have quietly stopped
+    // following the host.
+    Connections {
+        target: AppSession
+        function onActiveBlendChanged() { root.syncBlendCombo() }
+        function onActiveOpacityChanged() {
+            root.setLayerOpacity(AppSession.activeOpacity)
+        }
+    }
+
     function setLayerOpacity(value) {
         if (!opacitySlider)
             return

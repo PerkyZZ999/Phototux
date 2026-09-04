@@ -30,7 +30,7 @@ the entry says so rather than inventing one.
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | **fixed** |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | **fixed** |
 | [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | **fixed** |
-| [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | open |
+| [QA-012](#qa-012--a-torn-off-panel-is-a-window-with-no-panel-in-it) | low | `qml/Main.qml` / floating panels | Tear-off opens a window containing a message rather than the panel | **fixed** |
 | [QA-013](#qa-013--one-seam-drag-can-evict-every-panel-below-it) | medium | dock / resize clamp | Dragging a seam to the bottom hides every panel below with no way back on screen | open |
 | [QA-014](#qa-014--convert-to-profile-rewrites-every-pixel-with-nothing-to-undo-it) | medium | `phototux_engine` / colour management | A profile conversion that rewrites pixels cannot be undone | **fixed** |
 
@@ -927,7 +927,7 @@ failing.
 | **Severity** | low |
 | **Area** | `qml/Main.qml` — floating panel windows |
 | **Checklist item** | [H-42](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** Tearing off the Navigator opens a window titled "Navigator"
 containing two lines of prose — "Navigator (floating) · Close window or Dock to
@@ -960,6 +960,34 @@ instantiating a second copy of the panel bound to the same host properties,
 which is cheap for the Navigator and not obviously right for panels that hold
 their own view state. The re-dock grouping is a smaller, separable question:
 `park`/`pin` do not record which group a panel left.
+
+**Resolution.** Both halves, in that order.
+
+*Re-dock grouping.* `FloatingPanelPlacement` now carries `dock_index` and
+`tabbed` beside the geometry, recorded when the panel is torn off and replayed
+by `redock`, so a panel returns to the group it left rather than to a new group
+at the bottom. A drop position still wins when the user docks it somewhere
+specific — `a_drop_position_overrides_where_the_panel_came_from` pins that
+precedence, and `a_torn_off_panel_docks_back_where_it_was` pins the default.
+
+*The panel travels.* The second shape, not reparenting. Each of the five dock
+bodies is now a `Component` in `Main.qml` (`propertiesBody`, `navigatorBody`,
+`swatchesBody`, `layersBody`, `historyBody`), and both the dock site and the
+floating window load it through a `Loader`. Exactly one instance exists at a
+time: the dock's `Loader` is `active: visible`, and a floating panel is not
+shown in the dock, so tearing off destroys the docked instance and builds the
+floating one. That sidesteps [T-027](internal_docs/Appendix/Interactive-Stability-Checklist.md)
+entirely — no item crosses a window boundary — and it sidesteps the view-state
+question too, because there are never two copies to disagree.
+
+The extraction had to remove two cross-boundary `id` references first, since a
+`Component` cannot see ids outside it: `LayerControlStrip` now keeps its blend
+and opacity controls in sync through its own `Connections` on `AppSession`,
+and the Swatches hex-field sync moved inside the Swatches body.
+
+`a_torn_off_panel_carries_the_panel_not_a_description_of_it` guards the three
+halves that have to agree — the components exist, `panelBodyFor` maps every
+panel id onto one, and the floating window loads what it returns.
 
 ## QA-013 — One seam drag can evict every panel below it
 
