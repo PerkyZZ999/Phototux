@@ -185,6 +185,27 @@ flowchart TB
 
 View zoom, rotation, mirroring, device scale, and ant animation never change authoritative coverage.
 
+**Shipped rule — empty means "selects no pixels", not "empty rectangle".**
+`selection.replace` refuses a shape whose bounds do not intersect the document
+at all, with the same standing that a zero-area drag has. Both are the user
+asking for a selection that covers nothing; only the wording differs. A drag
+that runs *past* the edge is kept whole and intersected downstream, so the
+bounds stored are the ones drawn and anything later re-derived from them — a
+transform, an expand — works from the rectangle the user made rather than a
+clamped one.
+
+The engine is asked before the GPU mask is written, not after. The mask is the
+real authority on coverage, so writing it first and then being refused would
+leave the two disagreeing: the engine still holding the previous selection while
+the texture held none of it, and a host undo snapshot pushed for an edit that
+never happened. The refusal reaches the user through `report_action_error`, at
+Warning level, because the command did not happen.
+
+Before this, "empty" meant an empty *rectangle*. A marquee dragged wholly into
+the letterbox beside the page was accepted: `selection.active` went true, the
+status bar read `pixel selection`, the marching ants drew, and every command
+that needs a selection then ran and did nothing at all.
+
 ## Antialiasing
 
 Antialiasing computes fractional coverage near geometric boundaries. Every geometric selection source declares antialiasing enabled/disabled and its sampling rule. Reference rasterization may use analytic area coverage or a deterministic supersampling rule. GPU acceleration must match the reference within documented tolerance.

@@ -780,6 +780,29 @@ mod tests {
             Some((99_999, 99_999)),
             "the rect is kept, not clamped"
         );
+
+        // Entirely beside the page is not a selection, however large the
+        // rectangle is. "Empty" used to mean "empty rectangle", so a box
+        // dragged into the letterbox reported `pixel selection` and every
+        // command that needs one then ran and did nothing.
+        let before = session.selection.bounds;
+        for (x, y) in [(5_000, 5_000), (-4_000, 10), (10, -4_000), (1_280, 10)] {
+            assert!(
+                session
+                    .invoke(command_id::SELECTION_REPLACE, replace(x, y, 10, 10))
+                    .is_err(),
+                "a marquee at ({x}, {y}) covers no document pixel and must say so"
+            );
+        }
+        assert_eq!(
+            session.selection.bounds, before,
+            "a refused marquee must not disturb the selection that stands"
+        );
+
+        // One pixel of overlap is still a selection.
+        session
+            .invoke(command_id::SELECTION_REPLACE, replace(1_279, 719, 10, 10))
+            .expect("a marquee that clips the corner is a selection");
     }
     /// Every command is on one side of the lock or the other.
     ///

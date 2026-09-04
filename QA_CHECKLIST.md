@@ -246,7 +246,12 @@ they had.
       the one table, and a test walks every slot of every kind in both directions
 - [x] **E-06** Blur radius at `MAX_BLUR_RADIUS` and at 0 — both ends accepted, and the command refuses without a blur effect present
 - [x] **E-07** Opacity at 0 and 1; zoom at min and max — opacity clamps at the layer, including out-of-range input. Zoom **failed**: `f32::clamp` propagates NaN, so `set_zoom(NaN)` stored NaN and the camera could not be recovered. Fixed at all three camera entries
-- [!] **E-08** Selection of zero area, and one covering the whole canvas — zero area refused, one pixel and whole-canvas accepted, past-the-edge kept whole. **A marquee entirely off-canvas reports a selection covering no pixels** ([QA-005](QA_ISSUES.md#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection))
+- [!] **E-08** Selection of zero area, and one covering the whole canvas — zero area
+      refused, one pixel and whole-canvas accepted, past-the-edge kept whole. **A
+      marquee entirely off-canvas reported a selection covering no pixels**
+      ([QA-005](QA_ISSUES.md#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection)):
+      now refused, with the engine asked before the GPU mask is written so the two
+      cannot disagree, and the refusal said out loud rather than swallowed
 - [x] **E-09** Undo stacks at their bounds (64 selection, 32 transform) — the oldest step falls off, nothing panics — `the_oldest_step_falls_off_the_bottom` covers it on the shared `HostUndoStack`
 - [x] **E-10** Text with an empty body, and with a very long single word — both accepted, 100 000 characters included
 

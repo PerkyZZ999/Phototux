@@ -4726,7 +4726,7 @@ impl AppSession {
             command_id::FILTER_PREVIEW,
             CommandArgs::FilterPreview { kind },
         ) {
-            self.notify(NoticeLevel::Info, error.to_string());
+            self.report_action_error(&error);
         }
         self.sync_filter_preview_fields();
         self.emit_filter_preview_fields();
@@ -4738,7 +4738,7 @@ impl AppSession {
             command_id::FILTER_SET_PREVIEW_PARAMS,
             CommandArgs::FilterPreviewParams { p0, p1, p2 },
         ) {
-            self.notify(NoticeLevel::Info, error.to_string());
+            self.report_action_error(&error);
         }
         self.sync_filter_preview_fields();
         self.emit_filter_preview_fields();
@@ -4747,7 +4747,7 @@ impl AppSession {
     #[qslot]
     fn filter_gallery_apply(&mut self) {
         if let Err(error) = self.invoke_command(command_id::FILTER_COMMIT, CommandArgs::None) {
-            self.notify(NoticeLevel::Info, error.to_string());
+            self.report_action_error(&error);
             return;
         }
         self.filter_gallery_open = false;
@@ -6434,14 +6434,13 @@ impl AppSession {
             width: width as u32,
             height: height as u32,
         };
-        self.commit_selection_edit("selection apply", || match shape {
-            SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
-            SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
-            SelectionShape::Mask => Ok(()),
-        });
-        self.selection_preview_active = false;
-        self.clear_selection_path();
-        let _ = self.invoke_command(
+        // The engine decides first. It refuses a marquee that covers no
+        // document pixel (QA-005), and the GPU mask is the real authority on
+        // coverage — so writing the mask before asking would leave the two
+        // disagreeing: the engine still holding the previous selection while
+        // the texture held none of it, with a host undo snapshot pushed for an
+        // edit that never happened.
+        if let Err(error) = self.invoke_command(
             command_id::SELECTION_REPLACE,
             CommandArgs::SelectionReplace {
                 shape,
@@ -6450,7 +6449,23 @@ impl AppSession {
                 polygon: Vec::new(),
                 label: label.to_owned(),
             },
-        );
+        ) {
+            // Said, not swallowed. The zero-area click that deselects returns
+            // above this, so a refusal here is a deliberate drag that selected
+            // nothing, and the only other feedback would be marching ants that
+            // never appear.
+            self.report_action_error(&error);
+            self.selection_preview_active = false;
+            self.clear_selection_path();
+            return;
+        }
+        self.commit_selection_edit("selection apply", || match shape {
+            SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
+            SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
+            SelectionShape::Mask => Ok(()),
+        });
+        self.selection_preview_active = false;
+        self.clear_selection_path();
     }
 
     fn clear_selection_path(&mut self) {

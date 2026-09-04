@@ -1360,4 +1360,49 @@ mod tests {
             "found {checked} colour literals — the scan broke rather than the shell"
         );
     }
+    /// A refused command reaches the user through `report_action_error`.
+    ///
+    /// `CommandError`'s `Display` is a log line: it puts "command rejected: "
+    /// in front of the reason, which is scaffolding a status bar should never
+    /// show. `user_message` exists for exactly this — a capital, a full stop
+    /// and none of that — and `report_action_error` adds the two things a
+    /// refusal also needs: the Warning level, because the command *did not
+    /// happen*, and the announcement that carries it to assistive technology.
+    ///
+    /// Four call sites rendered the error themselves instead: three in the
+    /// filter gallery and one on the selection path, all of them saying
+    /// "command rejected: …" out loud.
+    #[test]
+    fn a_refused_command_is_reported_not_rendered() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let lines: Vec<&str> = source.lines().collect();
+        for (number, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            if !(trimmed.starts_with("self.notify(") && line.contains("error.to_string()")) {
+                continue;
+            }
+            // `DocumentError` is excepted, and only where the value in hand is
+            // one: its messages are already sentences a person can read — "no
+            // document is open", "1024 px is not a usable document edge" —
+            // with none of `CommandError`'s log scaffolding in front of them.
+            let from_document_error = lines[number.saturating_sub(3)..number]
+                .iter()
+                .any(|near| near.contains("DocumentError"));
+            assert!(
+                from_document_error,
+                "lib.rs:{} hands a rendered error to notify — call \
+                 report_action_error(&error), which classifies it, drops the \
+                 \"command rejected\" scaffolding and announces it",
+                number + 1
+            );
+        }
+        assert!(
+            source.contains("fn report_action_error(&mut self, error: &CommandError)"),
+            "report_action_error is gone — the scan broke rather than the host"
+        );
+    }
 }

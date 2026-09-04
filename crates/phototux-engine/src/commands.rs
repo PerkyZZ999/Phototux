@@ -14,7 +14,7 @@ use crate::layer::{
     LayerTransform, PaintTarget, TextContent,
 };
 use crate::layer_style::LayerStyle;
-use crate::selection::{SelectionModifyOp, SelectionShape};
+use crate::selection::{SelectionModifyOp, SelectionRect, SelectionShape};
 use crate::undo::actions as undo_actions;
 use crate::{SessionState, tool_id};
 
@@ -1783,6 +1783,35 @@ impl SessionState {
         Ok(effects)
     }
 
+    /// Refuse a selection that covers no document pixels.
+    ///
+    /// "Empty" used to mean "empty rectangle": a zero-area drag was refused
+    /// and a ten-by-ten box dragged wholly into the letterbox beside the page
+    /// was accepted. `selection.active` went true, the status bar read `pixel
+    /// selection`, the marching ants drew — and every command that needs a
+    /// selection then ran and did nothing, silently, because the GPU mask
+    /// covered nothing.
+    ///
+    /// A drag that runs *past* the edge is kept whole, which is the useful
+    /// behaviour and is what Photoshop does: only the entirely-outside case is
+    /// refused. The bounds the user dragged are what get stored, so anything
+    /// that later re-derives from them — a transform, an expand — works from
+    /// the rectangle they drew rather than a clamped one.
+    fn reject_selection_off_canvas(&self, rect: SelectionRect) -> Result<(), CommandError> {
+        let canvas = SelectionRect {
+            x: 0,
+            y: 0,
+            width: self.size.width,
+            height: self.size.height,
+        };
+        if rect.intersect(canvas).is_some() {
+            return Ok(());
+        }
+        Err(CommandError::Rejected(
+            "the selection is outside the canvas",
+        ))
+    }
+
     fn cmd_selection_replace(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
         let CommandArgs::SelectionReplace {
             shape,
@@ -1802,12 +1831,14 @@ impl SessionState {
                 if rect.width == 0 || rect.height == 0 {
                     return Err(CommandError::Rejected("the selection is empty"));
                 }
+                self.reject_selection_off_canvas(rect)?;
                 self.selection.set_rect(rect, combine);
             }
             SelectionShape::Ellipse => {
                 if rect.width == 0 || rect.height == 0 {
                     return Err(CommandError::Rejected("the selection is empty"));
                 }
+                self.reject_selection_off_canvas(rect)?;
                 self.selection.set_ellipse(rect, combine);
             }
             SelectionShape::Mask => {
@@ -1818,6 +1849,7 @@ impl SessionState {
                 }
                 let bounds = crate::SelectionState::polygon_bounds(&polygon)
                     .ok_or(CommandError::Rejected("invalid polygon bounds"))?;
+                self.reject_selection_off_canvas(bounds)?;
                 self.selection.set_mask_polygon(bounds, combine);
             }
         }

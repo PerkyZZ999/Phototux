@@ -23,7 +23,7 @@ the entry says so rather than inventing one.
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | **fixed** |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | **fixed** |
-| [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
+| [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | **fixed** |
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
@@ -366,7 +366,7 @@ private clamp before being trusted.
 | **Severity** | low |
 | **Area** | `phototux_engine` — `commands.rs`; `qml/CanvasInput.qml` |
 | **Checklist item** | [E-08](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** A rectangular marquee dragged entirely in the letterbox area
 beside the document is accepted. `selection.active` becomes true, the status
@@ -411,7 +411,32 @@ Whichever is chosen, the GPU mask is the real authority on coverage and the
 engine's `bounds` is bookkeeping — so the fix should make the two agree about
 what "active" means, rather than only tightening the rect.
 
-**Resolution.** *(pending)*
+**Resolution.** Refused when the intersection is empty, which was the answer
+this issue leaned towards and is what Photoshop does. It is the existing
+"the selection is empty" rule stated properly: both cases are the user asking
+for a selection that covers nothing. A drag past the edge is still kept whole,
+so the bounds stored are the ones drawn.
+
+Making the two agree took a reordering, which was the substantive half. The
+host wrote the GPU mask *before* invoking the command, so a refusal would have
+left the engine holding the previous selection while the texture held none of
+it, plus a host undo snapshot pushed for an edit that never happened. The engine
+is now asked first and the mask is written only on success.
+
+The refusal is said rather than swallowed — the zero-area click that deselects
+returns earlier, so anything reaching this point is a deliberate drag that
+selected nothing, and the only other feedback would be marching ants that never
+appear. Surfacing it turned up four call sites rendering a `CommandError`
+straight into a toast, so the user was reading "command rejected: …" —
+scaffolding the engine's own `user_message` exists to strip. All four now go
+through `report_action_error`, which classifies, strips and announces, and
+`a_refused_command_is_reported_not_rendered` fails the build on a fifth.
+`DocumentError` is excepted where the value in hand is one: its messages are
+already sentences.
+
+`a_marquee_that_covers_nothing_is_refused` now covers all four sides and the
+one-pixel corner overlap, and asserts a refused marquee leaves the standing
+selection alone. Watched failing before being trusted.
 
 ---
 
