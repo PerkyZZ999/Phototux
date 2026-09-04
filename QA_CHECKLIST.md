@@ -317,8 +317,10 @@ they had.
       now fixed, and the same list greys the menus and the panel controls, so nothing
       moves and snaps back. Two more surfaced once the state was visible — the lock
       buttons showed no checked state, and Lock All left pixels and position locked
-      when turned off; both fixed. The alpha lock is still unreachable and unread
-      ([QA-002](QA_ISSUES.md#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads))
+      when turned off; both fixed. The alpha lock was unreachable and unread
+      ([QA-002](QA_ISSUES.md#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads));
+      it is now implemented — a masking rule carried on the brush, a write mask on
+      the GPU, and the fourth of four icon toggles in Photoshop's order
 - [x] **E-30** Every command invoked with no document open — typed errors throughout, no panics
 - [x] **E-31** Every command invoked with no active layer — typed refusals throughout
 - [~] **E-32** Commands that need a selection, invoked without one — `selection.to-mask` and `mask.to-selection` refuse. `selection.invert` and `selection.modify` succeed as no-ops; defensible (inverting nothing is Select All) and the menu entries are enablement-gated, so not logged

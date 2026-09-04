@@ -1746,6 +1746,20 @@ impl Layer {
         self.locked || self.locks.all || self.locks.position
     }
 
+    /// Whether painting this layer must leave its transparency alone.
+    ///
+    /// Photoshop's *Lock transparent pixels*, and the one lock that is not a
+    /// refusal: a dab may recolour what is already there and may not change
+    /// how much of it there is. That is a masking rule applied while painting,
+    /// which is why it travels on `BrushParams::preserve_alpha` rather than
+    /// stopping a command.
+    ///
+    /// `locks.all` folds in, as it does for the other three: locking
+    /// everything locks transparency too.
+    pub fn alpha_locked(&self) -> bool {
+        self.locked || self.locks.all || self.locks.alpha
+    }
+
     /// Whether this layer may be restyled — opacity, blend, effects, styles,
     /// masks, and the payload of a text, shape or smart layer.
     ///
@@ -2012,6 +2026,22 @@ mod tests {
     fn paint_blocked_on_group() {
         let g = Layer::group(LayerId(2), "G");
         assert!(g.paint_blocked());
+    }
+
+    #[test]
+    fn alpha_locked_answers_to_its_own_flag_and_to_lock_all() {
+        let mut layer = Layer::new(LayerId(1), "A");
+        assert!(!layer.alpha_locked());
+        layer.locks.pixels = true;
+        assert!(
+            !layer.alpha_locked(),
+            "locking pixels stops the brush; it does not preserve transparency"
+        );
+        layer.locks.alpha = true;
+        assert!(layer.alpha_locked());
+        layer.locks.alpha = false;
+        layer.locks.all = true;
+        assert!(layer.alpha_locked(), "Lock All locks transparency too");
     }
 
     #[test]

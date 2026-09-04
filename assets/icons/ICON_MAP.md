@@ -139,6 +139,7 @@ Prefer handbook panel descriptors (`panel.layers`, …) for panel chrome. Sugges
 | New layer | `stack-plus` | |
 | Visible / hidden | `eye` / `eye-slash` | |
 | Locked / unlocked | `lock` / `lock-open` | |
+| Layer locks (Layers panel) | `checkerboard` / `paint-brush` / `arrows-out-cardinal` / `lock` | Photoshop's order: transparent pixels, image pixels, position, all |
 | Properties | `sliders-horizontal` | |
 | Color / palette | `palette` | |
 | Swatches panel | `circles-three` | Distinct from `swatches` (brush presets) |

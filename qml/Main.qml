@@ -627,6 +627,7 @@ ApplicationWindow {
                 + AppSession.activeLayerLocked
                 + AppSession.activeLockPixels
                 + AppSession.activeLockPosition
+                + AppSession.activeLockAlpha
     }
 
     function actionIsEnabled(actionId) {
@@ -660,6 +661,8 @@ ApplicationWindow {
             return AppSession.activeLockPixels
         case "action.layer.lock-position":
             return AppSession.activeLockPosition
+        case "action.layer.lock-transparency":
+            return AppSession.activeLockAlpha
         case "action.layer.lock-all":
             return AppSession.activeLayerLocked
         }
@@ -4176,6 +4179,7 @@ ApplicationWindow {
                             // broken chrome rather than as an empty document.
                             visible: AppSession.hasDocument
                             blendModes: root.blendModes
+                            iconUrl: root.iconUrl
                         }
                         Rectangle {
                             Layout.fillWidth: true

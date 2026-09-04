@@ -55,9 +55,10 @@ set(ICON_NAMES
     arrows-out-line-horizontal
     arrows-out-line-vertical
     caret-down
-    check
     caret-right
     caret-up
+    check
+    checkerboard
     circle-dashed
     circle-half
     circle-half-tilt
@@ -76,11 +77,12 @@ set(ICON_NAMES
     eye-slash
     eyedropper
     file-plus
+    flame
     flip-horizontal
     flip-vertical
-    flame
     floppy-disk
     folder
+    folder-minus
     folder-open
     frame-corners
     gear
@@ -91,17 +93,18 @@ set(ICON_NAMES
     info
     intersect
     lasso
+    lock
     magic-wand
+    magnet
     magnifying-glass
     magnifying-glass-minus
     magnifying-glass-plus
-    magnet
     minus-circle
     minus-square
     monitor
+    package
     paint-brush
     paint-bucket
-    package
     pen-nib
     plus
     polygon
@@ -117,7 +120,6 @@ set(ICON_NAMES
     sparkle
     square-half
     stack-minus
-    folder-minus
     stack-simple
     stamp
     sun-dim

@@ -619,6 +619,16 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .command(command_id::LAYER_SET_LOCKS)
         .arg("position"),
+        // Photoshop's *Lock transparent pixels*. It sits between the pixel
+        // lock and Lock All in that menu, and does here too.
+        act(
+            "action.layer.lock-transparency",
+            "Lock Transparent Pixels",
+            "layer.lock",
+            "has_document",
+        )
+        .command(command_id::LAYER_SET_LOCKS)
+        .arg("alpha"),
         act(
             "action.layer.lock-all",
             "Lock All",

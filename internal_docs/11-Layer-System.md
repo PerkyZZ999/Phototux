@@ -327,6 +327,7 @@ on `Layer`, and no command consults the flags directly:
 | `paint_blocked` | `locked`, `all`, `pixels`, non-raster kind | the brush, fill, gradient and every pixel write |
 | `position_blocked` | `locked`, `all`, `position` | the move tool, align and distribute |
 | `change_blocked` | `locked`, `all` | opacity, blend, blend-if, clipping, masks, effects, styles, and a text, shape or smart layer's payload |
+| `alpha_locked` | `locked`, `all`, `alpha` | *nothing* — it masks rather than refuses; see below |
 
 `change_blocked` is the one that was missing, and its absence is what made
 Lock All mean "cannot delete, cannot paint, cannot move" rather than "cannot
@@ -354,9 +355,34 @@ Lock All with it — the predicates fold `all` in, so a flag cleared under a
 standing Lock All would go on blocking with nothing on screen saying which lock
 still held.
 
-`locks.alpha` — Photoshop's *Lock transparent pixels* — is serialised and
-accepted by `layer.set-locks` but has no reader and no way to set it; see
-QA-002.
+`alpha_locked` is the odd one out, and deliberately: Photoshop's *Lock
+transparent pixels* is not a refusal but a masking rule applied while painting,
+so it cannot be a precondition on a command. It travels instead on
+`BrushParams::preserve_alpha`, read in `sync_brush_from_tool` so it cannot go
+stale between selecting a layer and starting a stroke, and reaches the GPU with
+every dab.
+
+The rule is that a dab may change a pixel's colour and never how much of it
+there is. On the GPU that is a *write mask*: `pipeline_paint_locked` is the
+ordinary paint blend with `ColorWrites::COLOR`, so the alpha channel is not
+written at all. Scaling coverage by the destination alpha was tried first and
+is wrong — it only slows alpha down, and a half-opaque pixel painted at full
+coverage still finished at three quarters. `stamp_dab_rgba` says the same thing
+the only way a CPU reference can, by blending colour and leaving the alpha byte,
+and `the_transparency_lock_matches_the_cpu_reference` holds the two together on
+a device.
+
+Two consequences worth stating. The colour is written at full strength even
+where alpha is zero, which is what Photoshop does: the pixel holds a colour
+nothing can see until something else raises its alpha. And the eraser is
+dropped under the lock rather than reinterpreted — Photoshop turns it into a
+background-colour brush there, which is a different tool, and silently painting
+a colour the user did not pick would be worse than a dab that does nothing.
+
+The four locks are four icon toggles in the Layers panel, in Photoshop's order:
+chequerboard, brush, arrows, padlock. Four labelled buttons do not fit that
+strip — sharing the row equally elided "Position", and natural widths pushed
+"All" off the edge — which is the same reason Photoshop draws them as icons.
 
 ### Shipped layer styles
 

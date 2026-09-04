@@ -20,7 +20,7 @@ the entry says so rather than inventing one.
 | ID | Severity | Area | Summary | Status |
 |---|---|---|---|---|
 | [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | **fixed** |
-| [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
+| [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | **fixed** |
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | **fixed** |
 | [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | **fixed** |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | **fixed** |
@@ -150,7 +150,7 @@ that fails if the predicate is made over-broad.
 | **Severity** | low |
 | **Area** | `phototux_engine` — `layer.rs`, `commands.rs` |
 | **Checklist item** | [E-29](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** `LockFlags` carries an `alpha` field — Photoshop's *Lock
 transparent pixels*. It is serialised with the layer, round-trips through
@@ -204,7 +204,38 @@ that every `arg` string an `args_for_action` arm matches is one some action
 supplies. That guard would have found this, and is worth adding whichever
 resolution is chosen.
 
-**Resolution.** *(pending)*
+**Resolution.** Implemented, on the user's decision: Photoshop has the lock and
+Photoshop parity is this project's standing rule.
+
+`Layer::alpha_locked` joins the other three predicates, and is the odd one out
+by design — it refuses nothing. A transparency lock is a masking rule applied
+while painting, so it travels on `BrushParams::preserve_alpha`, read in
+`sync_brush_from_tool` so it cannot go stale between selecting a layer and
+starting a stroke, and it reaches the GPU with every dab.
+
+On the GPU the rule is a *write mask*: `pipeline_paint_locked` is the ordinary
+paint blend with `ColorWrites::COLOR`, so the alpha channel is not written at
+all. Scaling coverage by the destination alpha was tried first and is wrong —
+it only slows alpha down, and a half-opaque pixel painted at full coverage
+still finished at three quarters. `stamp_dab_rgba` says the same thing the only
+way a CPU reference can, and a device-backed fixture holds the two together.
+
+The eraser is dropped under the lock rather than reinterpreted. Photoshop turns
+it into a background-colour brush there, which is a different tool; silently
+painting a colour the user did not pick would be worse than a dab that does
+nothing.
+
+The chrome is four icon toggles in Photoshop's order — chequerboard, brush,
+arrows, padlock — because four labelled buttons do not fit that strip: sharing
+the row equally elided "Position" to "Positi…", and natural widths pushed "All"
+off the edge. `checkerboard` and `lock` had to be added to the qrc's
+`ICON_NAMES`, which `every_icon_key_is_packaged_into_the_qrc` exists to catch
+and did not, because that guard reads descriptors rather than QML.
+
+Verified live at 1920×1080: with the lock on, a stroke dragged from the
+transparent margin into the opaque rectangle paints only where pixels already
+were, and stops exactly at the layer's edge. Three tests — two CPU, one on a
+device — and the device one was watched failing against the unlocked pipeline.
 
 ---
 

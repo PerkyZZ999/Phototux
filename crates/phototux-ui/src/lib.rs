@@ -276,6 +276,7 @@ pub struct AppSession {
     active_layer_locked: bool,
     active_lock_pixels: bool,
     active_lock_position: bool,
+    active_lock_alpha: bool,
     mask_edit_active: bool,
     mask_density: f32,
     mask_feather: f32,
@@ -634,6 +635,7 @@ impl AppSession {
             active_layer_locked: false,
             active_lock_pixels: false,
             active_lock_position: false,
+            active_lock_alpha: false,
             mask_edit_active: false,
             mask_density: 1.0,
             mask_feather: 0.0,
@@ -1108,6 +1110,12 @@ impl AppSession {
             active_lock_position,
             self.engine.active_lock_position(),
             active_lock_position_changed
+        );
+        publish!(
+            self,
+            active_lock_alpha,
+            self.engine.active_lock_alpha(),
+            active_lock_alpha_changed
         );
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
@@ -3343,6 +3351,11 @@ impl AppSession {
         Notify = active_lock_position_changed
     );
     qproperty!(
+        "activeLockAlpha",
+        Member = active_lock_alpha,
+        Notify = active_lock_alpha_changed
+    );
+    qproperty!(
         "activeLayerKind",
         Member = active_layer_kind,
         Notify = active_layer_kind_changed
@@ -4128,6 +4141,8 @@ impl AppSession {
     fn active_lock_pixels_changed(&mut self);
     #[qsignal]
     fn active_lock_position_changed(&mut self);
+    #[qsignal]
+    fn active_lock_alpha_changed(&mut self);
     #[qsignal]
     fn active_layer_name_changed(&mut self);
     #[qsignal]

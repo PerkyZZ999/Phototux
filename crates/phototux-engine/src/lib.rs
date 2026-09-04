@@ -512,6 +512,11 @@ impl SessionState {
         self.brush.size = self.brush_size;
         self.brush.hardness = self.brush_hardness;
         self.brush.color = self.brush_color;
+        // The transparency lock is a property of the layer being painted, not
+        // of the brush, but it has to travel with every dab — it is a masking
+        // rule the shader applies, not a precondition. Read here so it cannot
+        // go stale between selecting a layer and starting a stroke.
+        self.brush.preserve_alpha = self.active_layer().is_some_and(Layer::alpha_locked);
     }
 
     pub fn set_viewport(&mut self, width: f32, height: f32) {
@@ -762,6 +767,12 @@ impl SessionState {
     #[must_use]
     pub fn active_layer_clips(&self) -> bool {
         self.active_layer().is_some_and(|l| l.clips_to_below)
+    }
+
+    /// Whether the active layer preserves its transparency while painting.
+    #[must_use]
+    pub fn active_lock_alpha(&self) -> bool {
+        self.active_layer().is_some_and(Layer::alpha_locked)
     }
 
     /// Whether the active layer's pixels are locked against painting.

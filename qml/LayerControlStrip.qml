@@ -22,6 +22,8 @@ ColumnLayout {
 
     /// Blend modes as the engine declares them, with their family for banding.
     required property var blendModes
+    /// Resolve a Phosphor icon stem to a URL, as the rest of the chrome does.
+    required property var iconUrl
 
     spacing: Theme.spaceXxs
 
@@ -63,16 +65,23 @@ ColumnLayout {
     /// `checked` matters as much as the click: the three buttons used to look
     /// identical whether the lock was on or off, so the only way to find out
     /// was to try an edit and watch it be refused.
-    component LockButton: ThemedButton {
+    /// One lock toggle: an icon, as Photoshop has, with the sentence in the
+    /// tooltip and in the accessible name.
+    ///
+    /// Four labelled buttons do not fit this strip. Sharing the row equally
+    /// elided "Position" to "Positi…"; letting each size to its own text
+    /// pushed "All" off the edge. Photoshop draws these as four small icons
+    /// for the same reason.
+    component LockButton: ChromeIconToolButton {
         required property string actionId
+        /// The full sentence, for the tooltip and for assistive technology.
+        required property string explanation
         checkable: true
-        // `ThemedButton` draws hover, press and focus but not `checked`, so an
-        // engaged lock borrows the primary prominence — the same fill the
-        // active tool takes in the rail. The binding on `checked` survives the
-        // click: Qt's own write does not remove it, and the host publishes the
-        // real state a moment later.
-        prominence: checked ? "primary" : "normal"
-        Layout.fillWidth: true
+        Accessible.name: explanation
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.explanation
+        }
         enabled: AppSession.hasDocument
     }
 
@@ -159,23 +168,35 @@ ColumnLayout {
             color: Theme.colorOnSurfaceMuted
             font.pixelSize: Theme.fontLabelSm
         }
+        // Photoshop's order: transparent pixels, image pixels, position, all.
         LockButton {
-            text: qsTr("Pixels")
+            icon.source: root.iconUrl("checkerboard")
+            explanation: qsTr("Lock transparent pixels")
+            actionId: "action.layer.lock-transparency"
+            checked: AppSession.activeLockAlpha
+            onClicked: AppSession.invokeAction(actionId)
+        }
+        LockButton {
+            icon.source: root.iconUrl("paint-brush")
+            explanation: qsTr("Lock image pixels")
             actionId: "action.layer.lock-pixels"
             checked: AppSession.activeLockPixels
             onClicked: AppSession.invokeAction(actionId)
         }
         LockButton {
-            text: qsTr("Position")
+            icon.source: root.iconUrl("arrows-out-cardinal")
+            explanation: qsTr("Lock position")
             actionId: "action.layer.lock-position"
             checked: AppSession.activeLockPosition
             onClicked: AppSession.invokeAction(actionId)
         }
         LockButton {
-            text: qsTr("All")
+            icon.source: root.iconUrl("lock")
+            explanation: qsTr("Lock all")
             actionId: "action.layer.lock-all"
             checked: AppSession.activeLayerLocked
             onClicked: AppSession.invokeAction(actionId)
         }
+        Item { Layout.fillWidth: true }
     }
 }

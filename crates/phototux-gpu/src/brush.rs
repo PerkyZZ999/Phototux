@@ -18,7 +18,7 @@ struct Uniforms {
     mode: u32,
     texture_kind: u32,
     texture_strength: f32,
-    _pad0: f32,
+    preserve_alpha: u32,
 };
 
 fn tip_noise(p: vec2<f32>) -> f32 {
@@ -63,10 +63,22 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
     // 0 paint, 1 erase, then the retouch modes.
+    //
+    // `preserve_alpha` is Photoshop's *Lock transparent pixels*: a dab may
+    // change a pixel's colour and never how much of it there is. Only paint
+    // and erase need it stated — the retouch modes already answer with
+    // `a * here.a`, which is the same rule by construction.
     if (u.mode == 1u) {
+        // Erasing *is* a change of alpha, so the lock leaves it nothing to do.
+        if (u.preserve_alpha != 0u) {
+            discard;
+        }
         return vec4<f32>(0.0, 0.0, 0.0, a);
     }
     if (u.mode == 0u) {
+        // The transparency lock is in the pipeline's write mask, not here: the
+        // colour blends by coverage exactly as it always does, and the alpha
+        // channel is simply not written.
         return vec4<f32>(u.color.rgb, u.color.a * a);
     }
 
@@ -112,7 +124,8 @@ struct StampUniforms {
     mode: u32,
     texture_kind: u32,
     texture_strength: f32,
-    _pad0: f32,
+    /// Photoshop's *Lock transparent pixels*, as `0` / `1`.
+    preserve_alpha: u32,
 }
 
 /// The shader's code for a dab mode.
@@ -168,6 +181,8 @@ impl StampRequest {
 pub struct BrushStamper {
     pipeline_paint: wgpu::RenderPipeline,
     pipeline_erase: wgpu::RenderPipeline,
+    /// Paint with the alpha channel masked off — the transparency lock.
+    pipeline_paint_locked: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
     /// One uniform buffer slot per dab in a batch; resized as needed.
     uniform_bufs: Vec<wgpu::Buffer>,
@@ -236,7 +251,7 @@ impl BrushStamper {
                 immediate_size: 0,
             });
 
-        let make_pipe = |blend: wgpu::BlendState, label: &str| {
+        let make_pipe = |blend: wgpu::BlendState, writes: wgpu::ColorWrites, label: &str| {
             ctx.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some(label),
@@ -254,7 +269,7 @@ impl BrushStamper {
                         targets: &[Some(wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Rgba8Unorm,
                             blend: Some(blend),
-                            write_mask: wgpu::ColorWrites::ALL,
+                            write_mask: writes,
                         })],
                     }),
                     primitive: wgpu::PrimitiveState::default(),
@@ -318,8 +333,20 @@ impl BrushStamper {
         });
 
         Self {
-            pipeline_paint: make_pipe(paint_blend, "stamp-paint"),
-            pipeline_erase: make_pipe(erase_blend, "stamp-erase"),
+            pipeline_paint: make_pipe(paint_blend, wgpu::ColorWrites::ALL, "stamp-paint"),
+            pipeline_erase: make_pipe(erase_blend, wgpu::ColorWrites::ALL, "stamp-erase"),
+            // Photoshop's *Lock transparent pixels*: the same paint blend with
+            // the alpha channel masked off, so a dab recolours what is there
+            // and cannot change how much of it there is. Expressed in the
+            // write mask rather than in the shader because a fragment cannot
+            // decline to write one channel, and scaling coverage instead only
+            // *slows* alpha down — a half-opaque pixel painted at full
+            // coverage still finished at three-quarters.
+            pipeline_paint_locked: make_pipe(
+                paint_blend,
+                wgpu::ColorWrites::COLOR,
+                "stamp-paint-alpha-locked",
+            ),
             bind_layout,
             uniform_bufs: Vec::new(),
             source,
@@ -370,7 +397,7 @@ impl BrushStamper {
             mode: dab_mode_code(req.params.mode),
             texture_kind,
             texture_strength: req.params.texture_strength.clamp(0.0, 1.0),
-            _pad0: 0.0,
+            preserve_alpha: u32::from(req.params.preserve_alpha),
         }
     }
 
@@ -480,7 +507,9 @@ impl BrushStamper {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            let mut bound_eraser: Option<bool> = None;
+            // Which of the three pipelines is bound: paint, erase, or paint
+            // with the alpha channel masked off.
+            let mut bound: Option<(bool, bool)> = None;
             for (dab, bind) in drawable.iter().zip(binds.iter()) {
                 // The draw is a full-screen triangle whose fragments outside the
                 // dab are discarded, so without a scissor a 20 px dab on a 4K
@@ -494,14 +523,22 @@ impl BrushStamper {
                 // Only the eraser subtracts alpha; every other mode — paint
                 // and all seven retouch modes — blends its answer over what is
                 // there, so they share the paint pipeline.
+                //
+                // The transparency lock swaps in a paint pipeline whose write
+                // mask leaves the alpha channel alone. It only applies to
+                // paint: the retouch modes already answer with `a * here.a`,
+                // which leaves transparency where it was, and an eraser under
+                // the lock has nothing to do and is dropped in the shader.
                 let erasing = dab.request.params.mode == DabMode::Erase;
-                if bound_eraser != Some(erasing) {
-                    pass.set_pipeline(if erasing {
-                        &self.pipeline_erase
-                    } else {
-                        &self.pipeline_paint
+                let locked =
+                    dab.request.params.preserve_alpha && dab.request.params.mode == DabMode::Paint;
+                if bound != Some((erasing, locked)) {
+                    pass.set_pipeline(match (erasing, locked) {
+                        (true, _) => &self.pipeline_erase,
+                        (false, true) => &self.pipeline_paint_locked,
+                        (false, false) => &self.pipeline_paint,
                     });
-                    bound_eraser = Some(erasing);
+                    bound = Some((erasing, locked));
                 }
                 pass.set_bind_group(0, bind, &[]);
                 pass.draw(0..3, 0..1);
