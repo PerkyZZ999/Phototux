@@ -89,7 +89,13 @@ they had.
       something else was clicked, because the hidden on-canvas editor kept the
       keyboard — see T-037 in the
       [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md).
-- [ ] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors
+- [~] **H-22** Shape tool creates each shape preset; Path Edit moves its anchors
+      — `Layer ▸ Shape` lists all nine presets and Star built correct geometry with
+      fill, stroke and inspector W/H/X/Y; Rasterize Shape was correctly disabled on a
+      raster layer. Path Edit does move an anchor (dragging a rectangle's corner
+      deformed it and the inspector followed), but the layer was named for its kind
+      rather than the preset — fixed here, commit `d779b06` — and the anchors are
+      never drawn ([QA-009](QA_ISSUES.md)).
 
 ## 1.3 Layers and masks
 

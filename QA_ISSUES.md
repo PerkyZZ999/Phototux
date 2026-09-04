@@ -27,6 +27,7 @@ the entry says so rather than inventing one.
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
+| [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
 
 ---
 
@@ -538,3 +539,53 @@ edit. Handbook 18 describes the full engine, and the
 [gap analysis](internal_docs/Appendix/Codebase-Handbook-Gap-Analysis.md) does
 not currently record that the shipping bake ignores the selected face — that
 omission is part of this issue.
+
+## QA-009 — Path Edit asks the user to drag anchors it never draws
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `qml/Main.qml` — canvas overlays |
+| **Checklist item** | [H-22](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** The Path Edit tool works. With a shape layer active, dragging
+the point where an anchor happens to be moves it, the outline follows, and the
+Shape inspector's W/H/X/Y update. But nothing on the canvas shows where the
+anchors *are*. There are no handles, no path outline, no selected-anchor
+highlight — the tool's own inspector copy reads "Drag anchors to move. Click
+empty to add", and the user has no way to see either one. Free Transform, by
+contrast, draws its eight handles.
+
+With a **raster** layer active it is worse. The click still adds an anchor,
+but to the document's separate path list rather than to any layer, and
+`inspector.path` is registered for the `Shape` subject only — so the Path
+group is not in the panel either. The anchor count, the Closed toggle and
+Delete Anchor are all invisible, and the only way to find out that anything
+happened is `Layer ▸ Shape ▸ Stroke Path to Layer`.
+
+**Steps to reproduce.**
+
+1. New 1080p document, `Layer ▸ Shape ▸ Rectangle`.
+2. Press `A` for Path Edit. The canvas is unchanged — no handles appear.
+3. Drag the rectangle's top-left corner. It moves, so the anchor was there.
+4. Select a raster layer instead and click the canvas twice. Nothing appears,
+   and the Properties panel shows no Path group.
+
+**Root cause.** There is no overlay to draw. `Main.qml` renders guides, the
+crop rectangle, the free-transform handles, the marquee and the text frame,
+but has nothing for `graph.paths` or for a shape layer's own path; the host
+publishes `pathAnchorCount`, `pathClosed` and `pathEditSelected` as scalars,
+and no anchor geometry at all. Hit-testing happens entirely host-side in
+`path_hit_test`, so the pointer finds anchors the screen never showed.
+
+**Why not a quick fix.** The overlay needs anchor positions in document space,
+which means a new published projection — the same shape as `guidesJson`, and
+subject to the same rule that it must not be rebuilt on every composite (see
+T-009 in the [Interactive-Stability-Checklist](internal_docs/Appendix/Interactive-Stability-Checklist.md),
+where a per-frame republish flooded AT-SPI and killed the session). Handle
+size has to stay constant in *screen* pixels while the canvas zooms, and the
+selected anchor needs its own treatment. That is a small feature, not a patch.
+Making `inspector.path` visible for more than the `Shape` subject is a
+separate and much smaller question, but it should be answered together with
+this one rather than exposing a panel for geometry that is still invisible.
