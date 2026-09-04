@@ -29,6 +29,7 @@ the entry says so rather than inventing one.
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
 | [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | open |
+| [QA-011](#qa-011--a-freshly-opened-document-is-already-marked-modified-and-the-tab-strip-reorders-itself) | medium | session model / tabs | Opening marks a document dirty; tabs reorder; the same file opens twice | open |
 
 ---
 
@@ -628,3 +629,65 @@ clipped casually (handbook 17). The overlay layer wants its own clipping
 container sized to the viewport, with the canvas item outside it, and that is a
 change to the canvas scene graph rather than a property flip. It is also worth
 doing once for every overlay rather than for this one.
+
+## QA-011 — A freshly opened document is already marked modified, and the tab strip reorders itself
+
+| | |
+|---|---|
+| **Severity** | medium |
+| **Area** | `phototux_ui` — `lib.rs`, `phototux_engine` — `document_registry.rs` |
+| **Checklist item** | [H-05](QA_CHECKLIST.md), [H-12](QA_CHECKLIST.md) |
+| **Status** | open |
+
+Three things go wrong around opening a document. They are filed together
+because they are all the document-session model and would be fixed in one
+sitting.
+
+**Observed — 1. Opening marks the document modified.** Launch with a `.ptx`
+path, touch nothing: the tab reads `* qa-doc.ptx`. Nothing has been edited. The
+consequences follow from that flag — closing prompts to discard, and the
+autosave timer, which runs `while AppSession.dirty`, starts writing recovery
+snapshots for a document identical to the file on disk.
+
+The cause is in the source and is not a guess: `finish_opened_ptx` ends with
+`self.dirty = true`, and the PSD path does the same. The raster path
+(`.png`, `.jpg`, …) does not, and a PNG opened beside it is correctly clean.
+
+**Observed — 2. The window title disagrees with the tab.** In the same state
+the title bar reads `qa-doc.ptx — PhotoTux`, with no asterisk, while the tab
+shows one. Both are supposed to come from the same `AppSession.dirty` — the
+title binds it directly and the tab reads the `dirty` field of the tabs JSON,
+which for the active tab is that same value — and `emit_doc_fields` emits
+`dirty_changed` after the flag is set. **The mechanism was not established.**
+It is recorded here as observed rather than explained, because guessing at it
+would be worse than saying so.
+
+**Observed — 3. The tab strip reorders itself when you switch tabs.**
+`DocumentRegistry::tabs_json` builds the list as the active document first and
+then the parked ones, so a tab moves to position 0 the moment it is clicked and
+the others shuffle down. Nothing else in the shell moves under the pointer like
+that, and it makes a strip of three or more unreadable: the tab you just left
+is not where you left it.
+
+**Observed — 4. Opening a file that is already open opens it twice.** There is
+no de-duplication by path anywhere in the open path, so the same document ends
+up in two tabs with two independent histories, and a save from one silently
+loses the other's edits. Photoshop raises the existing tab.
+
+**Steps to reproduce.**
+
+1. Save any document as `qa-doc.ptx`.
+2. Relaunch with that path as the argument, or `Ctrl+O` it. The tab shows `*`
+   and the title does not.
+3. `Ctrl+O` the same file again → a second tab for the same path.
+4. Click between the two tabs → the active one jumps to the left each time.
+
+**Why not a quick fix.** Dropping the two `self.dirty = true` lines is a
+one-line change each, but it needs a test that a freshly opened document is
+clean, and (2) has to be understood first — a document that is genuinely dirty
+and *shows* clean in the title is the more dangerous direction of the same bug,
+and it may be the same root cause. (3) changes the published order, which the
+QML tab strip and `document_tabs_json` guards both read. (4) is a new lookup and
+a decision about what "already open" means for a document that has been
+`Save As`-ed since. Handbook [DR-024](internal_docs/Appendix/Decision-Register.md#dr-024--document-session-model)
+owns the session model these all sit in.

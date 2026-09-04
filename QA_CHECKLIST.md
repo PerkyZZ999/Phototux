@@ -58,16 +58,29 @@ they had.
 - [x] **H-01** Cold start with no document → Welcome dialog offers New / Open and lists recent files
 - [x] **H-02** New Document at each preset (720p / 1080p / 2K / 4K) creates a document of that size, zoomed to fit — all four presets present with correct dimensions; 1080p created 1920×1080 at 53% fit
 - [x] **H-03** New Document at a custom size within limits creates it — and typing 99999 clamps to 8192, deselecting the preset (E-01 through the GUI)
-- [ ] **H-04** Open a PNG → canvas shows it, layer list shows it, title carries the filename
-- [ ] **H-05** Open a `.ptx` → layers, masks, styles and adjustments all return
+- [x] **H-04** Open a PNG → canvas shows it, layer list shows it, title carries the filename —
+      640×360 PNG opened at zoom-to-fit 160%, layer named `qa-open.png`, title
+      `qa-open.png — PhotoTux`, tab clean
+- [~] **H-05** Open a `.ptx` → layers, masks, styles and adjustments all return — a raster
+      layer and an Invert adjustment round-tripped, editor and composite intact. Marked
+      partial only because the reopened document arrives already flagged as modified
+      ([QA-011](QA_ISSUES.md)); the content itself came back correctly
 - [ ] **H-06** Open a layered PSD → layers import, compatibility report discloses what was dropped
-- [ ] **H-07** Save a new document (Save As) → file written, title loses the dirty `*`
-- [ ] **H-08** Save an already-saved document (Save) → writes in place with no dialog
+- [x] **H-07** Save a new document (Save As) → file written, title loses the dirty `*` —
+      wrote `qa-doc.ptx` (2532 bytes); title became `qa-doc.ptx — PhotoTux` and the tab
+      lost its asterisk
+- [x] **H-08** Save an already-saved document (Save) → writes in place with no dialog —
+      Ctrl+S rewrote the same path (2532 → 2786 bytes) with no dialog, and cleared the
+      dirty marker from both the title and the tab
 - [ ] **H-09** Export to each raster format (PNG, JPEG, WebP, TIFF, BMP, GIF)
 - [ ] **H-10** Export to PSD → layered file, compatibility report lists anything unrepresentable
 - [ ] **H-11** Close a dirty document → prompts before discarding
 - [ ] **H-12** Open a second document → tab strip shows both, switching preserves each one's state
-- [ ] **H-13** Autosave fires and Recovery restores a document after a simulated unclean exit
+- [x] **H-13** Autosave fires and Recovery restores a document after a simulated unclean exit —
+      exercised repeatedly across this pass: every `kill` of the app was followed by a
+      Recover dialog listing the autosaves with per-entry Restore/Discard and Discard All,
+      and Restore brought back the full layer stack. The empty state ("Nothing left to
+      recover") is correct too
 
 ## 1.2 Painting and tools
 
@@ -75,9 +88,13 @@ they had.
 - [x] **H-15** Eraser removes to transparency
 - [x] **H-16** Every one of the 26 tools activates from the shelf, its keyboard chord, and the palette — all three chord forms land (`e`, `Shift+M`, `Ctrl+T`); the rail's 15 buttons are all AT-named, and `the_tool_rail_and_the_tool_vocabulary_describe_the_same_tools` covers the set
 - [x] **H-17** Tool options bar changes to match the active tool — Brush, Rectangular Marquee, Free Transform and Paint Bucket each show their own controls
-- [ ] **H-18** Clone stamp anchors on Alt-click and copies from the anchor
+- [x] **H-18** Clone stamp anchors on Alt-click and copies from the anchor — Alt-click on a
+      stroke then dragging 280 px below it painted a copy of the source at the same offset.
+      Its options bar is empty, where Photoshop offers aligned/sample and the brush
+      controls, and nothing on screen says Alt-click is how the anchor is set
 - [x] **H-19** Fill and Gradient commit to the active layer — **the bucket's own colour field was wrong**: it showed and edited a *fill layer's* colour while the bucket poured the foreground. Fixed and guarded
-- [ ] **H-20** Eyedropper picks into the foreground swatch
+- [x] **H-20** Eyedropper picks into the foreground swatch — filled `#CC3366`, set the
+      foreground to `#111111`, sampled the canvas, and the field read `#CC3366` again
 - [~] **H-21** Text tool creates an editable text layer; Bake Text rasterizes it
       — the layer is created and is editable from both the on-canvas frame and the
       Character panel (they mirror each other live), and Bake Text converts it to a
