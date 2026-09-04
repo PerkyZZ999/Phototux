@@ -104,10 +104,25 @@ they had.
 - [x] **H-25** Group and Ungroup; a group hides its children when hidden — New Group nests the layer with a `G` badge and the blend combo switches to Pass Through
 - [x] **H-26** Opacity and blend mode apply, and are visible on canvas — the slider reached 12% and reports "Layer opacity percent 12" to AT
 - [x] **H-27** Add / delete / apply a layer mask; paint into it via the edit-target switch — Add Mask switches the edit target to "Layer mask", exposes the four mask sliders, and enables Apply/Delete
-- [ ] **H-28** Clipping mask clips to the layer below
-- [ ] **H-29** Merge Down / Merge Visible / Merge Group / Flatten
-- [ ] **H-30** Layer styles add, edit and render
-- [ ] **H-31** Adjustment layers: all ten kinds create, edit and composite
+- [x] **H-28** Clipping mask clips to the layer below — Layer ▸ Create Clipping Mask indents
+      the row with the clip arrow and the shape disappears because its base layer's only
+      opaque pixels lie outside it; Ctrl+Z brings it back, so the clip is what removed it
+- [x] **H-29** Merge Down / Merge Visible / Merge Group / Flatten — all four exercised on a
+      four-layer document: Merge Down folded a shape into the raster below it and kept the
+      lower name, Merge Visible collapsed to one layer with the composite unchanged, Merge
+      Group flattened a group to a raster layer, Flatten Image reduced to `Background`.
+      Each is a separate History entry, and all four correctly grey out at one layer
+- [x] **H-30** Layer styles add, edit and render — Layer ▸ Layer Style lists eight kinds;
+      Color Overlay applied, rendered over the layer, and was recorded in History as a
+      graph edit. The Layer Styles disclosure group carries the editors (it is priority 3
+      and closed by default, so it sits below the fold on a short panel)
+- [x] **H-31** Adjustment layers: all ten kinds create, edit and composite — Layer ▸ New
+      Adjustment Layer lists all ten (Brightness/Contrast, Levels, Exposure,
+      Hue/Saturation, Invert, Threshold, Posterize, Vibrance, Black & White, White
+      Balance). Threshold created a live adjustment layer with an `A` badge and a Level
+      slider; dragging it to 0.00 whitened the whole composite, so the GPU canvas honours
+      it. A thumbnail that briefly disagreed with the canvas mid-drag settled to match —
+      it was an intermediate snapshot, not a CPU/GPU divergence
 
 ## 1.4 Selection and transform
 
@@ -116,14 +131,23 @@ they had.
 - [x] **H-34** Select All / Deselect / Invert — Ctrl+A, Ctrl+Shift+I and Ctrl+D all land
 - [x] **H-35** Modify: expand, contract, feather, border — the prompt opens with the registry's default radius and Expand applies. A radius above the default used to block the UI thread for minutes ([QA-006](QA_ISSUES.md#qa-006--select--modify-blocks-the-ui-thread-for-minutes)); **fixed** — 38× faster at radius 40, and the exact reproduction now completes
 - [ ] **H-36** Selection ↔ mask conversion both ways
-- [ ] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel
-- [ ] **H-38** Crop commits and discards the outside
+- [~] **H-37** Free Transform: move, scale, rotate, constrain, Apply and Cancel — arming it
+      shows the options bar with Rotate and Constrain; the first drag begins the session
+      ("Transform in progress", Apply/Cancel live, a Rotate slider and the hint "Drag to
+      move · handles scale · Enter apply · Esc cancel"). Enter applied a move, Esc
+      cancelled the next one and the layer returned. The bounding box is drawn unclipped
+      and overlaps the tab strip when the layer is moved up ([QA-010](QA_ISSUES.md))
+- [x] **H-38** Crop commits and discards the outside — dragging showed the kept region and
+      "Crop 1220 × 619" in the options bar; Apply resized the document to 1220×619, re-fit
+      the zoom to 84% and clipped the stroke at the new edge
 
 ## 1.5 History, workspace, colour
 
 - [ ] **H-39** Undo/redo across every mutating command, including the two host-side stacks
 - [x] **H-40** History panel lists entries and jumping to one restores that state — entries carry their scope, the undone one is dimmed, and clicking "Add layer" returned the document to 3 layers
-- [ ] **H-41** Workspace presets apply; Reset Workspace restores defaults
+- [x] **H-41** Workspace presets apply; Reset Workspace restores defaults — **failed first**:
+      Reset Workspace announced itself but left an auto-hidden panel hidden. Fixed in
+      `c8e300e` (T-038) and re-verified: auto-hide Properties, reset, panel returns
 - [ ] **H-42** Panels toggle, tear off, re-dock, auto-hide and resize; state survives restart
 - [ ] **H-43** Preferences persist across restart
 - [ ] **H-44** Assign vs Convert profile behave differently and both are reachable

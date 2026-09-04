@@ -28,6 +28,7 @@ the entry says so rather than inventing one.
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
 | [QA-008](#qa-008--bake-text-rasterizes-in-a-bitmap-face-not-the-one-the-editor-shows) | medium | `phototux_engine` / text | Bake Text uses a 5×7 bitmap alphabet instead of the layer's font | open |
 | [QA-009](#qa-009--path-edit-asks-the-user-to-drag-anchors-it-never-draws) | medium | `qml/Main.qml` / canvas overlays | Path anchors are draggable but never drawn | open |
+| [QA-010](#qa-010--the-free-transform-box-is-drawn-outside-the-canvas-viewport) | low | `qml/Main.qml` / canvas overlays | The transform box paints over the tab strip when a layer moves up | open |
 
 ---
 
@@ -589,3 +590,41 @@ selected anchor needs its own treatment. That is a small feature, not a patch.
 Making `inspector.path` visible for more than the `Shape` subject is a
 separate and much smaller question, but it should be answered together with
 this one rather than exposing a panel for geometry that is still invisible.
+
+## QA-010 — The free-transform box is drawn outside the canvas viewport
+
+| | |
+|---|---|
+| **Severity** | low |
+| **Area** | `qml/Main.qml` — canvas overlays |
+| **Checklist item** | [H-37](QA_CHECKLIST.md) |
+| **Status** | open |
+
+**Observed.** The transform bounding box follows the layer's document bounds
+as they move, and nothing clips it to the canvas viewport. Dragging a layer
+upward pushes the box's top edge and its two top handles over the document tab
+strip, where they are drawn on top of the tab labels; dragging left or right
+takes the horizontal edges under the tool rail and towards the right dock. The
+box is correct — it is where the layer now is — but it is painted over chrome
+that has nothing to do with it.
+
+**Steps to reproduce.**
+
+1. New 1080p document, paint a stroke.
+2. Free Transform, then drag from the middle of the canvas up and to the right.
+3. The box's top edge and handles are drawn across the tab strip above the
+   canvas.
+
+**Root cause.** The handle `Repeater` and the box sit inside `canvasHost` at
+`z: 3` with no `clip: true` on the item that bounds the viewport, and their
+positions come straight from `docToScreenX`/`docToScreenY`, which are free to
+land outside it. Guides and the crop rectangle stay inside only because the
+values they are given cannot leave the document.
+
+**Why not a quick fix.** `clip: true` on the wrong ancestor would also clip the
+canvas item itself, which is the `QQuickRhiItem` the whole zero-copy present
+goes through — the one thing in the shell that must not be re-parented or
+clipped casually (handbook 17). The overlay layer wants its own clipping
+container sized to the viewport, with the canvas item outside it, and that is a
+change to the canvas scene graph rather than a property flip. It is also worth
+doing once for every overlay rather than for this one.
