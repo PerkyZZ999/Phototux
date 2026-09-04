@@ -770,65 +770,51 @@ impl AdjustmentParams {
         }
     }
 
+    /// Declared bounds for slot `index`, from [`Self::editor_slots`].
+    ///
+    /// Unbounded for an index the kind does not have, so a caller reading past
+    /// the end gets the value back rather than a silent zero.
+    fn slot_bounds(&self, index: usize) -> (f32, f32) {
+        self.editor_slots()
+            .get(index)
+            .map_or((f32::NEG_INFINITY, f32::INFINITY), |(_, low, high)| {
+                (*low, *high)
+            })
+    }
+
+    /// Every parameter inside the range its own editor declares.
+    ///
+    /// The ranges come from [`Self::editor_slots`] and are not restated here.
+    /// They used to be: a literal table for the sliders and a literal `clamp`
+    /// per arm, written independently and never required to agree. Three
+    /// disagreed — Levels and Exposure gamma were `0.1..=3` to the slider and
+    /// `0.01..=10` to the clamp, Posterize `2..=32` against `2..=256` — so the
+    /// engine could hold a value no slider could express, and the first touch
+    /// of that slider would snap it back and silently change the document.
+    ///
+    /// The declared range is the narrower of the two in each case and is the
+    /// one kept: it is what the user can actually reach, and no shipped
+    /// document can hold anything outside it, because the slider is the only
+    /// writer. Widening gamma towards Photoshop's `0.10..=9.99` would want a
+    /// non-linear slider first — neutral at 1.0 sits nine percent along a
+    /// linear track of that width — which is a design change, not this fix.
+    ///
+    /// The one rule a per-slot range cannot state stays behind: Levels' white
+    /// point has to stay above its black point, or the span inverts.
     pub fn clamped(self) -> Self {
-        match self {
-            Self::BrightnessContrast {
-                brightness,
-                contrast,
-            } => Self::BrightnessContrast {
-                brightness: Self::in_range(brightness, -1.0, 1.0),
-                contrast: Self::in_range(contrast, -1.0, 1.0),
-            },
-            Self::Levels {
-                black,
-                white,
-                gamma,
-                out_black,
-                out_white,
-            } => {
-                let black = Self::in_range(black, 0.0, 1.0);
-                let white = Self::in_range(white, 0.0, 1.0).max(black + 1e-4);
-                Self::Levels {
-                    black,
-                    white,
-                    gamma: Self::in_range(gamma, 0.01, 10.0),
-                    out_black: Self::in_range(out_black, 0.0, 1.0),
-                    out_white: Self::in_range(out_white, 0.0, 1.0),
-                }
-            }
-            Self::HueSaturation {
-                hue,
-                saturation,
-                lightness,
-            } => Self::HueSaturation {
-                hue: Self::in_range(hue, -1.0, 1.0),
-                saturation: Self::in_range(saturation, -1.0, 1.0),
-                lightness: Self::in_range(lightness, -1.0, 1.0),
-            },
-            Self::Invert => Self::Invert,
-            Self::Threshold { level } => Self::Threshold {
-                level: Self::in_range(level, 0.0, 1.0),
-            },
-            Self::Posterize { levels } => Self::Posterize {
-                levels: levels.clamp(2, 256),
-            },
-            Self::Exposure { stops, gamma } => Self::Exposure {
-                stops: Self::in_range(stops, -5.0, 5.0),
-                gamma: Self::in_range(gamma, 0.01, 10.0),
-            },
-            Self::Vibrance { amount } => Self::Vibrance {
-                amount: Self::in_range(amount, -1.0, 1.0),
-            },
-            Self::BlackAndWhite { red, green, blue } => Self::BlackAndWhite {
-                red: Self::in_range(red, 0.0, 2.0),
-                green: Self::in_range(green, 0.0, 2.0),
-                blue: Self::in_range(blue, 0.0, 2.0),
-            },
-            Self::WhiteBalance { temperature, tint } => Self::WhiteBalance {
-                temperature: Self::in_range(temperature, -1.0, 1.0),
-                tint: Self::in_range(tint, -1.0, 1.0),
-            },
+        let mut values = self.slots();
+        for (index, value) in values
+            .iter_mut()
+            .enumerate()
+            .take(self.editor_slots().len())
+        {
+            let (low, high) = self.slot_bounds(index);
+            *value = Self::in_range(*value, low, high);
         }
+        if let Self::Levels { .. } = self {
+            values[1] = values[1].max(values[0] + 1e-4);
+        }
+        self.with_slots(values)
     }
 
     /// Short kind key for QML (`brightness`, `levels`, …).
@@ -1006,14 +992,20 @@ impl AdjustmentParams {
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
-                reason = "rounded and clamped to 2..=256 before the cast"
+                reason = "rounded into the declared slot range before the cast"
             )]
             Self::Posterize { .. } => Self::Posterize {
-                levels: p[0].round().clamp(2.0, 256.0) as u32,
+                // The bound comes from the one table rather than a literal of
+                // its own; it is here at all so the cast stays sound for a
+                // caller that does not go on to `clamped`.
+                levels: {
+                    let (low, high) = Self::slot_bounds(self, 0);
+                    p[0].round().clamp(low, high) as u32
+                },
             },
             Self::Exposure { .. } => Self::Exposure {
                 stops: p[0],
-                gamma: p[1].max(0.01),
+                gamma: p[1],
             },
             Self::Vibrance { .. } => Self::Vibrance { amount: p[0] },
             Self::BlackAndWhite { .. } => Self::BlackAndWhite {

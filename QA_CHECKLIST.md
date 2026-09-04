@@ -238,7 +238,12 @@ they had.
 - [x] **E-02** Document dimension of 0 or 1 is handled or refused, not crashed — **failed**: `check_size` only tested the upper bound, so a `.ptx` or PSD declaring 0x0 opened as a degenerate document. Fixed
 - [x] **E-03** Layer count at the composite cap (`MAX_LAYERS`); one more is refused — stops at 16 with `LayerLimitReached`
 - [x] **E-04** Group nesting at `MAX_NESTING_DEPTH` (64); one deeper is refused — unreachable in practice: the 16-layer cap stops nesting at 14, which is what the constant's own comment predicts
-- [!] **E-05** Every adjustment slot at both ends of its declared range — **two findings**. A NaN slot produced NaN pixels in all ten kinds; fixed at the command and in `clamped()`. And three slots' editor ranges are narrower than what `clamped()` keeps ([QA-004](QA_ISSUES.md#qa-004--an-adjustments-editor-range-and-its-clamp-disagree))
+- [!] **E-05** Every adjustment slot at both ends of its declared range — **two
+      findings, both fixed**. A NaN slot produced NaN pixels in all ten kinds; fixed at
+      the command and in `clamped()`. And three slots' editor ranges were narrower than
+      what `clamped()` kept ([QA-004](QA_ISSUES.md#qa-004--an-adjustments-editor-range-and-its-clamp-disagree)),
+      so the engine could hold a value no slider could express — `clamped()` now reads
+      the one table, and a test walks every slot of every kind in both directions
 - [x] **E-06** Blur radius at `MAX_BLUR_RADIUS` and at 0 — both ends accepted, and the command refuses without a blur effect present
 - [x] **E-07** Opacity at 0 and 1; zoom at min and max — opacity clamps at the layer, including out-of-range input. Zoom **failed**: `f32::clamp` propagates NaN, so `set_zoom(NaN)` stored NaN and the camera could not be recovered. Fixed at all three camera entries
 - [!] **E-08** Selection of zero area, and one covering the whole canvas — zero area refused, one pixel and whole-canvas accepted, past-the-edge kept whole. **A marquee entirely off-canvas reports a selection covering no pixels** ([QA-005](QA_ISSUES.md#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection))

@@ -939,4 +939,45 @@ mod tests {
             "the position lock was not the one the user touched"
         );
     }
+    /// The range a slider offers is the range the engine keeps.
+    ///
+    /// Two literal tables written independently — `editor_slots` for the UI,
+    /// a `clamp` per arm for the engine — and nothing compared them. Three
+    /// slots disagreed, so the engine could hold a gamma of 5 while its slider
+    /// was pinned at 3, and the first touch of that slider changed the
+    /// document without being asked to. `clamped` now reads the one table;
+    /// this asserts it, slot by slot, for every adjustment that ships.
+    #[test]
+    fn every_adjustment_slot_keeps_exactly_the_range_its_editor_offers() {
+        use crate::AdjustmentParams;
+        let mut checked = 0;
+        for kind in AdjustmentParams::ALL_KINDS {
+            for (index, (label, low, high)) in kind.editor_slots().iter().enumerate() {
+                checked += 1;
+                let read_back = |value: f32| {
+                    let mut slots = kind.slots();
+                    slots[index] = value;
+                    kind.with_slots(slots).clamped().slots()[index]
+                };
+                let under = read_back(low - 1_000.0);
+                assert!(
+                    (under - low).abs() < 1e-3,
+                    "{} {label}: a value below the slider's {low} came back as \
+                     {under}, so the engine keeps what the slider cannot show",
+                    kind.kind_key()
+                );
+                let over = read_back(high + 1_000.0);
+                assert!(
+                    (over - high).abs() < 1e-3,
+                    "{} {label}: a value above the slider's {high} came back as \
+                     {over}, so the engine keeps what the slider cannot show",
+                    kind.kind_key()
+                );
+            }
+        }
+        assert!(
+            checked >= 20,
+            "walked {checked} slots — the scan broke rather than the ranges"
+        );
+    }
 }

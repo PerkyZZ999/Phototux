@@ -22,7 +22,7 @@ the entry says so rather than inventing one.
 | [QA-001](#qa-001--lock-all-does-not-block-the-three-things-that-restyle-a-layer) | medium | `phototux_engine` / layer locks | Lock All permits opacity, blend mode and effects | **fixed** |
 | [QA-002](#qa-002--the-transparency-lock-is-state-nothing-sets-and-nothing-reads) | low | `phototux_engine` / layer locks | `LockFlags::alpha` is persisted, unreachable and unread | open |
 | [QA-003](#qa-003--canvas-overlay-colours-are-a-second-palette) | low | `qml/Main.qml` | Six canvas-overlay colours are literals, not tokens | **fixed** |
-| [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | open |
+| [QA-004](#qa-004--an-adjustments-editor-range-and-its-clamp-disagree) | medium | `phototux_engine` / adjustments | Editor slider ranges are narrower than the values the engine keeps | **fixed** |
 | [QA-005](#qa-005--a-selection-entirely-off-canvas-reports-itself-as-a-selection) | low | `phototux_engine` / selection | A marquee dragged beside the canvas reports a selection covering no pixels | open |
 | [QA-006](#qa-006--select--modify-blocks-the-ui-thread-for-minutes) | **high** | `phototux_engine` / selection | Select ▸ Modify blocks the UI thread for up to an hour at the radius the UI allows | **fixed** |
 | [QA-007](#qa-007--the-text-and-shape-tools-discard-the-click-that-creates-the-layer) | medium | `qml/CanvasInput.qml` / commands | Text and shape layers land at the origin, not where the canvas was clicked | open |
@@ -286,7 +286,7 @@ restored literal before being trusted.
 | **Severity** | medium |
 | **Area** | `phototux_engine` — `layer.rs` |
 | **Checklist item** | [E-05](QA_CHECKLIST.md) |
-| **Status** | open |
+| **Status** | **fixed** |
 
 **Observed.** `AdjustmentParams::editor_slots()` declares the range each slider
 binds to. `AdjustmentParams::clamped()` enforces a different one. Three slots
@@ -335,7 +335,27 @@ Either way the fix is one table, not two, with the other derived from it — and
 a test asserting every slot's `editor_slots` range is exactly what `clamped()`
 enforces, so they cannot drift again.
 
-**Resolution.** *(pending)*
+**Resolution.** One table: `clamped()` now reads its bounds from
+`editor_slots()` slot by slot and restates none of them, and the editor range is
+the one kept.
+
+The product call went that way because the migration the other answer needs is
+empty — the slider is the only writer of these values, so no document can hold
+anything outside the narrower range — while widening gamma to the clamp's
+`0.01..=10` would put neutral at 1.0 nine percent along a linear track. Photoshop
+reaches `0.10..=9.99` and keeps 1.00 in the middle by mapping the slider
+non-linearly; doing that here is a design change and is the honest follow-up, not
+this fix.
+
+Two more private bounds surfaced while collapsing the table and are gone with
+it: `with_slots` clamped Posterize to a literal `2..=256` of its own and floored
+Exposure gamma at `0.01`. Posterize keeps a bound there — the cast to `u32` has
+to stay sound for a caller that does not go on to `clamped` — but it now reads
+the declared range rather than a third literal.
+
+`every_adjustment_slot_keeps_exactly_the_range_its_editor_offers` walks every
+slot of every kind in both directions. Watched failing against a reintroduced
+private clamp before being trusted.
 
 ---
 
