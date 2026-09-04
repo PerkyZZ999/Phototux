@@ -671,6 +671,21 @@ fn flood_from(out: &mut [u8], seed: usize, w: usize, h: usize, matches: &impl Fn
     }
 }
 
+/// Morphological dilate or erode over a **disc** of `radius`.
+///
+/// The disc is a union of horizontal spans: the row at vertical offset `dy`
+/// reaches `±⌊√(r² − dy²)⌋`. So the result at each pixel is the extreme, over
+/// those `2r+1` rows, of a horizontal window on the source — which means one
+/// sliding-window pass per row instead of a full neighbourhood scan per pixel.
+///
+/// The naive form this replaced was O(w · h · (2r+1)²), and it ran
+/// synchronously on the UI thread from `Select ▸ Modify`. On 1920×1080 that was
+/// 77 ms at the default radius of 2, 25 s at radius 40, and about an hour at
+/// the 512 the spin box allows — the window simply stopped listening for the
+/// duration. This is O(w · h · r), an r-fold improvement, and it is
+/// *bit-identical*: `the_fast_morphology_agrees_with_the_naive_one` compares
+/// the two across radii, shapes and edges rather than re-deriving what the
+/// right answer is.
 fn morph_mask_r8(
     width: u32,
     height: u32,
@@ -688,15 +703,117 @@ fn morph_mask_r8(
         return Ok(mask.to_vec());
     }
     let r = radius as i32;
-    let mut out = vec![0_u8; expected];
-    for y in 0..h as i32 {
-        for x in 0..w as i32 {
-            out[y as usize * w + x as usize] = morph_neighborhood(mask, w, h, x, y, r, dilate);
+    // The identity for each operation: a dilate accumulates maxima from 0, an
+    // erode accumulates minima from 255.
+    let identity = if dilate { 0_u8 } else { 255_u8 };
+    let mut out = vec![identity; expected];
+    let mut span = vec![identity; w];
+
+    for dy in -r..=r {
+        // Half-width of the disc on this row. `isqrt` rather than a float
+        // root: the naive form compared `dx*dx + dy*dy > r*r` in integers, and
+        // matching it exactly is what keeps the two bit-identical.
+        let half = ((r * r - dy * dy) as u32).isqrt() as i32;
+        for y in 0..h as i32 {
+            let sy = y + dy;
+            if sy < 0 || sy >= h as i32 {
+                // Off the top or bottom. A dilate sees nothing there and is
+                // unaffected; an erode treats outside as empty, so the whole
+                // row collapses — which is what the naive form did per pixel.
+                if !dilate {
+                    let row = &mut out[y as usize * w..][..w];
+                    row.fill(0);
+                }
+                continue;
+            }
+            let source = &mask[sy as usize * w..][..w];
+            horizontal_extreme(source, half, dilate, &mut span);
+            let row = &mut out[y as usize * w..][..w];
+            for (dst, value) in row.iter_mut().zip(span.iter().copied()) {
+                *dst = if dilate {
+                    (*dst).max(value)
+                } else {
+                    (*dst).min(value)
+                };
+            }
         }
     }
     Ok(out)
 }
 
+/// Sliding-window extreme of `source` over `±half`, into `out`.
+///
+/// A monotonic deque holding indices whose values are strictly better than
+/// everything after them: each index is pushed and popped at most once, so the
+/// pass is O(w) regardless of the window width. This is the whole reason the
+/// disc version is O(w · h · r) rather than O(w · h · r²).
+///
+/// The two operations treat the row's ends differently, and the naive form is
+/// the authority on how. A dilate skips samples that fall outside and is
+/// therefore *truncated* at the edge. An erode treats outside as empty, so a
+/// window that reaches past either end collapses to 0 — a pixel within `half`
+/// of the edge cannot survive an erode at all. Getting only the vertical half
+/// of that rule right is what the differential test caught on its first run.
+fn horizontal_extreme(source: &[u8], half: i32, dilate: bool, out: &mut [u8]) {
+    let w = source.len();
+    let half = half.max(0) as usize;
+    let mut deque: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    let better = |a: u8, b: u8| if dilate { a >= b } else { a <= b };
+
+    // Prime the window with everything left of centre 0.
+    for i in 0..half.min(w) {
+        while deque.back().is_some_and(|&j| better(source[i], source[j])) {
+            deque.pop_back();
+        }
+        deque.push_back(i);
+    }
+    for (x, slot) in out.iter_mut().enumerate().take(w) {
+        if let Some(entering) = x.checked_add(half).filter(|&i| i < w) {
+            while deque
+                .back()
+                .is_some_and(|&j| better(source[entering], source[j]))
+            {
+                deque.pop_back();
+            }
+            deque.push_back(entering);
+        }
+        // Drop what has fallen off the left edge of the window.
+        while deque.front().is_some_and(|&j| j + half < x) {
+            deque.pop_front();
+        }
+        let clipped = x < half || x + half >= w;
+        *slot = if !dilate && clipped {
+            0
+        } else {
+            deque.front().map_or(0, |&j| source[j])
+        };
+    }
+}
+
+/// The naive per-pixel disc scan the fast path replaced, kept as the reference
+/// the differential test compares against.
+///
+/// Retained rather than deleted because "the new one is faster" is worth
+/// nothing without "and it computes the same thing", and the cheapest way to
+/// say that is to run both.
+#[cfg(test)]
+fn morph_mask_r8_naive(width: u32, height: u32, mask: &[u8], radius: u32, dilate: bool) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    if radius == 0 || w == 0 || h == 0 {
+        return mask.to_vec();
+    }
+    let r = radius as i32;
+    let mut out = vec![0_u8; w * h];
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            out[y as usize * w + x as usize] = morph_neighborhood(mask, w, h, x, y, r, dilate);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
 fn morph_neighborhood(mask: &[u8], w: usize, h: usize, x: i32, y: i32, r: i32, dilate: bool) -> u8 {
     let mut best = if dilate { 0_u8 } else { 255_u8 };
     let tap = MorphTap {
@@ -714,6 +831,7 @@ fn morph_neighborhood(mask: &[u8], w: usize, h: usize, x: i32, y: i32, r: i32, d
     best
 }
 
+#[cfg(test)]
 struct MorphTap<'a> {
     mask: &'a [u8],
     w: usize,
@@ -722,6 +840,7 @@ struct MorphTap<'a> {
     dilate: bool,
 }
 
+#[cfg(test)]
 fn apply_morph_sample(tap: &MorphTap<'_>, xx: i32, yy: i32, dx: i32, dy: i32, best: &mut u8) {
     if dx * dx + dy * dy > tap.r * tap.r {
         return;
@@ -742,6 +861,76 @@ fn apply_morph_sample(tap: &MorphTap<'_>, xx: i32, yy: i32, dx: i32, dy: i32, be
 
 #[cfg(test)]
 mod tests {
+    /// The fast disc morphology computes exactly what the naive scan did.
+    ///
+    /// Not "close enough" — identical. The optimisation is only safe if the
+    /// answer is unchanged, and asserting that against the implementation it
+    /// replaced is stronger than re-deriving the right answer by hand, which
+    /// would just be a second chance to make the same mistake.
+    ///
+    /// The cases are chosen for the edges the two forms treat differently if
+    /// either is wrong: a shape touching every border (where a dilate must
+    /// truncate its window and an erode must treat outside as empty), a
+    /// one-pixel speck, an all-set mask, an empty one, and non-square
+    /// dimensions so a row/column mix-up cannot pass.
+    #[test]
+    fn the_fast_morphology_agrees_with_the_naive_one() {
+        /// Width, height, and a function giving each pixel's value.
+        type Case = (u32, u32, fn(u32, u32) -> u8);
+        let cases: [Case; 5] = [
+            // A block in the middle.
+            (37, 23, |x, y| {
+                u8::from((8..24).contains(&x) && (6..16).contains(&y)) * 255
+            }),
+            // Touching every edge.
+            (31, 17, |x, y| {
+                u8::from(x < 3 || y < 2 || x > 27 || y > 14) * 255
+            }),
+            // A single speck.
+            (19, 19, |x, y| u8::from(x == 9 && y == 9) * 255),
+            // Everything set.
+            (23, 13, |_, _| 255),
+            // Nothing set.
+            (23, 13, |_, _| 0),
+        ];
+
+        for (w, h, shape) in cases {
+            let mask: Vec<u8> = (0..h)
+                .flat_map(|y| (0..w).map(move |x| shape(x, y)))
+                .collect();
+            for radius in [0_u32, 1, 2, 3, 5, 8, 13] {
+                for dilate in [true, false] {
+                    let fast = morph_mask_r8(w, h, &mask, radius, dilate).expect("fast");
+                    let naive = morph_mask_r8_naive(w, h, &mask, radius, dilate);
+                    assert_eq!(
+                        fast, naive,
+                        "{w}x{h} radius {radius} dilate={dilate}: fast and naive disagree"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Grey values, not just 0 and 255 — a feathered selection is grey, and a
+    /// max/min filter that only ever sees two values cannot show a mistake in
+    /// which extreme it keeps.
+    #[test]
+    fn the_fast_morphology_agrees_on_a_grey_mask() {
+        let (w, h) = (29_u32, 19_u32);
+        let mask: Vec<u8> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| ((x * 7 + y * 13) % 256) as u8))
+            .collect();
+        for radius in [1_u32, 2, 4, 7] {
+            for dilate in [true, false] {
+                assert_eq!(
+                    morph_mask_r8(w, h, &mask, radius, dilate).expect("fast"),
+                    morph_mask_r8_naive(w, h, &mask, radius, dilate),
+                    "grey mask radius {radius} dilate={dilate}"
+                );
+            }
+        }
+    }
+
     /// Two blocks of the same colour with a gap between them: the wand takes
     /// the one it was dropped on, colour range takes both. That difference is
     /// the whole distinction between the two tools.

@@ -224,6 +224,69 @@ it captures the pixels the command is about to replace. When the command
 refuses, `discard_last` withdraws it — otherwise a refused edit would leave a
 no-op step on the undo stack.
 
+**A host-side kind is a claim about where the state lives.** `HistoryKind`
+routes an entry: `Graph` reverses the document graph and never asks the host,
+while `Selection` and `Transform` ask the host and never touch the graph. An
+entry filed under the wrong kind does not fail — it undoes something else.
+Embed/Clear ICC recorded a `Transform` entry for bytes that live in the graph,
+so undoing it would have popped the host's transform stack, restored whatever
+layer pixels were last committed there, and left the profile embedded. It now
+records `GraphCommand::SetColorState`, which carries the document's whole
+colour state — assigned profile, soft-proof and embedded ICC — and so does
+Assign Profile, which had recorded nothing at all.
+
+`every_action_that_edits_the_document_undoes_back_to_where_it_started` walks
+every action in the registry and asserts, for each one that changes the
+serialised graph, that an entry was recorded and that undo and redo return the
+document exactly. Soft-proof is named as an exception rather than skipped: it
+is view chrome that happens to live in the graph, and Photoshop's Proof Colors
+is not undoable either. Convert to Profile is named too, for a different
+reason — see below.
+
+**A transform snapshot carries the graph, which is what makes a profile
+conversion undoable.** `TransformSnapshot` holds the document's size, every
+layer's pixels *and* the graph, and `restore_transform_snapshot` puts all three
+back. That is why Convert to Profile does not need a new `HistoryKind` for its
+two halves: its pixel-rewriting branch records a `Transform` entry, and the
+host's snapshot restores the colour state alongside the pixels it overwrote. A
+retag, which touches no pixel, records a `GraphCommand::SetColorState` instead
+and costs no snapshot.
+
+The snapshot is taken in `AppSession::invoke_command`, before the engine sees
+the command, and withdrawn with `discard_last` if the command refuses. It is
+there rather than in the `convert_document_profile` slot because that slot is
+not how the conversion is usually reached: the Image ▸ Color entries and the
+command palette both go through `invoke_action`, which calls `invoke_command`
+directly — a snapshot taken in the slot covers the one caller that does not use
+it, and the menu path goes on recording a step with nothing behind it.
+`a_profile_conversion_snapshots_before_it_rewrites` pins the order and the
+withdrawal.
+
+**A conversion to pixels is the same shape, and it shipped filed the other
+way.** Bake Text, Rasterize Shape and Rasterize Smart Object each replace a
+layer's semantic content — a text layer's words, a shape's path, a smart
+object's source — with a raster the *host* writes immediately after the command
+returns. All three recorded a `Graph` entry, so the undo reversed the kind and
+the payload and never asked the host about the pixels. The layer came back
+editable with the baked raster still in it, drew twice — its live preview over
+the pixels of the bake it had just taken back — and saving persisted both
+(QA-015).
+
+They now record `Transform` entries, and the host snapshots for every id in
+`command_id::CONVERTS_TO_PIXELS`. One list at both ends, because the two ends
+have to agree: an entry with no snapshot behind it pops whatever transform
+happens to be on the stack and restores an unrelated edit, which is exactly
+what Embed ICC used to do, and a snapshot with no entry misaligns the stack
+against the timeline for every step after it.
+`every_conversion_to_pixels_can_be_undone` asserts the entry kind and
+`every_conversion_to_pixels_is_snapshotted_before_it_runs` asserts the host end.
+
+The general rule this family illustrates: **when an edit's state lives in two
+places, the entry has to be filed under the kind that reaches both.** Asserting
+that undo restores the half the test can see is not evidence about the other
+half — the guard here passed for as long as the bug was live, because it
+measured the graph and the damage was on the GPU.
+
 ## Redo Execution
 
 Redo resolves the next record in active suffix and applies forward representation. It revalidates resources and invariants. Deterministic replay uses pinned algorithm/schema/resources, not current defaults. Redo cannot silently substitute missing fonts, profiles, brushes, or extension operations.

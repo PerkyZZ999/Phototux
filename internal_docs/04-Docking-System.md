@@ -118,6 +118,60 @@ Collapse removes content’s occupied extent but retains placement and state. It
 
 Resize starts from a topology revision and adjusts one split ratio or floating rectangle. Solver clamps against minimum/maximum constraints and available logical size. Preview is presentation-only; release commits one workspace transaction. Escape restores original ratio. Double-click **MAY** reset to descriptor-preferred sizes but cannot be the sole reset path.
 
+**Shipped rule — the seam's ceiling comes from the dock, not from a constant.**
+`PanelResizeGrip` clamped at a constant 2000, mirroring
+`DockTopology::MAX_PANEL_HEIGHT`, and neither side subtracted what the panels
+below the seam needed: the "available logical size" half of the sentence above
+was simply missing. One drag to the bottom of the screen made the panel above
+fill the dock and every group under it vanish — not collapsed to a header, not
+reachable by scrolling — while the Window menu still listed them as visible.
+
+`Main.qml`'s `panelMaxHeight` supplies the ceiling now, reserving the panel's
+own header plus a header *and* a minimum body for every group below it.
+Reserving only the headers is not enough: the dock is a `GridLayout`, which
+lays its rows out at the heights they ask for and lets the overflow fall off
+the bottom, so a body below that still wants its minimum takes its header with
+it.
+
+The budget is computed in QML because the dock's height is a QML fact. The
+engine keeps its own absolute bounds; clamping only there would let the drag
+run past the limit and snap back on release, which is what the grip was written
+to avoid. `every_dock_seam_is_clamped_against_the_dock` pins both halves — the
+helper and the binding at every seam — because a missing binding is silent:
+`maximumHeight` is an `int`, so an undefined value reads as 0 and the grip
+falls back to the absolute bound.
+
+**Shipped rule — a tear-off and a dock is a round trip.** `redock` used to
+append, so a panel torn from the middle of the stack came back at the bottom in
+a group of its own: the workspace after was not the workspace before.
+`FloatingPanelPlacement` records the panel's `dock_index` and whether it was
+`tabbed` with the panel above it, and a redock with no explicit drop position
+restores both. An explicit position still wins — dragging a floating panel onto
+the stack is the user saying where it belongs now, and joining it to whatever
+happens to sit above that point would be a group they did not ask for.
+
+**Shipped rule — the panel travels, and only one copy of it exists.** A torn-off
+window holds the panel itself, not a description of it. Each dock body in
+`Main.qml` is a `Component` — `propertiesBody`, `navigatorBody`, `swatchesBody`,
+`layersBody`, `historyBody` — and both the dock site and the floating window
+load it through a `Loader`, selecting it by panel id through `panelBodyFor`.
+
+This is instantiation, not reparenting. Moving a live item into a second
+`QQuickWindow` is what [T-027](Appendix/Interactive-Stability-Checklist.md)
+aborted the process over, and it is not needed: the dock's `Loader` is
+`active: visible` and a floating panel is not shown in the dock, so tearing off
+destroys the docked instance as it builds the floating one. There are never two
+copies to disagree about view state, which was the other objection to a second
+instance.
+
+The constraint this puts on panel bodies is that a `Component` cannot see `id`s
+declared outside it. A panel that needs to follow host state keeps itself in
+sync through its own `Connections` on `AppSession` rather than being written to
+from elsewhere in the shell — `LayerControlStrip` does this for blend and
+opacity. `a_torn_off_panel_carries_the_panel_not_a_description_of_it` guards
+that the components exist, that every panel id maps to one, and that the
+floating window loads what that map returns.
+
 ## Drag Transaction Workflow
 
 ```mermaid
@@ -258,7 +312,7 @@ struct SolvedSplit {
 
 The solver first reserves divider extent, then satisfies both minima. Remaining extent follows requested ratio, clamped by maxima. If minima exceed available size, adaptation policy collapses optional content in ascending retention priority and solves again. It never emits negative, non-finite, or overlapping rectangles. Pixel rounding happens only in host projection; accumulated rounding remainder is assigned deterministically so adjacent edges coincide.
 
-Nested resize handles affect one split unless a modifier explicitly requests ancestor resizing. A resized ratio is calculated from logical pointer position and base rectangle, not incremental event deltas, avoiding drift. Keyboard resizing uses semantic increments and announces resulting percentage or size. Minimum increments scale with accessibility preference and do not depend on frame rate.
+Nested resize handles affect one split unless a modifier explicitly requests ancestor resizing. A resized ratio is calculated from logical pointer position and base rectangle, not incremental event deltas, avoiding drift. **The frame that position is measured in has to be one the resize does not move.** `PanelResizeGrip` rides on the header of the panel *below* the seam, so growing the panel above moves the grip down by exactly what the drag just added; measuring the pointer in the grip's own coordinates therefore subtracted the resize from itself. The first motion event landed the right height and every one after it pulled back towards the start, so the seam crawled at a fraction of the pointer — a 120-pixel drag moved it 60. It maps the pointer to scene coordinates now, which do not move, and the same 120-pixel drag moves it 118. Keyboard resizing uses semantic increments and announces resulting percentage or size. Minimum increments scale with accessibility preference and do not depend on frame rate.
 
 ### Drop zones
 

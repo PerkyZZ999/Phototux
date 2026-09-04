@@ -139,6 +139,7 @@ pub use snapshot_publish::{
 pub use stroke::{
     BrushParams, BrushTextureKind, Dab, DabMode, DabSource, StrokeBuilder, dab_coverage,
     paint_dabs_rgba, paint_dabs_rgba_from, stamp_dab_rgba, stamp_dab_rgba_from,
+    stamp_dab_rgba_within,
 };
 pub use stroke_journal::{
     BrushParamsSnapshot, DabSnapshot, JournalStroke, StrokeJournal, StrokeSample,
@@ -189,11 +190,31 @@ impl DocumentSize {
 
     /// Whether the compositor can hold a document this size.
     #[must_use]
+    /// Derived from the two edge checks rather than restating them.
+    ///
+    /// It restated them once, and the copies disagreed: this knew a zero edge
+    /// was unsupported while [`DocumentError::check_size`] — the guard every
+    /// caller actually uses — only asked [`Self::oversized_edge`], so a
+    /// document declaring 0x0 passed.
     pub const fn is_supported(self) -> bool {
-        self.width >= 1
-            && self.height >= 1
-            && self.width <= MAX_DOCUMENT_DIMENSION
-            && self.height <= MAX_DOCUMENT_DIMENSION
+        self.degenerate_edge().is_none() && self.oversized_edge().is_none()
+    }
+
+    /// The offending edge when one is too small to be a document at all.
+    ///
+    /// Zero is not a small document. The compositor allocates one texture per
+    /// layer at the document's size and wgpu refuses a zero-sized texture, so
+    /// the result is the same shape of failure an oversized edge produces: a
+    /// document that lists its layers and draws nothing.
+    #[must_use]
+    pub const fn degenerate_edge(self) -> Option<u32> {
+        if self.width == 0 {
+            Some(self.width)
+        } else if self.height == 0 {
+            Some(self.height)
+        } else {
+            None
+        }
     }
 
     /// The offending edge, for a message that names a number the user typed.
@@ -351,7 +372,22 @@ pub struct SessionState {
     pub colors: ColorState,
     pub guides: ViewGuides,
     pub brush_presets: BrushPresetLibrary,
+    /// Where `Save` writes, or `None` for a document that has never been
+    /// saved as `.ptx`.
+    ///
+    /// Deliberately *not* set by a raster or PSD import: those have no `.ptx`
+    /// of their own yet, and writing `.ptx` bytes over the file they came from
+    /// would destroy it. [`Self::source_path`] is the one that answers "where
+    /// did this come from".
     pub document_path: Option<String>,
+    /// The file this document was loaded from, whatever its format.
+    ///
+    /// Separate from `document_path` because the two answer different
+    /// questions and only agree for a `.ptx`. This one is what says a file is
+    /// already open, and what the file dialogs start from; conflating them
+    /// meant re-opening an imported PNG made a second tab with its own
+    /// history, and a save from one silently lost the other's edits.
+    pub source_path: Option<String>,
     /// Generation last successfully persisted (save receipt); `None` if never saved.
     pub last_persisted_generation: Option<u64>,
     /// Ephemeral filter gallery preview (not document authority until commit).
@@ -406,6 +442,7 @@ impl Default for SessionState {
             guides: ViewGuides::default(),
             brush_presets: BrushPresetLibrary::with_defaults(),
             document_path: None,
+            source_path: None,
             last_persisted_generation: None,
             filter_preview: None,
             dirty_rect: None,
@@ -476,6 +513,11 @@ impl SessionState {
         self.brush.size = self.brush_size;
         self.brush.hardness = self.brush_hardness;
         self.brush.color = self.brush_color;
+        // The transparency lock is a property of the layer being painted, not
+        // of the brush, but it has to travel with every dab — it is a masking
+        // rule the shader applies, not a precondition. Read here so it cannot
+        // go stale between selecting a layer and starting a stroke.
+        self.brush.preserve_alpha = self.active_layer().is_some_and(Layer::alpha_locked);
     }
 
     pub fn set_viewport(&mut self, width: f32, height: f32) {
@@ -490,8 +532,7 @@ impl SessionState {
 
     /// Set the world-space point shown at the viewport center.
     pub fn set_pan(&mut self, world_x: f32, world_y: f32) {
-        self.camera.pan_x = world_x;
-        self.camera.pan_y = world_y;
+        self.camera.set_pan(world_x, world_y);
         self.bump_overlay_view();
     }
 
@@ -727,6 +768,35 @@ impl SessionState {
     #[must_use]
     pub fn active_layer_clips(&self) -> bool {
         self.active_layer().is_some_and(|l| l.clips_to_below)
+    }
+
+    /// Whether the active layer preserves its transparency while painting.
+    #[must_use]
+    pub fn active_lock_alpha(&self) -> bool {
+        self.active_layer().is_some_and(Layer::alpha_locked)
+    }
+
+    /// Whether the active layer's pixels are locked against painting.
+    #[must_use]
+    pub fn active_lock_pixels(&self) -> bool {
+        self.active_layer().is_some_and(|l| l.locks.pixels)
+    }
+
+    /// Whether the active layer is pinned in place.
+    #[must_use]
+    pub fn active_lock_position(&self) -> bool {
+        self.active_layer().is_some_and(|l| l.locks.position)
+    }
+
+    /// Whether the active layer refuses to be restyled — the state behind
+    /// [`crate::layer::Layer::change_blocked`], published so the shell can
+    /// disable the controls the commands would refuse.
+    ///
+    /// A slider that moves and then snaps back is a worse answer than a
+    /// slider that will not move.
+    #[must_use]
+    pub fn active_layer_change_blocked(&self) -> bool {
+        self.active_layer().is_some_and(Layer::change_blocked)
     }
 
     /// The active layer's kind (`raster`, `text`, …), empty when there is none.
@@ -1096,6 +1166,28 @@ mod tests {
             "archived ADR ids cited in shipped source — cite the live DR instead \
              (see internal_docs/Appendix/Archived-ADR-to-DR-Map.md): {found:?}"
         );
+    }
+
+    /// An edit that lands while a save is in flight leaves the document dirty.
+    ///
+    /// The save pins the generation it started with and hands that back when
+    /// the write completes. If the user undid, painted or did anything else in
+    /// between, the file on disk is a generation the document has moved past,
+    /// and `mark_persisted` says so by answering `false` — the host reads that
+    /// as "still dirty". Clearing the flag unconditionally would tell the user
+    /// their work was saved when the very edit they just made was not in it.
+    #[test]
+    fn a_save_that_finishes_after_an_edit_does_not_report_the_document_clean() {
+        let mut s = SessionState::default();
+        s.apply_preset(SizePreset::P720);
+        let pinned = s.document_generation();
+        // The edit that races the write.
+        s.bump_document_generation();
+        assert!(
+            !s.mark_persisted(pinned),
+            "a save of an older generation must not report the document clean"
+        );
+        assert!(s.is_dirty_vs_persisted());
     }
 
     #[test]

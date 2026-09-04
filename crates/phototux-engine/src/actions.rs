@@ -619,6 +619,16 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .command(command_id::LAYER_SET_LOCKS)
         .arg("position"),
+        // Photoshop's *Lock transparent pixels*. It sits between the pixel
+        // lock and Lock All in that menu, and does here too.
+        act(
+            "action.layer.lock-transparency",
+            "Lock Transparent Pixels",
+            "layer.lock",
+            "has_document",
+        )
+        .command(command_id::LAYER_SET_LOCKS)
+        .arg("alpha"),
         act(
             "action.layer.lock-all",
             "Lock All",
@@ -635,11 +645,15 @@ pub fn default_actions() -> Vec<ActionDescriptor> {
         )
         .host("layer.toggle_clip"),
         // Filter
+        // Opening the gallery does not change a layer, so the command is not
+        // in `CHANGES_ACTIVE_LAYER` — but everything the gallery then offers
+        // is, and a dialog that opens only to refuse Preview and Apply is
+        // worse than an entry that says up front it is unavailable.
         act(
             "action.filter.gallery",
             "Filter &Gallery…",
             "filter",
-            "has_document",
+            "active_layer_unlocked",
         )
         .command(command_id::APP_SHOW_FILTER_GALLERY),
         // View

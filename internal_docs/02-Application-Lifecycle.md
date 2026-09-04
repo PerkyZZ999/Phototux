@@ -271,6 +271,22 @@ Quit creates an immutable shutdown scope listing windows, documents, modified ve
 
 Host logout or power deadlines may shorten finalization. PhotoTux **MAY** request a bounded host inhibit while user-visible critical writes run. It **MUST NOT** claim a save succeeded merely because shutdown is imminent. If safe completion is impossible, it **SHOULD** preserve newest coherent recovery records and report unresolved documents.
 
+**Shipped rule — a close or quit answered with Save is parked, not forgotten.**
+Step 4 above is asynchronous: a save goes out to the file worker and lands
+later, long after the prompt's button handler has returned. The shell therefore
+holds the pending action in `pendingDestructiveAction` and resumes it when
+`AppSession.documentSaved` reports the write landed — deferred through
+`afterHostSlot`, because the signal is emitted from inside the file-event pump.
+Only a save that *landed* continues, so a failed write leaves the document
+open, which is the safe half of the user's choice.
+
+Backing out of the file dialog abandons the action, and this half is as
+load-bearing as the first: a pending close left armed would be picked up by the
+next successful save, so an ordinary Ctrl+S later in the session would close a
+document the user was still working in.
+`a_close_deferred_for_a_save_is_finished_or_abandoned` fails the build on
+either half.
+
 ## Concurrency, Ownership, and Invariants
 
 - The UI thread owns native event affinity but not authoritative documents.

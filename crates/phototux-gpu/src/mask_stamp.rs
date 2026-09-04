@@ -14,19 +14,26 @@ struct Uniforms {
     radius: f32,
     hardness: f32,
     eraser: u32,
-    _pad0: u32,
+    use_selection: u32,
     _pad1: u32,
     _pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
-
+// The document's selection channel, R8; a 1x1 white stand-in when nothing is
+// selected. See the comment in `brush.rs`.
+@group(0) @binding(1) var sel_tex: texture_2d<f32>;
+@group(0) @binding(2) var sel_samp: sampler;
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let dist = distance(in.uv, u.center);
     let inner = u.radius * clamp(u.hardness, 0.0, 0.99);
-    let a = 1.0 - smoothstep(inner, u.radius, dist);
+    var a = 1.0 - smoothstep(inner, u.radius, dist);
+    // A selection bounds painting on a mask as it bounds painting on pixels.
+    if (u.use_selection != 0u) {
+        a = a * textureSampleLevel(sel_tex, sel_samp, in.uv, 0.0).r;
+    }
     if (a <= 0.001) {
         discard;
     }
@@ -44,7 +51,8 @@ struct MaskStampUniforms {
     radius_uv: f32,
     hardness: f32,
     eraser: u32,
-    _pad0: u32,
+    /// Whether the bound mask is a real selection rather than the 1x1 stand-in.
+    use_selection: u32,
     _pad1: u32,
     _pad2: u32,
 }
@@ -54,6 +62,9 @@ pub struct MaskStamper {
     pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
     uniform_bufs: Vec<wgpu::Buffer>,
+    /// A 1x1 fully-selected mask, bound when the document has no selection.
+    unselected_view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
     width: u32,
     height: u32,
 }
@@ -64,16 +75,34 @@ impl MaskStamper {
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("mask-stamp-bgl"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
         let shader = ctx
             .device
@@ -128,10 +157,52 @@ impl MaskStamper {
                 multiview_mask: None,
                 cache: None,
             });
+        let unselected = ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mask-stamp-no-selection"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        ctx.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &unselected,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255_u8],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
         Self {
             pipeline,
             bind_layout,
             uniform_bufs: Vec::new(),
+            unselected_view: unselected.create_view(&wgpu::TextureViewDescriptor::default()),
+            sampler: ctx.device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("mask-stamp-sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }),
             width: width.max(1),
             height: height.max(1),
         }
@@ -149,7 +220,7 @@ impl MaskStamper {
         }
     }
 
-    fn uniforms_for(&self, req: StampRequest) -> MaskStampUniforms {
+    fn uniforms_for(&self, req: StampRequest, use_selection: bool) -> MaskStampUniforms {
         let w = self.width as f32;
         let h = self.height as f32;
         let max_dim = w.max(h);
@@ -162,17 +233,22 @@ impl MaskStamper {
             // A mask carries coverage, not colour, so the retouch modes have
             // nothing to rework there: painting and erasing are the only two.
             eraser: u32::from(req.params.mode == phototux_engine::DabMode::Erase),
-            _pad0: 0,
+            use_selection: u32::from(use_selection),
             _pad1: 0,
             _pad2: 0,
         }
     }
 
+    /// Stamp many dabs into an R8 mask.
+    ///
+    /// `selection` is the document's selection channel when one is active, and
+    /// `None` when nothing is selected — see [`crate::brush::BrushStamper::stamp_batch`].
     pub fn stamp_batch(
         &mut self,
         ctx: &GpuContext,
         target: &wgpu::Texture,
         requests: &[StampRequest],
+        selection: Option<&wgpu::TextureView>,
     ) {
         if requests.is_empty() {
             return;
@@ -186,17 +262,29 @@ impl MaskStamper {
         let binds: Vec<wgpu::BindGroup> = drawable
             .iter()
             .map(|dab| {
-                let uniforms = self.uniforms_for(dab.request);
+                let uniforms = self.uniforms_for(dab.request, selection.is_some());
                 let ubo = &self.uniform_bufs[dab.slot];
                 ctx.queue
                     .write_buffer(ubo, 0, bytemuck::bytes_of(&uniforms));
                 ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("mask-stamp-bg"),
                     layout: &self.bind_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: ubo.as_entire_binding(),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: ubo.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(
+                                selection.unwrap_or(&self.unselected_view),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                    ],
                 })
             })
             .collect();

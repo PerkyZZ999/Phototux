@@ -273,6 +273,17 @@ effective = clamp(dab_coverage × scope_coverage, 0, 1)
 source_alpha = effective × source_color_alpha × stroke_opacity
 ```
 
+**Shipped rule — `scope_coverage` is real now.** The equation above is what the
+brush computes, and for a long time it was not: `BrushStamper` had no selection
+binding at all, so `scope_coverage` was effectively `1` and a stroke painted
+through a selection that clipped a gradient to the pixel (QA-016). The selection
+channel is now bound into both stamp pipelines and multiplied into coverage
+before the mode switch, so it bounds painting, erasing and every retouch mode
+alike — and a mask stroke as well as a pixel one. See
+[12 — Selection System](12-Selection-System.md#coverage-semantics) for the two
+details that carry the weight: absence of a selection is not an empty selection,
+and the "is anything selected" predicate is cached rather than scanned.
+
 Flow controls contribution per dab; opacity bounds accumulated stroke contribution according to blend descriptor. Repeated overlapping dabs can accumulate differently under normal, build-up, erase, replace, smudge, or coverage-preserving modes. Each blend mode defines working color space, linear/nonlinear requirements, premultiplication, alpha equation, transparent-color handling, precision, clamp behavior, and CPU/GPU tolerance.
 
 Color is captured as a profiled value and converted by [16 — Color Management](16-Color-Management.md) into target working/compositing representation. Color jitter operations identify their space. Scalar mask painting bypasses color-profile conversion and maps brush value to coverage. Erasing changes alpha/coverage through explicit rules; it is not painting background color.

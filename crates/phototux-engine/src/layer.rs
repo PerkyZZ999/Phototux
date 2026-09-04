@@ -264,7 +264,11 @@ impl ShapeContent {
 impl Default for ShapeContent {
     fn default() -> Self {
         Self {
-            path: crate::paths::VectorPath::polyline("Shape", Vec::new(), true),
+            // Unnamed: the default is a placeholder with no anchors, and
+            // `shape_stem` reads a path's name as the user's word for what the
+            // shape is. A stand-in name here would make every hand-built
+            // content claim to be called "Shape".
+            path: crate::paths::VectorPath::polyline("", Vec::new(), true),
             fill_rgba: [0.2, 0.45, 0.9, 1.0],
             stroke_rgba: [0.0, 0.0, 0.0, 1.0],
             stroke_width: 2.0,
@@ -747,65 +751,70 @@ fn pad<const N: usize>(values: [f32; N]) -> [f32; MAX_ADJUSTMENT_SLOTS] {
 
 impl AdjustmentParams {
     /// Clamp parameters into UI/GPU-safe ranges.
-    pub fn clamped(self) -> Self {
-        match self {
-            Self::BrightnessContrast {
-                brightness,
-                contrast,
-            } => Self::BrightnessContrast {
-                brightness: brightness.clamp(-1.0, 1.0),
-                contrast: contrast.clamp(-1.0, 1.0),
-            },
-            Self::Levels {
-                black,
-                white,
-                gamma,
-                out_black,
-                out_white,
-            } => {
-                let black = black.clamp(0.0, 1.0);
-                let white = white.clamp(0.0, 1.0).max(black + 1e-4);
-                Self::Levels {
-                    black,
-                    white,
-                    gamma: gamma.clamp(0.01, 10.0),
-                    out_black: out_black.clamp(0.0, 1.0),
-                    out_white: out_white.clamp(0.0, 1.0),
-                }
-            }
-            Self::HueSaturation {
-                hue,
-                saturation,
-                lightness,
-            } => Self::HueSaturation {
-                hue: hue.clamp(-1.0, 1.0),
-                saturation: saturation.clamp(-1.0, 1.0),
-                lightness: lightness.clamp(-1.0, 1.0),
-            },
-            Self::Invert => Self::Invert,
-            Self::Threshold { level } => Self::Threshold {
-                level: level.clamp(0.0, 1.0),
-            },
-            Self::Posterize { levels } => Self::Posterize {
-                levels: levels.clamp(2, 256),
-            },
-            Self::Exposure { stops, gamma } => Self::Exposure {
-                stops: stops.clamp(-5.0, 5.0),
-                gamma: gamma.clamp(0.01, 10.0),
-            },
-            Self::Vibrance { amount } => Self::Vibrance {
-                amount: amount.clamp(-1.0, 1.0),
-            },
-            Self::BlackAndWhite { red, green, blue } => Self::BlackAndWhite {
-                red: red.clamp(0.0, 2.0),
-                green: green.clamp(0.0, 2.0),
-                blue: blue.clamp(0.0, 2.0),
-            },
-            Self::WhiteBalance { temperature, tint } => Self::WhiteBalance {
-                temperature: temperature.clamp(-1.0, 1.0),
-                tint: tint.clamp(-1.0, 1.0),
-            },
+    /// Clamp into range, answering for a value that is not a number.
+    ///
+    /// `f32::clamp` propagates NaN — `f32::NAN.clamp(-1.0, 1.0)` is NaN — so
+    /// the ten arms below, whose whole job is to make a value safe, passed one
+    /// straight through and `apply_rgb` then returned `[NaN, NaN, NaN]`.
+    ///
+    /// The low bound is an arbitrary answer, and deliberately so: a NaN slot
+    /// is not a value anyone asked for, and `filter.set-parameters` refuses
+    /// one before it gets here. This is the backstop for a path that does not
+    /// go through the command, where bounded-and-wrong beats
+    /// poisonous-and-silent.
+    fn in_range(value: f32, low: f32, high: f32) -> f32 {
+        if value.is_nan() {
+            low
+        } else {
+            value.clamp(low, high)
         }
+    }
+
+    /// Declared bounds for slot `index`, from [`Self::editor_slots`].
+    ///
+    /// Unbounded for an index the kind does not have, so a caller reading past
+    /// the end gets the value back rather than a silent zero.
+    fn slot_bounds(&self, index: usize) -> (f32, f32) {
+        self.editor_slots()
+            .get(index)
+            .map_or((f32::NEG_INFINITY, f32::INFINITY), |(_, low, high)| {
+                (*low, *high)
+            })
+    }
+
+    /// Every parameter inside the range its own editor declares.
+    ///
+    /// The ranges come from [`Self::editor_slots`] and are not restated here.
+    /// They used to be: a literal table for the sliders and a literal `clamp`
+    /// per arm, written independently and never required to agree. Three
+    /// disagreed — Levels and Exposure gamma were `0.1..=3` to the slider and
+    /// `0.01..=10` to the clamp, Posterize `2..=32` against `2..=256` — so the
+    /// engine could hold a value no slider could express, and the first touch
+    /// of that slider would snap it back and silently change the document.
+    ///
+    /// The declared range is the narrower of the two in each case and is the
+    /// one kept: it is what the user can actually reach, and no shipped
+    /// document can hold anything outside it, because the slider is the only
+    /// writer. Widening gamma towards Photoshop's `0.10..=9.99` would want a
+    /// non-linear slider first — neutral at 1.0 sits nine percent along a
+    /// linear track of that width — which is a design change, not this fix.
+    ///
+    /// The one rule a per-slot range cannot state stays behind: Levels' white
+    /// point has to stay above its black point, or the span inverts.
+    pub fn clamped(self) -> Self {
+        let mut values = self.slots();
+        for (index, value) in values
+            .iter_mut()
+            .enumerate()
+            .take(self.editor_slots().len())
+        {
+            let (low, high) = self.slot_bounds(index);
+            *value = Self::in_range(*value, low, high);
+        }
+        if let Self::Levels { .. } = self {
+            values[1] = values[1].max(values[0] + 1e-4);
+        }
+        self.with_slots(values)
     }
 
     /// Short kind key for QML (`brightness`, `levels`, …).
@@ -983,14 +992,20 @@ impl AdjustmentParams {
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
-                reason = "rounded and clamped to 2..=256 before the cast"
+                reason = "rounded into the declared slot range before the cast"
             )]
             Self::Posterize { .. } => Self::Posterize {
-                levels: p[0].round().clamp(2.0, 256.0) as u32,
+                // The bound comes from the one table rather than a literal of
+                // its own; it is here at all so the cast stays sound for a
+                // caller that does not go on to `clamped`.
+                levels: {
+                    let (low, high) = Self::slot_bounds(self, 0);
+                    p[0].round().clamp(low, high) as u32
+                },
             },
             Self::Exposure { .. } => Self::Exposure {
                 stops: p[0],
-                gamma: p[1].max(0.01),
+                gamma: p[1],
             },
             Self::Vibrance { .. } => Self::Vibrance { amount: p[0] },
             Self::BlackAndWhite { .. } => Self::BlackAndWhite {
@@ -1731,6 +1746,33 @@ impl Layer {
         self.locked || self.locks.all || self.locks.position
     }
 
+    /// Whether painting this layer must leave its transparency alone.
+    ///
+    /// Photoshop's *Lock transparent pixels*, and the one lock that is not a
+    /// refusal: a dab may recolour what is already there and may not change
+    /// how much of it there is. That is a masking rule applied while painting,
+    /// which is why it travels on `BrushParams::preserve_alpha` rather than
+    /// stopping a command.
+    ///
+    /// `locks.all` folds in, as it does for the other three: locking
+    /// everything locks transparency too.
+    pub fn alpha_locked(&self) -> bool {
+        self.locked || self.locks.all || self.locks.alpha
+    }
+
+    /// Whether this layer may be restyled — opacity, blend, effects, styles,
+    /// masks, and the payload of a text, shape or smart layer.
+    ///
+    /// The third of the three lock predicates, and the one that was missing.
+    /// `locks.pixels` and `locks.position` are deliberately absent: locking
+    /// pixels stops the brush and leaves the blend mode editable, which is
+    /// what Photoshop does, and locking position stops the move tool.
+    /// Only Lock All, and the legacy whole-layer `locked` flag, mean "cannot
+    /// change".
+    pub fn change_blocked(&self) -> bool {
+        self.locked || self.locks.all
+    }
+
     /// `0` = no mask, `1` = mask enabled, `2` = mask disabled.
     pub fn mask_flag(&self) -> u8 {
         match &self.mask {
@@ -1984,6 +2026,36 @@ mod tests {
     fn paint_blocked_on_group() {
         let g = Layer::group(LayerId(2), "G");
         assert!(g.paint_blocked());
+    }
+
+    #[test]
+    fn alpha_locked_answers_to_its_own_flag_and_to_lock_all() {
+        let mut layer = Layer::new(LayerId(1), "A");
+        assert!(!layer.alpha_locked());
+        layer.locks.pixels = true;
+        assert!(
+            !layer.alpha_locked(),
+            "locking pixels stops the brush; it does not preserve transparency"
+        );
+        layer.locks.alpha = true;
+        assert!(layer.alpha_locked());
+        layer.locks.alpha = false;
+        layer.locks.all = true;
+        assert!(layer.alpha_locked(), "Lock All locks transparency too");
+    }
+
+    #[test]
+    fn change_blocked_answers_only_to_lock_all() {
+        let mut layer = Layer::new(LayerId(1), "A");
+        assert!(!layer.change_blocked());
+        layer.locks.pixels = true;
+        layer.locks.position = true;
+        assert!(
+            !layer.change_blocked(),
+            "locking pixels or position must leave the blend mode editable"
+        );
+        layer.locks.all = true;
+        assert!(layer.change_blocked());
     }
 
     #[test]

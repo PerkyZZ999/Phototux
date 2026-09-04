@@ -158,6 +158,8 @@ ListView {
             background: Rectangle {
                 radius: Theme.radiusXs
                 color: layerVisButton.hovered ? Theme.surfaceContainerHigh : "transparent"
+                border.color: layerVisButton.visualFocus ? Theme.focusRing : "transparent"
+                border.width: 1
             }
             onClicked: AppSession.toggleLayerVisible(stack_index)
             Accessible.name: hidden_by_group

@@ -33,10 +33,17 @@ ScrollBar {
         opacity: control.policy === ScrollBar.AlwaysOn || control.active ? 0.9 : 0.0
         visible: control.size < 1.0
 
+        // Both gated on the accessibility preference, like the slider's scale
+        // and the toast fade. These two were the ones it did not reach, so
+        // "Reduced motion" left the scroll bar still growing and fading —
+        // motion in the corner of the eye is exactly what the preference is
+        // asked for.
         Behavior on implicitWidth {
+            enabled: !Theme.reducedMotion
             NumberAnimation { duration: 90; easing.type: Easing.OutQuad }
         }
         Behavior on opacity {
+            enabled: !Theme.reducedMotion
             NumberAnimation { duration: 120 }
         }
     }

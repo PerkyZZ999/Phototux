@@ -113,6 +113,14 @@ erased whatever the user had not read, so a message was only seen by someone
 already looking at the footer. `nothing_writes_a_message_into_the_status_bar`
 keeps them apart.
 
+That guard reads the host as text, and for a while it read it a line at a time —
+which `rustfmt` defeats. A long assignment is wrapped after the `=`, leaving the
+message on the next line where the scan could not see it, and two writers sat in
+plain sight of a passing test: the colour-profile conversion's warning that it
+had rewritten layer data, and the "Unreadable selection op" that names a registry
+wiring bug. Both are now toasts. The guard joins wrapped assignments before
+scanning, so a formatter's line break cannot hide the next one.
+
 The summary is also the bar's *only* account of document state. To its right sit
 per-frame metrics — composite time, frame rate, the GPU badge — which are kept
 out of the summary precisely because they would churn its AT-SPI name on every

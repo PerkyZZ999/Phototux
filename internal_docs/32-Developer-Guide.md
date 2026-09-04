@@ -349,6 +349,8 @@ Violating this is not a recoverable error. The exclusive-access check fails and 
 
 Notification handlers that only assign presentation properties are unaffected; the contract governs calls back into the host.
 
+In the shipping shell the deferral is `root.afterHostSlot(fn)` in `Main.qml`, which is `Qt.callLater`. `a_handler_for_a_host_signal_does_not_call_the_host_back` in `phototux_ui` reads every `.qml` file and fails on a host-slot call made directly inside a `Connections { target: AppSession }` block — the eleven of them are clean, and the test was watched failing against a synchronous call planted in one. It covers the crisply identifiable shape only. A reactive handler written as a plain `on…Changed:` on some other object is the shape T-028 took, where the *window's* `onActiveFocusItemChanged` called a host slot while `openFilterGallery` was still on the stack; that one is held instead by `refreshShortcutYield` deferring inside the function, so all six of its reactive callers are safe at once. Deferring at the function rather than at each call site is the more reliable of the two patterns and is worth preferring when a helper has several reactive callers.
+
 ### A delegate's required properties are model roles
 
 Qt resolves `required property` on a delegate against the model's role names,

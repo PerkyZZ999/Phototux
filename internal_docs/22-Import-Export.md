@@ -28,6 +28,12 @@ The import/export subsystem **MUST**:
 
 It **SHOULD** support incremental raster decoding, deterministic tile order, bounded metadata preservation, resumable internal planning, and out-of-process codecs where risk or dependency quality warrants isolation. It **MAY** use wgpu for export rendering or color conversion after equivalence and device-loss behavior are validated. GPU output used by an encoder must become a recoverable validated stream; GPU resources are never export authority.
 
+## Shipping formats
+
+`phototux_io::RasterFormat` is the vocabulary: PNG, JPEG, WebP, TIFF, BMP and GIF, each with the extensions its own reader accepts. `Export` adds the layered Photoshop subset, which is not a `RasterFormat` because it is not flat.
+
+**The file dialogs read that list rather than restating it.** The host publishes `exportNameFiltersJson` from `RasterFormat::ALL`, and `Main.qml` binds `nameFilters` to it. The hand-written list that used to live in the QML had drifted in the direction nobody notices — it offered four of the six formats the writer handles, so a BMP or a GIF could be opened, edited and never saved back, with no error anywhere. `every_format_offers_extensions_its_own_reader_accepts` holds each format's extensions against `from_path`, and `the_export_dialog_takes_its_formats_from_the_engine` fails if the QML grows its own list again.
+
 ## Architecture
 
 ```mermaid

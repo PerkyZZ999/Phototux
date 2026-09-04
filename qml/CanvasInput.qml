@@ -263,12 +263,19 @@ onPressed: function (mouse) {
         painting = false
         return
     }
+    // The click is the placement. Both tools used to throw it away: the text
+    // frame landed at the document origin and the shape at a fraction of the
+    // document, whatever the pointer said.
     if (AppSession.activeTool === "tool.text") {
-        AppSession.addTextLayer(qsTr("Text"))
+        AppSession.addTextLayer(qsTr("Text"),
+                                root.screenToDocX(mouse.x),
+                                root.screenToDocY(mouse.y))
         return
     }
     if (AppSession.activeTool === "tool.shape") {
-        AppSession.addShapeLayer("rect")
+        AppSession.addShapeLayer("rect",
+                                 root.screenToDocX(mouse.x),
+                                 root.screenToDocY(mouse.y))
         return
     }
     if (AppSession.activeTool === "tool.path-edit") {

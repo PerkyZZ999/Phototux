@@ -350,6 +350,144 @@ mod tests {
         }
     }
 
+    /// Blank out the monotonic counters in a serialised graph.
+    ///
+    /// `generation` and each layer's `revision` are meant to move forward, and
+    /// undo bumps them again, so a perfectly restored document still
+    /// serialises differently. `next_id` is the same shape for a different
+    /// reason: layer ids are never recycled, so undoing a layer creation
+    /// removes the layer and deliberately leaves the allocator where it was —
+    /// reusing the id would let a stale reference alias a new layer.
+    ///
+    /// Written out rather than pulled in as a dependency — the engine takes
+    /// serde and thiserror and nothing else, and this is three fields.
+    fn without_counters(json: &str) -> String {
+        const KEYS: [&str; 3] = ["\"generation\":", "\"revision\":", "\"next_id\":"];
+        let mut out = String::with_capacity(json.len());
+        let mut rest = json;
+        loop {
+            let Some((at, key)) = KEYS
+                .iter()
+                .filter_map(|k| rest.find(k).map(|at| (at, *k)))
+                .min_by_key(|(at, _)| *at)
+            else {
+                out.push_str(rest);
+                return out;
+            };
+            out.push_str(&rest[..at]);
+            out.push_str(key);
+            let tail = &rest[at + key.len()..];
+            let digits = tail
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(tail.len());
+            rest = &tail[digits..];
+        }
+    }
+
+    /// Every action that edits the document has to be undoable, and undo has
+    /// to put the document back.
+    ///
+    /// `document_edits_leave_an_undo_entry` asks the first half of this for the
+    /// layer styles and the vector mask — thirteen cases picked by hand. This
+    /// asks both halves of every action the shell actually offers: the menus,
+    /// the command palette and the tool chrome all dispatch through
+    /// `default_actions`, so walking that registry walks the mutating surface a
+    /// user can reach.
+    ///
+    /// The comparison is the serialised graph rather than the generation
+    /// counter, which only ever moves forward — undo bumps it too, so a
+    /// generation that "returned" would prove nothing. A refusal is fine: some
+    /// commands need a document state this fixture does not set up, and the
+    /// registry test above already pins that their arguments are accepted.
+    /// What is not allowed is editing the graph and leaving no way back.
+    #[test]
+    fn every_action_that_edits_the_document_undoes_back_to_where_it_started() {
+        // The monotonic counters are excluded on purpose — see
+        // `without_counters`. Everything that describes the document stays in.
+        let snapshot = |session: &SessionState| {
+            let json = serde_json::to_string(session.graph.as_ref().expect("a document"))
+                .expect("graph json");
+            without_counters(&json)
+        };
+        let mut checked = 0_usize;
+        for action in crate::default_actions() {
+            let Some(id) = action.command_id.as_deref() else {
+                continue;
+            };
+            // History's own three, which are what does the undoing, and
+            // soft-proof, which is view chrome that happens to be stored in
+            // the graph — Photoshop's Proof Colors is not undoable either.
+            // Named rather than skipped by a `continue` on failure, so adding
+            // a command that forgets its undo entry fails here instead of
+            // quietly joining them.
+            //
+            // Convert to Profile used to be here too (QA-014). Its
+            // pixel-rewriting branch records a `Transform` entry now, and the
+            // host's snapshot carries the whole graph beside the pixels, so it
+            // takes back both halves; this test only walks the graph, which
+            // the entry does not reverse on its own, so it stays listed with
+            // its own case below.
+            const NOT_UNDOABLE: [&str; 5] = [
+                command_id::HISTORY_UNDO,
+                command_id::HISTORY_REDO,
+                command_id::HISTORY_JUMP,
+                command_id::DOCUMENT_SET_SOFT_PROOF,
+                command_id::DOCUMENT_CONVERT_PROFILE,
+            ];
+            if NOT_UNDOABLE.contains(&id) {
+                continue;
+            }
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            // A second layer, so reorder, merge, group and clip have something
+            // to act on rather than refusing on a one-layer document.
+            let _ = session.invoke(command_id::LAYER_CREATE, CommandArgs::None);
+
+            let Ok(args) = session.args_for_action(id, action.arg.as_deref()) else {
+                continue;
+            };
+            let before = snapshot(&session);
+            let undo_before = session.history.entries_undo().len();
+            if session.invoke(id, args).is_err() {
+                continue;
+            }
+            let after = snapshot(&session);
+            if after == before {
+                continue;
+            }
+            checked += 1;
+
+            assert!(
+                session.history.entries_undo().len() > undo_before,
+                "{} ({id}) edited the graph without recording an undo entry",
+                action.id
+            );
+            session
+                .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+                .unwrap_or_else(|e| panic!("{} ({id}) could not be undone: {e:?}", action.id));
+            assert_eq!(
+                snapshot(&session),
+                before,
+                "{} ({id}) does not undo back to the document it started from",
+                action.id
+            );
+            session
+                .invoke(command_id::HISTORY_REDO, CommandArgs::None)
+                .unwrap_or_else(|e| panic!("{} ({id}) could not be redone: {e:?}", action.id));
+            assert_eq!(
+                snapshot(&session),
+                after,
+                "{} ({id}) does not redo back to the document undo took away",
+                action.id
+            );
+        }
+        assert!(
+            checked >= 40,
+            "only {checked} actions reached the graph — the registry scan broke, \
+             not the wiring"
+        );
+    }
+
     /// `UndoPolicy::Mergeable` was declared on four commands and read by
     /// nothing: a slider drag wrote one history entry per step, and undo walked
     /// back through every one instead of returning to where the gesture began.
@@ -454,5 +592,624 @@ mod tests {
             .and_then(|g| g.active_id().and_then(|id| g.get(id)))
             .map(|l| l.opacity)
             .expect("an active layer")
+    }
+    /// No adjustment can be made to produce a pixel that is not a number.
+    ///
+    /// `AdjustmentParams::clamped` used `f32::clamp` in all ten arms, and
+    /// `f32::clamp` propagates NaN — so the function whose job is to make a
+    /// slot safe passed one through, and `apply_rgb` then returned
+    /// `[NaN, NaN, NaN]`. The slots come from QML sliders, where a viewport
+    /// division during a drag is enough to make one.
+    ///
+    /// Two layers, tested together: `filter.set-parameters` refuses a
+    /// non-finite slot outright, keeping the value the user already had, and
+    /// `clamped` is total for anything that reaches it another way.
+    #[test]
+    fn no_adjustment_slot_can_produce_a_pixel_that_is_not_a_number() {
+        use crate::AdjustmentParams;
+
+        for kind in AdjustmentParams::ALL_KINDS {
+            for i in 0..kind.editor_slots().len() {
+                for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                    let mut slots = kind.slots();
+                    slots[i] = bad;
+                    let applied = kind.with_slots(slots).clamped();
+                    for value in applied.slots() {
+                        assert!(
+                            value.is_finite(),
+                            "{}: slot {i} of {bad} survived clamped() as {value}",
+                            kind.kind_key()
+                        );
+                    }
+                    let out = applied.apply_rgb([0.25, 0.5, 0.75]);
+                    assert!(
+                        out.iter().all(|c| c.is_finite()),
+                        "{}: slot {i} of {bad} produced {out:?}",
+                        kind.kind_key()
+                    );
+                }
+            }
+        }
+    }
+
+    /// And the command refuses one rather than inventing a replacement.
+    #[test]
+    fn a_filter_refuses_a_slot_that_is_not_a_number() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        session
+            .invoke(
+                command_id::FILTER_ADD_ADJUSTMENT,
+                CommandArgs::FilterAdjustment {
+                    kind: "brightness".to_owned(),
+                },
+            )
+            .expect("adjustment layer");
+        let mut slots = [0.0f32; crate::MAX_ADJUSTMENT_SLOTS];
+        slots[0] = f32::NAN;
+        assert!(
+            matches!(
+                session.invoke(
+                    command_id::FILTER_SET_PARAMETERS,
+                    CommandArgs::FilterParameters { slots }
+                ),
+                Err(CommandError::InvalidArgument(_))
+            ),
+            "a NaN slot must be refused, not clamped to something invented"
+        );
+    }
+    /// The published shortcut reference lists exactly the chords that ship.
+    ///
+    /// `web/docs/reference/shortcuts.md` is a second copy of the registry's
+    /// chord vocabulary, written for users and read by nobody who could notice
+    /// it going stale. A chord renamed here leaves the site telling people to
+    /// press something that does nothing — the worst kind of documentation
+    /// bug, because the reader trusts it over the application.
+    ///
+    /// Both directions: a documented chord the registry does not bind is a
+    /// promise the build does not keep, and a bound chord the reference omits
+    /// is a feature nobody can find.
+    #[test]
+    fn the_published_reference_lists_the_chords_that_ship() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web/docs/src/content/docs/reference/shortcuts.md"
+        ))
+        .expect("the shortcut reference is readable from the engine crate");
+
+        // Only the action tables, which run until the modifier section. What
+        // follows that heading is held keys — Space to pan, Alt to zoom out —
+        // which the canvas handles directly and the registry never binds, so
+        // reading them as action chords reported Space as a promise nothing
+        // keeps. The heading is asserted below so that renaming it fails here
+        // rather than quietly widening what this test accepts.
+        const MODIFIERS: &str = "## Modifiers on the canvas";
+        assert!(
+            page.contains(MODIFIERS),
+            "the modifier section moved; this test no longer knows where the \
+             action chords stop"
+        );
+        let actions_only = page.split(MODIFIERS).next().unwrap_or_default();
+
+        // Rows are `| Label | <kbd>Ctrl</kbd> <kbd>N</kbd> |`; the chord is
+        // whichever cell carries `<kbd>`. Table rows only — the page's prose
+        // uses `<kbd>` too, and reading that made the first run report "Ctrl"
+        // as a binding nothing answers.
+        let mut documented: Vec<String> = Vec::new();
+        for line in actions_only.lines() {
+            if !line.trim_start().starts_with('|') {
+                continue;
+            }
+            let Some(cell) = line.split('|').find(|cell| cell.contains("<kbd>")) else {
+                continue;
+            };
+            let keys: Vec<&str> = cell
+                .split("<kbd>")
+                .skip(1)
+                .filter_map(|rest| rest.split("</kbd>").next())
+                .map(str::trim)
+                .collect();
+            if !keys.is_empty() {
+                documented.push(keys.join("+"));
+            }
+        }
+        assert!(
+            documented.len() > 40,
+            "found {} documented chords — the table parse broke, not the page",
+            documented.len()
+        );
+
+        let bound: Vec<String> = crate::default_actions()
+            .into_iter()
+            .filter_map(|action| action.shortcut)
+            .collect();
+
+        for chord in &bound {
+            assert!(
+                documented.contains(chord),
+                "{chord} ships but the published reference omits it — a feature \
+                 nobody can find"
+            );
+        }
+        for chord in &documented {
+            assert!(
+                bound.contains(chord),
+                "the published reference lists {chord}, which nothing binds — \
+                 the site tells people to press something that does nothing"
+            );
+        }
+    }
+    /// The degenerate ends of a marquee, which the pointer can reach.
+    ///
+    /// A zero-area drag is refused. A rect that runs past the canvas is kept
+    /// whole, which is right — Photoshop lets you drag past the edge and
+    /// intersects. A rect *entirely* outside is also kept, and that is
+    /// QA-005: the shell then reports "pixel selection" for a selection
+    /// covering no pixels.
+    #[test]
+    fn a_marquee_that_covers_nothing_is_refused() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let replace = |x, y, width, height| CommandArgs::SelectionReplace {
+            shape: crate::SelectionShape::Rect,
+            combine: crate::SelectionCombine::Replace,
+            rect: crate::SelectionRect {
+                x,
+                y,
+                width,
+                height,
+            },
+            polygon: Vec::new(),
+            label: "test".to_owned(),
+        };
+
+        assert!(
+            session
+                .invoke(command_id::SELECTION_REPLACE, replace(10, 10, 0, 0))
+                .is_err(),
+            "a zero-area drag selects nothing and must say so"
+        );
+        assert!(!session.selection.active);
+
+        session
+            .invoke(command_id::SELECTION_REPLACE, replace(10, 10, 1, 1))
+            .expect("one pixel is a selection");
+        assert!(session.selection.active);
+
+        // Past the edge is kept whole and intersected downstream.
+        session
+            .invoke(command_id::SELECTION_REPLACE, replace(0, 0, 99_999, 99_999))
+            .expect("a drag past the edge is a selection");
+        assert_eq!(
+            session.selection.bounds.map(|b| (b.width, b.height)),
+            Some((99_999, 99_999)),
+            "the rect is kept, not clamped"
+        );
+
+        // Entirely beside the page is not a selection, however large the
+        // rectangle is. "Empty" used to mean "empty rectangle", so a box
+        // dragged into the letterbox reported `pixel selection` and every
+        // command that needs one then ran and did nothing.
+        let before = session.selection.bounds;
+        for (x, y) in [(5_000, 5_000), (-4_000, 10), (10, -4_000), (1_280, 10)] {
+            assert!(
+                session
+                    .invoke(command_id::SELECTION_REPLACE, replace(x, y, 10, 10))
+                    .is_err(),
+                "a marquee at ({x}, {y}) covers no document pixel and must say so"
+            );
+        }
+        assert_eq!(
+            session.selection.bounds, before,
+            "a refused marquee must not disturb the selection that stands"
+        );
+
+        // One pixel of overlap is still a selection.
+        session
+            .invoke(command_id::SELECTION_REPLACE, replace(1_279, 719, 10, 10))
+            .expect("a marquee that clips the corner is a selection");
+    }
+    /// Every command is on one side of the lock or the other.
+    ///
+    /// The partition is the point. A precondition written into thirty command
+    /// bodies grows holes silently — that is how Lock All came to mean "cannot
+    /// delete, cannot paint, cannot move" while opacity, blend mode and
+    /// effects all went through. Adding a command now fails here until it is
+    /// classified, and the two lists carry the reasoning next to the names.
+    #[test]
+    fn every_command_is_classified_against_the_lock() {
+        for id in command_id::ALL {
+            let changes = command_id::CHANGES_ACTIVE_LAYER.contains(id);
+            let keeps = command_id::KEEPS_WORKING_WHEN_LOCKED.contains(id);
+            assert!(
+                changes || keeps,
+                "{id} is in neither CHANGES_ACTIVE_LAYER nor \
+                 KEEPS_WORKING_WHEN_LOCKED — decide whether a locked layer \
+                 should stand in its way, and say why in the list you add it to"
+            );
+            assert!(!(changes && keeps), "{id} is in both lock lists");
+        }
+        for id in command_id::CHANGES_ACTIVE_LAYER
+            .iter()
+            .chain(command_id::KEEPS_WORKING_WHEN_LOCKED)
+        {
+            assert!(
+                command_id::ALL.contains(id),
+                "{id} is classified against the lock but is not a registered command"
+            );
+        }
+    }
+
+    /// A locked layer refuses every command that would change it.
+    ///
+    /// Drives the list rather than a handful of hand-picked commands, so the
+    /// check cannot drift from the classification above.
+    #[test]
+    fn a_locked_layer_refuses_every_command_that_would_change_it() {
+        for id in command_id::CHANGES_ACTIVE_LAYER {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            session
+                .invoke(
+                    command_id::LAYER_SET_LOCKS,
+                    CommandArgs::SetLocks {
+                        pixels: false,
+                        position: false,
+                        all: true,
+                        alpha: false,
+                    },
+                )
+                .expect("lock all");
+
+            let error = session
+                .invoke(id, args_for(id))
+                .expect_err("a locked layer must refuse this");
+            assert!(
+                matches!(error, CommandError::Rejected(why) if why.contains("locked")),
+                "{id} was refused for the wrong reason: {error:?} — the lock \
+                 must be the thing that stops it, not a missing argument"
+            );
+        }
+    }
+
+    /// Locking pixels or position does not lock the blend mode.
+    ///
+    /// The counterweight to the test above: an over-broad predicate that
+    /// refused everything under any lock would pass it and would be wrong.
+    /// Photoshop's Lock Pixels stops the brush and leaves opacity and blend
+    /// editable, and Lock Position stops the move tool.
+    #[test]
+    fn the_narrow_locks_leave_a_layer_restylable() {
+        for (pixels, position) in [(true, false), (false, true)] {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            session
+                .invoke(
+                    command_id::LAYER_SET_LOCKS,
+                    CommandArgs::SetLocks {
+                        pixels,
+                        position,
+                        all: false,
+                        alpha: false,
+                    },
+                )
+                .expect("set locks");
+            session
+                .invoke(
+                    command_id::LAYER_SET_OPACITY,
+                    CommandArgs::SetOpacity { opacity: 0.5 },
+                )
+                .unwrap_or_else(|e| {
+                    panic!("pixels={pixels} position={position} blocked opacity: {e:?}")
+                });
+        }
+    }
+    /// Lock All lets go of everything it took.
+    ///
+    /// The three toggles used to look identical whether their lock was on or
+    /// off, which hid this: turning Lock All on set pixels and position too,
+    /// through an `||` in the arguments the action built, and turning it off
+    /// left them set. The layer stayed pinned and unpaintable with every
+    /// button showing nothing.
+    #[test]
+    fn lock_all_releases_what_it_took() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        let toggle_all = |session: &mut SessionState| {
+            let args = session
+                .args_for_action(command_id::LAYER_SET_LOCKS, Some("all"))
+                .expect("lock args");
+            session
+                .invoke(command_id::LAYER_SET_LOCKS, args)
+                .expect("set locks");
+        };
+
+        toggle_all(&mut session);
+        assert!(
+            session.active_layer_change_blocked(),
+            "Lock All did not lock"
+        );
+        assert!(session.active_lock_pixels() && session.active_lock_position());
+
+        toggle_all(&mut session);
+        assert!(
+            !session.active_layer_change_blocked()
+                && !session.active_lock_pixels()
+                && !session.active_lock_position(),
+            "unlocking Lock All left the layer pinned or unpaintable"
+        );
+    }
+
+    /// Turning one lock off releases Lock All with it.
+    ///
+    /// `paint_blocked` and `change_blocked` both fold `all` in, so a cleared
+    /// pixel lock under a standing Lock All would go on blocking with nothing
+    /// on screen saying which lock still held.
+    #[test]
+    fn clearing_one_lock_releases_lock_all() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        for arg in ["all", "pixels"] {
+            let args = session
+                .args_for_action(command_id::LAYER_SET_LOCKS, Some(arg))
+                .expect("lock args");
+            session
+                .invoke(command_id::LAYER_SET_LOCKS, args)
+                .expect("set locks");
+        }
+        assert!(!session.active_lock_pixels(), "the pixel lock is off");
+        assert!(
+            !session.active_layer_change_blocked(),
+            "Lock All still holds after one of its locks was cleared"
+        );
+        assert!(
+            session.active_lock_position(),
+            "the position lock was not the one the user touched"
+        );
+    }
+    /// The range a slider offers is the range the engine keeps.
+    ///
+    /// Two literal tables written independently — `editor_slots` for the UI,
+    /// a `clamp` per arm for the engine — and nothing compared them. Three
+    /// slots disagreed, so the engine could hold a gamma of 5 while its slider
+    /// was pinned at 3, and the first touch of that slider changed the
+    /// document without being asked to. `clamped` now reads the one table;
+    /// this asserts it, slot by slot, for every adjustment that ships.
+    #[test]
+    fn every_adjustment_slot_keeps_exactly_the_range_its_editor_offers() {
+        use crate::AdjustmentParams;
+        let mut checked = 0;
+        for kind in AdjustmentParams::ALL_KINDS {
+            for (index, (label, low, high)) in kind.editor_slots().iter().enumerate() {
+                checked += 1;
+                let read_back = |value: f32| {
+                    let mut slots = kind.slots();
+                    slots[index] = value;
+                    kind.with_slots(slots).clamped().slots()[index]
+                };
+                let under = read_back(low - 1_000.0);
+                assert!(
+                    (under - low).abs() < 1e-3,
+                    "{} {label}: a value below the slider's {low} came back as \
+                     {under}, so the engine keeps what the slider cannot show",
+                    kind.kind_key()
+                );
+                let over = read_back(high + 1_000.0);
+                assert!(
+                    (over - high).abs() < 1e-3,
+                    "{} {label}: a value above the slider's {high} came back as \
+                     {over}, so the engine keeps what the slider cannot show",
+                    kind.kind_key()
+                );
+            }
+        }
+        assert!(
+            checked >= 20,
+            "walked {checked} slots — the scan broke rather than the ranges"
+        );
+    }
+    /// The click that creates a text or shape layer is where it lands.
+    ///
+    /// Both tools used to discard it. `CommandArgs::TextCreate` carried only
+    /// the string and `cmd_text_create` built its content from
+    /// `TextContent::default()`, so a click at the bottom-right of a 1080p
+    /// document put the frame a thousand pixels away at the origin; the shape
+    /// presets landed at their fraction of the document whatever the pointer
+    /// said. Photoshop places both where the tool is clicked, and that is this
+    /// project's placement rule.
+    #[test]
+    fn a_text_layer_lands_where_the_click_was() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P1080);
+        session
+            .invoke(
+                command_id::TEXT_CREATE,
+                CommandArgs::TextCreate {
+                    text: "Hello".into(),
+                    x: 1600.0,
+                    y: 900.0,
+                },
+            )
+            .expect("create text");
+        let placed = session
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .map(|layer| (layer.transform.translate_x, layer.transform.translate_y))
+            .expect("a text layer");
+        assert_eq!(placed, (1600.0, 900.0));
+
+        // A click in the letterbox still has to produce a frame on screen.
+        session
+            .invoke(
+                command_id::TEXT_CREATE,
+                CommandArgs::TextCreate {
+                    text: "Edge".into(),
+                    x: -4000.0,
+                    y: 9000.0,
+                },
+            )
+            .expect("create text");
+        let clamped = session
+            .graph
+            .as_ref()
+            .and_then(|g| g.active_id().and_then(|id| g.get(id)))
+            .map(|layer| (layer.transform.translate_x, layer.transform.translate_y))
+            .expect("a text layer");
+        assert_eq!(
+            clamped,
+            (0.0, 1080.0),
+            "a click outside the canvas must clamp into it, not place the frame there"
+        );
+    }
+
+    /// Every shape preset centres on the point it was placed at.
+    #[test]
+    fn every_shape_preset_centres_on_the_click() {
+        use crate::ShapePreset;
+        for preset in ShapePreset::ALL {
+            let placed = preset.content_at(1920, 1080, 1500.0, 800.0);
+            let bounds = placed.path.bounds().expect("a preset draws something");
+            let centre = (
+                bounds.x + bounds.width / 2.0,
+                bounds.y + bounds.height / 2.0,
+            );
+            assert!(
+                (centre.0 - 1500.0).abs() < 0.01 && (centre.1 - 800.0).abs() < 0.01,
+                "{:?} centred at {centre:?} rather than the click",
+                preset
+            );
+            // The preset without a click is untouched — the menu path has no
+            // pointer to honour and must keep landing where it always did.
+            let unplaced = preset.content(1920, 1080);
+            assert_eq!(
+                preset
+                    .content_at(
+                        1920,
+                        1080,
+                        unplaced
+                            .path
+                            .bounds()
+                            .map(|b| b.x + b.width / 2.0)
+                            .unwrap_or_default(),
+                        unplaced
+                            .path
+                            .bounds()
+                            .map(|b| b.y + b.height / 2.0)
+                            .unwrap_or_default(),
+                    )
+                    .path,
+                unplaced.path,
+                "{preset:?} moved when placed at its own centre"
+            );
+        }
+    }
+    /// Path Edit's first click on a raster layer starts a path.
+    ///
+    /// It used to be refused, silently: `with_active_path_mut` needed
+    /// `graph.paths.active` to already be `Some` and nothing ever created the
+    /// first one, so on a raster layer the tool did nothing at all while its
+    /// own copy went on saying "Click empty to add". Only *adding* creates —
+    /// moving, deleting or closing a path that does not exist is a real
+    /// refusal and stays one.
+    #[test]
+    fn the_first_path_anchor_starts_a_path() {
+        let mut session = SessionState::default();
+        session.apply_preset(SizePreset::P720);
+        assert!(
+            session
+                .graph
+                .as_ref()
+                .is_some_and(|g| g.paths.paths.is_empty()),
+            "a new document has no paths"
+        );
+
+        session
+            .invoke(
+                command_id::PATH_MOVE_ANCHOR,
+                CommandArgs::PathMoveAnchor {
+                    index: 0,
+                    x: 10.0,
+                    y: 10.0,
+                },
+            )
+            .expect_err("moving an anchor of a path that does not exist is a refusal");
+
+        for (index, (x, y)) in [(10.0, 10.0), (40.0, 30.0)].into_iter().enumerate() {
+            session
+                .invoke(
+                    command_id::PATH_ADD_ANCHOR,
+                    CommandArgs::PathAddAnchor { x, y, index: None },
+                )
+                .unwrap_or_else(|e| panic!("anchor {index}: {e:?}"));
+        }
+        let anchors = session
+            .graph
+            .as_ref()
+            .and_then(|g| g.paths.active.and_then(|i| g.paths.paths.get(i)))
+            .map(|path| path.anchors.len());
+        assert_eq!(anchors, Some(2), "both anchors landed on one new path");
+
+        // Undo removes the path with the anchor that created it.
+        session
+            .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        session
+            .invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+            .expect("undo");
+        assert!(
+            session
+                .graph
+                .as_ref()
+                .is_some_and(|g| g.paths.paths.is_empty()),
+            "undoing the first anchor left an empty path behind"
+        );
+    }
+    /// Convert to Profile records something to take it back.
+    ///
+    /// It recorded nothing at all: the graph moved, every layer's pixels were
+    /// rewritten on the GPU behind a warning, and Ctrl+Z walked straight past
+    /// the conversion to whatever came before it. The edit has one half in the
+    /// graph and one in pixels, and neither `HistoryKind::Graph` nor
+    /// `Transform` covers both on its own — but a `TransformSnapshot` carries
+    /// the whole graph beside the pixels, so the host half already does.
+    ///
+    /// This is the engine's share of that: a retag records a graph entry, and
+    /// a conversion that rewrites pixels records a `Transform` one for the
+    /// host to service. The host's share — taking the snapshot before invoking
+    /// and withdrawing it on refusal — is `convert_document_profile`.
+    #[test]
+    fn converting_a_profile_records_a_step_of_the_right_kind() {
+        use crate::history::HistoryKind;
+        let entry_kind = |profile: &str| {
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            let before = session.history.entries_undo().len();
+            session
+                .invoke(
+                    command_id::DOCUMENT_CONVERT_PROFILE,
+                    CommandArgs::ConvertProfile {
+                        profile: profile.to_owned(),
+                    },
+                )
+                .expect("convert");
+            let entries = session.history.entries_undo();
+            assert_eq!(
+                entries.len(),
+                before + 1,
+                "converting to {profile} recorded nothing to undo"
+            );
+            entries.last().expect("an entry").kind
+        };
+        assert_eq!(
+            entry_kind("Display-P3"),
+            HistoryKind::Transform,
+            "a conversion that rewrites pixels needs the host's snapshot"
+        );
+        assert_eq!(
+            entry_kind("sRGB"),
+            HistoryKind::Graph,
+            "a retag touches only the graph and must not cost a pixel snapshot"
+        );
     }
 }

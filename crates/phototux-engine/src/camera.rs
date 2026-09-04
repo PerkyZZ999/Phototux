@@ -78,8 +78,36 @@ impl Camera2D {
         32.0,
     ];
 
+    /// Set the zoom, clamped to the supported range.
+    ///
+    /// NaN is ignored rather than clamped, because `f32::clamp` propagates it:
+    /// `f32::NAN.clamp(0.05, 32.0)` is NaN, so this stored NaN and every
+    /// subsequent screen-to-world conversion, pan solve and fit read it back.
+    /// A NaN camera draws nothing and cannot be recovered by zooming, because
+    /// the ladder comparisons against NaN are all false. [`Self::zoom_at`]
+    /// already refused non-finite input; this is the same rule at the entry
+    /// QML actually calls.
+    ///
+    /// The infinities *are* clamped, because they have an answer: an
+    /// arbitrarily large zoom request is the maximum.
     pub fn set_zoom(&mut self, zoom: f32) {
+        if zoom.is_nan() {
+            return;
+        }
         self.zoom = zoom.clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
+    }
+
+    /// Put `world_x`, `world_y` at the viewport centre.
+    ///
+    /// Non-finite is ignored outright, infinities included: unlike a zoom,
+    /// there is no largest sensible pan to clamp to — an infinite centre puts
+    /// the document nowhere, and the canvas goes blank with no way back.
+    pub fn set_pan(&mut self, world_x: f32, world_y: f32) {
+        if !world_x.is_finite() || !world_y.is_finite() {
+            return;
+        }
+        self.pan_x = world_x;
+        self.pan_y = world_y;
     }
 
     /// The next stop above (or below) the current zoom.
@@ -109,7 +137,7 @@ impl Camera2D {
 
     /// Pan by screen-space delta (drag gesture). Positive dx moves content right.
     pub fn pan_by_screen(&mut self, dx: f32, dy: f32) {
-        if self.zoom <= f32::EPSILON {
+        if self.zoom <= f32::EPSILON || !dx.is_finite() || !dy.is_finite() {
             return;
         }
         self.pan_x -= dx / self.zoom;
@@ -252,6 +280,52 @@ impl FpsTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A camera that has taken a NaN can never be recovered.
+    ///
+    /// `f32::clamp` propagates NaN, so the obvious `zoom.clamp(min, max)`
+    /// stores it; from then on every ladder comparison against it is false,
+    /// every screen-to-world conversion returns NaN, and the canvas is blank
+    /// with no gesture that fixes it. `set_zoom` is a `#[qslot]` and the target
+    /// of `view.zoom-to`, so the value comes straight from QML arithmetic —
+    /// a viewport division during a resize is enough.
+    #[test]
+    fn a_camera_ignores_a_value_that_is_not_a_number() {
+        let mut camera = Camera2D::default();
+        camera.set_zoom(2.0);
+        camera.set_pan(10.0, 20.0);
+
+        camera.set_zoom(f32::NAN);
+        assert_eq!(camera.zoom, 2.0, "NaN must leave the zoom where it was");
+
+        for (x, y) in [
+            (f32::NAN, 0.0),
+            (0.0, f32::NAN),
+            (f32::INFINITY, 0.0),
+            (0.0, f32::NEG_INFINITY),
+        ] {
+            camera.set_pan(x, y);
+            assert_eq!(
+                (camera.pan_x, camera.pan_y),
+                (10.0, 20.0),
+                "({x}, {y}) must leave the pan where it was"
+            );
+        }
+
+        camera.pan_by_screen(f32::NAN, 0.0);
+        camera.pan_by_screen(0.0, f32::NAN);
+        assert_eq!((camera.pan_x, camera.pan_y), (10.0, 20.0));
+    }
+
+    /// The infinities do have an answer, unlike NaN, and keep it.
+    #[test]
+    fn an_unbounded_zoom_request_is_the_bound() {
+        let mut camera = Camera2D::default();
+        camera.set_zoom(f32::INFINITY);
+        assert_eq!(camera.zoom, Camera2D::MAX_ZOOM);
+        camera.set_zoom(f32::NEG_INFINITY);
+        assert_eq!(camera.zoom, Camera2D::MIN_ZOOM);
+    }
 
     /// A ladder that is unsorted or reaches past the clamp makes the step
     /// commands skip stops or stall against `set_zoom`.

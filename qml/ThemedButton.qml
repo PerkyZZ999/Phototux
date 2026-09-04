@@ -50,8 +50,17 @@ Button {
     background: Rectangle {
         radius: Theme.radiusSm
         color: {
-            if (control.flat && !control.down && !control.hovered)
-                return "transparent"
+            // A flat button has no resting fill, and its label colour is
+            // picked for the surface behind it — so its hover and press
+            // states are the quiet ones, never the accent. Painting the
+            // accent under a flat *danger* button put `Theme.error` text on a
+            // `Theme.error` fill: hovering "Discard All", the most
+            // destructive control in the shell, turned it into an unlabelled
+            // red block. `down` already took the quiet fill, which is what
+            // says this was a miss rather than a decision.
+            if (control.flat)
+                return (control.down || control.hovered)
+                        ? Theme.surfaceContainerHigh : "transparent"
             if (control.down)
                 return control._primary ? Theme.primaryHover : Theme.surfaceContainerHigh
             if (control.hovered && control.prominence === "normal")

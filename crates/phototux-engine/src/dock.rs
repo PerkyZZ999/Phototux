@@ -15,6 +15,16 @@ pub struct FloatingPanelPlacement {
     /// Optional display / output hint for restore (host-defined).
     #[serde(default)]
     pub display_hint: String,
+    /// Where in `right_stack` this panel was, so re-docking is a round trip.
+    ///
+    /// Without it a re-dock appended, so a panel torn from the middle of the
+    /// stack came back at the bottom as a group of its own — tear off and dock
+    /// again and the workspace was not what it had been.
+    #[serde(default)]
+    pub dock_index: usize,
+    /// Whether it shared a group with the panel above it.
+    #[serde(default)]
+    pub tabbed: bool,
 }
 
 /// Axis-aligned screen rect used when clamping floating windows.
@@ -330,6 +340,7 @@ impl DockTopology {
         }
         let width = width.max(200);
         let height = height.max(120);
+        let tabbed = self.tabbed_with_previous.iter().any(|id| id == panel_id);
         self.right_stack.remove(idx);
         self.floating.push(FloatingPanelPlacement {
             id: panel_id.to_owned(),
@@ -338,12 +349,18 @@ impl DockTopology {
             width,
             height,
             display_hint: display_hint.into(),
+            dock_index: idx,
+            tabbed,
         });
         self.normalize_groups();
         self.validate()
     }
 
-    /// Return a floating panel to the right stack (append, or `at` when in range).
+    /// Return a floating panel to the right stack.
+    ///
+    /// `at` is an explicit drop position — a drag onto the stack. Without one
+    /// the panel goes back where it came from, group and all: tearing off and
+    /// docking again is a round trip, not a move to the bottom.
     ///
     /// # Errors
     /// Returns a static reason when the panel is not floating.
@@ -353,11 +370,21 @@ impl DockTopology {
             .iter()
             .position(|f| f.id == panel_id)
             .ok_or("panel not floating")?;
-        self.floating.remove(pos);
+        let placement = self.floating.remove(pos);
         let insert_at = at
-            .unwrap_or(self.right_stack.len())
+            .unwrap_or(placement.dock_index)
             .min(self.right_stack.len());
         self.right_stack.insert(insert_at, panel_id.to_owned());
+        // Only for a panel going home. An explicit drop position is the user
+        // saying where it belongs now, and joining it to whatever happens to
+        // be above that point would be a group they did not ask for.
+        if at.is_none()
+            && placement.tabbed
+            && insert_at > 0
+            && !self.tabbed_with_previous.iter().any(|id| id == panel_id)
+        {
+            self.tabbed_with_previous.push(panel_id.to_owned());
+        }
         self.normalize_groups();
         self.validate()
     }
@@ -770,5 +797,56 @@ mod tests {
         let back: DockTopology = serde_json::from_value(value).expect("deserialize");
         assert!(back.panel_heights.is_empty());
         back.validate().expect("valid");
+    }
+    /// Tearing a panel off and docking it again is a round trip.
+    ///
+    /// It used to append: a panel torn from the middle of the stack came back
+    /// at the bottom, in a group of its own, so the workspace after a tear-off
+    /// and a dock was not the workspace before it. The placement now records
+    /// where the panel was and whether it shared a group, and a redock with no
+    /// explicit drop position puts it back there.
+    #[test]
+    fn a_torn_off_panel_docks_back_where_it_was() {
+        let mut dock = DockTopology::essentials();
+        let stack_before = dock.right_stack.clone();
+        let groups_before = dock.tabbed_with_previous.clone();
+        // Swatches is tabbed with the panel above it in Essentials, which is
+        // the case a plain append gets wrong twice over.
+        let panel = "panel.swatches";
+        assert!(
+            groups_before.iter().any(|id| id == panel),
+            "the fixture no longer has a tabbed panel to tear off"
+        );
+
+        dock.tear_off(panel, 40, 40, 320, 280, "")
+            .expect("tear off");
+        assert!(!dock.right_stack.iter().any(|id| id == panel));
+
+        dock.redock(panel, None).expect("redock");
+        assert_eq!(dock.right_stack, stack_before, "the stack order changed");
+        let mut after = dock.tabbed_with_previous.clone();
+        let mut before = groups_before;
+        after.sort();
+        before.sort();
+        assert_eq!(after, before, "the panel came back in a different group");
+    }
+
+    /// An explicit drop position still wins.
+    ///
+    /// Dragging a floating panel onto the stack is the user saying where it
+    /// belongs now; joining it to whatever happens to sit above that point
+    /// would be a group they did not ask for.
+    #[test]
+    fn a_drop_position_overrides_where_the_panel_came_from() {
+        let mut dock = DockTopology::essentials();
+        let panel = "panel.swatches";
+        dock.tear_off(panel, 40, 40, 320, 280, "")
+            .expect("tear off");
+        dock.redock(panel, Some(0)).expect("redock");
+        assert_eq!(dock.right_stack.first().map(String::as_str), Some(panel));
+        assert!(
+            !dock.tabbed_with_previous.iter().any(|id| id == panel),
+            "a panel dropped at the head of the stack has nothing to be tabbed with"
+        );
     }
 }

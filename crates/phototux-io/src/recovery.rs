@@ -104,13 +104,21 @@ pub fn list_recoverable() -> Result<Vec<RecoveryEntry>, RecoveryError> {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in fs::read_dir(&dir)? {
-        let entry = entry?;
+    for entry in fs::read_dir(&dir)?.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let text = fs::read_to_string(&path)?;
+        // One bad entry must not hide the rest. A malformed one was already
+        // skipped by the `if let Ok` below, but an *unreadable* one propagated
+        // through `?` and failed the whole listing — so a single unreadable
+        // file, a directory that happens to end in `.json`, or a race with the
+        // autosave writing one, offered the user no recovery at all. That is
+        // the wrong answer at the one moment this feature exists for, and it
+        // also blocks `restore_recovery`, which lists before it loads.
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
         if let Ok(item) = serde_json::from_str::<RecoveryEntry>(&text) {
             out.push(item);
         }
@@ -193,6 +201,51 @@ mod tests {
     }
 
     /// Two snapshots taken by the same build must be distinguishable.
+    /// A recovery listing survives an entry it cannot read.
+    ///
+    /// Recovery is the feature that runs after a crash, so its directory is
+    /// the one most likely to hold a half-written file — and the listing used
+    /// to fail outright on one, offering the user nothing. The malformed case
+    /// was already skipped by the `if let Ok` on the parse; the unreadable one
+    /// went through `?` and took the whole listing with it, `restore_recovery`
+    /// included, since that lists before it loads.
+    #[test]
+    fn one_unreadable_entry_does_not_hide_the_others() {
+        let _guard = LOCK.lock().expect("lock");
+        let dir = std::env::temp_dir().join(format!(
+            "phototux-recovery-unreadable-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        // SAFETY: test-only env override; exclusive via `LOCK`, restored below.
+        unsafe {
+            std::env::set_var("XDG_STATE_HOME", &dir);
+        }
+        let recovery = recovery_dir();
+        fs::create_dir_all(&recovery).expect("recovery dir");
+
+        let graph = DocumentGraph::new(DocumentSize::new(4, 4));
+        let doc = PtxDocument::from_graph(graph, HashMap::new());
+        let good = write_autosave(&doc, None).expect("autosave");
+
+        // The two ways an entry can be unreadable as text: not valid JSON, and
+        // not a file at all.
+        fs::write(recovery.join("malformed.json"), b"{ not json").expect("write malformed");
+        fs::create_dir(recovery.join("a-directory.json")).expect("mkdir");
+
+        let listed = list_recoverable().expect("the listing survives both");
+        assert_eq!(
+            listed
+                .iter()
+                .map(|e| e.document_id.as_str())
+                .collect::<Vec<_>>(),
+            [good.document_id.as_str()],
+            "the good entry must still be offered"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn short_ids_differ_between_documents() {
         // Real ids: nanoseconds since the epoch xored with a shifted pid. The

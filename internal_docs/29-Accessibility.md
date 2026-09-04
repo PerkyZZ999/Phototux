@@ -214,6 +214,8 @@ Focus rules:
 
 Visible focus uses [25 — Themes](25-Themes.md) contrast requirements and remains visible on selected/invalid/pressed controls. Pointer interaction may move focus according to host convention, but hover never does. Focus cannot land on disabled/decorative nodes.
 
+**Shipped rule — an icon-only button draws its own focus ring.** Qt Quick Controls put every `Button`, and so every `ToolButton`, in the tab chain by default, but the ring is the control's own to paint. Eleven icon-only buttons across the shell hand-roll their background — the toolbar's file and history actions, every panel header, the options bar's mode, align and distribute runs, the layer visibility eye, the tool-strip overflow, and two dialog close buttons — and each drew hover and checked but not focus. Tabbing across the chrome therefore moved an invisible cursor: AT-SPI reported focus travelling from Redo to About PhotoTux while a pixel diff of the whole window found nothing had changed. Every one now paints `Theme.focusRing` on `visualFocus` — `visualFocus` rather than `activeFocus`, matching `ThemedButton`, so a click does not leave a ring behind it. `every_focusable_control_draws_its_focus` and `every_icon_button_draws_its_focus` fail the build on a control that stops.
+
 ```mermaid
 stateDiagram-v2
     [*] --> StableFocus
@@ -412,6 +414,10 @@ Accessibility constraints refine [25 — Themes](25-Themes.md):
 Zooming document canvas is not equivalent to scaling UI. Both controls are independently available. System text scale and app UI scale combine according to theme contract. No control truncates critical consequence to preserve compact layout.
 
 Reduced motion affects panel reflow, popovers, selection animation, indeterminate progress, and canvas navigation animation; it does not remove state/progress. Flashing is avoided. Animation cannot be required to understand sequence.
+
+**What answers to it in the shipping shell.** The whole of it — there are five things that move, and every one now reads `Theme.reducedMotion`: the slider handle's grow-under-pointer, the toast fade, the scroll bar's width and opacity, the busy indicator's spin, and the selection's marching ants. The last two are the ones the specification calls out by name and the ones that were missed: the spinner turned forever, and the ants crawled around every selection, both of them continuous motion a user cannot dismiss. The spinner now holds still and stays on screen, because its *presence* is what says work is in progress; the ants stop advancing while the outline stays exactly where it was.
+
+The frame clock is the one exception, and it is not a transition: `FrameAnimation` in `Main.qml` polls the file worker and measures frame rate, so it keeps running. What it *publishes* answers to the preference instead — the phase that drives the ants stops advancing. `every_animation_answers_to_reduced_motion` reads every `.qml` file and fails on any animation declaration that does not consult the flag, with that clock named as the single exemption.
 
 ## Input Alternatives
 

@@ -51,6 +51,17 @@ ApplicationWindow {
             return []
         }
     }
+    /// Anchor positions of the path the Path Edit tool is editing.
+    ///
+    /// Republished only when it changes — see `AppSession::sync_path_edit_fields`
+    /// and T-009.
+    readonly property var pathAnchorModel: {
+        try {
+            return JSON.parse(AppSession.pathGeometryJson || "[]")
+        } catch (e) {
+            return []
+        }
+    }
     readonly property var actionDescriptors: {
         try {
             return JSON.parse(AppSession.actionsJson || "[]")
@@ -257,6 +268,38 @@ ApplicationWindow {
         return root.panelDefaultHeight(panelId, dockHeight) >= 0
     }
 
+    /// The tallest a panel may be drawn before the ones below it leave the dock.
+    ///
+    /// The seam had no ceiling that depended on the dock: `PanelResizeGrip`
+    /// clamped at a constant 2000 mirroring `DockTopology::MAX_PANEL_HEIGHT`,
+    /// and neither side subtracted what the panels below needed. One drag to
+    /// the bottom of the screen made the panel above fill the dock and the
+    /// groups below it vanish — not collapsed to a header, not reachable by
+    /// scrolling, simply gone, with the Window menu still listing them as
+    /// visible. Handbook 04 asks the solver to clamp against "minimum/maximum
+    /// constraints **and available logical size**"; this is that second half.
+    ///
+    /// Reserved: this panel's own header, plus a header *and* a minimum body
+    /// for every group below it. Reserving only the headers is not enough —
+    /// the dock is a `GridLayout`, which lays its rows out at the heights they
+    /// ask for and lets the overflow fall off the bottom, so a body below that
+    /// still wants its minimum takes its header with it.
+    ///
+    /// Computed here rather than in the engine because the dock's height is a
+    /// QML fact. The engine keeps its own absolute bounds; clamping only there
+    /// would let the drag run past the limit and snap back on release, which
+    /// is the thing the grip was written to avoid.
+    function panelMaxHeight(panelId, dockHeight) {
+        var row = root.dockStackRow(panelId)
+        if (row >= 1000)
+            return -1
+        var groups = root.dockGroups
+        var reserve = Theme.panelHeaderHeight
+        for (var g = row + 1; g < groups.length; ++g)
+            reserve += Theme.panelHeaderHeight + Theme.dockPanelMinHeight
+        return Math.max(Theme.dockPanelMinHeight, Math.round(dockHeight - reserve))
+    }
+
     /// The docked panel immediately above `panelId`, or "" when it is the first.
     ///
     /// A group's identity for sizing is its *active tab*, because that is the
@@ -362,6 +405,22 @@ ApplicationWindow {
         for (var i = 0; i < panels.length; ++i) {
             if (panels[i].id === panelId)
                 return panels[i]
+        }
+        return null
+    }
+
+    /// The body component for a panel id, for the floating window to load.
+    ///
+    /// `null` for a panel with no component of its own — none today, and a
+    /// window that draws nothing is a better answer than one that fails to
+    /// build.
+    function panelBodyFor(panelId) {
+        switch (panelId) {
+        case "panel.properties": return propertiesBody
+        case "panel.navigator": return navigatorBody
+        case "panel.swatches": return swatchesBody
+        case "panel.layers": return layersBody
+        case "panel.history": return historyBody
         }
         return null
     }
@@ -487,6 +546,15 @@ ApplicationWindow {
             AppSession.beginTransform()
     }
 
+    /// Export file-dialog filters, as the host publishes them.
+    readonly property var exportNameFilters: {
+        try {
+            return JSON.parse(AppSession.exportNameFiltersJson || "[]")
+        } catch (e) {
+            return ["PNG images (*.png)"]
+        }
+    }
+
     function shortcutForAction(actionId) {
         return root.actionShortcutMap[actionId] || ""
     }
@@ -572,6 +640,10 @@ ApplicationWindow {
                 + AppSession.panelVisibilityJson
                 + root.activeLayerClips
                 + root.activeMaskEnabled
+                + AppSession.activeLayerLocked
+                + AppSession.activeLockPixels
+                + AppSession.activeLockPosition
+                + AppSession.activeLockAlpha
     }
 
     function actionIsEnabled(actionId) {
@@ -583,6 +655,7 @@ ApplicationWindow {
         return actionId.indexOf("action.view.toggle-") === 0
                 || actionId.indexOf("action.window.panel-") === 0
                 || actionId === "action.layer.toggle-clip"
+                || actionId.indexOf("action.layer.lock-") === 0
     }
 
     function actionIsChecked(actionId) {
@@ -597,6 +670,17 @@ ApplicationWindow {
             return AppSession.prefSnap
         case "action.layer.toggle-clip":
             return root.activeLayerClips
+        // The three locks are toggles and never said so: the menu entries and
+        // the panel's buttons looked identical whether the lock was on or off,
+        // so the only way to find out was to try an edit and be refused.
+        case "action.layer.lock-pixels":
+            return AppSession.activeLockPixels
+        case "action.layer.lock-position":
+            return AppSession.activeLockPosition
+        case "action.layer.lock-transparency":
+            return AppSession.activeLockAlpha
+        case "action.layer.lock-all":
+            return AppSession.activeLayerLocked
         }
         // Every Window-menu panel toggle reads the one registry map, so a new
         // panel needs no case of its own. It used to say that above a list of
@@ -669,7 +753,10 @@ ApplicationWindow {
     /// encoded before it can stand in for a url — a folder with a space in it
     /// otherwise produces a url the dialog cannot resolve and silently ignores.
     function documentFolder() {
-        var path = AppSession.documentPath || ""
+        // `sourcePath`, not `documentPath`: an imported PNG has no `.ptx` to
+        // save over, so `documentPath` is empty for it — and the folder the
+        // user wants is still the one they imported from.
+        var path = AppSession.sourcePath || AppSession.documentPath || ""
         var cut = path.lastIndexOf("/")
         if (cut <= 0)
             return ""
@@ -745,6 +832,17 @@ ApplicationWindow {
 
     Connections {
         target: AppSession
+        // Deferred: the signal is emitted from inside the file-event pump,
+        // which holds the session borrowed, and every branch of
+        // `executeDestructiveAction` calls back into it. See `afterHostSlot`.
+        function onDocumentSaved() {
+            if (root.pendingDestructiveAction.length > 0)
+                root.afterHostSlot(root.continueAfterSave)
+        }
+    }
+
+    Connections {
+        target: AppSession
         function onPendingHostRequestChanged() {
             // Deferred: the request is published from inside a host slot, and
             // every branch of the handler calls back into AppSession — both to
@@ -810,17 +908,6 @@ ApplicationWindow {
     }
     function isLassoTool() {
         return AppSession.activeTool === "tool.select.lasso"
-    }
-    // The combo itself lives in the Layers panel's control strip; the shell
-    // only asks it to resync. Guarded because the strip is built with the right
-    // dock, and host state can change before that happens.
-    function syncBlendCombo() {
-        if (typeof layerControls !== "undefined" && layerControls)
-            layerControls.syncBlendCombo()
-    }
-    function syncLayerOpacity() {
-        if (typeof layerControls !== "undefined" && layerControls)
-            layerControls.setLayerOpacity(AppSession.activeOpacity)
     }
     function isPolygonTool() {
         return AppSession.activeTool === "tool.select.polygon"
@@ -923,6 +1010,23 @@ ApplicationWindow {
             return
         }
         executeDestructiveAction(action)
+    }
+
+    /// Finish a close or quit the user answered with Save.
+    ///
+    /// Choosing Save in the unsaved-changes prompt saved the document and then
+    /// stopped: the close never happened, and File ▸ Quit ▸ Save left the
+    /// application running. Nothing resumed the action, because a save is
+    /// asynchronous — it goes out to the file worker — and the prompt's button
+    /// handler is long finished by the time it lands.
+    ///
+    /// Only a save that *landed* continues: `AppSession.documentSaved` is
+    /// emitted from `handle_file_saved`, so a failed write leaves the document
+    /// open, which is the safe half of the choice.
+    function continueAfterSave() {
+        var action = root.pendingDestructiveAction
+        if (action.length > 0)
+            root.executeDestructiveAction(action)
     }
 
     function discardAndContinue() {
@@ -1575,6 +1679,633 @@ ApplicationWindow {
         }
     }
 
+    /// The Properties panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: propertiesBody
+        Flickable {
+            id: propertiesFlick
+            // Cap height so Layers/History stay above the status bar. Never go
+            // negative when parent.height is 0 during the first layout pass —
+            // negative preferredHeight collapses the whole right dock to width 0.
+            // Pinned to the preferred height, or the layout squeezes it
+            // straight back: once a panel is dragged taller the stack's
+            // preferred sizes add up to more than the dock, and a
+            // GridLayout resolves that by compressing whatever has no
+            // minimum. The Layers body fills, so it is what yields.
+            contentHeight: propsCol.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            // Pinned on whenever there is more than fits. `AsNeeded`
+            // shows the bar only while flicking, so a panel that had
+            // clipped a section's heading mid-word looked broken
+            // rather than scrollable — the one thing a dense dock has
+            // to say without being touched.
+            ScrollBar.vertical: ThemedScrollBar {
+                policy: propertiesFlick.contentHeight > propertiesFlick.height
+                        ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+            }
+
+            // A fade at the cut, for the same reason: a heading sliced
+            // in half by a hard edge reads as a rendering fault, and
+            // the same heading fading out reads as "there is more".
+            Rectangle {
+                parent: propertiesFlick
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Theme.spaceLg
+                z: 10
+                visible: propertiesFlick.contentHeight - propertiesFlick.contentY
+                         > propertiesFlick.height + 1
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 1.0; color: Theme.surface }
+                }
+            }
+
+            PropertiesPanel {
+                id: propsCol
+                width: parent.width
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.spaceMd
+                // The scroll bar is an overlay, so it lands on top of
+                // whatever is at the right edge — it was clipping the
+                // border of every full-width button. Reserved whether
+                // or not the bar is showing: making the margin depend
+                // on its visibility would feed the content width back
+                // into the height that decides that visibility.
+                anchors.rightMargin: Theme.spaceMd + Theme.spaceSm
+                spacing: Theme.spaceMd
+
+                iconUrl: root.iconUrl
+                runAction: root.runAction
+                isTransformTool: root.isTransformTool
+                isCropTool: root.isCropTool
+                activeLayerHasMask: root.activeLayerHasMask
+                activeMaskEnabled: root.activeMaskEnabled
+                gpuStatus: gpuCanvas.gpuStatus
+                onEmbedIccRequested: root.browseForFile(embedIccFileDialog)
+            }
+        }
+    }
+
+    /// The Navigator panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: navigatorBody
+        Rectangle {
+            id: navigatorPane
+            color: Theme.surfaceSunken
+            clip: true
+
+            readonly property real pad: Theme.spaceSm
+            readonly property real docW: Math.max(1, AppSession.docWidth)
+            readonly property real docH: Math.max(1, AppSession.docHeight)
+            readonly property real availW: width - pad * 2
+            readonly property real availH: height - pad * 2
+            // `fitScale`, not `scale`: every Item already has a `scale`,
+            // the render transform. A property of that name shadows it,
+            // so a reader cannot tell which one a binding meant and a
+            // stray `scale: …` elsewhere in the pane would resize the
+            // whole navigator instead of setting this ratio.
+            readonly property real fitScale: Math.min(availW / docW, availH / docH)
+            readonly property real frameW: docW * fitScale
+            readonly property real frameH: docH * fitScale
+            readonly property real frameX: (width - frameW) / 2
+            readonly property real frameY: (height - frameH) / 2
+            readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * fitScale)
+            readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * fitScale)
+            readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * fitScale)) * fitScale
+            readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * fitScale)) * fitScale
+
+            function panToLocal(lx, ly) {
+                if (!AppSession.hasDocument || frameW < 1 || frameH < 1)
+                    return
+                var docX = ((lx - frameX) / frameW) * docW
+                var docY = ((ly - frameY) / frameH) * docH
+                AppSession.centerViewOn(docX, docY)
+            }
+
+            // Checkerboard backdrop
+            Canvas {
+                anchors.fill: parent
+                onPaint: {
+                    var ctx = getContext("2d")
+                    var s = 8
+                    for (var y = 0; y < height; y += s) {
+                        for (var x = 0; x < width; x += s) {
+                            ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? Theme.checkerLight : Theme.checkerDark
+                            ctx.fillRect(x, y, s, s)
+                        }
+                    }
+                }
+                Component.onCompleted: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+            }
+
+            Rectangle {
+                x: navigatorPane.frameX
+                y: navigatorPane.frameY
+                width: navigatorPane.frameW
+                height: navigatorPane.frameH
+                color: Theme.surfaceContainerHigh
+                border.color: Theme.border
+                border.width: 1
+                opacity: AppSession.hasDocument ? 1 : 0.35
+
+                // The document itself. Without it the Navigator drew a
+                // flat rectangle, so it told the user where they were
+                // relative to nothing — which is the one question the
+                // panel exists to answer. The host rebuilds this on a
+                // throttle; the fill above shows through until the
+                // first one arrives.
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    source: AppSession.navigatorThumbnail
+                    // Tested on the string, not on `source`: assigning
+                    // to a `url` property normalises the value, so
+                    // comparing the result against "" says nothing
+                    // useful about whether the host has published one.
+                    visible: AppSession.navigatorThumbnail.length > 0
+                    fillMode: Image.Stretch
+                    // Already downsampled to panel size by the host, so
+                    // smoothing here would only soften it again.
+                    smooth: false
+                    asynchronous: true
+                    cache: false
+                }
+            }
+
+            Rectangle {
+                visible: AppSession.hasDocument
+                x: Math.max(navigatorPane.frameX,
+                            Math.min(navigatorPane.viewX,
+                                     navigatorPane.frameX + navigatorPane.frameW - width))
+                y: Math.max(navigatorPane.frameY,
+                            Math.min(navigatorPane.viewY,
+                                     navigatorPane.frameY + navigatorPane.frameH - height))
+                width: Math.min(navigatorPane.viewW, navigatorPane.frameW)
+                height: Math.min(navigatorPane.viewH, navigatorPane.frameH)
+                color: "transparent"
+                border.color: Theme.primary
+                border.width: 1.5
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: AppSession.hasDocument
+                cursorShape: Qt.OpenHandCursor
+                onPressed: function (mouse) {
+                    navigatorPane.panToLocal(mouse.x, mouse.y)
+                }
+                onPositionChanged: function (mouse) {
+                    if (pressed)
+                        navigatorPane.panToLocal(mouse.x, mouse.y)
+                }
+            }
+        }
+    }
+
+    /// The Swatches panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: swatchesBody
+        Rectangle {
+            color: Theme.surfaceSunken
+
+            ColumnLayout {
+                id: swatchesCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spaceMd
+                spacing: Theme.spaceSm
+
+                /// Which of the pair the hex field and the palette edit.
+                ///
+                /// The background swatch used to *swap* on click, which
+                /// left no gesture for setting it: you swapped, edited
+                /// what had become the foreground, and swapped back.
+                /// `setBackgroundHex` existed the whole time with
+                /// nothing calling it. Photoshop opens the picker for
+                /// whichever swatch you click, and keeps swap as its own
+                /// control — which this panel's header already has.
+                property bool editingBackground: false
+
+                /// The hex the field shows, written in one place.
+                ///
+                /// This was a conditional binding —
+                /// `editingBackground ? backgroundHex : foregroundHex`
+                /// — and it went stale: after a commit, a palette click
+                /// and a reset in sequence, the field showed the
+                /// foreground while the background swatch was the one
+                /// selected. A conditional binding only tracks the
+                /// branch it evaluated, and `TextField` drops its `text`
+                /// binding the moment the user types, so the two
+                /// mechanisms were repairing each other in an order
+                /// nothing states. One writer and three explicit
+                /// triggers is smaller than the rule you would have to
+                /// remember otherwise.
+                property string editedHex: AppSession.foregroundHex
+                function refreshHex() {
+                    editedHex = editingBackground ? AppSession.backgroundHex
+                                                  : AppSession.foregroundHex
+                }
+                onEditingBackgroundChanged: refreshHex()
+                Connections {
+                    target: AppSession
+                    // Reads only. Calling a slot from a handler that
+                    // reacts to an AppSession signal re-enters a
+                    // borrowed session — see qml/AGENTS.md.
+                    function onForegroundHexChanged() { swatchesCol.refreshHex() }
+                    function onBackgroundHexChanged() { swatchesCol.refreshHex() }
+                }
+                function applyHex(hex) {
+                    if (editingBackground)
+                        AppSession.setBackgroundHex(hex)
+                    else
+                        AppSession.setForegroundHex(hex)
+                    // The host may have refused it, and a refusal emits
+                    // no change signal — so put the field back from the
+                    // colour that actually survived.
+                    refreshHex()
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spaceMd
+
+                    // Photoshop's colour widget: two overlapping
+                    // squares, a swap arrow at the top right, and the
+                    // black-and-white default mark at the bottom left.
+                    // Both controls used to live in the panel header,
+                    // which is not where anyone coming from Photoshop
+                    // looks for them — and which had run out of room.
+                    Item {
+                        implicitWidth: 58
+                        implicitHeight: 50
+                        Rectangle {
+                            x: 14
+                            y: 18
+                            width: 26
+                            height: 26
+                            radius: Theme.radiusSm
+                            color: AppSession.backgroundHex
+                            border.color: swatchesCol.editingBackground
+                                          ? Theme.primary : Theme.border
+                            border.width: swatchesCol.editingBackground ? 2 : 1
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    swatchesCol.editingBackground = true
+                                    Qt.callLater(function () {
+                                        hexField.forceActiveFocus()
+                                        AppSession.setShortcutInputYield(true)
+                                    })
+                                }
+                                ThemedToolTip {
+                                    visible: parent.containsMouse
+                                    text: qsTr("Background")
+                                }
+                                hoverEnabled: true
+                            }
+                        }
+                        Rectangle {
+                            x: 2
+                            y: 4
+                            width: 26
+                            height: 26
+                            radius: Theme.radiusSm
+                            color: AppSession.foregroundHex
+                            border.color: swatchesCol.editingBackground
+                                          ? Theme.border : Theme.primary
+                            border.width: swatchesCol.editingBackground ? 1 : 2
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    swatchesCol.editingBackground = false
+                                    Qt.callLater(function () {
+                                        hexField.forceActiveFocus()
+                                        AppSession.setShortcutInputYield(true)
+                                    })
+                                }
+                                ThemedToolTip {
+                                    visible: parent.containsMouse
+                                    text: qsTr("Foreground")
+                                }
+                                hoverEnabled: true
+                            }
+                        }
+
+                        // Top right, over the corner of the background
+                        // square, exactly where Photoshop keeps it.
+                        ChromeIconToolButton {
+                            x: 42
+                            y: 0
+                            implicitWidth: 16
+                            implicitHeight: 16
+                            padding: 0
+                            icon.source: root.iconUrl("arrows-left-right")
+                            icon.width: 12
+                            icon.height: 12
+                            onClicked: AppSession.swapFgBg()
+                            Accessible.name: qsTr("Swap foreground and background")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: parent.Accessible.name
+                            }
+                        }
+
+                        // Bottom left. `ColorState::reset_default` has
+                        // been in the engine the whole time with nothing
+                        // reaching it. Not `arrow-counter-clockwise`:
+                        // that is Undo's icon, and a second meaning for
+                        // it in the same window is worse than no icon.
+                        ChromeIconToolButton {
+                            x: 0
+                            y: 34
+                            implicitWidth: 16
+                            implicitHeight: 16
+                            padding: 0
+                            icon.source: root.iconUrl("square-half")
+                            icon.width: 12
+                            icon.height: 12
+                            onClicked: AppSession.resetFgBg()
+                            Accessible.name: qsTr("Reset to black and white")
+                            ThemedToolTip {
+                                visible: parent.hovered
+                                text: parent.Accessible.name
+                            }
+                        }
+                    }
+
+                    // The field follows the host itself. It used to be
+                    // reached by id from a `Connections` at the top of
+                    // this file, which a panel that can be torn off
+                    // into its own window cannot rely on: an id inside
+                    // a `Component` is scoped to that component.
+                    Connections {
+                        target: AppSession
+                        function onForegroundHexChanged() {
+                            if (hexField && !hexField.activeFocus
+                                    && hexField.text !== AppSession.foregroundHex)
+                                hexField.text = AppSession.foregroundHex
+                        }
+                    }
+
+                    ThemedTextField {
+                        id: hexField
+                        Layout.fillWidth: true
+                        // `source`, not `text`: a `TextField` drops its
+                        // `text` binding the moment the user types.
+                        source: swatchesCol.editedHex
+                        Accessible.name: swatchesCol.editingBackground
+                                         ? qsTr("Background hex")
+                                         : qsTr("Foreground hex")
+                        font.family: "Noto Sans Mono"
+                        font.pixelSize: Theme.fontMono
+                        onActiveFocusChanged: root.refreshShortcutYield()
+                        // A `TextField` drops its `text` binding the
+                        // moment the user types, so without restoring
+                        // it the field keeps showing what was typed —
+                        // `notacolour` stayed on screen for good while
+                        // the swatch beside it never moved.
+                        // `applyHex` ends by writing the field, so a
+                        // value the host refused never survives on
+                        // screen.
+                        onEditingFinished: swatchesCol.applyHex(text)
+                        Keys.onReturnPressed: {
+                            swatchesCol.applyHex(text)
+                            event.accepted = true
+                        }
+                    }
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Repeater {
+                        model: [
+                            "#000000", "#FFFFFF", "#FF0000", "#00FF00",
+                            "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
+                            "#808080", "#C0C0C0", "#800000", "#008080"
+                        ]
+                        delegate: Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 2
+                            color: modelData
+                            border.color: Theme.border
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: swatchesCol.applyHex(modelData)
+                            }
+                        }
+                    }
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    visible: AppSession.recentColors.length > 0
+                    Repeater {
+                        model: AppSession.recentColors.length > 0
+                               ? AppSession.recentColors.split("|") : []
+                        delegate: Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 2
+                            color: modelData
+                            border.color: Theme.border
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                // The hex, not `pickRecentColor(index)`:
+                                // that one always sets the foreground,
+                                // so clicking a recent colour while the
+                                // background swatch was selected changed
+                                // the wrong half of the pair.
+                                onClicked: swatchesCol.applyHex(modelData)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Layers panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: layersBody
+        Rectangle {
+            color: Theme.surfaceSunken
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 0
+
+                // Blend, opacity and locks sit above the list, where
+                // Photoshop keeps them. They used to be in Properties,
+                // three panels away from the layer they act on.
+                LayerControlStrip {
+                    id: layerControls
+                    Layout.fillWidth: true
+                    Layout.margins: Theme.spaceSm
+                    // Controls for a layer that is not there read as
+                    // broken chrome rather than as an empty document.
+                    visible: AppSession.hasDocument
+                    blendModes: root.blendModes
+                    iconUrl: root.iconUrl
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible ? 1 : 0
+                    visible: AppSession.hasDocument
+                    color: Theme.border
+                }
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    // A document always has at least one layer, so an
+                    // empty list means there is no document — not that
+                    // the layers went missing.
+                    PanelPlaceholder {
+                        anchors.fill: parent
+                        visible: !AppSession.hasDocument
+                        iconKey: "stack-simple"
+                        iconUrl: root.iconUrl
+                        text: qsTr("No document open")
+                        hint: qsTr("Open or create one to see its layers.")
+                    }
+
+                    LayersPanel {
+                        anchors.fill: parent
+                        visible: AppSession.hasDocument
+                        iconUrl: root.iconUrl
+                        maskEditActive: root.maskEditActive
+                        onContextMenuRequested: function (stackIndex, origin, localX, localY) {
+                            layerContextMenu.targetIndex = stackIndex
+                            root.openContextMenu(layerContextMenu, origin, localX, localY)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The History panel body, as a component so the dock and a
+    /// floating window can each hold the one instance of it.
+    Component {
+        id: historyBody
+        Rectangle {
+            color: Theme.surfaceSunken
+
+            // Two empty states, because the guidance differs: with no
+            // document there is nothing to have a history of, and with
+            // one open the list simply has not been written to yet.
+            PanelPlaceholder {
+                anchors.fill: parent
+                visible: historyList.count === 0
+                iconKey: "clock-counter-clockwise"
+                iconUrl: root.iconUrl
+                text: AppSession.hasDocument
+                      ? qsTr("No history yet")
+                      : qsTr("No document open")
+                hint: AppSession.hasDocument
+                      ? qsTr("Edits you make will be listed here, newest last.")
+                      : qsTr("Open or create one to start a history.")
+            }
+
+            ListView {
+                id: historyList
+                // The rows were already list items; the list itself was
+                // not, so they had no collection to belong to.
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("History")
+                anchors.fill: parent
+                clip: true
+                reuseItems: true
+                cacheBuffer: 88
+                model: AppSession.historyModel
+                delegate: Item {
+                    id: historyRow
+                    // Roles from the model item's field names, which
+                    // the derive leaves in snake_case.
+                    required property string label
+                    required property string kind
+                    required property int entry_id
+                    required property bool undone
+
+                    width: historyList.width
+                    height: 22
+
+                    // An undone step is still on the timeline, and
+                    // clicking it walks forward to it. Dimmed rather
+                    // than hidden, the way Photoshop greys the steps
+                    // ahead of where you are.
+                    opacity: historyRow.undone ? 0.45 : 1.0
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: historyHover.hovered
+                               ? Theme.surfaceContainerHigh : "transparent"
+                    }
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.right: historyKind.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.spaceSm
+                        anchors.rightMargin: Theme.spaceSm
+                        text: historyRow.label
+                        color: Theme.colorOnSurfaceVariant
+                        font.pixelSize: Theme.fontBodySm
+                        elide: Text.ElideRight
+                    }
+                    // The kind is taxonomy, not a name: inline it read
+                    // "Brush stroke · stroke". Set to one side, in the
+                    // same muted trailing column the command palette
+                    // uses for an action's menu.
+                    Label {
+                        id: historyKind
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.rightMargin: Theme.spaceSm
+                        text: historyRow.kind
+                        color: Theme.colorOnSurfaceMuted
+                        font.pixelSize: Theme.fontLabelSm
+                    }
+
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: historyRow.undone
+                                     ? qsTr("%1 (undone)").arg(historyRow.label)
+                                     : historyRow.label
+                    // The kind sits in a muted trailing column that
+                    // reads as part of the row visually and as a
+                    // separate label otherwise; position is what a
+                    // screen reader needs to know where it is in the
+                    // timeline.
+                    Accessible.description: qsTr("%1, %2 of %3")
+                                            .arg(historyRow.kind)
+                                            .arg(index + 1)
+                                            .arg(historyList.count)
+
+                    HoverHandler { id: historyHover }
+                    TapHandler {
+                        onTapped: AppSession.jumpHistoryEntry(historyRow.entry_id)
+                    }
+                }
+            }
+        }
+    }
+
     Instantiator {
         model: root.floatingPanelIdKey.length > 0 ? root.floatingPanelIdKey.split("\n") : []
         onObjectRemoved: function (index, object) {
@@ -1662,26 +2393,35 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.spaceSm
-                spacing: Theme.spaceSm
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("%1 (floating)").arg(qsTr(root.panelTitle(modelData)))
-                    color: Theme.colorOnSurface
-                    font.pixelSize: Theme.fontLabel
-                    font.weight: Font.Medium
-                }
-                Label {
+                spacing: 0
+
+                // The panel itself, not a description of it. This window used
+                // to hold two lines of prose and a Dock button while the
+                // thumbnail, the zoom controls — everything the panel is for —
+                // stayed behind in the dock's place.
+                //
+                // One instance, not two: the dock's `Loader` is `active:
+                // visible` and a floating panel is not shown in the dock, so
+                // exactly one of the two is ever built.
+                Loader {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    text: qsTr("Close window or Dock to return this panel to the right stack.")
-                    color: Theme.colorOnSurfaceVariant
-                    font.pixelSize: Theme.fontBodySm
-                    wrapMode: Text.WordWrap
+                    sourceComponent: root.panelBodyFor(floatWin.modelData)
                 }
-                ThemedButton {
-                    text: qsTr("Dock")
-                    onClicked: root.afterHostSlot(floatWin.requestRedock)
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: Theme.border
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.margins: Theme.spaceSm
+                    spacing: Theme.spaceSm
+                    Item { Layout.fillWidth: true }
+                    ThemedButton {
+                        text: qsTr("Dock")
+                        onClicked: root.afterHostSlot(floatWin.requestRedock)
+                    }
                 }
             }
         }
@@ -2332,6 +3072,8 @@ ApplicationWindow {
                 background: Rectangle {
                     radius: Theme.radiusSm
                     color: toolOverflowBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                    border.color: toolOverflowBtn.visualFocus ? Theme.focusRing : "transparent"
+                    border.width: 1
                 }
                 ThemedToolTip {
                     visible: parent.hovered
@@ -2508,7 +3250,7 @@ ApplicationWindow {
                     var step = spacing * zoom
                     if (step < 4)
                         return
-                    ctx.strokeStyle = "#40FFFFFF"
+                    ctx.strokeStyle = Theme.canvasGrid
                     ctx.lineWidth = 1
                     var x0 = root.docToScreenX(0)
                     var y0 = root.docToScreenY(0)
@@ -2556,461 +3298,575 @@ ApplicationWindow {
                 }
             }
 
-            // Guide lines overlay
-            Repeater {
-                model: AppSession.prefShowGuides ? root.guidesModel : []
-                delegate: Rectangle {
-                    required property var modelData
-                    z: 3
-                    color: "#E0FF6A00"
-                    visible: AppSession.hasDocument
-                    x: modelData.o === "v" ? root.docToScreenX(modelData.p) : 0
-                    y: modelData.o === "h" ? root.docToScreenY(modelData.p) : 0
-                    width: modelData.o === "v" ? 1 : canvasHost.width
-                    height: modelData.o === "h" ? 1 : canvasHost.height
-                }
-            }
-
-            // Live on-canvas text editor (presentation until bake/commit).
-            // Qt Quick TextEdit has no `background` property (Controls TextArea does);
-            // wrapping with a Rectangle keeps chrome without aborting QML creation.
+            // Everything the shell draws *over* the document lives in here,
+            // and this is the only item in the canvas that clips.
+            //
+            // A QML child paints outside its parent unless the parent clips,
+            // and these are positioned from document coordinates through
+            // `docToScreen*`, which are free to land anywhere. The
+            // free-transform box did: drag a layer up and its top edge and
+            // handles were drawn across the document tab strip, on top of
+            // the tab labels. The box was right — it was just painted over
+            // chrome that has nothing to do with it.
+            //
+            // The clip goes here rather than on `canvasHost`, because that
+            // would take `PhototuxCanvas` with it, and the `QQuickRhiItem`
+            // the whole zero-copy present goes through is the one thing in
+            // the shell not to clip or re-parent casually (handbook 17). It
+            // stays outside, a sibling of this.
+            //
+            // The children keep the `z` values they had, which ordered them
+            // among themselves and still do; nothing outside sat between
+            // them and the toasts.
             Item {
-                id: textCanvasEditorHost
+                id: canvasOverlays
+                anchors.fill: parent
+                clip: true
                 z: 3
-                visible: AppSession.hasDocument && AppSession.textLayerActive
-                         && AppSession.activeTool === "tool.text"
-                x: root.docToScreenX(AppSession.textOriginX + 4)
-                y: root.docToScreenY(AppSession.textOriginY + 4)
-                width: Math.max(
-                    48,
-                    (AppSession.textFrameW > 0
-                     ? AppSession.textFrameW
-                     : Math.max(64, AppSession.docWidth - AppSession.textOriginX - 8))
-                    * AppSession.zoom)
-                height: Math.max(
-                    28,
-                    (AppSession.textFrameH > 0
-                     ? AppSession.textFrameH
-                     : Math.max(AppSession.textFontSize * 2, 48))
-                    * AppSession.zoom)
 
-                Rectangle {
-                    anchors.fill: parent
-                    color: "#22000000"
-                    border.color: Theme.primary
-                    border.width: 1
-                    radius: 2
+                // Guide lines overlay
+                Repeater {
+                    model: AppSession.prefShowGuides ? root.guidesModel : []
+                    delegate: Rectangle {
+                        required property var modelData
+                        z: 3
+                        color: Theme.canvasGuide
+                        visible: AppSession.hasDocument
+                        x: modelData.o === "v" ? root.docToScreenX(modelData.p) : 0
+                        y: modelData.o === "h" ? root.docToScreenY(modelData.p) : 0
+                        width: modelData.o === "v" ? 1 : canvasHost.width
+                        height: modelData.o === "h" ? 1 : canvasHost.height
+                    }
                 }
 
-                TextEdit {
-                    id: textCanvasEditor
-                    anchors.fill: parent
-                    anchors.margins: 2
+                // Live on-canvas text editor (presentation until bake/commit).
+                // Qt Quick TextEdit has no `background` property (Controls TextArea does);
+                // wrapping with a Rectangle keeps chrome without aborting QML creation.
+                //
+                // A `Loader` rather than an `Item` that hides: while the frame is
+                // up the editor holds the keyboard, and Qt does not move active
+                // focus off a child whose *ancestor* merely became invisible.
+                // Bake Text turns the layer into pixels and the frame goes away,
+                // but a hidden-and-still-focused `TextEdit` went on accepting the
+                // shortcut override for every printable key — so every single-key
+                // tool shortcut was dead until something else was clicked, with
+                // nothing on screen to explain why. Destroying the editor releases
+                // the keyboard for real; `visible: false` does not.
+                Loader {
+                    id: textCanvasEditorHost
+                    z: 3
+                    active: AppSession.hasDocument && AppSession.textLayerActive
+                            && AppSession.activeTool === "tool.text"
+                    visible: active
+                    x: root.docToScreenX(AppSession.textOriginX + 4)
+                    y: root.docToScreenY(AppSession.textOriginY + 4)
+                    width: Math.max(
+                        48,
+                        (AppSession.textFrameW > 0
+                         ? AppSession.textFrameW
+                         : Math.max(64, AppSession.docWidth - AppSession.textOriginX - 8))
+                        * AppSession.zoom)
+                    height: Math.max(
+                        28,
+                        (AppSession.textFrameH > 0
+                         ? AppSession.textFrameH
+                         : Math.max(AppSession.textFontSize * 2, 48))
+                        * AppSession.zoom)
+
+                    sourceComponent: Item {
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.canvasSelectionPreview
+                            border.color: Theme.primary
+                            border.width: 1
+                            radius: 2
+                        }
+
+                        TextEdit {
+                            id: textCanvasEditor
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            text: AppSession.textBody
+                            color: AppSession.textColorHex
+                            selectedTextColor: Theme.colorOnPrimary
+                            selectionColor: Theme.primary
+                            font.family: AppSession.textFontFamily
+                            font.pixelSize: Math.max(
+                                                6,
+                                                AppSession.textFontSize * AppSession.zoom)
+                            wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
+                            horizontalAlignment: AppSession.textAlignment === 1
+                                                 ? TextEdit.AlignHCenter
+                                                 : (AppSession.textAlignment === 2
+                                                    ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                            Accessible.name: qsTr("On-canvas text editor")
+                            // Focus can move here from inside a host slot (picking
+                            // the Text tool), so never call the host synchronously.
+                            onActiveFocusChanged: root.refreshShortcutYield()
+                            // And once more as the editor goes away, because the
+                            // focus it held is released by its own destruction —
+                            // after which nothing else would ask.
+                            Component.onDestruction: root.refreshShortcutYield()
+                            onTextChanged: {
+                                if (activeFocus && text !== AppSession.textBody) {
+                                    AppSession.updateActiveText(
+                                                text,
+                                                AppSession.textFontFamily,
+                                                AppSession.textFontSize,
+                                                AppSession.textTracking,
+                                                AppSession.textLineSpacing,
+                                                AppSession.textAlignment,
+                                                AppSession.textColorHex)
+                                }
+                            }
+                            Connections {
+                                target: AppSession
+                                function onTextBodyChanged() {
+                                    if (!textCanvasEditor.activeFocus)
+                                        textCanvasEditor.text = AppSession.textBody
+                                }
+                            }
+                        }
+                    }
+                }
+                // Read-only preview when text layer active but Text tool not selected
+                Text {
+                    id: textPreview
+                    z: 3
+                    visible: AppSession.hasDocument && AppSession.textLayerActive
+                             && AppSession.activeTool !== "tool.text"
+                    x: root.docToScreenX(AppSession.textOriginX + 4)
+                    y: root.docToScreenY(AppSession.textOriginY + 4)
+                    width: Math.max(8, (AppSession.textFrameW > 0
+                                        ? AppSession.textFrameW
+                                        : AppSession.docWidth - 8) * AppSession.zoom)
                     text: AppSession.textBody
                     color: AppSession.textColorHex
-                    selectedTextColor: Theme.colorOnPrimary
-                    selectionColor: Theme.primary
                     font.family: AppSession.textFontFamily
                     font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
-                    wrapMode: AppSession.textWrap ? TextEdit.Wrap : TextEdit.NoWrap
+                    lineHeight: AppSession.textLineSpacing
+                    lineHeightMode: Text.ProportionalHeight
                     horizontalAlignment: AppSession.textAlignment === 1
-                                         ? TextEdit.AlignHCenter
+                                         ? Text.AlignHCenter
                                          : (AppSession.textAlignment === 2
-                                            ? TextEdit.AlignRight : TextEdit.AlignLeft)
-                    Accessible.name: qsTr("On-canvas text editor")
-                    // Focus can move here from inside a host slot (picking the
-                    // Text tool), so never call the host synchronously.
-                    onActiveFocusChanged: root.refreshShortcutYield()
-                    onTextChanged: {
-                        if (activeFocus && text !== AppSession.textBody) {
-                            AppSession.updateActiveText(
-                                        text,
-                                        AppSession.textFontFamily,
-                                        AppSession.textFontSize,
-                                        AppSession.textTracking,
-                                        AppSession.textLineSpacing,
-                                        AppSession.textAlignment,
-                                        AppSession.textColorHex)
-                        }
-                    }
-                    Connections {
-                        target: AppSession
-                        function onTextBodyChanged() {
-                            if (!textCanvasEditor.activeFocus)
-                                textCanvasEditor.text = AppSession.textBody
-                        }
-                    }
-                }
-            }
-            // Read-only preview when text layer active but Text tool not selected
-            Text {
-                id: textPreview
-                z: 3
-                visible: AppSession.hasDocument && AppSession.textLayerActive
-                         && AppSession.activeTool !== "tool.text"
-                x: root.docToScreenX(AppSession.textOriginX + 4)
-                y: root.docToScreenY(AppSession.textOriginY + 4)
-                width: Math.max(8, (AppSession.textFrameW > 0
-                                    ? AppSession.textFrameW
-                                    : AppSession.docWidth - 8) * AppSession.zoom)
-                text: AppSession.textBody
-                color: AppSession.textColorHex
-                font.family: AppSession.textFontFamily
-                font.pixelSize: Math.max(6, AppSession.textFontSize * AppSession.zoom)
-                lineHeight: AppSession.textLineSpacing
-                lineHeightMode: Text.ProportionalHeight
-                horizontalAlignment: AppSession.textAlignment === 1
-                                     ? Text.AlignHCenter
-                                     : (AppSession.textAlignment === 2
-                                        ? Text.AlignRight : Text.AlignLeft)
-                wrapMode: Text.Wrap
-            }
-
-            // Rulers
-            Rectangle {
-                id: rulerTop
-                z: 6
-                visible: AppSession.hasDocument && AppSession.prefShowRulers
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 18
-                color: Theme.surfaceRaised
-                opacity: 0.92
-                Canvas {
-                    id: rulerTopCanvas
-                    anchors.fill: parent
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        ctx.reset()
-                        ctx.fillStyle = Theme.colorOnSurfaceMuted
-                        ctx.font = "10px sans-serif"
-                        var zoom = Math.max(0.001, AppSession.zoom)
-                        var step = 50
-                        while (step * zoom < 40)
-                            step *= 2
-                        for (var d = 0; d <= AppSession.docWidth; d += step) {
-                            var sx = root.docToScreenX(d)
-                            ctx.fillRect(sx, 10, 1, 8)
-                            ctx.fillText(String(d), sx + 2, 10)
-                        }
-                    }
-                    Connections {
-                        target: AppSession
-                        function onZoomChanged() { rulerTopCanvas.requestPaint() }
-                        function onPanXChanged() { rulerTopCanvas.requestPaint() }
-                        function onPrefShowRulersChanged() { rulerTopCanvas.requestPaint() }
-                    }
-                }
-            }
-            Rectangle {
-                id: rulerLeft
-                z: 6
-                visible: AppSession.hasDocument && AppSession.prefShowRulers
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.topMargin: AppSession.prefShowRulers ? 18 : 0
-                width: 18
-                color: Theme.surfaceRaised
-                opacity: 0.92
-                Canvas {
-                    id: rulerLeftCanvas
-                    anchors.fill: parent
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        ctx.reset()
-                        ctx.fillStyle = Theme.colorOnSurfaceMuted
-                        ctx.font = "10px sans-serif"
-                        var zoom = Math.max(0.001, AppSession.zoom)
-                        var step = 50
-                        while (step * zoom < 40)
-                            step *= 2
-                        for (var d = 0; d <= AppSession.docHeight; d += step) {
-                            var sy = root.docToScreenY(d)
-                            ctx.fillRect(10, sy, 8, 1)
-                            ctx.save()
-                            ctx.translate(2, sy + 2)
-                            ctx.rotate(-Math.PI / 2)
-                            ctx.fillText(String(d), 0, 0)
-                            ctx.restore()
-                        }
-                    }
-                    Connections {
-                        target: AppSession
-                        function onZoomChanged() { rulerLeftCanvas.requestPaint() }
-                        function onPanYChanged() { rulerLeftCanvas.requestPaint() }
-                        function onPrefShowRulersChanged() { rulerLeftCanvas.requestPaint() }
-                    }
-                }
-            }
-
-            // Brush size cursor (visual guide)
-            Rectangle {
-                id: brushCursor
-                visible: AppSession.hasDocument
-                         && (AppSession.activeTool === "tool.brush"
-                             || AppSession.activeTool === "tool.eraser")
-                         && canvasInput.containsMouse
-                width: Math.max(4, AppSession.brushSize * AppSession.zoom)
-                height: width
-                radius: width / 2
-                color: "transparent"
-                border.color: AppSession.activeTool === "tool.eraser"
-                              ? Theme.error : root.primary
-                border.width: 1
-                x: canvasInput.mouseX - width / 2
-                y: canvasInput.mouseY - height / 2
-                z: 3
-            }
-
-            // Live marquee drag preview
-            Item {
-                id: selectionPreview
-                visible: AppSession.selectionPreviewActive && AppSession.hasDocument
-                z: 4
-                x: root.docToScreenX(AppSession.selectionPreviewX)
-                y: root.docToScreenY(AppSession.selectionPreviewY)
-                width: Math.max(1, AppSession.selectionPreviewW * AppSession.zoom)
-                height: Math.max(1, AppSession.selectionPreviewH * AppSession.zoom)
-
-                Shape {
-                    anchors.fill: parent
-                    preferredRendererType: Shape.CurveRenderer
-                    ShapePath {
-                        strokeWidth: 1
-                        strokeColor: root.primary
-                        fillColor: "transparent"
-                        strokeStyle: ShapePath.DashLine
-                        dashPattern: [4, 4]
-                        PathSvg {
-                            path: AppSession.activeTool === "tool.select.ellipse"
-                                  ? ("M " + (selectionPreview.width / 2) + " 0 "
-                                     + "A " + (selectionPreview.width / 2) + " "
-                                     + (selectionPreview.height / 2) + " 0 1 1 "
-                                     + (selectionPreview.width / 2) + " " + selectionPreview.height + " "
-                                     + "A " + (selectionPreview.width / 2) + " "
-                                     + (selectionPreview.height / 2) + " 0 1 1 "
-                                     + (selectionPreview.width / 2) + " 0")
-                                  : ("M 0 0 H " + selectionPreview.width + " V "
-                                     + selectionPreview.height + " H 0 Z")
-                        }
-                    }
-                }
-            }
-
-            // Live lasso / polygonal path preview
-            Shape {
-                id: selectionPathPreview
-                anchors.fill: parent
-                z: 4
-                visible: AppSession.selectionPathActive && AppSession.hasDocument
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeWidth: 1
-                    strokeColor: root.primary
-                    fillColor: "transparent"
-                    strokeStyle: ShapePath.DashLine
-                    dashPattern: [4, 4]
-                    PathSvg {
-                        path: root.selectionPathToSvg(AppSession.selectionPath)
-                    }
-                }
-            }
-
-            // Linear gradient drag preview
-            Shape {
-                id: gradientPreview
-                anchors.fill: parent
-                z: 4
-                visible: canvasInput.gradienting && AppSession.hasDocument
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeWidth: 2
-                    strokeColor: root.primary
-                    fillColor: "transparent"
-                    startX: root.docToScreenX(canvasInput.gradStartX)
-                    startY: root.docToScreenY(canvasInput.gradStartY)
-                    PathLine {
-                        x: root.docToScreenX(canvasInput.gradEndX)
-                        y: root.docToScreenY(canvasInput.gradEndY)
-                    }
-                }
-            }
-
-            // Marching ants for committed rect/ellipse (mask shape uses GPU ants)
-            Item {
-                id: selectionAnts
-                visible: AppSession.selectionActive && AppSession.hasDocument
-                         && AppSession.selectionW > 0 && AppSession.selectionH > 0
-                         && AppSession.selectionShape !== "mask"
-                z: 5
-                x: root.docToScreenX(AppSession.selectionX)
-                y: root.docToScreenY(AppSession.selectionY)
-                width: Math.max(1, AppSession.selectionW * AppSession.zoom)
-                height: Math.max(1, AppSession.selectionH * AppSession.zoom)
-
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.RightButton
-                    onClicked: function (mouse) {
-                        root.openContextMenu(selectionContextMenu, this, mouse.x, mouse.y)
-                    }
+                                            ? Text.AlignRight : Text.AlignLeft)
+                    wrapMode: Text.Wrap
                 }
 
-                Shape {
-                    anchors.fill: parent
-                    preferredRendererType: Shape.CurveRenderer
-                    ShapePath {
-                        strokeWidth: 1
-                        strokeColor: "#000000"
-                        fillColor: "transparent"
-                        strokeStyle: ShapePath.DashLine
-                        dashPattern: [4, 4]
-                        dashOffset: selectionAnts.visible ? frameClock.phase * 12 : 0
-                        PathSvg {
-                            path: AppSession.selectionShape === "ellipse"
-                                  ? ("M " + (selectionAnts.width / 2) + " 0 "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " 0")
-                                  : ("M 0 0 H " + selectionAnts.width + " V "
-                                     + selectionAnts.height + " H 0 Z")
-                        }
-                    }
-                    ShapePath {
-                        strokeWidth: 1
-                        strokeColor: root.primary
-                        fillColor: "transparent"
-                        strokeStyle: ShapePath.DashLine
-                        dashPattern: [4, 4]
-                        dashOffset: selectionAnts.visible ? frameClock.phase * 12 + 4 : 0
-                        PathSvg {
-                            path: AppSession.selectionShape === "ellipse"
-                                  ? ("M " + (selectionAnts.width / 2) + " 0 "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
-                                     + "A " + (selectionAnts.width / 2) + " "
-                                     + (selectionAnts.height / 2) + " 0 1 1 "
-                                     + (selectionAnts.width / 2) + " 0")
-                                  : ("M 0 0 H " + selectionAnts.width + " V "
-                                     + selectionAnts.height + " H 0 Z")
-                        }
-                    }
-                }
-            }
-
-            // Crop drag preview
-            Rectangle {
-                id: cropPreview
-                visible: AppSession.cropPreviewActive && AppSession.hasDocument
-                z: 6
-                x: root.docToScreenX(AppSession.cropPreviewX)
-                y: root.docToScreenY(AppSession.cropPreviewY)
-                width: Math.max(1, AppSession.cropPreviewW * AppSession.zoom)
-                height: Math.max(1, AppSession.cropPreviewH * AppSession.zoom)
-                // Accent at 12%, alpha first: an eight-digit hex is
-                // `#AARRGGBB` to Qt, so this had been a pale green fill inside
-                // a cyan border.
-                color: "#1F3DAEE9"
-                border.color: root.primary
-                border.width: 1
-            }
-
-            // Free-transform handles over document bounds
-            Item {
-                id: transformChrome
-                visible: AppSession.transformActive && AppSession.hasDocument
-                z: 7
-                x: root.docToScreenX(0)
-                y: root.docToScreenY(0)
-                width: Math.max(1, AppSession.docWidth * AppSession.zoom)
-                height: Math.max(1, AppSession.docHeight * AppSession.zoom)
-
+                // Rulers
                 Rectangle {
-                    anchors.fill: parent
+                    id: rulerTop
+                    z: 6
+                    visible: AppSession.hasDocument && AppSession.prefShowRulers
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 18
+                    color: Theme.surfaceRaised
+                    opacity: 0.92
+                    Canvas {
+                        id: rulerTopCanvas
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.reset()
+                            ctx.fillStyle = Theme.colorOnSurfaceMuted
+                            ctx.font = "10px sans-serif"
+                            var zoom = Math.max(0.001, AppSession.zoom)
+                            var step = 50
+                            while (step * zoom < 40)
+                                step *= 2
+                            for (var d = 0; d <= AppSession.docWidth; d += step) {
+                                var sx = root.docToScreenX(d)
+                                ctx.fillRect(sx, 10, 1, 8)
+                                ctx.fillText(String(d), sx + 2, 10)
+                            }
+                        }
+                        Connections {
+                            target: AppSession
+                            function onZoomChanged() { rulerTopCanvas.requestPaint() }
+                            function onPanXChanged() { rulerTopCanvas.requestPaint() }
+                            function onPrefShowRulersChanged() { rulerTopCanvas.requestPaint() }
+                        }
+                    }
+                }
+                Rectangle {
+                    id: rulerLeft
+                    z: 6
+                    visible: AppSession.hasDocument && AppSession.prefShowRulers
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.topMargin: AppSession.prefShowRulers ? 18 : 0
+                    width: 18
+                    color: Theme.surfaceRaised
+                    opacity: 0.92
+                    Canvas {
+                        id: rulerLeftCanvas
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.reset()
+                            ctx.fillStyle = Theme.colorOnSurfaceMuted
+                            ctx.font = "10px sans-serif"
+                            var zoom = Math.max(0.001, AppSession.zoom)
+                            var step = 50
+                            while (step * zoom < 40)
+                                step *= 2
+                            for (var d = 0; d <= AppSession.docHeight; d += step) {
+                                var sy = root.docToScreenY(d)
+                                ctx.fillRect(10, sy, 8, 1)
+                                ctx.save()
+                                ctx.translate(2, sy + 2)
+                                ctx.rotate(-Math.PI / 2)
+                                ctx.fillText(String(d), 0, 0)
+                                ctx.restore()
+                            }
+                        }
+                        Connections {
+                            target: AppSession
+                            function onZoomChanged() { rulerLeftCanvas.requestPaint() }
+                            function onPanYChanged() { rulerLeftCanvas.requestPaint() }
+                            function onPrefShowRulersChanged() { rulerLeftCanvas.requestPaint() }
+                        }
+                    }
+                }
+
+                // Brush size cursor (visual guide)
+                Rectangle {
+                    id: brushCursor
+                    visible: AppSession.hasDocument
+                             && (AppSession.activeTool === "tool.brush"
+                                 || AppSession.activeTool === "tool.eraser")
+                             && canvasInput.containsMouse
+                    width: Math.max(4, AppSession.brushSize * AppSession.zoom)
+                    height: width
+                    radius: width / 2
                     color: "transparent"
+                    border.color: AppSession.activeTool === "tool.eraser"
+                                  ? Theme.error : root.primary
+                    border.width: 1
+                    x: canvasInput.mouseX - width / 2
+                    y: canvasInput.mouseY - height / 2
+                    z: 3
+                }
+
+                // Live marquee drag preview
+                Item {
+                    id: selectionPreview
+                    visible: AppSession.selectionPreviewActive && AppSession.hasDocument
+                    z: 4
+                    x: root.docToScreenX(AppSession.selectionPreviewX)
+                    y: root.docToScreenY(AppSession.selectionPreviewY)
+                    width: Math.max(1, AppSession.selectionPreviewW * AppSession.zoom)
+                    height: Math.max(1, AppSession.selectionPreviewH * AppSession.zoom)
+
+                    Shape {
+                        anchors.fill: parent
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: root.primary
+                            fillColor: "transparent"
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [4, 4]
+                            PathSvg {
+                                path: AppSession.activeTool === "tool.select.ellipse"
+                                      ? ("M " + (selectionPreview.width / 2) + " 0 "
+                                         + "A " + (selectionPreview.width / 2) + " "
+                                         + (selectionPreview.height / 2) + " 0 1 1 "
+                                         + (selectionPreview.width / 2) + " " + selectionPreview.height + " "
+                                         + "A " + (selectionPreview.width / 2) + " "
+                                         + (selectionPreview.height / 2) + " 0 1 1 "
+                                         + (selectionPreview.width / 2) + " 0")
+                                      : ("M 0 0 H " + selectionPreview.width + " V "
+                                         + selectionPreview.height + " H 0 Z")
+                            }
+                        }
+                    }
+                }
+
+                // Live lasso / polygonal path preview
+                Shape {
+                    id: selectionPathPreview
+                    anchors.fill: parent
+                    z: 4
+                    visible: AppSession.selectionPathActive && AppSession.hasDocument
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeWidth: 1
+                        strokeColor: root.primary
+                        fillColor: "transparent"
+                        strokeStyle: ShapePath.DashLine
+                        dashPattern: [4, 4]
+                        PathSvg {
+                            path: root.selectionPathToSvg(AppSession.selectionPath)
+                        }
+                    }
+                }
+
+                // Linear gradient drag preview
+                Shape {
+                    id: gradientPreview
+                    anchors.fill: parent
+                    z: 4
+                    visible: canvasInput.gradienting && AppSession.hasDocument
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeWidth: 2
+                        strokeColor: root.primary
+                        fillColor: "transparent"
+                        startX: root.docToScreenX(canvasInput.gradStartX)
+                        startY: root.docToScreenY(canvasInput.gradStartY)
+                        PathLine {
+                            x: root.docToScreenX(canvasInput.gradEndX)
+                            y: root.docToScreenY(canvasInput.gradEndY)
+                        }
+                    }
+                }
+
+                // Marching ants for committed rect/ellipse (mask shape uses GPU ants)
+                Item {
+                    id: selectionAnts
+                    visible: AppSession.selectionActive && AppSession.hasDocument
+                             && AppSession.selectionW > 0 && AppSession.selectionH > 0
+                             && AppSession.selectionShape !== "mask"
+                    z: 5
+                    x: root.docToScreenX(AppSession.selectionX)
+                    y: root.docToScreenY(AppSession.selectionY)
+                    width: Math.max(1, AppSession.selectionW * AppSession.zoom)
+                    height: Math.max(1, AppSession.selectionH * AppSession.zoom)
+
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.RightButton
+                        onClicked: function (mouse) {
+                            root.openContextMenu(selectionContextMenu, this, mouse.x, mouse.y)
+                        }
+                    }
+
+                    Shape {
+                        anchors.fill: parent
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: Theme.canvasOutline
+                            fillColor: "transparent"
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [4, 4]
+                            dashOffset: selectionAnts.visible ? frameClock.phase * 12 : 0
+                            PathSvg {
+                                path: AppSession.selectionShape === "ellipse"
+                                      ? ("M " + (selectionAnts.width / 2) + " 0 "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " 0")
+                                      : ("M 0 0 H " + selectionAnts.width + " V "
+                                         + selectionAnts.height + " H 0 Z")
+                            }
+                        }
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: root.primary
+                            fillColor: "transparent"
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [4, 4]
+                            dashOffset: selectionAnts.visible ? frameClock.phase * 12 + 4 : 0
+                            PathSvg {
+                                path: AppSession.selectionShape === "ellipse"
+                                      ? ("M " + (selectionAnts.width / 2) + " 0 "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " " + selectionAnts.height + " "
+                                         + "A " + (selectionAnts.width / 2) + " "
+                                         + (selectionAnts.height / 2) + " 0 1 1 "
+                                         + (selectionAnts.width / 2) + " 0")
+                                      : ("M 0 0 H " + selectionAnts.width + " V "
+                                         + selectionAnts.height + " H 0 Z")
+                            }
+                        }
+                    }
+                }
+
+                // Path Edit anchors and outline.
+                //
+                // The tool worked and drew nothing: dragging the point where an
+                // anchor happened to be moved it, the outline followed and the
+                // inspector updated, but the canvas showed no handles, no path
+                // and no selection — while the tool's own copy read "Drag
+                // anchors to move. Click empty to add". Hit-testing is
+                // host-side, so the pointer found anchors the screen never
+                // showed.
+                //
+                // Only while the tool is active, matching Free Transform: a
+                // path outline permanently over the artwork is chrome the
+                // canvas does not otherwise have.
+                Item {
+                    id: pathEditChrome
+                    visible: AppSession.hasDocument
+                             && AppSession.activeTool === "tool.path-edit"
+                             && root.pathAnchorModel.length > 0
+                    anchors.fill: parent
+                    z: 7
+
+                    // The outline, so the anchors read as one path rather than
+                    // a scatter of squares.
+                    Shape {
+                        anchors.fill: parent
+                        visible: root.pathAnchorModel.length > 1
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1
+                            strokeColor: Theme.primary
+                            fillColor: "transparent"
+                            PathSvg {
+                                path: {
+                                    var pts = root.pathAnchorModel
+                                    if (pts.length < 2)
+                                        return ""
+                                    var d = "M " + root.docToScreenX(pts[0].x)
+                                            + " " + root.docToScreenY(pts[0].y)
+                                    for (var i = 1; i < pts.length; ++i)
+                                        d += " L " + root.docToScreenX(pts[i].x)
+                                                + " " + root.docToScreenY(pts[i].y)
+                                    return AppSession.pathClosed ? d + " Z" : d
+                                }
+                            }
+                        }
+                    }
+
+                    // Handles keep their size in *screen* pixels: an anchor
+                    // that shrank with the zoom would be ungrabbable on a 4K
+                    // document viewed to fit.
+                    Repeater {
+                        model: root.pathAnchorModel
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            readonly property bool picked: index === AppSession.pathEditSelected
+                            width: picked ? 10 : 8
+                            height: width
+                            radius: 1
+                            x: root.docToScreenX(modelData.x) - width / 2
+                            y: root.docToScreenY(modelData.y) - height / 2
+                            color: picked ? Theme.primary : Theme.surface
+                            border.color: Theme.primary
+                            border.width: 1
+                        }
+                    }
+                }
+
+                // Crop drag preview
+                Rectangle {
+                    id: cropPreview
+                    visible: AppSession.cropPreviewActive && AppSession.hasDocument
+                    z: 6
+                    x: root.docToScreenX(AppSession.cropPreviewX)
+                    y: root.docToScreenY(AppSession.cropPreviewY)
+                    width: Math.max(1, AppSession.cropPreviewW * AppSession.zoom)
+                    height: Math.max(1, AppSession.cropPreviewH * AppSession.zoom)
+                    // Accent at 12%, alpha first: an eight-digit hex is
+                    // `#AARRGGBB` to Qt, so this had been a pale green fill inside
+                    // a cyan border.
+                    color: Theme.canvasCropPreview
                     border.color: root.primary
                     border.width: 1
-                    transform: [
-                        Translate {
-                            x: AppSession.transformTx * AppSession.zoom
-                            y: AppSession.transformTy * AppSession.zoom
-                        },
-                        Scale {
-                            origin.x: transformChrome.width / 2
-                            origin.y: transformChrome.height / 2
-                            xScale: AppSession.transformSx
-                            yScale: AppSession.transformSy
-                        },
-                        Rotation {
-                            origin.x: transformChrome.width / 2
-                            origin.y: transformChrome.height / 2
-                            angle: AppSession.transformRot
-                        }
-                    ]
                 }
 
-                Repeater {
-                    model: [
-                        { nx: 0, ny: 0 }, { nx: 0.5, ny: 0 }, { nx: 1, ny: 0 },
-                        { nx: 0, ny: 0.5 }, { nx: 1, ny: 0.5 },
-                        { nx: 0, ny: 1 }, { nx: 0.5, ny: 1 }, { nx: 1, ny: 1 }
-                    ]
-                    delegate: Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 1
-                        color: Theme.surface
+                // Free-transform handles over document bounds
+                Item {
+                    id: transformChrome
+                    visible: AppSession.transformActive && AppSession.hasDocument
+                    z: 7
+                    x: root.docToScreenX(0)
+                    y: root.docToScreenY(0)
+                    width: Math.max(1, AppSession.docWidth * AppSession.zoom)
+                    height: Math.max(1, AppSession.docHeight * AppSession.zoom)
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "transparent"
                         border.color: root.primary
                         border.width: 1
-                        z: 8
-                        property real hx: modelData.nx * transformChrome.width
-                        property real hy: modelData.ny * transformChrome.height
-                        x: hx * AppSession.transformSx
-                           + (1 - AppSession.transformSx) * transformChrome.width / 2
-                           + AppSession.transformTx * AppSession.zoom - width / 2
-                        y: hy * AppSession.transformSy
-                           + (1 - AppSession.transformSy) * transformChrome.height / 2
-                           + AppSession.transformTy * AppSession.zoom - height / 2
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -4
-                            cursorShape: Qt.SizeFDiagCursor
-                            property real startDist: 1
-                            onPressed: function (mouse) {
-                                var cx = transformChrome.width / 2
-                                var cy = transformChrome.height / 2
-                                var dx = parent.x + width / 2 - cx
-                                var dy = parent.y + height / 2 - cy
-                                startDist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                        transform: [
+                            Translate {
+                                x: AppSession.transformTx * AppSession.zoom
+                                y: AppSession.transformTy * AppSession.zoom
+                            },
+                            Scale {
+                                origin.x: transformChrome.width / 2
+                                origin.y: transformChrome.height / 2
+                                xScale: AppSession.transformSx
+                                yScale: AppSession.transformSy
+                            },
+                            Rotation {
+                                origin.x: transformChrome.width / 2
+                                origin.y: transformChrome.height / 2
+                                angle: AppSession.transformRot
                             }
-                            onPositionChanged: function (mouse) {
-                                if (!pressed)
-                                    return
-                                var cx = transformChrome.width / 2
-                                var cy = transformChrome.height / 2
-                                var gx = mapToItem(transformChrome, mouse.x, mouse.y).x
-                                var gy = mapToItem(transformChrome, mouse.x, mouse.y).y
-                                var dx = gx - cx
-                                var dy = gy - cy
-                                var dist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
-                                var factor = dist / startDist
-                                var sx = Math.max(0.05, Math.abs(AppSession.transformSx) * factor)
-                                var sy = Math.max(0.05, Math.abs(AppSession.transformSy) * factor)
-                                var constrain = (mouse.modifiers & Qt.ShiftModifier) !== 0
-                                        || AppSession.transformConstrain
-                                AppSession.updateTransformDraft(
-                                            AppSession.transformTx,
-                                            AppSession.transformTy,
-                                            sx, sy,
-                                            AppSession.transformRot,
-                                            constrain)
-                                startDist = dist
+                        ]
+                    }
+
+                    Repeater {
+                        model: [
+                            { nx: 0, ny: 0 }, { nx: 0.5, ny: 0 }, { nx: 1, ny: 0 },
+                            { nx: 0, ny: 0.5 }, { nx: 1, ny: 0.5 },
+                            { nx: 0, ny: 1 }, { nx: 0.5, ny: 1 }, { nx: 1, ny: 1 }
+                        ]
+                        delegate: Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 1
+                            color: Theme.surface
+                            border.color: root.primary
+                            border.width: 1
+                            z: 8
+                            property real hx: modelData.nx * transformChrome.width
+                            property real hy: modelData.ny * transformChrome.height
+                            x: hx * AppSession.transformSx
+                               + (1 - AppSession.transformSx) * transformChrome.width / 2
+                               + AppSession.transformTx * AppSession.zoom - width / 2
+                            y: hy * AppSession.transformSy
+                               + (1 - AppSession.transformSy) * transformChrome.height / 2
+                               + AppSession.transformTy * AppSession.zoom - height / 2
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                cursorShape: Qt.SizeFDiagCursor
+                                property real startDist: 1
+                                onPressed: function (mouse) {
+                                    var cx = transformChrome.width / 2
+                                    var cy = transformChrome.height / 2
+                                    var dx = parent.x + width / 2 - cx
+                                    var dy = parent.y + height / 2 - cy
+                                    startDist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                                }
+                                onPositionChanged: function (mouse) {
+                                    if (!pressed)
+                                        return
+                                    var cx = transformChrome.width / 2
+                                    var cy = transformChrome.height / 2
+                                    var gx = mapToItem(transformChrome, mouse.x, mouse.y).x
+                                    var gy = mapToItem(transformChrome, mouse.x, mouse.y).y
+                                    var dx = gx - cx
+                                    var dy = gy - cy
+                                    var dist = Math.max(8, Math.sqrt(dx * dx + dy * dy))
+                                    var factor = dist / startDist
+                                    var sx = Math.max(0.05, Math.abs(AppSession.transformSx) * factor)
+                                    var sy = Math.max(0.05, Math.abs(AppSession.transformSy) * factor)
+                                    var constrain = (mouse.modifiers & Qt.ShiftModifier) !== 0
+                                            || AppSession.transformConstrain
+                                    AppSession.updateTransformDraft(
+                                                AppSession.transformTx,
+                                                AppSession.transformTy,
+                                                sx, sy,
+                                                AppSession.transformRot,
+                                                constrain)
+                                    startDist = dist
+                                }
                             }
                         }
                     }
@@ -3038,7 +3894,14 @@ ApplicationWindow {
                         startupReported = true
                         AppSession.reportInteractive()
                     }
-                    phase = (phase + frameTime * 2.0) % 1000.0
+                    // The clock itself keeps running under reduced motion —
+                    // it polls the worker and measures frame rate — but the
+                    // phase it publishes stops advancing, so the selection's
+                    // marching ants hold still. A dashed outline that crawls
+                    // around every selection is continuous motion, and it is
+                    // the one piece of it a user cannot dismiss.
+                    if (!Theme.reducedMotion)
+                        phase = (phase + frameTime * 2.0) % 1000.0
                     AppSession.pollEngine()
                     if (frameTime > 0) {
                         var inst = 1.0 / frameTime
@@ -3156,6 +4019,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3213,15 +4077,11 @@ ApplicationWindow {
                     }
                 }
 
-                Flickable {
-                    id: propertiesFlick
+                Loader {
                     visible: root.panelShowsInDock("panel.properties")
                     Layout.row: root.dockStackRow("panel.properties") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
-                    // Cap height so Layers/History stay above the status bar. Never go
-                    // negative when parent.height is 0 during the first layout pass —
-                    // negative preferredHeight collapses the whole right dock to width 0.
                     Layout.preferredHeight: {
                         if (!visible)
                             return 0
@@ -3237,67 +4097,9 @@ ApplicationWindow {
                                ? chosen
                                : root.panelDefaultHeight("panel.properties", h)
                     }
-                    // Pinned to the preferred height, or the layout squeezes it
-                    // straight back: once a panel is dragged taller the stack's
-                    // preferred sizes add up to more than the dock, and a
-                    // GridLayout resolves that by compressing whatever has no
-                    // minimum. The Layers body fills, so it is what yields.
                     Layout.minimumHeight: Layout.preferredHeight
-                    contentHeight: propsCol.implicitHeight
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    // Pinned on whenever there is more than fits. `AsNeeded`
-                    // shows the bar only while flicking, so a panel that had
-                    // clipped a section's heading mid-word looked broken
-                    // rather than scrollable — the one thing a dense dock has
-                    // to say without being touched.
-                    ScrollBar.vertical: ThemedScrollBar {
-                        policy: propertiesFlick.contentHeight > propertiesFlick.height
-                                ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
-                    }
-
-                    // A fade at the cut, for the same reason: a heading sliced
-                    // in half by a hard edge reads as a rendering fault, and
-                    // the same heading fading out reads as "there is more".
-                    Rectangle {
-                        parent: propertiesFlick
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: Theme.spaceLg
-                        z: 10
-                        visible: propertiesFlick.contentHeight - propertiesFlick.contentY
-                                 > propertiesFlick.height + 1
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: "transparent" }
-                            GradientStop { position: 1.0; color: Theme.surface }
-                        }
-                    }
-
-                    PropertiesPanel {
-                        id: propsCol
-                        width: parent.width
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.margins: Theme.spaceMd
-                        // The scroll bar is an overlay, so it lands on top of
-                        // whatever is at the right edge — it was clipping the
-                        // border of every full-width button. Reserved whether
-                        // or not the bar is showing: making the margin depend
-                        // on its visibility would feed the content width back
-                        // into the height that decides that visibility.
-                        anchors.rightMargin: Theme.spaceMd + Theme.spaceSm
-                        spacing: Theme.spaceMd
-
-                        iconUrl: root.iconUrl
-                        runAction: root.runAction
-                        isTransformTool: root.isTransformTool
-                        isCropTool: root.isCropTool
-                        activeLayerHasMask: root.activeLayerHasMask
-                        activeMaskEnabled: root.activeMaskEnabled
-                        gpuStatus: gpuCanvas.gpuStatus
-                        onEmbedIccRequested: root.browseForFile(embedIccFileDialog)
-                    }
+                    active: visible
+                    sourceComponent: propertiesBody
                 }
 
                 // Navigator
@@ -3321,6 +4123,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3368,8 +4171,7 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
-                    id: navigatorPane
+                Loader {
                     visible: root.panelShowsInDock("panel.navigator")
                     Layout.row: root.dockStackRow("panel.navigator") * 2 + 1
                     Layout.column: 0
@@ -3382,116 +4184,8 @@ ApplicationWindow {
                                                                          parent.height))
                                             : 0
                     Layout.minimumHeight: Layout.preferredHeight
-                    color: Theme.surfaceSunken
-                    clip: true
-
-                    readonly property real pad: Theme.spaceSm
-                    readonly property real docW: Math.max(1, AppSession.docWidth)
-                    readonly property real docH: Math.max(1, AppSession.docHeight)
-                    readonly property real availW: width - pad * 2
-                    readonly property real availH: height - pad * 2
-                    // `fitScale`, not `scale`: every Item already has a `scale`,
-                    // the render transform. A property of that name shadows it,
-                    // so a reader cannot tell which one a binding meant and a
-                    // stray `scale: …` elsewhere in the pane would resize the
-                    // whole navigator instead of setting this ratio.
-                    readonly property real fitScale: Math.min(availW / docW, availH / docH)
-                    readonly property real frameW: docW * fitScale
-                    readonly property real frameH: docH * fitScale
-                    readonly property real frameX: (width - frameW) / 2
-                    readonly property real frameY: (height - frameH) / 2
-                    readonly property real viewW: Math.max(8, AppSession.viewportWidth / Math.max(0.001, AppSession.zoom) * fitScale)
-                    readonly property real viewH: Math.max(8, AppSession.viewportHeight / Math.max(0.001, AppSession.zoom) * fitScale)
-                    readonly property real viewX: frameX + (AppSession.panX - viewW / (2 * fitScale)) * fitScale
-                    readonly property real viewY: frameY + (AppSession.panY - viewH / (2 * fitScale)) * fitScale
-
-                    function panToLocal(lx, ly) {
-                        if (!AppSession.hasDocument || frameW < 1 || frameH < 1)
-                            return
-                        var docX = ((lx - frameX) / frameW) * docW
-                        var docY = ((ly - frameY) / frameH) * docH
-                        AppSession.centerViewOn(docX, docY)
-                    }
-
-                    // Checkerboard backdrop
-                    Canvas {
-                        anchors.fill: parent
-                        onPaint: {
-                            var ctx = getContext("2d")
-                            var s = 8
-                            for (var y = 0; y < height; y += s) {
-                                for (var x = 0; x < width; x += s) {
-                                    ctx.fillStyle = ((x / s + y / s) % 2 === 0) ? "#2a2a2e" : "#222226"
-                                    ctx.fillRect(x, y, s, s)
-                                }
-                            }
-                        }
-                        Component.onCompleted: requestPaint()
-                        onWidthChanged: requestPaint()
-                        onHeightChanged: requestPaint()
-                    }
-
-                    Rectangle {
-                        x: navigatorPane.frameX
-                        y: navigatorPane.frameY
-                        width: navigatorPane.frameW
-                        height: navigatorPane.frameH
-                        color: Theme.surfaceContainerHigh
-                        border.color: Theme.border
-                        border.width: 1
-                        opacity: AppSession.hasDocument ? 1 : 0.35
-
-                        // The document itself. Without it the Navigator drew a
-                        // flat rectangle, so it told the user where they were
-                        // relative to nothing — which is the one question the
-                        // panel exists to answer. The host rebuilds this on a
-                        // throttle; the fill above shows through until the
-                        // first one arrives.
-                        Image {
-                            anchors.fill: parent
-                            anchors.margins: 1
-                            source: AppSession.navigatorThumbnail
-                            // Tested on the string, not on `source`: assigning
-                            // to a `url` property normalises the value, so
-                            // comparing the result against "" says nothing
-                            // useful about whether the host has published one.
-                            visible: AppSession.navigatorThumbnail.length > 0
-                            fillMode: Image.Stretch
-                            // Already downsampled to panel size by the host, so
-                            // smoothing here would only soften it again.
-                            smooth: false
-                            asynchronous: true
-                            cache: false
-                        }
-                    }
-
-                    Rectangle {
-                        visible: AppSession.hasDocument
-                        x: Math.max(navigatorPane.frameX,
-                                    Math.min(navigatorPane.viewX,
-                                             navigatorPane.frameX + navigatorPane.frameW - width))
-                        y: Math.max(navigatorPane.frameY,
-                                    Math.min(navigatorPane.viewY,
-                                             navigatorPane.frameY + navigatorPane.frameH - height))
-                        width: Math.min(navigatorPane.viewW, navigatorPane.frameW)
-                        height: Math.min(navigatorPane.viewH, navigatorPane.frameH)
-                        color: "transparent"
-                        border.color: Theme.primary
-                        border.width: 1.5
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: AppSession.hasDocument
-                        cursorShape: Qt.OpenHandCursor
-                        onPressed: function (mouse) {
-                            navigatorPane.panToLocal(mouse.x, mouse.y)
-                        }
-                        onPositionChanged: function (mouse) {
-                            if (pressed)
-                                navigatorPane.panToLocal(mouse.x, mouse.y)
-                        }
-                    }
+                    active: visible
+                    sourceComponent: navigatorBody
                 }
 
                 // Swatches
@@ -3515,6 +4209,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3563,259 +4258,14 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
+                Loader {
                     visible: root.panelShowsInDock("panel.swatches")
                     Layout.row: root.dockStackRow("panel.swatches") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? (swatchesCol.implicitHeight + Theme.spaceMd * 2) : 0
-                    color: Theme.surfaceSunken
-
-                    ColumnLayout {
-                        id: swatchesCol
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.spaceMd
-                        spacing: Theme.spaceSm
-
-                        /// Which of the pair the hex field and the palette edit.
-                        ///
-                        /// The background swatch used to *swap* on click, which
-                        /// left no gesture for setting it: you swapped, edited
-                        /// what had become the foreground, and swapped back.
-                        /// `setBackgroundHex` existed the whole time with
-                        /// nothing calling it. Photoshop opens the picker for
-                        /// whichever swatch you click, and keeps swap as its own
-                        /// control — which this panel's header already has.
-                        property bool editingBackground: false
-
-                        /// The hex the field shows, written in one place.
-                        ///
-                        /// This was a conditional binding —
-                        /// `editingBackground ? backgroundHex : foregroundHex`
-                        /// — and it went stale: after a commit, a palette click
-                        /// and a reset in sequence, the field showed the
-                        /// foreground while the background swatch was the one
-                        /// selected. A conditional binding only tracks the
-                        /// branch it evaluated, and `TextField` drops its `text`
-                        /// binding the moment the user types, so the two
-                        /// mechanisms were repairing each other in an order
-                        /// nothing states. One writer and three explicit
-                        /// triggers is smaller than the rule you would have to
-                        /// remember otherwise.
-                        property string editedHex: AppSession.foregroundHex
-                        function refreshHex() {
-                            editedHex = editingBackground ? AppSession.backgroundHex
-                                                          : AppSession.foregroundHex
-                        }
-                        onEditingBackgroundChanged: refreshHex()
-                        Connections {
-                            target: AppSession
-                            // Reads only. Calling a slot from a handler that
-                            // reacts to an AppSession signal re-enters a
-                            // borrowed session — see qml/AGENTS.md.
-                            function onForegroundHexChanged() { swatchesCol.refreshHex() }
-                            function onBackgroundHexChanged() { swatchesCol.refreshHex() }
-                        }
-                        function applyHex(hex) {
-                            if (editingBackground)
-                                AppSession.setBackgroundHex(hex)
-                            else
-                                AppSession.setForegroundHex(hex)
-                            // The host may have refused it, and a refusal emits
-                            // no change signal — so put the field back from the
-                            // colour that actually survived.
-                            refreshHex()
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spaceMd
-
-                            // Photoshop's colour widget: two overlapping
-                            // squares, a swap arrow at the top right, and the
-                            // black-and-white default mark at the bottom left.
-                            // Both controls used to live in the panel header,
-                            // which is not where anyone coming from Photoshop
-                            // looks for them — and which had run out of room.
-                            Item {
-                                implicitWidth: 58
-                                implicitHeight: 50
-                                Rectangle {
-                                    x: 14
-                                    y: 18
-                                    width: 26
-                                    height: 26
-                                    radius: Theme.radiusSm
-                                    color: AppSession.backgroundHex
-                                    border.color: swatchesCol.editingBackground
-                                                  ? Theme.primary : Theme.border
-                                    border.width: swatchesCol.editingBackground ? 2 : 1
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        onClicked: {
-                                            swatchesCol.editingBackground = true
-                                            Qt.callLater(function () {
-                                                hexField.forceActiveFocus()
-                                                AppSession.setShortcutInputYield(true)
-                                            })
-                                        }
-                                        ThemedToolTip {
-                                            visible: parent.containsMouse
-                                            text: qsTr("Background")
-                                        }
-                                        hoverEnabled: true
-                                    }
-                                }
-                                Rectangle {
-                                    x: 2
-                                    y: 4
-                                    width: 26
-                                    height: 26
-                                    radius: Theme.radiusSm
-                                    color: AppSession.foregroundHex
-                                    border.color: swatchesCol.editingBackground
-                                                  ? Theme.border : Theme.primary
-                                    border.width: swatchesCol.editingBackground ? 1 : 2
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        onClicked: {
-                                            swatchesCol.editingBackground = false
-                                            Qt.callLater(function () {
-                                                hexField.forceActiveFocus()
-                                                AppSession.setShortcutInputYield(true)
-                                            })
-                                        }
-                                        ThemedToolTip {
-                                            visible: parent.containsMouse
-                                            text: qsTr("Foreground")
-                                        }
-                                        hoverEnabled: true
-                                    }
-                                }
-
-                                // Top right, over the corner of the background
-                                // square, exactly where Photoshop keeps it.
-                                ChromeIconToolButton {
-                                    x: 42
-                                    y: 0
-                                    implicitWidth: 16
-                                    implicitHeight: 16
-                                    padding: 0
-                                    icon.source: root.iconUrl("arrows-left-right")
-                                    icon.width: 12
-                                    icon.height: 12
-                                    onClicked: AppSession.swapFgBg()
-                                    Accessible.name: qsTr("Swap foreground and background")
-                                    ThemedToolTip {
-                                        visible: parent.hovered
-                                        text: parent.Accessible.name
-                                    }
-                                }
-
-                                // Bottom left. `ColorState::reset_default` has
-                                // been in the engine the whole time with nothing
-                                // reaching it. Not `arrow-counter-clockwise`:
-                                // that is Undo's icon, and a second meaning for
-                                // it in the same window is worse than no icon.
-                                ChromeIconToolButton {
-                                    x: 0
-                                    y: 34
-                                    implicitWidth: 16
-                                    implicitHeight: 16
-                                    padding: 0
-                                    icon.source: root.iconUrl("square-half")
-                                    icon.width: 12
-                                    icon.height: 12
-                                    onClicked: AppSession.resetFgBg()
-                                    Accessible.name: qsTr("Reset to black and white")
-                                    ThemedToolTip {
-                                        visible: parent.hovered
-                                        text: parent.Accessible.name
-                                    }
-                                }
-                            }
-
-                            ThemedTextField {
-                                id: hexField
-                                Layout.fillWidth: true
-                                // `source`, not `text`: a `TextField` drops its
-                                // `text` binding the moment the user types.
-                                source: swatchesCol.editedHex
-                                Accessible.name: swatchesCol.editingBackground
-                                                 ? qsTr("Background hex")
-                                                 : qsTr("Foreground hex")
-                                font.family: "Noto Sans Mono"
-                                font.pixelSize: Theme.fontMono
-                                onActiveFocusChanged: root.refreshShortcutYield()
-                                // A `TextField` drops its `text` binding the
-                                // moment the user types, so without restoring
-                                // it the field keeps showing what was typed —
-                                // `notacolour` stayed on screen for good while
-                                // the swatch beside it never moved.
-                                // `applyHex` ends by writing the field, so a
-                                // value the host refused never survives on
-                                // screen.
-                                onEditingFinished: swatchesCol.applyHex(text)
-                                Keys.onReturnPressed: {
-                                    swatchesCol.applyHex(text)
-                                    event.accepted = true
-                                }
-                            }
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            Repeater {
-                                model: [
-                                    "#000000", "#FFFFFF", "#FF0000", "#00FF00",
-                                    "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
-                                    "#808080", "#C0C0C0", "#800000", "#008080"
-                                ]
-                                delegate: Rectangle {
-                                    width: 18
-                                    height: 18
-                                    radius: 2
-                                    color: modelData
-                                    border.color: Theme.border
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: swatchesCol.applyHex(modelData)
-                                    }
-                                }
-                            }
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            visible: AppSession.recentColors.length > 0
-                            Repeater {
-                                model: AppSession.recentColors.length > 0
-                                       ? AppSession.recentColors.split("|") : []
-                                delegate: Rectangle {
-                                    width: 18
-                                    height: 18
-                                    radius: 2
-                                    color: modelData
-                                    border.color: Theme.border
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        // The hex, not `pickRecentColor(index)`:
-                                        // that one always sets the foreground,
-                                        // so clicking a recent colour while the
-                                        // background swatch was selected changed
-                                        // the wrong half of the pair.
-                                        onClicked: swatchesCol.applyHex(modelData)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    active: visible
+                    sourceComponent: swatchesBody
                 }
 
                 // Layers panel
@@ -3839,6 +4289,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -3929,65 +4380,15 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
+                Loader {
                     visible: root.panelShowsInDock("panel.layers")
                     Layout.row: root.dockStackRow("panel.layers") * 2 + 1
                     Layout.column: 0
                     Layout.fillWidth: true
                     Layout.fillHeight: visible
                     Layout.preferredHeight: visible ? 180 : 0
-                    color: Theme.surfaceSunken
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        spacing: 0
-
-                        // Blend, opacity and locks sit above the list, where
-                        // Photoshop keeps them. They used to be in Properties,
-                        // three panels away from the layer they act on.
-                        LayerControlStrip {
-                            id: layerControls
-                            Layout.fillWidth: true
-                            Layout.margins: Theme.spaceSm
-                            // Controls for a layer that is not there read as
-                            // broken chrome rather than as an empty document.
-                            visible: AppSession.hasDocument
-                            blendModes: root.blendModes
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: visible ? 1 : 0
-                            visible: AppSession.hasDocument
-                            color: Theme.border
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-
-                            // A document always has at least one layer, so an
-                            // empty list means there is no document — not that
-                            // the layers went missing.
-                            PanelPlaceholder {
-                                anchors.fill: parent
-                                visible: !AppSession.hasDocument
-                                iconKey: "stack-simple"
-                                iconUrl: root.iconUrl
-                                text: qsTr("No document open")
-                                hint: qsTr("Open or create one to see its layers.")
-                            }
-
-                            LayersPanel {
-                                anchors.fill: parent
-                                visible: AppSession.hasDocument
-                                iconUrl: root.iconUrl
-                                maskEditActive: root.maskEditActive
-                                onContextMenuRequested: function (stackIndex, origin, localX, localY) {
-                                    layerContextMenu.targetIndex = stackIndex
-                                    root.openContextMenu(layerContextMenu, origin, localX, localY)
-                                }
-                            }
-                        }
-                    }
+                    active: visible
+                    sourceComponent: layersBody
                 }
 
                 // History panel
@@ -4011,6 +4412,7 @@ ApplicationWindow {
                                        && root.resolvedPanelHeights[above] !== undefined
                                        ? root.resolvedPanelHeights[above]
                                        : root.panelDefaultHeight(above, dockHeight)
+                        maximumHeight: root.panelMaxHeight(above, dockHeight)
                         onPreviewed: (height) => root.setPanelHeightDraft(above, height)
                         onCommitted: (height) => root.commitPanelHeight(above, height)
                     }
@@ -4045,7 +4447,7 @@ ApplicationWindow {
                         }
                     }
                 }
-                Rectangle {
+                Loader {
                     visible: root.panelShowsInDock("panel.history")
                     Layout.row: root.dockStackRow("panel.history") * 2 + 1
                     Layout.column: 0
@@ -4058,104 +4460,8 @@ ApplicationWindow {
                                                                          parent.height))
                                             : 0
                     Layout.minimumHeight: Layout.preferredHeight
-                    color: Theme.surfaceSunken
-
-                    // Two empty states, because the guidance differs: with no
-                    // document there is nothing to have a history of, and with
-                    // one open the list simply has not been written to yet.
-                    PanelPlaceholder {
-                        anchors.fill: parent
-                        visible: historyList.count === 0
-                        iconKey: "clock-counter-clockwise"
-                        iconUrl: root.iconUrl
-                        text: AppSession.hasDocument
-                              ? qsTr("No history yet")
-                              : qsTr("No document open")
-                        hint: AppSession.hasDocument
-                              ? qsTr("Edits you make will be listed here, newest last.")
-                              : qsTr("Open or create one to start a history.")
-                    }
-
-                    ListView {
-                        id: historyList
-                        // The rows were already list items; the list itself was
-                        // not, so they had no collection to belong to.
-                        Accessible.role: Accessible.List
-                        Accessible.name: qsTr("History")
-                        anchors.fill: parent
-                        clip: true
-                        reuseItems: true
-                        cacheBuffer: 88
-                        model: AppSession.historyModel
-                        delegate: Item {
-                            id: historyRow
-                            // Roles from the model item's field names, which
-                            // the derive leaves in snake_case.
-                            required property string label
-                            required property string kind
-                            required property int entry_id
-                            required property bool undone
-
-                            width: historyList.width
-                            height: 22
-
-                            // An undone step is still on the timeline, and
-                            // clicking it walks forward to it. Dimmed rather
-                            // than hidden, the way Photoshop greys the steps
-                            // ahead of where you are.
-                            opacity: historyRow.undone ? 0.45 : 1.0
-
-                            Rectangle {
-                                anchors.fill: parent
-                                color: historyHover.hovered
-                                       ? Theme.surfaceContainerHigh : "transparent"
-                            }
-
-                            Label {
-                                anchors.left: parent.left
-                                anchors.right: historyKind.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                anchors.leftMargin: Theme.spaceSm
-                                anchors.rightMargin: Theme.spaceSm
-                                text: historyRow.label
-                                color: Theme.colorOnSurfaceVariant
-                                font.pixelSize: Theme.fontBodySm
-                                elide: Text.ElideRight
-                            }
-                            // The kind is taxonomy, not a name: inline it read
-                            // "Brush stroke · stroke". Set to one side, in the
-                            // same muted trailing column the command palette
-                            // uses for an action's menu.
-                            Label {
-                                id: historyKind
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                anchors.rightMargin: Theme.spaceSm
-                                text: historyRow.kind
-                                color: Theme.colorOnSurfaceMuted
-                                font.pixelSize: Theme.fontLabelSm
-                            }
-
-                            Accessible.role: Accessible.ListItem
-                            Accessible.name: historyRow.undone
-                                             ? qsTr("%1 (undone)").arg(historyRow.label)
-                                             : historyRow.label
-                            // The kind sits in a muted trailing column that
-                            // reads as part of the row visually and as a
-                            // separate label otherwise; position is what a
-                            // screen reader needs to know where it is in the
-                            // timeline.
-                            Accessible.description: qsTr("%1, %2 of %3")
-                                                    .arg(historyRow.kind)
-                                                    .arg(index + 1)
-                                                    .arg(historyList.count)
-
-                            HoverHandler { id: historyHover }
-                            TapHandler {
-                                onTapped: AppSession.jumpHistoryEntry(historyRow.entry_id)
-                            }
-                        }
-                    }
+                    active: visible
+                    sourceComponent: historyBody
                 }
 
                 // Placeholder slots for descriptor panels without a body yet.
@@ -4264,19 +4570,22 @@ ApplicationWindow {
             root.lastBrowsedFolder = currentFolder
             AppSession.saveDocument(selectedFile.toString())
         }
+        // Backing out of the file dialog abandons the close or quit that
+        // opened it. Leaving the action pending would arm it against the next
+        // successful save: an ordinary Ctrl+S half an hour later would close
+        // the document the user was still working in.
+        onRejected: root.pendingDestructiveAction = ""
     }
 
     FileDialog {
         id: exportFileDialog
         title: qsTr("Export Image")
         fileMode: FileDialog.SaveFile
-        nameFilters: [
-            qsTr("PNG images (*.png)"),
-            qsTr("JPEG images (*.jpg *.jpeg)"),
-            qsTr("WebP images (*.webp)"),
-            qsTr("TIFF images (*.tif *.tiff)"),
-            qsTr("Photoshop subset (*.psd)")
-        ]
+        // From `RasterFormat::ALL`, not written out here. The list that used
+        // to live in this file offered four of the six formats the writer
+        // handles, so BMP and GIF could be opened and never saved again, and
+        // nothing anywhere failed.
+        nameFilters: root.exportNameFilters
         defaultSuffix: selectedNameFilter.extensions.length > 0
                        ? selectedNameFilter.extensions[0] : "png"
         onAccepted: {
@@ -4580,8 +4889,6 @@ ApplicationWindow {
                 AppSession.applySizePreset(presetLabel)
             else
                 AppSession.applyDocumentSize(w, h)
-            root.syncLayerOpacity()
-            root.syncBlendCombo()
         }
     }
 
@@ -4600,19 +4907,112 @@ ApplicationWindow {
 
     Connections {
         target: AppSession
-        function onActiveOpacityChanged() {
-            root.syncLayerOpacity()
-        }
-        function onActiveBlendChanged() {
-            root.syncBlendCombo()
-        }
-        function onForegroundHexChanged() {
-            if (hexField && !hexField.activeFocus && hexField.text !== AppSession.foregroundHex)
-                hexField.text = AppSession.foregroundHex
-        }
         function onIoErrorChanged() {
             if (AppSession.ioError.length > 0)
                 ioErrorDialogLoader.open()
+        }
+    }
+
+    // Offscreen text renderer for Bake Text (QA-008).
+    //
+    // The engine's bake draws a built-in 5×7 ASCII alphabet, because
+    // `phototux_engine` may not link Qt. That is right for a headless
+    // reference and wrong for what a user gets: a Noto Sans layer became
+    // blocky monospaced capitals with no lowercase the instant it was baked.
+    // Here Qt shapes and rasterises the layer's actual face — the same text
+    // stack that drew the on-canvas preview, so the two agree.
+    //
+    // Offscreen by position, not by `visible: false`. `grabToImage` renders
+    // the item's own scene-graph node, and an invisible item has none, so it
+    // would grab nothing and every bake would fall back. A negative x keeps
+    // the node and shows the user nothing.
+    Item {
+        id: textRasterHost
+        property var request: null
+        x: -32000
+        y: 0
+        width: Math.max(1, textRasterHost.request ? textRasterHost.request.width : 1)
+        height: Math.max(1, textRasterHost.request ? textRasterHost.request.height : 1)
+
+        Text {
+            id: textRasterSource
+            anchors.fill: parent
+            text: textRasterHost.request ? textRasterHost.request.text : ""
+            // Transparent, not a black, when there is no request: the item has
+            // no text either, so the fallback never draws — and a document
+            // colour hard-coded here would be a literal the theme guard is
+            // right to reject.
+            color: textRasterHost.request ? textRasterHost.request.color : "transparent"
+            opacity: textRasterHost.request ? textRasterHost.request.opacity : 1
+            font.family: textRasterHost.request
+                         ? textRasterHost.request.family : "Noto Sans"
+            font.pixelSize: textRasterHost.request
+                            ? Math.max(1, textRasterHost.request.pixelSize) : 24
+            font.letterSpacing: textRasterHost.request
+                                ? textRasterHost.request.letterSpacing : 0
+            lineHeight: textRasterHost.request
+                        ? Math.max(0.1, textRasterHost.request.lineHeight) : 1
+            lineHeightMode: Text.ProportionalHeight
+            wrapMode: (textRasterHost.request && textRasterHost.request.wrap)
+                      ? Text.Wrap : Text.NoWrap
+            horizontalAlignment: {
+                var a = textRasterHost.request ? textRasterHost.request.alignment : 0
+                return a === 1 ? Text.AlignHCenter
+                               : (a === 2 ? Text.AlignRight : Text.AlignLeft)
+            }
+            verticalAlignment: Text.AlignTop
+        }
+
+        /// Render `req` and answer the host, or tell it why we could not.
+        ///
+        /// Split from the request handler so the properties above are applied
+        /// and laid out before the grab: `grabToImage` snapshots the node as
+        /// it is now, and grabbing in the same turn we set the text would
+        /// capture the *previous* bake.
+        function renderRequest(req) {
+            textRasterHost.request = req
+            Qt.callLater(textRasterHost.grabRequest)
+        }
+
+        function grabRequest() {
+            var req = textRasterHost.request
+            if (!req) {
+                AppSession.textRasterFailed("no request")
+                return
+            }
+            var started = textRasterSource.grabToImage(function (result) {
+                // Fires from the render loop, not from inside a host slot, so
+                // these calls are not re-entrant.
+                if (!result) {
+                    AppSession.textRasterFailed("the grab returned nothing")
+                    return
+                }
+                if (!result.saveToFile(req.path)) {
+                    AppSession.textRasterFailed("could not write " + req.path)
+                    return
+                }
+                AppSession.textRasterReady(req.path)
+            }, Qt.size(req.width, req.height))
+            if (!started)
+                AppSession.textRasterFailed("this item cannot be grabbed")
+        }
+    }
+
+    Connections {
+        target: AppSession
+        function onTextRasterRequested() {
+            var req = null
+            try {
+                req = JSON.parse(AppSession.textRasterRequestJson)
+            } catch (e) {
+                // The host built this JSON, so a parse failure is a bug, not
+                // user input. Fall back rather than leave the bake hanging.
+                root.afterHostSlot(function () {
+                    AppSession.textRasterFailed("unreadable render request")
+                })
+                return
+            }
+            root.afterHostSlot(function () { textRasterHost.renderRequest(req) })
         }
     }
 

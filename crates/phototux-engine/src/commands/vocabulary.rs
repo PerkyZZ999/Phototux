@@ -176,6 +176,150 @@ pub mod command_id {
     pub const WORKSPACE_APPLY_PRESET: &str = "workspace.apply-preset";
 
     /// Built-in commands registered for discovery / headless tests.
+    /// Commands refused when the active layer is locked (QA-001).
+    ///
+    /// "Lock All" used to mean "cannot delete, cannot paint, cannot move":
+    /// `reject_locked_layers` was the only reader of `locks.all` and it had a
+    /// single caller, so opacity, blend mode and effects all went through on a
+    /// layer the user had locked, while the refusal message the *other* path
+    /// printed said "unlock it to change it".
+    ///
+    /// One list, checked in one place, rather than a precondition sprinkled
+    /// across thirty command bodies — and `every_command_is_classified_against_the_lock`
+    /// partitions `ALL` between this and [`KEEPS_WORKING_WHEN_LOCKED`], so a
+    /// new command cannot quietly land on neither side.
+    ///
+    /// The set follows Photoshop, which greys out opacity, fill, blend mode,
+    /// layer styles and the Filter menu under Lock All, and keeps visibility,
+    /// selection and duplication live.
+    pub const CHANGES_ACTIVE_LAYER: &[&str] = &[
+        LAYER_SET_FILL_COLOR,
+        LAYER_MERGE_DOWN,
+        LAYER_MERGE_GROUP,
+        LAYER_SET_OPACITY,
+        LAYER_SET_BLEND,
+        LAYER_SET_CLIP,
+        LAYER_SET_BLEND_IF,
+        SELECTION_TO_MASK,
+        MASK_CREATE,
+        MASK_DELETE,
+        MASK_SET_ENABLED,
+        MASK_SET_ATTRIBUTES,
+        MASK_CREATE_VECTOR,
+        MASK_APPLY,
+        TEXT_SET_CONTENT,
+        TEXT_BAKE,
+        SHAPE_RASTERIZE,
+        SHAPE_BOOLEAN,
+        SHAPE_SET_APPEARANCE,
+        SMART_CREATE,
+        SMART_SET_PLACEMENT,
+        SMART_RASTERIZE,
+        FILTER_ADD_ADJUSTMENT,
+        FILTER_SET_PARAMETERS,
+        FILTER_ADD_EFFECT,
+        FILTER_SET_GAUSSIAN_RADIUS,
+        FILTER_PREVIEW,
+        FILTER_COMMIT,
+        EFFECT_REORDER,
+        EFFECT_SET_ENABLED,
+        STYLE_ADD,
+        STYLE_SET_PARAMS,
+        STYLE_SET_COLOR,
+        STYLE_SET_ENABLED,
+        STYLE_REMOVE,
+        RASTER_TRANSFORM_COMMIT,
+        RASTER_FLIP,
+        RASTER_FILL,
+        RASTER_GRADIENT,
+        RASTER_PAINT_STROKE,
+    ];
+
+    /// Commands a locked layer does not stand in the way of.
+    ///
+    /// Each is here for a reason, not by omission:
+    ///
+    /// - History, view, document, workspace and application commands do not
+    ///   target a layer at all.
+    /// - `LAYER_SET_LOCKS` is how the user unlocks; refusing it would make the
+    ///   lock permanent.
+    /// - `LAYER_SET_ACTIVE` and `LAYER_SET_VISIBILITY` do not change the layer,
+    ///   and Photoshop keeps both live under Lock All.
+    /// - `LAYER_CREATE`, `LAYER_CREATE_FILL`, `LAYER_DUPLICATE`, `TEXT_CREATE`,
+    ///   `SHAPE_CREATE` and `CLIPBOARD_PASTE_LAYER` produce a *new* layer.
+    /// - `LAYER_DELETE` and `LAYER_ALIGN` have their own multi-target guards,
+    ///   `reject_locked_layers` and `reject_position_locked`, which cover a
+    ///   selection rather than only the active layer.
+    /// - `LAYER_REORDER`, `LAYER_ARRANGE`, `LAYER_GROUP`, `LAYER_UNGROUP`,
+    ///   `LAYER_MERGE_VISIBLE` and `LAYER_FLATTEN` change the stack, not the
+    ///   layer.
+    /// - Selection commands read pixels; `MASK_TO_SELECTION` reads a mask.
+    /// - `FILTER_SET_PREVIEW_PARAMS` and `FILTER_CANCEL_PREVIEW` only steer or
+    ///   abandon a preview that could not have started.
+    /// - The path commands edit the document's path store, not a layer;
+    ///   `PATH_STROKE_TO_LAYER` produces a new one.
+    pub const KEEPS_WORKING_WHEN_LOCKED: &[&str] = &[
+        HISTORY_UNDO,
+        HISTORY_REDO,
+        HISTORY_JUMP,
+        LAYER_CREATE,
+        LAYER_CREATE_FILL,
+        LAYER_DUPLICATE,
+        LAYER_MERGE_VISIBLE,
+        LAYER_FLATTEN,
+        LAYER_DELETE,
+        LAYER_SET_ACTIVE,
+        LAYER_SET_VISIBILITY,
+        LAYER_REORDER,
+        LAYER_ARRANGE,
+        LAYER_GROUP,
+        LAYER_UNGROUP,
+        LAYER_SET_LOCKS,
+        LAYER_ALIGN,
+        VIEW_ZOOM_TO,
+        VIEW_ZOOM_TO_FIT,
+        VIEW_ZOOM_IN,
+        VIEW_ZOOM_OUT,
+        VIEW_ZOOM_ACTUAL,
+        VIEW_PAN_TO,
+        VIEW_PAN_BY,
+        VIEW_ZOOM_AT,
+        VIEW_SET_TOOL,
+        DOCUMENT_NEW_PRESET,
+        DOCUMENT_NEW_SIZE,
+        DOCUMENT_ASSIGN_PROFILE,
+        DOCUMENT_CONVERT_PROFILE,
+        DOCUMENT_SET_SOFT_PROOF,
+        DOCUMENT_SET_ICC,
+        DOCUMENT_RESIZE,
+        DOCUMENT_CANVAS_SIZE,
+        DOCUMENT_CROP,
+        DOCUMENT_ROTATE,
+        DOCUMENT_FLIP,
+        SELECTION_REPLACE,
+        SELECTION_DESELECT,
+        SELECTION_INVERT,
+        SELECTION_SELECT_ALL,
+        SELECTION_MODIFY,
+        SELECTION_COLOR_SELECT,
+        MASK_TO_SELECTION,
+        TEXT_CREATE,
+        SHAPE_CREATE,
+        FILTER_SET_PREVIEW_PARAMS,
+        FILTER_CANCEL_PREVIEW,
+        PATH_SET_CLOSED,
+        PATH_MOVE_ANCHOR,
+        PATH_ADD_ANCHOR,
+        PATH_DELETE_ANCHOR,
+        CLIPBOARD_PASTE_LAYER,
+        PATH_STROKE_TO_LAYER,
+        APP_SHOW_PREFERENCES,
+        APP_SHOW_FILTER_GALLERY,
+        WORKSPACE_RESET,
+        WORKSPACE_TOGGLE_PANEL,
+        WORKSPACE_APPLY_PRESET,
+    ];
+
     pub const ALL: &[&str] = &[
         HISTORY_UNDO,
         HISTORY_REDO,
@@ -277,6 +421,28 @@ pub mod command_id {
         WORKSPACE_TOGGLE_PANEL,
         WORKSPACE_APPLY_PRESET,
     ];
+
+    /// Commands that replace a layer's semantic content with pixels.
+    ///
+    /// Each of these has one half in the graph — the kind change and the
+    /// payload clear — and one half on the GPU, where the host writes the
+    /// glyphs or the shape it just rasterized. Neither `Graph` nor `Stroke`
+    /// covers both: a `Graph` entry reverses the graph and never asks the
+    /// host, so undoing a bake used to restore an editable text layer while
+    /// leaving the baked glyphs sitting in its raster. The layer then drew
+    /// twice — its live preview over the pixels of the bake it had just taken
+    /// back — and saving persisted both.
+    ///
+    /// A `TransformSnapshot` carries the whole graph beside every layer's
+    /// pixels, so a `Transform` entry covers both halves at once, exactly as
+    /// a profile conversion does (QA-014). The host snapshots before invoking;
+    /// these commands record the entry.
+    ///
+    /// The list is here rather than restated at each end because the two ends
+    /// have to agree: an entry recorded with no snapshot behind it pops
+    /// whatever transform happens to be on the stack, and a snapshot with no
+    /// entry misaligns the stack against the timeline for every step after it.
+    pub const CONVERTS_TO_PIXELS: &[&str] = &[TEXT_BAKE, SHAPE_RASTERIZE, SMART_RASTERIZE];
 }
 
 /// Host follow-up after a successful command (canvas / pixel / chrome work).
@@ -428,6 +594,14 @@ pub enum CommandArgs {
     },
     TextCreate {
         text: String,
+        /// Where the frame's top-left goes, in document pixels.
+        ///
+        /// The Text tool used to discard the click that created the layer:
+        /// every frame landed at the origin, a thousand pixels from the
+        /// pointer on a 1080p document. Photoshop places the insertion point
+        /// where the Type tool is clicked.
+        x: f32,
+        y: f32,
     },
     TextSetContent {
         content: TextContent,
@@ -716,8 +890,12 @@ impl CommandError {
             Self::Document(
                 DocumentError::NoDocument
                 | DocumentError::LayerLimitReached { .. }
-                // The user typed the number; typing a smaller one fixes it.
-                | DocumentError::DimensionTooLarge { .. },
+                // The user typed the number; typing a different one fixes it.
+                // A size read from a file is not theirs to retype, but neither
+                // is an oversized scan, and the message says what is wrong
+                // either way.
+                | DocumentError::DimensionTooLarge { .. }
+                | DocumentError::DimensionTooSmall { .. },
             ) => true,
             Self::Unknown(_) | Self::Document(DocumentError::LayerMissingAfterAdd) => false,
         }

@@ -2,6 +2,79 @@
 
 All notable decision milestones and project state changes.
 
+## [qa-pass] — 2026-09-04
+
+A three-phase QA pass over the whole repository: 117 checklist items written,
+executed against a running editor in an isolated Wayland session, and the
+sixteen defects they found resolved. The recurring shape was **a control that
+reports success while doing nothing** — the state was written, the notice was
+shown, the command returned `Ok`, and the thing the user asked for did not
+happen. Every fix ships with a guard that was watched failing first.
+
+### Fixes
+
+- **A selection did not confine the brush.** With an active selection a stroke
+  painted straight through it, while a *gradient* over the same selection
+  clipped to the pixel — so the application honoured the selection for two of
+  its three pixel operations and ignored it for the one people reach for most.
+  Someone who selected a region to protect the rest of a layer and then painted
+  destroyed what they believed was safe. The handbook had specified the rule all
+  along (`effective = clamp(selection × tool × mask × opacity, 0, 1)`); the
+  paint path simply had no mask binding. Now bound into both stamp pipelines,
+  pixels and layer masks alike, with a device-backed fixture measuring the
+  shader against the CPU reference.
+- **Select ▸ Modify blocked the UI thread for up to an hour.** The morphology
+  was `O(w·h·r²)` and the radius the UI offered reached values where a 1080p
+  document took minutes to over an hour, with no progress and no cancel. Now
+  `O(w·h·r)` by separable passes.
+- **Lock All did not mean the layer could not be changed.** It refused painting,
+  deleting and flipping, and permitted opacity, blend mode and filter effects —
+  while its own refusal message said "unlock it to change it". The set of
+  commands that change a layer is now one list, checked in one place, and it
+  greys the menus and the panel controls as well as refusing. The transparency
+  lock beside it was state nothing set and nothing read; it is implemented,
+  as the fourth of four icon toggles in Photoshop's order.
+- **Bake Text rasterised in a bitmap face, not the one the editor showed.** A
+  Noto Sans layer became blocky monospaced capitals with no lowercase the
+  instant it stopped being editable. A new text adapter renders through Qt's own
+  text stack — the same one that drew the preview — with the engine's
+  deterministic 5×7 bake kept as the headless fallback.
+- **Two edits could not be undone, and one undo left half of itself behind.**
+  Convert to Profile rewrote every pixel with nothing on the timeline to take it
+  back. Bake Text, Rasterize Shape and Rasterize Smart Object recorded an entry
+  that reversed the graph and never asked the host, so undo restored an editable
+  layer and left the raster it had been converted into — the layer drew twice,
+  and saving persisted both. All four now record entries whose kind reaches both
+  halves of the edit.
+- **Keyboard focus was invisible on every icon-only button.** Tab moved focus
+  correctly and eleven hand-rolled button backgrounds drew hover and checked and
+  not focus, so a pixel diff of the whole window found nothing had changed while
+  the accessibility tree reported focus moving.
+- **Path Edit asked the user to drag anchors it never drew**, the Free Transform
+  box painted over the tab strip, a torn-off panel opened a window containing a
+  description of the panel rather than the panel, and one drag of a dock seam
+  could evict every panel below it with nothing on screen saying where they had
+  gone. All four fixed and guarded.
+- **Smaller ones, same shape.** Three adjustment sliders offered narrower ranges
+  than the engine kept, so a value could exist that no slider could express. A
+  marquee dragged entirely off-canvas reported a selection covering no pixels.
+  Text and shape layers landed at the origin rather than where the canvas was
+  clicked. A freshly opened document arrived already marked modified, the tab
+  strip reordered itself as you switched, and opening a file already open made a
+  second tab. Six canvas-overlay colours were a second palette outside
+  `Theme.qml`.
+
+### Notes
+
+- Two checklist items remain honestly partial: a save race that does not
+  reproduce on this hardware, and no operation slow enough to watch a busy
+  indicator against. Both have guard tests standing in.
+- The pass corrected the test plan as well as the code. Nothing in it asked
+  whether a selection *constrains* an edit, which is why the brush defect
+  survived until the selection tools were exercised for a different reason. It
+  also asked for a third UI density that has never existed — `dense` and
+  `comfortable` are what ship, and the handbook is aligned to that vocabulary.
+
 ## [architecture-pass] — 2026-09-03
 
 An `improve-codebase-architecture` pass over the whole workspace rather than

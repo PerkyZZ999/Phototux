@@ -186,6 +186,8 @@ Rectangle {
                             radius: Theme.radiusSm
                             color: parent.hovered && parent.enabled
                                    ? Theme.surfaceContainerHigh : "transparent"
+                            border.color: parent.visualFocus ? Theme.focusRing : "transparent"
+                            border.width: 1
                         }
                     }
                 }
@@ -269,7 +271,9 @@ Rectangle {
                                        ? Theme.toolActiveBg
                                        : (gradButton.hovered ? Theme.surfaceContainerHigh
                                                              : "transparent")
-                                border.color: gradButton.checked ? Theme.primary : "transparent"
+                                border.color: gradButton.visualFocus
+                                              ? Theme.focusRing
+                                              : (gradButton.checked ? Theme.primary : "transparent")
                                 border.width: 1
                             }
                         }
@@ -315,6 +319,8 @@ Rectangle {
                                 color: alignButton.hovered && alignButton.enabled
                                        ? Theme.surfaceContainerHigh
                                        : "transparent"
+                                border.color: alignButton.visualFocus ? Theme.focusRing : "transparent"
+                                border.width: 1
                             }
                         }
                     }
@@ -360,6 +366,8 @@ Rectangle {
                                 color: distributeButton.hovered && distributeButton.enabled
                                        ? Theme.surfaceContainerHigh
                                        : "transparent"
+                                border.color: distributeButton.visualFocus ? Theme.focusRing : "transparent"
+                                border.width: 1
                             }
                         }
                     }
@@ -425,7 +433,9 @@ Rectangle {
                                 color: modeButton.checked
                                        ? Theme.toolActiveBg
                                        : (modeButton.hovered ? Theme.surfaceContainerHigh : "transparent")
-                                border.color: modeButton.checked ? Theme.primary : "transparent"
+                                border.color: modeButton.visualFocus
+                                              ? Theme.focusRing
+                                              : (modeButton.checked ? Theme.primary : "transparent")
                                 border.width: 1
                             }
                         }
@@ -439,13 +449,21 @@ Rectangle {
                 }
 
                 // ── Paint bucket ──────────────────────────────────────────
+                //
+                // The foreground, because that is what the bucket pours:
+                // `fillActiveLayer` reads `engine.colors.foreground`. It was
+                // bound to `fillColorHex` / `setActiveFillHex`, which are the
+                // *fill layer* inspector's pair — so the field showed a colour
+                // the tool did not use (the #738CBF default whenever the active
+                // layer carried no fill content), and editing it tried to
+                // recolour a fill layer, which a raster layer refuses.
                 Field {
                     visible: root.tool === "tool.fill"
                     label: qsTr("Fill")
                     ThemedTextField {
                         Layout.preferredWidth: 90
-                        source: AppSession.fillColorHex
-                        onEditingFinished: AppSession.setActiveFillHex(text)
+                        source: AppSession.foregroundHex
+                        onEditingFinished: AppSession.setForegroundHex(text)
                         Accessible.name: qsTr("Fill colour hex")
                     }
                 }

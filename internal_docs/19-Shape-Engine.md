@@ -44,7 +44,46 @@ Nine presets on `ShapePreset`, which owns each one's wire key, label, geometry, 
 
 Star, arrow and rounded rectangle are all closed polygons as far as the path is concerned; they differ in their anchors, not in their kind, so they share `kind_key() == "polygon"`.
 
+That sharing is why a new shape layer is **named from its path, not its kind**. `document::shape_stem` reads `content.path.name` — which each preset sets to its own name when it builds the geometry — and falls back to the `kind` map only for content that did not come from a preset, such as a `.ptx` written before paths carried names. Naming from `kind` alone made all three polygon presets "Polygon": picking Layer ▸ Shape ▸ Star produced "Polygon 1". `a_preset_shape_is_named_for_the_preset_the_user_picked` holds the star, arrow and rounded rectangle cases against that.
+
 The rounded rectangle's corners are **sampled arcs**, four anchors each, not Béziers: the path model carries anchors and controls that the renderer does not yet read as curves, and a visibly wrong curve is worse than an honest polyline. Its radius is clamped to half the shorter side, because a larger one folds the outline inside out.
+
+**Shipped rule — the click is the placement.** `content_at` centres a preset's
+bounds on the point the tool was clicked, clamped into the document so a click
+in the letterbox still produces a shape that can be seen and grabbed. The
+*path* moves, not the layer transform: the anchors a user then edits have to be
+where the shape actually is, and a transform would leave the path at the
+document centre with every edit in a different space from the pixels. The
+gradient's endpoints move with it.
+
+`content`, without a point, is unchanged and is what the Layer menu uses —
+there is no pointer to honour there, so the preset lands where it always did.
+`every_shape_preset_centres_on_the_click` asserts both, for all nine presets.
+
+**Shipped rule — Path Edit draws what it asks you to grab.** The tool worked
+and drew nothing: hit-testing is host-side, so dragging the point where an
+anchor happened to be moved it and the inspector followed, while the canvas
+showed no handles, no outline and no selection. `pathGeometryJson` publishes the
+active path's anchors in document space and `pathEditChrome` draws them —
+handles at a constant size in *screen* pixels, since an anchor that shrank with
+the zoom would be ungrabbable on a 4K document viewed to fit, and the selected
+one filled rather than hollow. Visible only while the tool is active, matching
+Free Transform.
+
+The projection goes out through `publish!` rather than an unconditional emit:
+it is rebuilt on every sync, and a per-frame republish of an overlay projection
+is what flooded AT-SPI and killed a session in T-009.
+
+Two things that only showed once the geometry was visible. The **first click on
+a non-shape layer was refused silently** — `with_active_path_mut` needed
+`graph.paths.active` to already be `Some` and nothing ever created the first
+path, so Path Edit did nothing at all on a raster layer while its own copy said
+"Click empty to add". Adding an anchor now starts a path when there is none;
+moving, deleting and closing still refuse, because those are real refusals. And
+the **Path group was scoped to the `Shape` subject**, so a raster layer's
+anchors had no panel: the count, the Closed toggle and Delete Anchor were
+unreachable. It is registered for every layer now, closed by default — a
+specialist group, and the first screen of the inspector has to stay readable.
 
 ## Gradient shapes
 

@@ -22,6 +22,8 @@ ColumnLayout {
 
     /// Blend modes as the engine declares them, with their family for banding.
     required property var blendModes
+    /// Resolve a Phosphor icon stem to a URL, as the rest of the chrome does.
+    required property var iconUrl
 
     spacing: Theme.spaceXxs
 
@@ -51,6 +53,22 @@ ColumnLayout {
     /// The epsilon matters: the slider emits on every assignment, so writing a
     /// value it already holds would round-trip back to the host and fight the
     /// user mid-drag.
+    // The strip keeps itself in sync rather than being pushed to by the shell.
+    //
+    // It used to be reached by id from `Main.qml`, which a panel that can be
+    // torn off into its own window cannot rely on: an id declared inside a
+    // `Component` is scoped to that component's instances, so the shell's
+    // `typeof layerControls !== "undefined"` guard would have started
+    // answering "undefined" for ever and the combo would have quietly stopped
+    // following the host.
+    Connections {
+        target: AppSession
+        function onActiveBlendChanged() { root.syncBlendCombo() }
+        function onActiveOpacityChanged() {
+            root.setLayerOpacity(AppSession.activeOpacity)
+        }
+    }
+
     function setLayerOpacity(value) {
         if (!opacitySlider)
             return
@@ -59,9 +77,27 @@ ColumnLayout {
     }
 
     /// One lock toggle. Three buttons that differ only in label and action.
-    component LockButton: ThemedButton {
+    ///
+    /// `checked` matters as much as the click: the three buttons used to look
+    /// identical whether the lock was on or off, so the only way to find out
+    /// was to try an edit and watch it be refused.
+    /// One lock toggle: an icon, as Photoshop has, with the sentence in the
+    /// tooltip and in the accessible name.
+    ///
+    /// Four labelled buttons do not fit this strip. Sharing the row equally
+    /// elided "Position" to "Positi…"; letting each size to its own text
+    /// pushed "All" off the edge. Photoshop draws these as four small icons
+    /// for the same reason.
+    component LockButton: ChromeIconToolButton {
         required property string actionId
-        Layout.fillWidth: true
+        /// The full sentence, for the tooltip and for assistive technology.
+        required property string explanation
+        checkable: true
+        Accessible.name: explanation
+        ThemedToolTip {
+            visible: parent.hovered
+            text: parent.explanation
+        }
         enabled: AppSession.hasDocument
     }
 
@@ -78,7 +114,9 @@ ColumnLayout {
             textRole: "label"
             valueRole: "id"
             familyRole: "family"
-            enabled: root.hasLayer
+            // A locked layer refuses `layer.set-blend`, so the combo must not
+            // offer it — it would change on screen and then be corrected back.
+            enabled: root.hasLayer && !AppSession.activeLayerLocked
             // Dimmed rather than blanked when the object selection disagrees:
             // the combo still has to show *a* mode, and "Mixed" beside it says
             // which layers it would apply to.
@@ -100,7 +138,7 @@ ColumnLayout {
             from: 0
             to: 1
             value: AppSession.activeOpacity
-            enabled: root.hasLayer
+            enabled: root.hasLayer && !AppSession.activeLayerLocked
             opacity: AppSession.inspectorOpacityMixed ? 0.85 : 1.0
             Accessible.name: AppSession.inspectorOpacityMixed
                              ? qsTr("Opacity mixed across selection")
@@ -112,8 +150,10 @@ ColumnLayout {
             text: AppSession.inspectorOpacityMixed
                   ? qsTr("Mixed")
                   : (Math.round(opacitySlider.value * 100) + "%")
-            color: AppSession.inspectorOpacityMixed
-                   ? Theme.colorOnSurfaceMuted : Theme.primary
+            color: !opacitySlider.enabled
+                   ? Theme.colorOnSurfaceDisabled
+                   : (AppSession.inspectorOpacityMixed
+                      ? Theme.colorOnSurfaceMuted : Theme.primary)
             font.pixelSize: Theme.fontMono
             font.family: "Noto Sans Mono"
             font.italic: AppSession.inspectorOpacityMixed
@@ -144,20 +184,35 @@ ColumnLayout {
             color: Theme.colorOnSurfaceMuted
             font.pixelSize: Theme.fontLabelSm
         }
+        // Photoshop's order: transparent pixels, image pixels, position, all.
         LockButton {
-            text: qsTr("Pixels")
+            icon.source: root.iconUrl("checkerboard")
+            explanation: qsTr("Lock transparent pixels")
+            actionId: "action.layer.lock-transparency"
+            checked: AppSession.activeLockAlpha
+            onClicked: AppSession.invokeAction(actionId)
+        }
+        LockButton {
+            icon.source: root.iconUrl("paint-brush")
+            explanation: qsTr("Lock image pixels")
             actionId: "action.layer.lock-pixels"
+            checked: AppSession.activeLockPixels
             onClicked: AppSession.invokeAction(actionId)
         }
         LockButton {
-            text: qsTr("Position")
+            icon.source: root.iconUrl("arrows-out-cardinal")
+            explanation: qsTr("Lock position")
             actionId: "action.layer.lock-position"
+            checked: AppSession.activeLockPosition
             onClicked: AppSession.invokeAction(actionId)
         }
         LockButton {
-            text: qsTr("All")
+            icon.source: root.iconUrl("lock")
+            explanation: qsTr("Lock all")
             actionId: "action.layer.lock-all"
+            checked: AppSession.activeLayerLocked
             onClicked: AppSession.invokeAction(actionId)
         }
+        Item { Layout.fillWidth: true }
     }
 }

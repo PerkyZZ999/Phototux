@@ -11,6 +11,7 @@ mod host_undo;
 mod layer_model;
 mod prefs;
 mod selection_path;
+mod text_adapter;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -85,6 +86,21 @@ fn recovery_entries_view_json(entries: &[phototux_io::RecoveryEntry]) -> String 
         })
         .collect();
     serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
+}
+
+/// File-dialog name filters for Export, in the order the dialog lists them.
+///
+/// Every raster format the writer handles, then the Photoshop subset, which is
+/// not a `RasterFormat` because it is layered rather than flat. Deriving the
+/// raster half means a format added to `phototux_io` reaches the dialog by
+/// existing, rather than by someone also remembering the QML.
+fn export_name_filters_json() -> String {
+    let mut filters: Vec<String> = phototux_io::RasterFormat::ALL
+        .iter()
+        .map(|format| format.name_filter())
+        .collect();
+    filters.push("Photoshop subset (*.psd)".to_owned());
+    serde_json::to_string(&filters).unwrap_or_else(|_| "[]".into())
 }
 
 /// The active layer's blend ranges, as the Properties panel reads them.
@@ -258,6 +274,10 @@ pub struct AppSession {
     active_mask_flag: i32,
     /// Whether the active layer clips to the one below it.
     active_layer_clips: bool,
+    active_layer_locked: bool,
+    active_lock_pixels: bool,
+    active_lock_position: bool,
+    active_lock_alpha: bool,
     mask_edit_active: bool,
     mask_density: f32,
     mask_feather: f32,
@@ -314,6 +334,12 @@ pub struct AppSession {
     /// The gradient shapes, for the tool options.
     gradient_kinds_json: String,
     align_ops_json: String,
+    /// File-dialog name filters for Export, built from `RasterFormat::ALL`.
+    ///
+    /// Published rather than written out in QML: the hand-written list there
+    /// offered four of the six formats the writer handles, so BMP and GIF
+    /// could be opened and never saved again.
+    export_name_filters_json: String,
     tool_slots_json: String,
     selection_preview_active: bool,
     selection_preview_x: i32,
@@ -337,6 +363,7 @@ pub struct AppSession {
     crop_preview_h: i32,
     compatibility_report: String,
     document_path: String,
+    source_path: String,
     graph_revision: i32,
     active_opacity: f32,
     active_blend: String,
@@ -469,6 +496,7 @@ pub struct AppSession {
     path_closed: bool,
     path_anchor_count: i32,
     path_edit_selected: i32,
+    path_geometry_json: String,
     text_frame_w: f32,
     text_frame_h: f32,
     text_wrap: bool,
@@ -494,6 +522,14 @@ pub struct AppSession {
     text_line_spacing: f32,
     text_alignment: i32,
     text_color_hex: String,
+    /// The layer a shaped text bake is waiting on, if one is in flight.
+    ///
+    /// `Some` only between the request and the shell's answer. It is taken, not
+    /// read, so a second answer to the same request — a duplicated signal, a
+    /// late failure after a success — finds nothing and does nothing.
+    pending_text_bake: Option<LayerId>,
+    /// The bake the shell should render, as JSON. Empty until one is asked for.
+    text_raster_request_json: String,
     pref_show_grid: bool,
     pref_show_rulers: bool,
     pref_snap: bool,
@@ -508,7 +544,10 @@ impl Default for AppSession {
         if let Some(path) = std::env::var_os("PHOTOTUX_DESKTOP_OPEN") {
             let path = PathBuf::from(path);
             session.io_busy = true;
-            session.status_text = format!("Opening {}…", path.display());
+            session.queue_notice_before_proxy(
+                NoticeLevel::Info,
+                format!("Opening {}…", path.display()),
+            );
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -602,6 +641,10 @@ impl AppSession {
             layer_model: <crate::layer_model::LayerListModel as qtbridge::QObjectHolder>::default_with_attached_qobject(),
             active_mask_flag: 0,
             active_layer_clips: false,
+            active_layer_locked: false,
+            active_lock_pixels: false,
+            active_lock_position: false,
+            active_lock_alpha: false,
             mask_edit_active: false,
             mask_density: 1.0,
             mask_feather: 0.0,
@@ -655,6 +698,7 @@ impl AppSession {
             )
             .unwrap_or_else(|_| "[]".into()),
             align_ops_json: phototux_engine::align_ops_json(),
+            export_name_filters_json: export_name_filters_json(),
             tool_slots_json: phototux_engine::tool_slots_json(),
             selection_preview_active: false,
             selection_preview_x: 0,
@@ -677,6 +721,7 @@ impl AppSession {
             crop_preview_h: 0,
             compatibility_report: String::new(),
             document_path: String::new(),
+            source_path: String::new(),
             graph_revision: 0,
             active_opacity: 1.0,
             active_blend: "normal".to_owned(),
@@ -765,6 +810,7 @@ impl AppSession {
             path_closed: false,
             path_anchor_count: 0,
             path_edit_selected: -1,
+            path_geometry_json: "[]".into(),
             text_frame_w: 0.0,
             text_frame_h: 0.0,
             text_wrap: false,
@@ -786,6 +832,8 @@ impl AppSession {
             text_line_spacing: 1.2,
             text_alignment: 0,
             text_color_hex: "#000000".into(),
+            pending_text_bake: None,
+            text_raster_request_json: String::new(),
             pref_show_grid: false,
             pref_show_rulers: false,
             pref_snap: true,
@@ -799,13 +847,17 @@ impl AppSession {
         let display = display_icc::discover_display_profile();
         out.display_profile_tag = display.soft_proof_tag();
         out.display_profile_name = display.name;
-        if let Some(error) = out.worker.start_error() {
-            out.status_text = error.to_owned();
-            out.io_error = error.to_owned();
+        // Copied out first: `start_error` borrows the worker, which lives in
+        // `out`, and queueing the notice needs `out` mutably.
+        let worker_error = out.worker.start_error().map(str::to_owned);
+        if let Some(error) = worker_error {
+            out.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
+            out.io_error = error;
         }
-        if let Some(error) = out.file_worker.start_error() {
-            out.status_text = error.to_owned();
-            out.io_error = error.to_owned();
+        let file_worker_error = out.file_worker.start_error().map(str::to_owned);
+        if let Some(error) = file_worker_error {
+            out.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
+            out.io_error = error;
         }
         out
     }
@@ -872,9 +924,9 @@ impl AppSession {
         }
         self.engine.replace_graph(graph);
         self.engine.document_path = Some(path.display().to_string());
+        self.engine.source_path = self.engine.document_path.clone();
         self.record_composite(ms);
         self.document_name = title;
-        self.dirty = true;
         self.io_busy = false;
         self.compatibility_report.clear();
         self.publish_pixel_snapshot_from_gpu();
@@ -910,6 +962,13 @@ impl AppSession {
     /// [`Self::report_action_error`], which does not run the device-lost check
     /// on text that can never name a device.
     fn report_gpu(&mut self, operation: &str, error: &str) {
+        // Logged before the branch, not after it. Every failure that arrives
+        // while the device is already lost was routed to `enter_gpu_lost` and
+        // returned, dropping the operation and the reason — so a failed
+        // *recovery* was indistinguishable from the loss it was trying to fix,
+        // and clicking Recover again produced the same toast and no new
+        // information anywhere, log included.
+        tracing::warn!(operation, %error, "GPU operation failed");
         let lower = error.to_ascii_lowercase();
         if lower.contains("device lost")
             || lower.contains("surface lost")
@@ -919,7 +978,6 @@ impl AppSession {
             return;
         }
         self.notify(NoticeLevel::Error, format!("{operation} failed: {error}"));
-        tracing::warn!(operation, %error, "operation failed");
     }
 
     /// Post a message to the toast channel.
@@ -932,6 +990,24 @@ impl AppSession {
     fn notify(&mut self, level: NoticeLevel, text: impl Into<String>) {
         self.notices.post(level, text);
         self.publish_notices();
+    }
+
+    /// Queue a notice during construction, when nothing may be emitted.
+    ///
+    /// `notify` ends in `publish_notices`, which raises `notices_json_changed`
+    /// — and qtbridge attaches the QObject proxy only *after* `Default`
+    /// returns, so emitting there aborts the process with "No proxy". Three
+    /// startup messages worked around that by assigning `status_text`
+    /// directly, which put an event in the field that carries state: the
+    /// status bar went on reading "Opening …" after the open had failed,
+    /// because nothing refreshes the summary while no document is open.
+    ///
+    /// Filling the queue and its JSON without notifying costs nothing — QML
+    /// reads the property when it first binds, which is after the proxy
+    /// exists.
+    fn queue_notice_before_proxy(&mut self, level: NoticeLevel, text: impl Into<String>) {
+        self.notices.post(level, text);
+        self.notices_json = self.notices.to_json();
     }
 
     fn publish_notices(&mut self) {
@@ -1027,6 +1103,30 @@ impl AppSession {
             active_layer_clips,
             self.engine.active_layer_clips(),
             active_layer_clips_changed
+        );
+        publish!(
+            self,
+            active_layer_locked,
+            self.engine.active_layer_change_blocked(),
+            active_layer_locked_changed
+        );
+        publish!(
+            self,
+            active_lock_pixels,
+            self.engine.active_lock_pixels(),
+            active_lock_pixels_changed
+        );
+        publish!(
+            self,
+            active_lock_position,
+            self.engine.active_lock_position(),
+            active_lock_position_changed
+        );
+        publish!(
+            self,
+            active_lock_alpha,
+            self.engine.active_lock_alpha(),
+            active_lock_alpha_changed
         );
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
@@ -1162,6 +1262,12 @@ impl AppSession {
             document_path,
             self.engine.document_path.clone().unwrap_or_default(),
             document_path_changed
+        );
+        publish!(
+            self,
+            source_path,
+            self.engine.source_path.clone().unwrap_or_default(),
+            source_path_changed
         );
         publish!(
             self,
@@ -1350,6 +1456,7 @@ impl AppSession {
             self.path_closed = false;
             self.path_anchor_count = 0;
             self.path_edit_selected = -1;
+            self.clear_path_geometry();
             return;
         };
         let path = graph.active_id().and_then(|id| {
@@ -1372,13 +1479,33 @@ impl AppSession {
                     .path_edit_anchor
                     .and_then(|i| i32::try_from(i).ok())
                     .unwrap_or(-1);
+                // `publish!` rather than an unconditional emit: this runs on
+                // every sync, and a projection republished per frame is what
+                // flooded AT-SPI and killed a session in T-009.
+                let geometry = path.anchors_json();
+                publish!(
+                    self,
+                    path_geometry_json,
+                    geometry,
+                    path_geometry_json_changed
+                );
             }
             None => {
                 self.path_closed = false;
                 self.path_anchor_count = 0;
                 self.path_edit_selected = -1;
+                self.clear_path_geometry();
             }
         }
+    }
+
+    fn clear_path_geometry(&mut self) {
+        publish!(
+            self,
+            path_geometry_json,
+            "[]".to_owned(),
+            path_geometry_json_changed
+        );
     }
 
     fn sync_filter_preview_fields(&mut self) {
@@ -1826,11 +1953,28 @@ impl AppSession {
         self.refresh_document_tabs_json();
     }
 
+    /// Write the modified flag and publish it to both views.
+    ///
+    /// `dirty` is published twice: as the `dirty` property the window title
+    /// and the close prompt bind to, and inside `documentTabsJson`, which the
+    /// tab strip is *handed* rather than binding. Three callers set the field
+    /// and emitted only the property, so the strip kept whatever it had last
+    /// been published with — a freshly opened `.ptx` wore an unsaved marker on
+    /// a document `Ctrl+W` would then close without asking, because the flag
+    /// the prompt reads was correctly `false`. Every write goes through here;
+    /// `the_modified_flag_is_written_in_one_place` holds that.
+    fn set_dirty(&mut self, dirty: bool) {
+        if self.dirty == dirty {
+            return;
+        }
+        self.dirty = dirty;
+        self.dirty_changed();
+        self.refresh_document_tabs_json();
+    }
+
     fn mark_dirty(&mut self) {
         if !self.dirty {
-            self.dirty = true;
-            self.dirty_changed();
-            self.refresh_document_tabs_json();
+            self.set_dirty(true);
         }
     }
 
@@ -2116,7 +2260,45 @@ impl AppSession {
     }
 
     fn invoke_command(&mut self, id: &str, args: CommandArgs) -> Result<(), CommandError> {
-        let effects = self.engine.invoke(id, args)?;
+        // Some commands change the graph and the pixels together, and the
+        // snapshot that takes both back has to be of the document as it is
+        // *now* — before the command moves the graph and before the host
+        // follow-up touches a pixel. A `TransformSnapshot` carries the graph
+        // beside every layer's pixels, so one entry covers both halves; the
+        // engine records it as a `Transform` step for the host to service.
+        //
+        // A profile conversion rewrites every layer's pixels (QA-014). The
+        // conversions to pixels — bake text, rasterize shape, rasterize smart
+        // object — replace a layer's semantic content with the raster the host
+        // writes straight afterwards, and they used to record a `Graph` entry,
+        // which reverses the graph and never asks the host: undo restored an
+        // editable text layer and left the baked glyphs in its raster, so the
+        // layer drew twice and saving persisted both (QA-015).
+        //
+        // Here rather than in each slot, because a slot is not how these are
+        // usually reached: the menus and the command palette both come through
+        // `invoke_action`, which calls this directly. A snapshot taken in the
+        // slot would have covered the one caller that does not use it.
+        let mut snapshot_taken = false;
+        if (id == command_id::DOCUMENT_CONVERT_PROFILE
+            || command_id::CONVERTS_TO_PIXELS.contains(&id))
+            && let Some(snapshot) = self.transform_snapshot_now()
+        {
+            self.transform_history.record(snapshot);
+            snapshot_taken = true;
+        }
+        let effects = match self.engine.invoke(id, args) {
+            Ok(effects) => effects,
+            Err(error) => {
+                // A refused conversion that left its snapshot behind would
+                // misalign the stack against the timeline for every step after
+                // it, the way merge and flatten guard with `discard_last`.
+                if snapshot_taken {
+                    self.transform_history.discard_last();
+                }
+                return Err(error);
+            }
+        };
         self.apply_command_effects(effects);
         Ok(())
     }
@@ -2142,6 +2324,10 @@ impl AppSession {
                 self.has_document && self.active_layer_kind == "smart-object" && !busy
             }
             "group_selected" => self.has_document && self.active_layer_kind == "group" && !busy,
+            // The lock is a refusal at the command (QA-001); this is the same
+            // rule reaching the chrome, so a locked layer's menu entries and
+            // sliders look as unavailable as they are.
+            "active_layer_unlocked" => self.has_document && !self.active_layer_locked && !busy,
             // Bake Text and Rasterize Shape each refuse anything else with a
             // sentence naming the kind they wanted. A menu entry that is
             // always live and always answers "this is not a text layer"
@@ -2152,6 +2338,25 @@ impl AppSession {
             // Distributing needs something in the middle to space out.
             "has_three_layers" => self.has_document && self.layer_count > 2 && !busy,
             _ => self.has_document && !busy,
+        }
+    }
+
+    /// Whether an action may run: its own enablement tag, and — for anything
+    /// that would change the active layer — the lock.
+    ///
+    /// Derived from `CHANGES_ACTIVE_LAYER` rather than tagged action by
+    /// action, so the menus and the commands cannot disagree about what a
+    /// locked layer allows: one list decides both. Tagging forty actions by
+    /// hand is how the two would drift.
+    fn action_is_enabled(&self, action: &phototux_engine::ActionDescriptor) -> bool {
+        if !self.action_enablement(&action.enablement) {
+            return false;
+        }
+        match action.command_id.as_deref() {
+            Some(id) if phototux_engine::command_id::CHANGES_ACTIVE_LAYER.contains(&id) => {
+                !self.active_layer_locked
+            }
+            _ => true,
         }
     }
 
@@ -2227,9 +2432,10 @@ impl AppSession {
                     // rather than doing nothing. The engine-side test
                     // `selection_modify_actions_carry_a_parsable_argument`
                     // keeps the shipped registry out of this branch.
-                    self.status_text =
-                        format!("Unreadable selection op: {}", arg.unwrap_or_default());
-                    self.status_text_changed();
+                    self.notify(
+                        NoticeLevel::Warning,
+                        format!("Unreadable selection op: {}", arg.unwrap_or_default()),
+                    );
                 }
             },
             "raster.flip" => self.flip_active_layer(arg != Some("v")),
@@ -2252,7 +2458,7 @@ impl AppSession {
             "document.flip" => self.flip_canvas(arg != Some("v")),
             "text.bake" => self.bake_text_layer(),
             "layer.align" => self.align_layers(arg.unwrap_or_default().to_owned()),
-            "shape.create" => self.add_shape_layer(arg.unwrap_or("rect").to_owned()),
+            "shape.create" => self.create_shape_layer(arg.unwrap_or("rect"), None),
             "shape.rasterize" => self.rasterize_shape_layer(),
             "smart.create" => self.convert_to_smart_object(),
             "smart.reset" => self.reset_smart_placement(),
@@ -2420,8 +2626,15 @@ impl AppSession {
             graph.color.mark_converted();
             graph.bump_generation();
         }
-        self.status_text =
-            format!("Converted pixels to {to} (from {from}) — this rewrote layer data");
+        // A message, not the summary: the status bar carries state that stays
+        // true, and the next refresh would erase this. It is also the one
+        // sentence that says the conversion was destructive, so losing it is
+        // worse than losing most.
+        self.notify(
+            NoticeLevel::Warning,
+            format!("Converted pixels to {to} (from {from}) — this rewrote layer data"),
+        );
+        self.status_text = self.engine.status_summary();
         self.status_text_changed();
     }
 
@@ -2648,7 +2861,7 @@ impl AppSession {
         self.active_doc_id = None;
         self.engine = SessionState::default();
         self.engine.set_viewport(viewport_width, viewport_height);
-        self.dirty = false;
+        self.set_dirty(false);
         Ok(())
     }
 
@@ -2686,7 +2899,7 @@ impl AppSession {
         self.engine.set_viewport(viewport_width, viewport_height);
         self.smart_sources = parked.smart_sources.into_iter().collect();
         self.document_name = parked.title;
-        self.dirty = parked.dirty;
+        self.set_dirty(parked.dirty);
         self.active_doc_id = Some(id);
         self.doc_registry.set_active_id(Some(id));
         if let Some(graph) = self.engine.graph.as_ref() {
@@ -3141,6 +3354,26 @@ impl AppSession {
         Notify = edit_target_label_changed
     );
     qproperty!(
+        "activeLayerLocked",
+        Member = active_layer_locked,
+        Notify = active_layer_locked_changed
+    );
+    qproperty!(
+        "activeLockPixels",
+        Member = active_lock_pixels,
+        Notify = active_lock_pixels_changed
+    );
+    qproperty!(
+        "activeLockPosition",
+        Member = active_lock_position,
+        Notify = active_lock_position_changed
+    );
+    qproperty!(
+        "activeLockAlpha",
+        Member = active_lock_alpha,
+        Notify = active_lock_alpha_changed
+    );
+    qproperty!(
         "activeLayerKind",
         Member = active_layer_kind,
         Notify = active_layer_kind_changed
@@ -3307,6 +3540,11 @@ impl AppSession {
         Notify = align_ops_json_changed
     );
     qproperty!(
+        "exportNameFiltersJson",
+        Member = export_name_filters_json,
+        Notify = export_name_filters_json_changed
+    );
+    qproperty!(
         "selectionPreviewActive",
         Member = selection_preview_active,
         Notify = selection_preview_active_changed
@@ -3410,6 +3648,11 @@ impl AppSession {
         "documentPath",
         Member = document_path,
         Notify = document_path_changed
+    );
+    qproperty!(
+        "sourcePath",
+        Member = source_path,
+        Notify = source_path_changed
     );
     qproperty!(
         "graphRevision",
@@ -3750,6 +3993,11 @@ impl AppSession {
         Notify = pref_reduced_motion_changed
     );
     qproperty!(
+        "pathGeometryJson",
+        Member = path_geometry_json,
+        Notify = path_geometry_json_changed
+    );
+    qproperty!(
         "guidesJson",
         Member = guides_json,
         Notify = guides_json_changed
@@ -3809,6 +4057,11 @@ impl AppSession {
         "textColorHex",
         Member = text_color_hex,
         Notify = text_color_hex_changed
+    );
+    qproperty!(
+        "textRasterRequestJson",
+        Member = text_raster_request_json,
+        Notify = text_raster_request_json_changed
     );
     qproperty!(
         "textFrameW",
@@ -3906,6 +4159,14 @@ impl AppSession {
     #[qsignal]
     fn active_layer_kind_changed(&mut self);
     #[qsignal]
+    fn active_layer_locked_changed(&mut self);
+    #[qsignal]
+    fn active_lock_pixels_changed(&mut self);
+    #[qsignal]
+    fn active_lock_position_changed(&mut self);
+    #[qsignal]
+    fn active_lock_alpha_changed(&mut self);
+    #[qsignal]
     fn active_layer_name_changed(&mut self);
     #[qsignal]
     fn selected_layer_count_changed(&mut self);
@@ -3937,6 +4198,17 @@ impl AppSession {
     fn atspi_projection_json_changed(&mut self);
     #[qsignal]
     fn recovery_entries_json_changed(&mut self);
+    /// A save has landed on disk. Not a property notification — the shell
+    /// needs the *event*, to finish a close or a quit the user answered with
+    /// Save.
+    #[qsignal]
+    fn document_saved(&mut self);
+    /// The shell should render `textRasterRequestJson` and answer.
+    ///
+    /// An event, not a property notification: two identical bakes in a row
+    /// publish the same JSON, and the second must still be rendered.
+    #[qsignal]
+    fn text_raster_requested(&mut self);
     #[qsignal]
     fn selection_active_changed(&mut self);
     #[qsignal]
@@ -3959,6 +4231,8 @@ impl AppSession {
     fn gradient_kinds_json_changed(&mut self);
     #[qsignal]
     fn align_ops_json_changed(&mut self);
+    #[qsignal]
+    fn export_name_filters_json_changed(&mut self);
     #[qsignal]
     fn tool_slots_json_changed(&mut self);
     #[qsignal]
@@ -4007,6 +4281,8 @@ impl AppSession {
     fn compatibility_report_changed(&mut self);
     #[qsignal]
     fn document_path_changed(&mut self);
+    #[qsignal]
+    fn source_path_changed(&mut self);
     #[qsignal]
     fn graph_revision_changed(&mut self);
     #[qsignal]
@@ -4163,6 +4439,8 @@ impl AppSession {
     #[qsignal]
     fn guides_json_changed(&mut self);
     #[qsignal]
+    fn path_geometry_json_changed(&mut self);
+    #[qsignal]
     fn grid_spacing_changed(&mut self);
     #[qsignal]
     fn text_layer_active_changed(&mut self);
@@ -4186,6 +4464,8 @@ impl AppSession {
     fn text_alignment_changed(&mut self);
     #[qsignal]
     fn text_color_hex_changed(&mut self);
+    #[qsignal]
+    fn text_raster_request_json_changed(&mut self);
     #[qsignal]
     fn text_frame_w_changed(&mut self);
     #[qsignal]
@@ -4217,7 +4497,11 @@ impl AppSession {
         }
     }
 
-    /// Convert document pixels into `profile` (destructive; DR-012).
+    /// Convert document pixels into `profile` (DR-012).
+    ///
+    /// The undo snapshot is taken in `invoke_command`, not here: the Image ▸
+    /// Color entries and the command palette reach the same command through
+    /// `invoke_action` without passing this slot at all.
     #[qslot]
     fn convert_document_profile(&mut self, profile: String) {
         if let Err(error) = self.invoke_command(
@@ -4314,7 +4598,7 @@ impl AppSession {
             self.notify(NoticeLevel::Warning, format!("Unknown action: {id}"));
             return;
         };
-        if !self.action_enablement(&action.enablement) {
+        if !self.action_is_enabled(action) {
             let label = action.label.replace('&', "");
             let reason = if self.io_busy
                 && matches!(
@@ -4384,7 +4668,7 @@ impl AppSession {
     #[qslot]
     fn action_enabled(&mut self, id: String) -> bool {
         phototux_engine::action_by_id(&id)
-            .map(|a| self.action_enablement(&a.enablement))
+            .map(|a| self.action_is_enabled(a))
             .unwrap_or(false)
     }
 
@@ -4569,7 +4853,7 @@ impl AppSession {
             command_id::FILTER_PREVIEW,
             CommandArgs::FilterPreview { kind },
         ) {
-            self.notify(NoticeLevel::Info, error.to_string());
+            self.report_action_error(&error);
         }
         self.sync_filter_preview_fields();
         self.emit_filter_preview_fields();
@@ -4581,7 +4865,7 @@ impl AppSession {
             command_id::FILTER_SET_PREVIEW_PARAMS,
             CommandArgs::FilterPreviewParams { p0, p1, p2 },
         ) {
-            self.notify(NoticeLevel::Info, error.to_string());
+            self.report_action_error(&error);
         }
         self.sync_filter_preview_fields();
         self.emit_filter_preview_fields();
@@ -4590,7 +4874,7 @@ impl AppSession {
     #[qslot]
     fn filter_gallery_apply(&mut self) {
         if let Err(error) = self.invoke_command(command_id::FILTER_COMMIT, CommandArgs::None) {
-            self.notify(NoticeLevel::Info, error.to_string());
+            self.report_action_error(&error);
             return;
         }
         self.filter_gallery_open = false;
@@ -4907,8 +5191,15 @@ impl AppSession {
     fn reset_workspace(&mut self) {
         self.workspace.reset_essentials();
         self.prefs.reset_workspace_essentials();
+        // The reset is not done until the shell is told. This slot used to end
+        // at the preference fields, which carry panel *visibility* but not the
+        // dock — so an auto-hidden Properties panel stayed hidden while the
+        // toast said "Workspace reset to Essentials", and the only way back
+        // was to toggle the panel off and on in the Window menu.
+        // `persist_workspace_visibility` writes prefs as well, so it replaces
+        // the `persist_prefs` that stood here.
+        self.persist_workspace_visibility();
         self.sync_pref_fields_from_store();
-        self.persist_prefs();
         self.emit_pref_fields();
         self.pref_effective_json_changed();
         self.notify(NoticeLevel::Info, "Workspace reset to Essentials");
@@ -5231,8 +5522,7 @@ impl AppSession {
             FileEvent::Opened { path, raster } => self.handle_raster_opened(path, raster),
             FileEvent::PtxOpened { path, document } => {
                 self.apply_opened_ptx(path, document);
-                self.dirty = false;
-                self.dirty_changed();
+                self.set_dirty(false);
             }
             FileEvent::PsdOpened {
                 path,
@@ -5334,7 +5624,11 @@ impl AppSession {
                 self.engine.replace_graph(graph);
                 self.record_composite(ms);
                 self.document_name = layer_name;
-                self.dirty = false;
+                // Where it came from, not where Save writes: a raster import
+                // has no `.ptx` yet, and `document_path` stays unset so Save
+                // asks. This is what says the file is already open.
+                self.engine.source_path = Some(path.display().to_string());
+                self.set_dirty(false);
                 self.io_busy = false;
                 self.publish_pixel_snapshot_from_gpu();
                 self.sync_from_engine();
@@ -5373,7 +5667,10 @@ impl AppSession {
         self.engine.replace_graph(graph);
         self.record_composite(ms);
         self.document_name = title;
-        self.dirty = true;
+        self.engine.source_path = Some(path.display().to_string());
+        // A PSD import has no `.ptx` of its own yet, so it is genuinely
+        // unsaved work — unlike a `.ptx` open, which is the file on disk.
+        self.set_dirty(true);
         self.io_busy = false;
         self.compatibility_report = format_report(&report);
         self.publish_pixel_snapshot_from_gpu();
@@ -5424,11 +5721,12 @@ impl AppSession {
         self.io_busy = false;
         if let Some(pinned) = self.pending_save_generation.take() {
             let clean = self.engine.mark_persisted(pinned);
-            self.dirty = !clean;
+            self.set_dirty(!clean);
         } else {
-            self.dirty = false;
+            self.set_dirty(false);
         }
         self.engine.document_path = Some(path.display().to_string());
+        self.engine.source_path = self.engine.document_path.clone();
         self.document_name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -5436,6 +5734,10 @@ impl AppSession {
         self.notify(NoticeLevel::Info, format!("Saved {}", path.display()));
         self.sync_from_engine();
         self.emit_doc_fields();
+        // The shell may be holding a close or a quit that the user answered
+        // with Save. Nothing else says a save *finished*: `dirty` also goes
+        // false when a discard is acknowledged, and the toast is a message.
+        self.document_saved();
     }
 
     fn now_ms() -> f64 {
@@ -5535,7 +5837,7 @@ impl AppSession {
         {
             self.open_new_gpu_document();
             self.document_name = "Untitled".to_owned();
-            self.dirty = false;
+            self.set_dirty(false);
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
         }
@@ -5561,7 +5863,7 @@ impl AppSession {
         {
             self.open_new_gpu_document();
             self.document_name = "Untitled".to_owned();
-            self.dirty = false;
+            self.set_dirty(false);
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
         }
@@ -5589,6 +5891,27 @@ impl AppSession {
                 return;
             }
         };
+        // Already open? Raise that tab rather than making a second one.
+        // Without this the same file ended up in two tabs with two independent
+        // histories, and a save from one silently lost the other's edits.
+        // Photoshop raises the existing tab; so does this.
+        let wanted = path.display().to_string();
+        if let Some(id) = self
+            .doc_registry
+            .tab_for_path(&wanted, self.engine.source_path.as_deref())
+        {
+            if self.active_doc_id != Some(id) {
+                if let Err(error) = self.activate_document_id(id) {
+                    self.fail_io("Open", &error);
+                    return;
+                }
+            }
+            self.notify(
+                NoticeLevel::Info,
+                format!("{} is already open", path.display()),
+            );
+            return;
+        }
         self.io_busy = true;
         self.io_error.clear();
         self.compatibility_report.clear();
@@ -5840,6 +6163,12 @@ impl AppSession {
         // Nothing parks these on the way out, and each one is a whole document
         // of pixels: closing tabs without this leaks one per smart object.
         self.smart_sources.clear();
+        // Out of the strip order too, not only out of the active slot: closing
+        // is the one path that removes a tab, and a closed active document is
+        // never parked, so nothing else would take it out.
+        if let Some(id) = self.active_doc_id {
+            self.doc_registry.forget(id);
+        }
         self.active_doc_id = None;
         self.doc_registry.set_active_id(None);
         self.selection_preview_active = false;
@@ -5849,14 +6178,14 @@ impl AppSession {
             if let Err(error) = self.activate_document_id(next_id) {
                 self.notify(NoticeLevel::Info, error);
                 self.document_name = "Untitled".to_owned();
-                self.dirty = false;
+                self.set_dirty(false);
                 self.sync_from_engine();
                 self.emit_doc_fields();
                 self.refresh_document_tabs_json();
             }
         } else {
             self.document_name = "Untitled".to_owned();
-            self.dirty = false;
+            self.set_dirty(false);
             self.sync_from_engine();
             self.emit_doc_fields();
             self.refresh_document_tabs_json();
@@ -5885,10 +6214,7 @@ impl AppSession {
 
     #[qslot]
     fn acknowledge_discard(&mut self) {
-        if self.dirty {
-            self.dirty = false;
-            self.dirty_changed();
-        }
+        self.set_dirty(false);
     }
 
     #[qslot]
@@ -6268,14 +6594,13 @@ impl AppSession {
             width: width as u32,
             height: height as u32,
         };
-        self.commit_selection_edit("selection apply", || match shape {
-            SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
-            SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
-            SelectionShape::Mask => Ok(()),
-        });
-        self.selection_preview_active = false;
-        self.clear_selection_path();
-        let _ = self.invoke_command(
+        // The engine decides first. It refuses a marquee that covers no
+        // document pixel (QA-005), and the GPU mask is the real authority on
+        // coverage — so writing the mask before asking would leave the two
+        // disagreeing: the engine still holding the previous selection while
+        // the texture held none of it, with a host undo snapshot pushed for an
+        // edit that never happened.
+        if let Err(error) = self.invoke_command(
             command_id::SELECTION_REPLACE,
             CommandArgs::SelectionReplace {
                 shape,
@@ -6284,7 +6609,23 @@ impl AppSession {
                 polygon: Vec::new(),
                 label: label.to_owned(),
             },
-        );
+        ) {
+            // Said, not swallowed. The zero-area click that deselects returns
+            // above this, so a refusal here is a deliberate drag that selected
+            // nothing, and the only other feedback would be marching ants that
+            // never appear.
+            self.report_action_error(&error);
+            self.selection_preview_active = false;
+            self.clear_selection_path();
+            return;
+        }
+        self.commit_selection_edit("selection apply", || match shape {
+            SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
+            SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
+            SelectionShape::Mask => Ok(()),
+        });
+        self.selection_preview_active = false;
+        self.clear_selection_path();
     }
 
     fn clear_selection_path(&mut self) {
@@ -6959,42 +7300,145 @@ impl AppSession {
         }
     }
 
+    /// Create a text layer with its frame at the document point clicked.
     #[qslot]
-    fn add_text_layer(&mut self, text: String) {
-        if let Err(error) =
-            self.invoke_command(command_id::TEXT_CREATE, CommandArgs::TextCreate { text })
-        {
+    fn add_text_layer(&mut self, text: String, x: f32, y: f32) {
+        if let Err(error) = self.invoke_command(
+            command_id::TEXT_CREATE,
+            CommandArgs::TextCreate { text, x, y },
+        ) {
             self.report_action_error(&error);
         }
     }
 
-    /// Bake active text layer to raster pixels (CPU glyph bake → GPU upload).
+    /// Bake the active text layer to pixels, in the face the editor shows.
+    ///
+    /// Two renderers answer this, and which one does is the whole of QA-008.
+    /// The engine's `bake_text_rgba8` draws a 5×7 ASCII alphabet — right for a
+    /// headless reference, wrong as the thing a user gets, because the canvas
+    /// changed face the instant the text became pixels. So the request goes to
+    /// the shell first, which renders the layer through Qt's own text stack —
+    /// the same stack that drew the preview — and calls back with a PNG.
+    ///
+    /// The bake is not *committed* here. Nothing changes until the pixels
+    /// exist: a shell that never answers, or answers with a failure, leaves an
+    /// editable text layer rather than a raster layer with no glyphs in it.
     #[qslot]
     fn bake_text_layer(&mut self) {
-        let Some(id) = self.active_id() else {
+        let Some((id, content, w, h)) = self.text_bake_target() else {
             return;
         };
-        let Some(graph) = self.engine.graph.as_ref() else {
+        let path =
+            std::env::temp_dir().join(format!("phototux-text-{}-{}.png", std::process::id(), id.0));
+        let path = path.to_string_lossy().into_owned();
+        match text_adapter::raster_request_json(&content, w, h, &path) {
+            Ok(request) => {
+                self.pending_text_bake = Some(id);
+                self.text_raster_request_json = request;
+                self.text_raster_request_json_changed();
+                self.text_raster_requested();
+            }
+            Err(error) => {
+                // The request could not even be described. Nothing is wrong
+                // with the shell, so asking it would only lose the reason.
+                tracing::warn!(error = %error, "text bake request");
+                self.finish_text_bake_with_fallback(id, &content, w, h);
+            }
+        }
+    }
+
+    /// The shell rendered the text; take the pixels and commit the bake.
+    ///
+    /// `path` is the file this host named in its own request — the shell
+    /// echoes it back rather than choosing one, so a stale or foreign path is
+    /// a mismatch to refuse, not a file to read.
+    #[qslot]
+    fn text_raster_ready(&mut self, path: String) {
+        let Some(id) = self.pending_text_bake.take() else {
             return;
         };
-        let Some(layer) = graph.get(id) else {
+        let Some((current, content, w, h)) = self.text_bake_target() else {
             return;
         };
-        if layer.kind != LayerKind::Text {
-            self.notify(NoticeLevel::Warning, "Select a text layer to bake it.");
+        if current != id {
+            // The active layer moved while the shell was rendering. Baking the
+            // new layer with the old layer's glyphs would be worse than not
+            // baking at all.
             return;
         }
-        let Some(content) = layer.text.clone() else {
-            return;
-        };
-        let (w, h) = (graph.size.width, graph.size.height);
-        let pixels = match bake_text_rgba8(&content, w, h) {
-            Ok(p) => p,
+        let rendered = phototux_io::decode_path(std::path::Path::new(&path));
+        let _ = std::fs::remove_file(&path);
+        let pixels = match rendered.map_err(|e| e.to_string()).and_then(|raster| {
+            text_adapter::compose_into_document(
+                raster.pixels(),
+                raster.width(),
+                raster.height(),
+                w,
+                h,
+            )
+        }) {
+            Ok(pixels) => pixels,
             Err(error) => {
-                self.report_gpu("bake text", &error);
+                tracing::warn!(error = %error, "shaped text bake");
+                self.finish_text_bake_with_fallback(id, &content, w, h);
                 return;
             }
         };
+        self.commit_text_bake(id, pixels);
+    }
+
+    /// The shell could not render the text — fall back to the engine bake.
+    ///
+    /// Reported at `warn`, not to the user: the bake still happens, and a
+    /// notice about a renderer they did not choose would be noise. The visible
+    /// difference is the face, which the log names the reason for.
+    #[qslot]
+    fn text_raster_failed(&mut self, reason: String) {
+        let Some(id) = self.pending_text_bake.take() else {
+            return;
+        };
+        tracing::warn!(reason = %reason, "text render fell back to the engine bake");
+        let Some((current, content, w, h)) = self.text_bake_target() else {
+            return;
+        };
+        if current != id {
+            return;
+        }
+        self.finish_text_bake_with_fallback(id, &content, w, h);
+    }
+
+    /// The active layer, if it is text with content worth baking.
+    fn text_bake_target(&mut self) -> Option<(LayerId, TextContent, u32, u32)> {
+        let id = self.active_id()?;
+        let graph = self.engine.graph.as_ref()?;
+        let layer = graph.get(id)?;
+        if layer.kind != LayerKind::Text {
+            self.notify(NoticeLevel::Warning, "Select a text layer to bake it.");
+            return None;
+        }
+        let content = layer.text.clone()?;
+        Some((id, content, graph.size.width, graph.size.height))
+    }
+
+    fn finish_text_bake_with_fallback(
+        &mut self,
+        id: LayerId,
+        content: &TextContent,
+        w: u32,
+        h: u32,
+    ) {
+        match bake_text_rgba8(content, w, h) {
+            Ok(pixels) => self.commit_text_bake(id, pixels),
+            Err(error) => self.report_gpu("bake text", &error),
+        }
+    }
+
+    /// Turn the layer into a raster one and upload the glyphs.
+    ///
+    /// Ordered so a refused command leaves the pixels unwritten: the command
+    /// discards the editable text, and writing glyphs onto a layer that is
+    /// still text would show baked type the user could still edit.
+    fn commit_text_bake(&mut self, id: LayerId, pixels: Vec<u8>) {
         if let Err(error) = self.invoke_command(command_id::TEXT_BAKE, CommandArgs::None) {
             self.report_action_error(&error);
             return;
@@ -7279,10 +7723,19 @@ impl AppSession {
             .map(|error| error.to_string())
     }
 
-    /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
+    /// Create a shape layer centred on the document point clicked.
     #[qslot]
-    fn add_shape_layer(&mut self, kind: String) {
-        let Some(preset) = ShapePreset::parse(&kind) else {
+    fn add_shape_layer(&mut self, kind: String, x: f32, y: f32) {
+        self.create_shape_layer(&kind, Some((x, y)));
+    }
+
+    /// Create a shape layer (`kind`: rect|ellipse|polygon|gradient|line|live).
+    ///
+    /// `at` is where the pointer was, or `None` when the command came from a
+    /// menu and there is no pointer to honour — the preset then lands where it
+    /// always did, a fraction of the document.
+    fn create_shape_layer(&mut self, kind: &str, at: Option<(f32, f32)>) {
+        let Some(preset) = ShapePreset::parse(kind) else {
             // Refused rather than defaulted to a rectangle: a shape the user
             // did not ask for is a document mutation they then have to notice.
             // `shape_create_actions_name_a_known_preset` keeps the shipped
@@ -7295,7 +7748,10 @@ impl AppSession {
         };
         let doc_w = graph.size.width;
         let doc_h = graph.size.height;
-        let content = preset.content(doc_w, doc_h);
+        let content = match at {
+            Some((x, y)) => preset.content_at(doc_w, doc_h, x, y),
+            None => preset.content(doc_w, doc_h),
+        };
         match self.invoke_command(
             command_id::SHAPE_CREATE,
             CommandArgs::ShapeCreate {
@@ -7901,6 +8357,14 @@ impl AppSession {
         }
         self.engine.announce("Selection copied to layer mask");
         self.mark_dirty();
+        // The mask is on the GPU now, and nothing else will ask for a new
+        // frame: `CommandEffects::host_chrome` carries `recomposite: false`,
+        // because the command that raised this follow-up did not itself touch
+        // any pixels. Without this the mask was written and the canvas went on
+        // showing the composite from before it — Select ▸ Selection to Mask
+        // looked like it had done nothing at all until some later edit
+        // happened to force a repaint.
+        self.recomposite();
         self.sync_from_engine();
         self.emit_layer_fields();
         self.status_text = self.engine.status_summary();
@@ -8314,10 +8778,12 @@ impl AppSession {
 
     #[qslot]
     fn path_add_anchor(&mut self, x: f32, y: f32) {
-        let _ = self.invoke_command(
+        if let Err(error) = self.invoke_command(
             command_id::PATH_ADD_ANCHOR,
             CommandArgs::PathAddAnchor { x, y, index: None },
-        );
+        ) {
+            self.report_action_error(&error);
+        }
         self.sync_path_edit_fields();
         self.emit_path_edit_fields();
     }
@@ -8638,7 +9104,7 @@ impl AppSession {
         let (Ok(w), Ok(h)) = (u32::try_from(width), u32::try_from(height)) else {
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        let size = phototux_engine::DocumentSize::new(w, h);
         // Refused, not clamped to 32768: the compositor allocates a texture per
         // layer at this size, and past the device limit wgpu fails it and every
         // frame after logs a validation error over a canvas that draws nothing.
@@ -8691,7 +9157,7 @@ impl AppSession {
             self.notify(NoticeLevel::Warning, format!("Unknown anchor: {anchor}"));
             return;
         };
-        let size = phototux_engine::DocumentSize::new(w.max(1), h.max(1));
+        let size = phototux_engine::DocumentSize::new(w, h);
         if let Err(error) = phototux_engine::DocumentError::check_size(size) {
             self.notify(NoticeLevel::Warning, error.to_string());
             return;

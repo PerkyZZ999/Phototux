@@ -34,7 +34,15 @@ ToolButton {
                : (control.hovered && control.enabled
                   ? Theme.surfaceContainerHigh
                   : "transparent")
-        border.color: control.checked ? Theme.primary : "transparent"
+        // Keyboard focus has to be visible on the one control that carries no
+        // label. These buttons are in the tab chain — the toolbar's Undo and
+        // Redo, every panel header's actions — and they drew nothing at all
+        // when they took focus, so tabbing across the chrome moved an
+        // invisible cursor. `visualFocus` rather than `activeFocus`, matching
+        // `ThemedButton`: a click should not leave a ring behind it.
+        border.color: control.visualFocus
+                      ? Theme.focusRing
+                      : (control.checked ? Theme.primary : "transparent")
         border.width: 1
     }
 }

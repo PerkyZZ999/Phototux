@@ -14,7 +14,7 @@ use crate::layer::{
     LayerTransform, PaintTarget, TextContent,
 };
 use crate::layer_style::LayerStyle;
-use crate::selection::{SelectionModifyOp, SelectionShape};
+use crate::selection::{SelectionModifyOp, SelectionRect, SelectionShape};
 use crate::undo::actions as undo_actions;
 use crate::{SessionState, tool_id};
 
@@ -29,12 +29,40 @@ impl SessionState {
         command_id::ALL.contains(&id)
     }
 
+    /// Refuse a command that would change a layer the user has locked.
+    ///
+    /// One check for the whole set, at the one place every command passes
+    /// through, rather than a precondition repeated in thirty bodies — see
+    /// [`command_id::CHANGES_ACTIVE_LAYER`] for what is in the set and
+    /// [`command_id::KEEPS_WORKING_WHEN_LOCKED`] for why each of the rest is not.
+    ///
+    /// Without a document, or with no active layer, there is nothing to protect
+    /// and the command goes on to fail on its own terms — a lock must not become
+    /// the reason a command reports for something else being wrong.
+    fn reject_if_active_layer_locked(&self, id: &str) -> Result<(), CommandError> {
+        if !command_id::CHANGES_ACTIVE_LAYER.contains(&id) {
+            return Ok(());
+        }
+        let blocked = self
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.active_id().and_then(|active| graph.get(active)))
+            .is_some_and(crate::layer::Layer::change_blocked);
+        if blocked {
+            return Err(CommandError::Rejected(
+                "this layer is locked — unlock it to change it",
+            ));
+        }
+        Ok(())
+    }
+
     /// Invoke a named command. Graph/history mutations for document scope run here;
     /// GPU stroke/selection/transform undo follow-ups are returned in [`CommandEffects::host_history`].
     ///
     /// # Errors
     /// Returns [`CommandError`] when the command is unknown, preconditions fail, or graph mutation fails.
     pub fn invoke(&mut self, id: &str, args: CommandArgs) -> Result<CommandEffects, CommandError> {
+        self.reject_if_active_layer_locked(id)?;
         match id {
             command_id::HISTORY_UNDO => self.cmd_history_undo(),
             command_id::HISTORY_REDO => self.cmd_history_redo(),
@@ -267,15 +295,34 @@ impl SessionState {
                 match arg {
                     Some("pixels") => locks.pixels = !locks.pixels,
                     Some("position") => locks.position = !locks.position,
-                    Some("all") => locks.all = !locks.all,
                     Some("alpha") => locks.alpha = !locks.alpha,
-                    _ => locks.all = !locks.all,
+                    // Lock All is a superset switch, both ways. It used to
+                    // turn the others on through an `||` in the returned
+                    // flags and leave them on when it was turned off, so
+                    // locking everything and then unlocking it left the layer
+                    // pinned and unpaintable with all three buttons off.
+                    _ => {
+                        let next = !locks.all;
+                        locks = crate::layer::LockFlags {
+                            pixels: next,
+                            position: next,
+                            all: next,
+                            alpha: next,
+                        };
+                    }
+                }
+                // Turning an individual lock off has to release Lock All with
+                // it: the predicates fold `all` in, so the flag the user just
+                // cleared would go on blocking with nothing on screen saying
+                // which lock was still holding.
+                if !(locks.pixels && locks.position) {
+                    locks.all = false;
                 }
                 Ok(CommandArgs::SetLocks {
-                    pixels: locks.pixels || locks.all,
-                    position: locks.position || locks.all,
+                    pixels: locks.pixels,
+                    position: locks.position,
                     all: locks.all,
-                    alpha: locks.alpha || locks.all,
+                    alpha: locks.alpha,
                 })
             }
             _ => {
@@ -1434,11 +1481,27 @@ impl SessionState {
         if profile.trim().is_empty() {
             return Err(CommandError::InvalidArgument("empty profile"));
         }
-        let Some(graph) = self.graph.as_mut() else {
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        // Assigning a profile retags the document without touching a pixel,
+        // and Photoshop lets you take it back. It recorded nothing at all: the
+        // generation moved, the document went dirty, and Ctrl+Z walked past it
+        // to whatever came before.
+        let prev = graph.color.clone();
         graph.color.assign_profile(profile);
+        if graph.color == prev {
+            return Err(CommandError::Rejected("profile unchanged"));
+        }
         graph.bump_generation();
+        let generation = graph.generation;
+        let next = graph.color.clone();
+        history.push_graph_applied(
+            crate::GraphCommand::SetColorState { prev, next },
+            "Assign profile",
+            generation,
+        );
         Ok(CommandEffects {
             recomposite: false,
             dirty: true,
@@ -1449,7 +1512,7 @@ impl SessionState {
             host_history: None,
             host_follow_up: HostFollowUp::None,
             created_layer: None,
-            generation: graph.generation,
+            generation,
         })
     }
 
@@ -1466,12 +1529,38 @@ impl SessionState {
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        let prev = graph.color.clone();
         let from = graph.color.assigned_profile.clone();
         let plan = graph.color.begin_convert(profile.clone());
         if !plan.rewrite_pixels {
             graph.color.mark_converted();
         }
         graph.bump_generation();
+        let generation = graph.generation;
+        let next = graph.color.clone();
+        // Two shapes of edit, and they take back differently (QA-014).
+        //
+        // A retag touches only the colour state, so it records the same graph
+        // entry Assign Profile does. A conversion that rewrites pixels has one
+        // half in the graph and one on the GPU, and neither `Graph` nor
+        // `Transform` covers both on its own — but a `TransformSnapshot`
+        // carries the whole graph alongside every layer's pixels, so the
+        // *host* half already covers both. The entry is therefore a Transform
+        // one, and the host takes its snapshot before invoking, exactly as
+        // merge and flatten do.
+        if plan.rewrite_pixels {
+            self.history.push_transform("Convert profile", generation);
+        } else {
+            self.history.push_graph_applied(
+                crate::GraphCommand::SetColorState { prev, next },
+                "Convert profile",
+                generation,
+            );
+        }
+        let graph = self
+            .graph
+            .as_ref()
+            .ok_or(CommandError::Document(DocumentError::NoDocument))?;
         let mut effects = CommandEffects {
             recomposite: plan.rewrite_pixels,
             dirty: true,
@@ -1494,11 +1583,12 @@ impl SessionState {
         let CommandArgs::SetIcc { bytes } = args else {
             return Err(CommandError::InvalidArgument("expected SetIcc"));
         };
-        let Some(graph) = self.graph.as_mut() else {
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
-        let prev = graph.color.embedded_icc.clone();
-        if prev == bytes {
+        let prev = graph.color.clone();
+        if prev.embedded_icc == bytes {
             return Err(CommandError::Rejected("ICC unchanged"));
         }
         if let Err(reason) = graph.color.set_embedded_icc(bytes) {
@@ -1511,7 +1601,17 @@ impl SessionState {
         } else {
             "Clear ICC"
         };
-        self.history.push_transform(label, generation);
+        // A graph entry, not a transform one. The ICC bytes live in the graph
+        // and the host has never had a snapshot of them, so the `Transform`
+        // entry this used to record sent undo to the host's transform stack —
+        // which would restore whatever layer pixels were last committed there,
+        // reversing an unrelated edit and leaving the profile embedded.
+        let next = graph.color.clone();
+        history.push_graph_applied(
+            crate::GraphCommand::SetColorState { prev, next },
+            label,
+            generation,
+        );
         self.announce(label);
         Ok(CommandEffects {
             recomposite: false,
@@ -1709,6 +1809,35 @@ impl SessionState {
         Ok(effects)
     }
 
+    /// Refuse a selection that covers no document pixels.
+    ///
+    /// "Empty" used to mean "empty rectangle": a zero-area drag was refused
+    /// and a ten-by-ten box dragged wholly into the letterbox beside the page
+    /// was accepted. `selection.active` went true, the status bar read `pixel
+    /// selection`, the marching ants drew — and every command that needs a
+    /// selection then ran and did nothing, silently, because the GPU mask
+    /// covered nothing.
+    ///
+    /// A drag that runs *past* the edge is kept whole, which is the useful
+    /// behaviour and is what Photoshop does: only the entirely-outside case is
+    /// refused. The bounds the user dragged are what get stored, so anything
+    /// that later re-derives from them — a transform, an expand — works from
+    /// the rectangle they drew rather than a clamped one.
+    fn reject_selection_off_canvas(&self, rect: SelectionRect) -> Result<(), CommandError> {
+        let canvas = SelectionRect {
+            x: 0,
+            y: 0,
+            width: self.size.width,
+            height: self.size.height,
+        };
+        if rect.intersect(canvas).is_some() {
+            return Ok(());
+        }
+        Err(CommandError::Rejected(
+            "the selection is outside the canvas",
+        ))
+    }
+
     fn cmd_selection_replace(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
         let CommandArgs::SelectionReplace {
             shape,
@@ -1728,12 +1857,14 @@ impl SessionState {
                 if rect.width == 0 || rect.height == 0 {
                     return Err(CommandError::Rejected("the selection is empty"));
                 }
+                self.reject_selection_off_canvas(rect)?;
                 self.selection.set_rect(rect, combine);
             }
             SelectionShape::Ellipse => {
                 if rect.width == 0 || rect.height == 0 {
                     return Err(CommandError::Rejected("the selection is empty"));
                 }
+                self.reject_selection_off_canvas(rect)?;
                 self.selection.set_ellipse(rect, combine);
             }
             SelectionShape::Mask => {
@@ -1744,6 +1875,7 @@ impl SessionState {
                 }
                 let bounds = crate::SelectionState::polygon_bounds(&polygon)
                     .ok_or(CommandError::Rejected("invalid polygon bounds"))?;
+                self.reject_selection_off_canvas(bounds)?;
                 self.selection.set_mask_polygon(bounds, combine);
             }
         }
@@ -2091,7 +2223,7 @@ impl SessionState {
     }
 
     fn cmd_text_create(&mut self, args: CommandArgs) -> Result<CommandEffects, CommandError> {
-        let CommandArgs::TextCreate { text } = args else {
+        let CommandArgs::TextCreate { text, x, y } = args else {
             return Err(CommandError::InvalidArgument("expected text"));
         };
         let content = TextContent {
@@ -2102,7 +2234,17 @@ impl SessionState {
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        // The frame's position is the layer's translation — that is what
+        // `textOriginX`/`Y` publish and what the on-canvas editor is drawn
+        // from. Clamped into the document so a click in the letterbox still
+        // produces a frame the user can see.
+        let at_x = x.clamp(0.0, graph.size.width as f32);
+        let at_y = y.clamp(0.0, graph.size.height as f32);
         let id = graph.add_text_top(None, content)?;
+        if let Some(layer) = graph.get_mut(id) {
+            layer.transform.translate_x = at_x;
+            layer.transform.translate_y = at_y;
+        }
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
             .get(id)
@@ -2189,8 +2331,17 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         }
         let generation = self.bump_document_generation();
-        self.history
-            .push_graph_applied(command, "Bake text", generation);
+        // The command is applied but not pushed onto the graph stack, and the
+        // entry is a Transform one: this conversion has one half in the graph
+        // and one on the GPU, where the host writes the pixels it just
+        // produced. A `Graph` entry reverses the graph and never asks the
+        // host, so the undo restored the semantic layer and left the baked
+        // pixels behind it — the layer drew twice, and saving persisted both.
+        // A `TransformSnapshot` carries the whole graph beside every layer's
+        // pixels, so one Transform entry takes back both halves; the host
+        // snapshots before invoking, exactly as a profile conversion does
+        // (QA-015, and see `command_id::CONVERTS_TO_PIXELS`).
+        self.history.push_transform("Bake text", generation);
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -2261,8 +2412,17 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         }
         let generation = self.bump_document_generation();
-        self.history
-            .push_graph_applied(command, "Rasterize shape", generation);
+        // The command is applied but not pushed onto the graph stack, and the
+        // entry is a Transform one: this conversion has one half in the graph
+        // and one on the GPU, where the host writes the pixels it just
+        // produced. A `Graph` entry reverses the graph and never asks the
+        // host, so the undo restored the semantic layer and left the baked
+        // pixels behind it — the layer drew twice, and saving persisted both.
+        // A `TransformSnapshot` carries the whole graph beside every layer's
+        // pixels, so one Transform entry takes back both halves; the host
+        // snapshots before invoking, exactly as a profile conversion does
+        // (QA-015, and see `command_id::CONVERTS_TO_PIXELS`).
+        self.history.push_transform("Rasterize shape", generation);
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -2391,6 +2551,16 @@ impl SessionState {
         let CommandArgs::FilterParameters { slots } = args else {
             return Err(CommandError::InvalidArgument("expected filter params"));
         };
+        // Refused, not clamped. The slots arrive from QML sliders, and a
+        // viewport division during a drag is enough to make one NaN; clamping
+        // would have to invent a value the user did not ask for, while
+        // refusing keeps the one they already had. `clamped` is a backstop
+        // below this, not the guard.
+        if slots.iter().any(|slot| !slot.is_finite()) {
+            return Err(CommandError::InvalidArgument(
+                "adjustment slots must be finite",
+            ));
+        }
         let id = self.active_layer_id()?;
         let prev = self
             .graph
@@ -2666,6 +2836,26 @@ impl SessionState {
         &mut self,
         f: impl FnOnce(&mut crate::paths::VectorPath) -> Result<(), CommandError>,
     ) -> Result<(Option<LayerId>, crate::GraphCommand), CommandError> {
+        self.with_active_path_inner(false, f)
+    }
+
+    /// The document's path store, or the active shape layer's path, ready to
+    /// edit — creating the first document path when `start_new` says the caller
+    /// is adding an anchor.
+    ///
+    /// Only adding creates. Moving, deleting or closing a path that does not
+    /// exist is a real refusal and stays one; but Path Edit's first click on a
+    /// non-shape layer had nowhere to put the anchor and was refused silently,
+    /// so the tool did nothing at all on a raster layer — the count stayed at
+    /// zero and its own copy went on saying "Click empty to add".
+    ///
+    /// The `prev` snapshot is taken before the new path exists, so undo removes
+    /// it with the anchor that caused it.
+    fn with_active_path_inner(
+        &mut self,
+        start_new: bool,
+        f: impl FnOnce(&mut crate::paths::VectorPath) -> Result<(), CommandError>,
+    ) -> Result<(Option<LayerId>, crate::GraphCommand), CommandError> {
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
@@ -2698,13 +2888,19 @@ impl SessionState {
             ))
         } else {
             let prev = graph.paths.clone();
-            let idx = graph
+            let existing = graph
                 .paths
                 .active
-                .ok_or(CommandError::Rejected("select a path first"))?;
-            if idx >= graph.paths.paths.len() {
-                return Err(CommandError::Rejected("select a path first"));
-            }
+                .filter(|idx| *idx < graph.paths.paths.len());
+            let idx = match existing {
+                Some(idx) => idx,
+                None if start_new => graph.paths.add(crate::paths::VectorPath::polyline(
+                    "Path",
+                    Vec::new(),
+                    false,
+                )),
+                None => return Err(CommandError::Rejected("select a path first")),
+            };
             f(&mut graph.paths.paths[idx])?;
             let next = graph.paths.clone();
             Ok((None, crate::GraphCommand::SetPaths { prev, next }))
@@ -2916,8 +3112,18 @@ impl SessionState {
             return Err(CommandError::Rejected("layer missing"));
         }
         let generation = self.bump_document_generation();
+        // The command is applied but not pushed onto the graph stack, and the
+        // entry is a Transform one: this conversion has one half in the graph
+        // and one on the GPU, where the host writes the pixels it just
+        // produced. A `Graph` entry reverses the graph and never asks the
+        // host, so the undo restored the semantic layer and left the baked
+        // pixels behind it — the layer drew twice, and saving persisted both.
+        // A `TransformSnapshot` carries the whole graph beside every layer's
+        // pixels, so one Transform entry takes back both halves; the host
+        // snapshots before invoking, exactly as a profile conversion does
+        // (QA-015, and see `command_id::CONVERTS_TO_PIXELS`).
         self.history
-            .push_graph_applied(command, "Rasterize smart object", generation);
+            .push_transform("Rasterize smart object", generation);
         Ok(CommandEffects::document_edit(generation))
     }
 
@@ -2971,7 +3177,7 @@ impl SessionState {
             return Err(CommandError::InvalidArgument("expected PathAddAnchor"));
         };
         let mut inserted_at = 0usize;
-        let (shape_id, cmd) = self.with_active_path_mut(|path| {
+        let (shape_id, cmd) = self.with_active_path_inner(true, |path| {
             let point = crate::paths::PathPoint { x, y };
             inserted_at = index.unwrap_or(path.anchors.len()).min(path.anchors.len());
             path.anchors.insert(inserted_at, point);

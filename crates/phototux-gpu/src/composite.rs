@@ -2325,7 +2325,7 @@ mod region_tests {
             },
         };
         let tex = fx.engine.layer_texture(fx.id).expect("layer").clone();
-        fx.stamper.stamp_batch(&fx.ctx, &tex, &[req]);
+        fx.stamper.stamp_batch(&fx.ctx, &tex, &[req], None);
         dab_scissor(x, y, radius, W, H).expect("dab on canvas")
     }
 
@@ -2470,5 +2470,186 @@ mod region_tests {
             px(&after, 50, 50),
             "opacity change did not reach outside the declared region"
         );
+    }
+    /// The transparency lock holds the alpha channel and lets the colour move.
+    ///
+    /// Photoshop's *Lock transparent pixels*. The shader and the CPU reference
+    /// have to agree pixel for pixel, and the rule lives in two different
+    /// places on the two paths — a write mask on the GPU, a colour-only blend
+    /// in `stamp_dab_rgba` — which is exactly the shape that drifts.
+    #[test]
+    fn the_transparency_lock_matches_the_cpu_reference() {
+        use phototux_engine::{Dab, stamp_dab_rgba};
+
+        // Half-opaque blue, so the check catches an alpha that rose as well as
+        // one that fell.
+        let base = [0u8, 0, 255, 128];
+        let mut fx = fixture(base);
+        let color = [1.0, 0.0, 0.0, 1.0];
+        let req = StampRequest {
+            source_offset: (0, 0),
+            x: 20.0,
+            y: 20.0,
+            radius_px: 6.0,
+            pressure: 1.0,
+            params: BrushParams {
+                size: 12.0,
+                hardness: 0.95,
+                color,
+                preserve_alpha: true,
+                ..BrushParams::default()
+            },
+        };
+        let tex = fx.engine.layer_texture(fx.id).expect("layer").clone();
+        fx.stamper.stamp_batch(&fx.ctx, &tex, &[req], None);
+        let gpu = fx
+            .engine
+            .read_layer_rgba(&fx.ctx, fx.id)
+            .expect("read back the painted layer");
+
+        let mut cpu = Vec::with_capacity((W * H * 4) as usize);
+        for _ in 0..(W * H) {
+            cpu.extend_from_slice(&base);
+        }
+        stamp_dab_rgba(
+            &mut cpu,
+            W,
+            H,
+            Dab {
+                x: 20.0,
+                y: 20.0,
+                radius: 6.0,
+                pressure: 1.0,
+            },
+            &req.params,
+        );
+
+        for (x, y) in [(20, 20), (24, 20), (26, 20), (50, 50)] {
+            let g = px(&gpu, x, y);
+            let c = px(&cpu, x, y);
+            assert_eq!(g[3], base[3], "({x}, {y}): the GPU moved alpha");
+            assert_eq!(c[3], base[3], "({x}, {y}): the reference moved alpha");
+            for channel in 0..3 {
+                let delta = i32::from(g[channel]) - i32::from(c[channel]);
+                assert!(
+                    delta.abs() <= 2,
+                    "({x}, {y}) channel {channel}: GPU {g:?} vs reference {c:?}"
+                );
+            }
+        }
+        assert_ne!(
+            px(&gpu, 20, 20)[0],
+            base[0],
+            "the dab did not reach the centre, so the check proved nothing"
+        );
+    }
+
+    /// A selection bounds the brush, and bounds it the way the reference does.
+    ///
+    /// The brush used to ignore the selection entirely while Fill and Gradient
+    /// clipped to it exactly, so a user who selected a region to protect the
+    /// rest of the layer and then painted destroyed the pixels they thought
+    /// were safe (QA-016). The rule now lives in two places — a multiply into
+    /// coverage in the shader, the same multiply in `stamp_dab_rgba_within` —
+    /// which is the shape that drifts, so they are checked against each other.
+    ///
+    /// The mask here is a hard-edged half: a dab centred on the boundary must
+    /// paint one side and leave the other, which is a stronger statement than
+    /// "some pixels changed".
+    #[test]
+    fn a_selection_bounds_the_brush_the_way_the_reference_does() {
+        use phototux_engine::{Dab, stamp_dab_rgba_within};
+
+        let base = [0u8, 0, 0, 255];
+        let mut fx = fixture(base);
+
+        // Selected: x < 20. The dab straddles the edge.
+        let mut mask = vec![0u8; (W * H) as usize];
+        for y in 0..H {
+            for x in 0..20 {
+                mask[(y * W + x) as usize] = 255;
+            }
+        }
+        let mut selection = crate::selection::SelectionMask::new(
+            &fx.ctx,
+            phototux_engine::DocumentSize {
+                width: W,
+                height: H,
+            },
+        );
+        selection
+            .restore_cpu(&fx.ctx, &mask)
+            .expect("upload the mask");
+        assert!(
+            selection.is_active(),
+            "the fixture's mask reports nothing selected, so the test would \
+             pass against a brush that ignores selections"
+        );
+
+        let req = StampRequest {
+            source_offset: (0, 0),
+            x: 20.0,
+            y: 20.0,
+            radius_px: 8.0,
+            pressure: 1.0,
+            params: BrushParams {
+                size: 16.0,
+                hardness: 0.95,
+                color: [1.0, 1.0, 1.0, 1.0],
+                ..BrushParams::default()
+            },
+        };
+        let tex = fx.engine.layer_texture(fx.id).expect("layer").clone();
+        fx.stamper
+            .stamp_batch(&fx.ctx, &tex, &[req], Some(selection.view()));
+        let gpu = fx
+            .engine
+            .read_layer_rgba(&fx.ctx, fx.id)
+            .expect("read back the painted layer");
+
+        let mut cpu = Vec::with_capacity((W * H * 4) as usize);
+        for _ in 0..(W * H) {
+            cpu.extend_from_slice(&base);
+        }
+        stamp_dab_rgba_within(
+            &mut cpu,
+            W,
+            H,
+            Dab {
+                x: 20.0,
+                y: 20.0,
+                radius: 8.0,
+                pressure: 1.0,
+            },
+            &req.params,
+            Some(&mask),
+        );
+
+        assert_ne!(
+            px(&gpu, 16, 20)[0],
+            base[0],
+            "nothing was painted inside the selection, so the check proved nothing"
+        );
+        assert_eq!(
+            px(&gpu, 24, 20),
+            base,
+            "the GPU painted outside the selection"
+        );
+        assert_eq!(
+            px(&cpu, 24, 20),
+            base,
+            "the reference painted outside the selection"
+        );
+        for (x, y) in [(16, 20), (19, 20), (20, 20), (24, 20), (50, 50)] {
+            let g = px(&gpu, x, y);
+            let c = px(&cpu, x, y);
+            for channel in 0..4 {
+                let delta = i32::from(g[channel]) - i32::from(c[channel]);
+                assert!(
+                    delta.abs() <= 2,
+                    "({x}, {y}) channel {channel}: GPU {g:?} vs reference {c:?}"
+                );
+            }
+        }
     }
 }

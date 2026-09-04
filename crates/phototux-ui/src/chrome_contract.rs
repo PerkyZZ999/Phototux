@@ -395,6 +395,39 @@ mod tests {
     ///
     /// The check is on the root `width:` of a dialog file, which is the one
     /// that sets the box. Inner widths are the layout's business.
+    /// The fill-layer colour belongs to the fill-layer inspector, nowhere else.
+    ///
+    /// `fillColorHex` / `setActiveFillHex` describe a `LayerKind::Fill` layer's
+    /// colour and route to `layer.set-fill-color`. The Paint Bucket's options
+    /// bar borrowed them, which put a colour the tool does not use in front of
+    /// the user — `fillActiveLayer` pours `engine.colors.foreground` — and made
+    /// editing that field try to recolour a fill layer, which a raster layer
+    /// refuses. The field showed `#738CBF`, the inspector's default for a layer
+    /// with no fill content, while the bucket poured black.
+    ///
+    /// Two properties one character apart in meaning is exactly the pair to
+    /// pin: a control that shows one value and acts on another looks like it
+    /// works.
+    #[test]
+    fn only_the_fill_layer_inspector_speaks_for_a_fill_layers_colour() {
+        for (name, source) in qml_files() {
+            if name == "PropertiesPanel.qml" {
+                continue;
+            }
+            // The `AppSession.` prefix is what makes this a binding rather
+            // than prose — the comment beside the fix names both properties,
+            // and a guard that fails on its own explanation is a nuisance.
+            for property in ["AppSession.fillColorHex", "AppSession.setActiveFillHex"] {
+                assert!(
+                    !source.contains(property),
+                    "{name} binds {property}, which describes a fill *layer*. A tool \
+                     that pours the foreground must bind foregroundHex / \
+                     setForegroundHex, or it shows one colour and uses another"
+                );
+            }
+        }
+    }
+
     #[test]
     fn no_dialog_pins_itself_to_a_pixel_width() {
         let mut checked = 0;
@@ -625,19 +658,42 @@ mod tests {
     #[test]
     fn nothing_writes_a_message_into_the_status_bar() {
         let source = include_str!("lib.rs");
+        // Joined onto one line first. `rustfmt` wraps a long assignment after
+        // the `=`, and a line-at-a-time scan cannot see the right-hand side of
+        // one that did: the colour-profile conversion wrote a destructive-edit
+        // warning into the status bar for months in plain sight of this test.
+        let source: String = source
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace("=\n", "= ");
         let mut assignments = 0;
         for (i, line) in source.lines().enumerate() {
             let trimmed = line.trim();
-            let Some(rhs) = trimmed.strip_prefix("self.status_text = ") else {
+            // Any binding, not just `self`. Matching only `self.status_text`
+            // missed three writers: `Default` builds the session in locals
+            // named `session` and `out`, and all three of those assignments
+            // were messages — including an "Opening …" the status bar went on
+            // showing after the open had failed.
+            let Some((binding, rhs)) = trimmed.split_once(".status_text = ") else {
                 continue;
             };
+            if !binding
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+                || binding.is_empty()
+            {
+                continue;
+            }
             assignments += 1;
             assert_eq!(
                 rhs,
-                "self.engine.status_summary();",
+                format!("{binding}.engine.status_summary();"),
                 "lib.rs:{} assigns something other than the summary to the status \
-                 bar — messages belong in `notify`, which the next summary \
-                 refresh cannot erase",
+                 bar — messages belong in `notify`, or in \
+                 `queue_notice_before_proxy` when the QObject proxy does not \
+                 exist yet, because the next summary refresh erases the status bar",
                 i + 1
             );
         }
@@ -645,6 +701,357 @@ mod tests {
             assignments > 3,
             "found {assignments} status_text assignments — the scan broke rather \
              than the shell"
+        );
+    }
+
+    /// A slot that changes the workspace layout must republish it.
+    ///
+    /// `persist_workspace_visibility` is the only thing that tells the shell:
+    /// it applies the workspace to preferences, writes them, and emits the
+    /// five properties QML binds the dock to. A slot that mutates
+    /// `self.workspace` without reaching it — directly, or through
+    /// `commit_workspace_op` — leaves the user looking at the layout they had
+    /// before.
+    ///
+    /// Window ▸ Reset Workspace did exactly that. It reset the workspace and
+    /// the stored preferences and emitted the preference fields, which carry
+    /// panel *visibility* but not the dock, so an auto-hidden panel stayed
+    /// hidden behind a toast reading "Workspace reset to Essentials".
+    ///
+    /// The exceptions are the parts of `WorkspaceState` that are not layout:
+    /// focus, which is neither persisted nor drawn by the dock and publishes
+    /// its own JSON, and `active_preset_id`, which is one property with its own
+    /// notify. Naming exceptions rather than subjects is deliberate — a new
+    /// mutating slot fails this test until someone decides which it is.
+    #[test]
+    fn a_slot_that_changes_the_workspace_layout_republishes_it() {
+        const NOT_LAYOUT: [&str; 3] = ["set_focus_path", "set_panel_context", "active_preset_id"];
+        let source = include_str!("lib.rs");
+        let mut checked = 0;
+        for block in source.split("    #[qslot]").skip(1) {
+            // One slot: up to the next impl-level item, with the comments
+            // dropped. A doc comment that *names* `persist_workspace_visibility`
+            // — such as the one inside `reset_workspace` explaining why it is
+            // called — otherwise satisfies the check by itself, and the guard
+            // passes over the very defect it was written for.
+            let body: String = block
+                .split("\n    }")
+                .next()
+                .unwrap_or(block)
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let body = body.as_str();
+            let name = body
+                .split("fn ")
+                .nth(1)
+                .and_then(|rest| rest.split('(').next())
+                .unwrap_or("?")
+                .trim();
+            let touches: Vec<&str> = body
+                .match_indices("self.workspace.")
+                .filter_map(|(at, _)| {
+                    body[at + "self.workspace.".len()..]
+                        .split(['(', ' ', '.', ';', ')'])
+                        .next()
+                })
+                .collect();
+            if touches.is_empty() || touches.iter().all(|m| NOT_LAYOUT.contains(m)) {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                body.contains("persist_workspace_visibility")
+                    || body.contains("commit_workspace_op"),
+                "`{name}` changes the workspace ({}) without republishing it — \
+                 call `persist_workspace_visibility`, or `commit_workspace_op` \
+                 when the change can be refused",
+                touches.join(", ")
+            );
+        }
+        assert!(
+            checked > 3,
+            "found {checked} workspace-mutating slots — the scan broke rather \
+             than the shell"
+        );
+    }
+
+    /// Pixels written to the GPU have to reach the screen.
+    ///
+    /// The host writes layer and mask textures directly through
+    /// `phototux_canvas`, which changes what the canvas *would* draw but does
+    /// not ask it to draw anything. `recomposite` is that request. A handler
+    /// that writes pixels and does not make it leaves the user looking at the
+    /// composite from before the edit, with no error and nothing to click:
+    /// `Select ▸ Selection to Mask` wrote the mask and looked like a no-op
+    /// until some unrelated edit forced a repaint.
+    ///
+    /// Three writers legitimately do not call it, and are named here rather
+    /// than inferred: the two load paths present through `record_composite`
+    /// once the whole document is in place, and the colour-profile conversion
+    /// is a follow-up whose `CommandEffects` carries `recomposite` for it.
+    #[test]
+    fn a_handler_that_writes_pixels_asks_for_a_new_frame() {
+        const PRESENTS_ANOTHER_WAY: [&str; 3] = [
+            "finish_opened_ptx",
+            "open_psd_pixels",
+            "apply_convert_pixels",
+        ];
+        let source = include_str!("lib.rs");
+        let mut checked = 0;
+        let mut current = "?";
+        let mut body = String::new();
+        let mut bodies: Vec<(&str, String)> = Vec::new();
+        for line in source.lines() {
+            let is_item = line.starts_with("    fn ")
+                || line.starts_with("    pub fn ")
+                || line.starts_with("    pub(crate) fn ");
+            if is_item {
+                bodies.push((current, std::mem::take(&mut body)));
+                current = line
+                    .split("fn ")
+                    .nth(1)
+                    .and_then(|rest| rest.split('(').next())
+                    .unwrap_or("?")
+                    .trim();
+            }
+            if !line.trim_start().starts_with("//") {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        bodies.push((current, body));
+        for (name, body) in bodies {
+            if !body.contains("phototux_canvas::write_layer_rgba(")
+                && !body.contains("phototux_canvas::write_mask_r8(")
+            {
+                continue;
+            }
+            if PRESENTS_ANOTHER_WAY.contains(&name) {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                body.contains("self.recomposite()"),
+                "`{name}` writes pixels to the GPU without calling \
+                 `recomposite` — the canvas will keep showing the composite \
+                 from before the edit"
+            );
+        }
+        assert!(
+            checked > 8,
+            "found {checked} pixel writers — the scan broke rather than the shell"
+        );
+    }
+
+    /// The export dialog does not keep its own list of formats.
+    ///
+    /// `RasterFormat::ALL` is the vocabulary; `exportNameFiltersJson`
+    /// publishes it. A second list written into `Main.qml` had gone stale in
+    /// the quiet direction — four of the six formats the writer handles — so
+    /// BMP and GIF could be opened and never saved again, and nothing failed.
+    #[test]
+    fn the_export_dialog_takes_its_formats_from_the_engine() {
+        let qml = std::fs::read_to_string(qml_dir().join("Main.qml")).expect("read Main.qml");
+        let export = qml
+            .split("id: exportFileDialog")
+            .nth(1)
+            .expect("Main.qml declares exportFileDialog");
+        let body = export.split("\n    }").next().unwrap_or(export);
+        assert!(
+            body.contains("nameFilters: root.exportNameFilters"),
+            "the export dialog binds `nameFilters` to something other than the \
+             published list — a hand-written one goes stale the moment a \
+             format is added to `RasterFormat`"
+        );
+        for stale in ["PNG images (", "JPEG images (", "WebP images ("] {
+            assert!(
+                !body.contains(stale),
+                "the export dialog still spells out `{stale}…` — that list \
+                 belongs to `RasterFormat`"
+            );
+        }
+    }
+
+    /// The modified flag is written in one place.
+    ///
+    /// `dirty` has two published views — the `dirty` property, which the
+    /// window title and the close prompt bind to, and the `dirty` field inside
+    /// `documentTabsJson`, which the tab strip is handed. A write that
+    /// publishes one and not the other leaves them disagreeing, and they
+    /// disagreed in the direction that matters: a freshly opened `.ptx` showed
+    /// an unsaved marker on its tab, and `Ctrl+W` closed it with no prompt,
+    /// because the flag the prompt reads was the correct one.
+    #[test]
+    fn the_modified_flag_is_written_in_one_place() {
+        let source = include_str!("lib.rs");
+        let writes: Vec<(usize, &str)> = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.trim_start().starts_with("self.dirty = "))
+            .map(|(i, line)| (i + 1, line.trim()))
+            .collect();
+        assert_eq!(
+            writes.len(),
+            1,
+            "`self.dirty` is written at {} places: {writes:?} — every write goes \
+             through `set_dirty`, which publishes the property *and* the tab \
+             strip",
+            writes.len()
+        );
+        let setter = source
+            .split("fn set_dirty(&mut self, dirty: bool) {")
+            .nth(1)
+            .expect("lib.rs declares `set_dirty`");
+        let body = setter.split("\n    }").next().unwrap_or(setter);
+        assert!(
+            body.contains("self.dirty = dirty;")
+                && body.contains("self.dirty_changed();")
+                && body.contains("self.refresh_document_tabs_json();"),
+            "`set_dirty` no longer publishes both views of the flag"
+        );
+    }
+
+    /// Every animation answers to the reduced-motion preference.
+    ///
+    /// "Reduced motion" is an accessibility preference, not a taste one: a
+    /// user who sets it has asked the shell to stop moving. It reached the
+    /// slider's scale and the toast fade and not the scroll bar, which went on
+    /// growing and fading in the corner of the eye — the exact motion the
+    /// preference exists to stop.
+    ///
+    /// An animation satisfies this by sitting in a `Behavior` that is
+    /// `enabled: !Theme.reducedMotion`, or by reading the flag in its own
+    /// duration.
+    #[test]
+    fn every_animation_answers_to_reduced_motion() {
+        let mut checked = 0;
+        for entry in std::fs::read_dir(qml_dir()).expect("read qml dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
+                continue;
+            }
+            let qml = std::fs::read_to_string(&path).expect("read qml");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            for (i, line) in qml.lines().enumerate() {
+                let trimmed = line.trim_start();
+                // A declaration, not a reference: `loops: Animation.Infinite`
+                // names the enum and animates nothing on its own.
+                let declares = (trimmed.contains("Animation") || trimmed.contains("Animator"))
+                    && trimmed.contains('{')
+                    && !trimmed.contains("Animation.");
+                if !declares || trimmed.starts_with("//") {
+                    continue;
+                }
+                // A `FrameAnimation` is the shell's clock, not a transition:
+                // it polls the file worker and measures frame rate, and
+                // stopping it would stop those. What it *publishes* answers to
+                // the preference instead — the phase driving the selection's
+                // marching ants holds still.
+                if line.contains("FrameAnimation") {
+                    continue;
+                }
+                checked += 1;
+                // Two lines above — the `Behavior on …` header and its
+                // `enabled:` — and four below, for a flag read inside the
+                // animation's own body. Deliberately tight: a wider window
+                // reaches the *previous* `Behavior`'s `enabled:` line and
+                // passes an animation that has none of its own, which is how
+                // the first draft of this test missed the scroll bar.
+                let from = i.saturating_sub(2);
+                let window = qml
+                    .lines()
+                    .skip(from)
+                    .take(i - from + 5)
+                    .collect::<Vec<_>>();
+                assert!(
+                    window.iter().any(|l| l.contains("Theme.reducedMotion")),
+                    "{name}:{} animates without consulting `Theme.reducedMotion`",
+                    i + 1
+                );
+            }
+        }
+        assert!(
+            checked >= 4,
+            "found {checked} animations — the scan broke rather than the shell"
+        );
+    }
+
+    /// A handler reacting to a host signal does not call the host back.
+    ///
+    /// An `AppSession` notify signal is emitted while the session is still
+    /// mutably borrowed. A QML handler that reacts to one and calls a slot
+    /// synchronously re-enters that borrow, and qtbridge answers a
+    /// `BorrowConflict` by aborting the process — not by returning an error
+    /// something could catch. Two blockers came from exactly this: tearing a
+    /// panel off (T-027) and opening the Filter Gallery (T-028). The rule is
+    /// `root.afterHostSlot`, which defers to the next turn of the event loop.
+    ///
+    /// This holds the crisply checkable half — the eleven
+    /// `Connections { target: AppSession }` blocks. It does not reach a
+    /// reactive handler written as a plain `on…Changed:` on some other object,
+    /// which is the shape T-028 took; that one is guarded by
+    /// `refreshShortcutYield` deferring inside the function rather than at its
+    /// call sites.
+    #[test]
+    fn a_handler_for_a_host_signal_does_not_call_the_host_back() {
+        let mut blocks = 0;
+        for entry in std::fs::read_dir(qml_dir()).expect("read qml dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("qml") {
+                continue;
+            }
+            let qml = std::fs::read_to_string(&path).expect("read qml");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            let lines: Vec<&str> = qml.lines().collect();
+            let mut i = 0;
+            while i < lines.len() {
+                if !lines[i].contains("Connections {")
+                    || !lines[i..(i + 3).min(lines.len())]
+                        .iter()
+                        .any(|l| l.contains("target: AppSession"))
+                {
+                    i += 1;
+                    continue;
+                }
+                blocks += 1;
+                let mut depth = 0_i32;
+                let mut j = i;
+                while j < lines.len() {
+                    depth += lines[j].matches('{').count() as i32;
+                    depth -= lines[j].matches('}').count() as i32;
+                    let call = lines[j].split("AppSession.").skip(1).any(|rest| {
+                        rest.split(['.', ' ', ')', ','])
+                            .next()
+                            .is_some_and(|t| t.ends_with('('))
+                    });
+                    if call {
+                        let deferred = lines[j.saturating_sub(2)..=j]
+                            .iter()
+                            .any(|l| l.contains("afterHostSlot"));
+                        assert!(
+                            deferred,
+                            "{name}:{} calls a host slot from inside a \
+                             `Connections {{ target: AppSession }}` block — that \
+                             re-enters the borrow the signal was emitted under \
+                             and aborts the process. Defer it through \
+                             `root.afterHostSlot`",
+                            j + 1
+                        );
+                    }
+                    if depth == 0 && j > i {
+                        break;
+                    }
+                    j += 1;
+                }
+                i = j + 1;
+            }
+        }
+        assert!(
+            blocks >= 8,
+            "found {blocks} AppSession Connections blocks — the scan broke \
+             rather than the shell"
         );
     }
 
@@ -757,6 +1164,617 @@ mod tests {
         assert!(
             checked >= 4,
             "found {checked} file dialogs — the scan broke rather than the shell"
+        );
+    }
+    /// Every focusable shared control has to draw where keyboard focus is.
+    ///
+    /// `ChromeIconToolButton` did not, and it is the type that needs it most:
+    /// icon-only, unlabelled, and used for the toolbar's Undo and Redo and for
+    /// every panel header's actions. Those buttons are in the tab chain — Qt
+    /// Quick Controls give `Button` `activeFocusOnTab` by default — so tabbing
+    /// across the chrome moved focus through them with nothing on screen
+    /// saying so. AT-SPI reported the focus moving from "Redo" to "About
+    /// PhotoTux" while a pixel diff of the whole window found no change at all.
+    ///
+    /// The listed types are the shared controls a keyboard reaches. The ones
+    /// left out are left out for a reason: `ThemedMenuItem` is driven by
+    /// `highlighted` rather than focus, because a menu moves a highlight and
+    /// not the focus; `ThemedScrollBar`, `ThemedBusyIndicator`, `ThemedIcon`,
+    /// `ThemedToolTip`, `ThemedMenu` and the two dialog bars take no focus of
+    /// their own.
+    #[test]
+    fn every_focusable_control_draws_its_focus() {
+        const FOCUSABLE: [&str; 8] = [
+            "ChromeIconToolButton.qml",
+            "ThemedButton.qml",
+            "ThemedCheckBox.qml",
+            "ThemedComboBox.qml",
+            "ThemedSlider.qml",
+            "ThemedSpinBox.qml",
+            "ThemedTextField.qml",
+            "DisclosureGroup.qml",
+        ];
+        let mut checked = 0;
+        for component in FOCUSABLE {
+            let text = std::fs::read_to_string(qml_dir().join(component))
+                .unwrap_or_else(|e| panic!("{component}: {e}"));
+            let draws = text.lines().any(|line| {
+                let line = line.trim_start();
+                !line.starts_with("//")
+                    && (line.contains("visualFocus") || line.contains("activeFocus"))
+            });
+            checked += 1;
+            assert!(
+                draws,
+                "{component} never reads visualFocus or activeFocus, so keyboard \
+                 focus lands on it invisibly — give it a Theme.focusRing border"
+            );
+        }
+        assert_eq!(
+            checked,
+            FOCUSABLE.len(),
+            "the scan broke rather than the shell"
+        );
+    }
+
+    /// The same requirement for the icon buttons written out in place.
+    ///
+    /// Eleven `ToolButton`s across the shell hand-roll their own background —
+    /// the panel headers, the options bar's mode and align runs, the layer
+    /// visibility eye, the tool-strip overflow, two dialog close buttons — and
+    /// every one of them was drawing hover and checked but not focus. They are
+    /// the same control as `ChromeIconToolButton` wearing a different padding,
+    /// so they answer the same question.
+    #[test]
+    fn every_icon_button_draws_its_focus() {
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            for start in instantiations_of(&text, "ToolButton") {
+                let body = body_at_line(&text, start);
+                checked += 1;
+                assert!(
+                    body.contains("visualFocus"),
+                    "{name}:{start} draws hover and checked but not focus, so a \
+                     keyboard lands on it invisibly — add a Theme.focusRing \
+                     border on visualFocus"
+                );
+            }
+        }
+        assert!(
+            checked >= 10,
+            "found {checked} tool buttons — the scan broke rather than the shell"
+        );
+    }
+    /// A close or quit deferred for a save is either finished or abandoned.
+    ///
+    /// Answering the unsaved-changes prompt with Save wrote the file and then
+    /// stopped: the document stayed open, and File ▸ Quit ▸ Save left the
+    /// application running. The prompt's button handler cannot do the close
+    /// itself — a save goes out to the file worker and lands later — so the
+    /// action is parked in `pendingDestructiveAction` and the shell has to
+    /// pick it up again.
+    ///
+    /// Both halves are pinned here because either one alone is a bug. Without
+    /// the resume, Save does not close. Without the abandon, backing out of
+    /// the file dialog leaves the action armed against the *next* successful
+    /// save, so an ordinary Ctrl+S half an hour later closes the document the
+    /// user is still working in.
+    #[test]
+    fn a_close_deferred_for_a_save_is_finished_or_abandoned() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn handle_file_saved(&mut self, path: PathBuf)")
+            .expect("handle_file_saved is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        assert!(
+            body.contains("mark_persisted("),
+            "the slice missed the function body — the scan broke rather than \
+             the host"
+        );
+        assert!(
+            body.contains("self.document_saved()"),
+            "handle_file_saved does not emit documentSaved, so nothing tells \
+             the shell a save landed and a close answered with Save never \
+             happens"
+        );
+
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        assert!(
+            shell.contains("function onDocumentSaved()"),
+            "Main.qml never handles documentSaved, so a close or quit \
+             answered with Save saves and then stops"
+        );
+        let dialog_at = shell
+            .find("id: saveFileDialog")
+            .expect("saveFileDialog is there to read");
+        let dialog_line = shell[..dialog_at].matches('\n').count();
+        let dialog = body_at_line(&shell, dialog_line);
+        assert!(
+            dialog.contains("pendingDestructiveAction = \"\""),
+            "saveFileDialog does not clear pendingDestructiveAction when it is \
+             dismissed, so backing out of the dialog arms the close against \
+             the next save that succeeds"
+        );
+    }
+    /// Chrome takes its colours from `Theme.qml`, not from the point of use.
+    ///
+    /// Six canvas overlays were eight-digit literals — the grid, a guide, the
+    /// selection preview, the marching-ants stroke, the crop wash and the
+    /// Navigator's checkerboard — which is a second palette by any other name,
+    /// and exactly where Qt's `#AARRGGBB` order is invisible. The crop wash had
+    /// once shipped as a pale green fill inside a cyan border because the alpha
+    /// was read as the red channel. A token named once in `Theme.qml` is where
+    /// that mistake is legible; a literal beside `Rectangle` is where it is not.
+    ///
+    /// Document colours are not chrome and are excepted by name: the swatch
+    /// palette the user paints with, and the fallbacks a shape's fill and
+    /// stroke rows show before the layer has one. Both are values that belong
+    /// to the artwork, and theming them would change what the file contains.
+    #[test]
+    fn chrome_colours_come_from_the_theme() {
+        const DOCUMENT_COLOURS: [(&str, &str); 2] = [
+            ("Main.qml", "model: ["),
+            ("PropertiesPanel.qml", "hex: root.shape."),
+        ];
+        let mut checked = 0;
+        for (name, text) in qml_files() {
+            if name == "Theme.qml" {
+                continue;
+            }
+            for (number, line) in text.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                    continue;
+                }
+                let Some(at) = line.find("\"#") else { continue };
+                let rest = &line[at + 2..];
+                let digits = rest.chars().take_while(char::is_ascii_hexdigit).count();
+                if !matches!(digits, 3 | 6 | 8) || !rest[digits..].starts_with('"') {
+                    continue;
+                }
+                checked += 1;
+                let allowed = DOCUMENT_COLOURS.iter().any(|(file, marker)| {
+                    *file == name
+                        && text
+                            .lines()
+                            .skip(number.saturating_sub(6))
+                            .take(7)
+                            .any(|near| near.contains(marker))
+                });
+                assert!(
+                    allowed,
+                    "{name}:{} paints chrome from a colour literal — name it in \
+                     Theme.qml instead, where an #AARRGGBB alpha is legible",
+                    number + 1
+                );
+            }
+        }
+        assert!(
+            checked >= 5,
+            "found {checked} colour literals — the scan broke rather than the shell"
+        );
+    }
+    /// A refused command reaches the user through `report_action_error`.
+    ///
+    /// `CommandError`'s `Display` is a log line: it puts "command rejected: "
+    /// in front of the reason, which is scaffolding a status bar should never
+    /// show. `user_message` exists for exactly this — a capital, a full stop
+    /// and none of that — and `report_action_error` adds the two things a
+    /// refusal also needs: the Warning level, because the command *did not
+    /// happen*, and the announcement that carries it to assistive technology.
+    ///
+    /// Four call sites rendered the error themselves instead: three in the
+    /// filter gallery and one on the selection path, all of them saying
+    /// "command rejected: …" out loud.
+    #[test]
+    fn a_refused_command_is_reported_not_rendered() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let lines: Vec<&str> = source.lines().collect();
+        for (number, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            if !(trimmed.starts_with("self.notify(") && line.contains("error.to_string()")) {
+                continue;
+            }
+            // `DocumentError` is excepted, and only where the value in hand is
+            // one: its messages are already sentences a person can read — "no
+            // document is open", "1024 px is not a usable document edge" —
+            // with none of `CommandError`'s log scaffolding in front of them.
+            let from_document_error = lines[number.saturating_sub(3)..number]
+                .iter()
+                .any(|near| near.contains("DocumentError"));
+            assert!(
+                from_document_error,
+                "lib.rs:{} hands a rendered error to notify — call \
+                 report_action_error(&error), which classifies it, drops the \
+                 \"command rejected\" scaffolding and announces it",
+                number + 1
+            );
+        }
+        assert!(
+            source.contains("fn report_action_error(&mut self, error: &CommandError)"),
+            "report_action_error is gone — the scan broke rather than the host"
+        );
+    }
+    /// Every dock seam has a ceiling that knows about the dock.
+    ///
+    /// `PanelResizeGrip` clamped at a constant 2000, mirroring
+    /// `DockTopology::MAX_PANEL_HEIGHT`, and neither side subtracted what the
+    /// panels below the seam needed — so one drag to the bottom of the screen
+    /// made the panel above fill the dock and every group under it vanish,
+    /// with the Window menu still listing them as visible.
+    ///
+    /// Both halves are pinned, because leaving either out is the same bug: the
+    /// helper that computes the budget, and the binding at every seam that
+    /// uses it. A missing binding is silent — `maximumHeight` is an `int`, so
+    /// an undefined value reads as 0 and the grip falls back to its absolute
+    /// bound — which is exactly how this was first "fixed" without taking
+    /// effect.
+    #[test]
+    fn every_dock_seam_is_clamped_against_the_dock() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        assert!(
+            shell.contains("function panelMaxHeight(panelId, dockHeight)"),
+            "Main.qml has no panelMaxHeight, so a seam has no budget to clamp \
+             against and the panels below it can be pushed off the dock"
+        );
+        let mut checked = 0;
+        for start in instantiations_of(&shell, "PanelResizeGrip") {
+            let body = body_at_line(&shell, start);
+            checked += 1;
+            assert!(
+                body.contains("maximumHeight: root.panelMaxHeight("),
+                "Main.qml:{start} leaves a seam on the absolute 2000 ceiling — \
+                 bind maximumHeight to root.panelMaxHeight so the stack below \
+                 keeps its room"
+            );
+        }
+        assert!(
+            checked >= 5,
+            "found {checked} seams — the scan broke rather than the dock"
+        );
+    }
+    /// Document overlays are clipped to the viewport; the canvas is not.
+    ///
+    /// A QML child paints outside its parent unless the parent clips, and the
+    /// canvas overlays are positioned from document coordinates through
+    /// `docToScreen*`, which are free to land anywhere. The free-transform box
+    /// did: drag a layer up and its top edge and handles were drawn across the
+    /// document tab strip, on top of the tab labels.
+    ///
+    /// The second half is the one worth pinning. `clip: true` on `canvasHost`
+    /// would fix the symptom and take `PhototuxCanvas` with it — the
+    /// `QQuickRhiItem` the whole zero-copy present goes through, and the one
+    /// thing in the shell not to clip or re-parent casually (handbook 17).
+    #[test]
+    fn canvas_overlays_are_clipped_and_the_canvas_is_not() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        let at = shell
+            .find("id: canvasOverlays")
+            .expect("the overlay container is there to read");
+        let line = shell[..at].matches('\n').count();
+        let body = body_at_line(&shell, line);
+        assert!(
+            body.contains("clip: true"),
+            "canvasOverlays does not clip, so an overlay positioned from \
+             document coordinates paints over the chrome around the canvas"
+        );
+        assert!(
+            body.contains("id: transformChrome"),
+            "the free-transform box is outside the clipping container — the \
+             scan broke, or an overlay was moved out of it"
+        );
+        assert!(
+            !body.contains("PhototuxCanvas {"),
+            "PhototuxCanvas is inside the clipping container. The zero-copy \
+             present must not be clipped or re-parented casually; keep it a \
+             sibling of canvasOverlays"
+        );
+    }
+    /// Path Edit draws the anchors it asks the user to drag.
+    ///
+    /// The tool worked and drew nothing: dragging the point where an anchor
+    /// happened to be moved it, the outline followed and the inspector
+    /// updated, but the canvas showed no handles, no path and no selection —
+    /// while the tool's own copy read "Drag anchors to move. Click empty to
+    /// add". Hit-testing is host-side, so the pointer found anchors the screen
+    /// never showed.
+    ///
+    /// The projection is pinned alongside the overlay because one without the
+    /// other is the same bug in a different place, and because the projection
+    /// has to be published conditionally: it is rebuilt on every sync, and
+    /// T-009 is what a per-frame republish of an overlay projection does to
+    /// AT-SPI.
+    #[test]
+    fn path_edit_draws_the_anchors_it_asks_for() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+        assert!(
+            shell
+                .lines()
+                .any(|line| line.trim() == "id: pathEditChrome"),
+            "there is no Path Edit overlay, so the tool asks the user to drag \
+             anchors it never draws"
+        );
+        assert!(
+            shell.contains("AppSession.pathGeometryJson"),
+            "the Path Edit overlay is not reading the published anchor \
+             geometry — the scan broke, or it is drawing something else"
+        );
+
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn sync_path_edit_fields(&mut self)")
+            .expect("sync_path_edit_fields is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        assert!(
+            body.contains("publish!("),
+            "the path geometry is emitted unconditionally from a per-sync \
+             function — publish! it, so an unchanged path says nothing (T-009)"
+        );
+    }
+    /// A conversion to pixels is snapshotted before it runs.
+    ///
+    /// Bake Text, Rasterize Shape and Rasterize Smart Object each replace a
+    /// layer's semantic content with the raster the host writes immediately
+    /// afterwards. The engine records a `Transform` entry for them, and a
+    /// `Transform` entry with no snapshot behind it pops whatever transform
+    /// happens to be on the stack — restoring an unrelated edit, which is
+    /// exactly what Embed ICC used to do.
+    ///
+    /// Both ends read `CONVERTS_TO_PIXELS`, so the risk this guards is not the
+    /// list going stale but `invoke_command` being rewritten to name the ids
+    /// individually again — at which point a fourth conversion joins the list,
+    /// records its entry, and takes back somebody else's edit.
+    ///
+    /// It also pins the withdrawal. A refused conversion that left its
+    /// snapshot behind would misalign the stack against the timeline for every
+    /// step after it.
+    #[test]
+    fn every_conversion_to_pixels_is_snapshotted_before_it_runs() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
+            .expect("invoke_command is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+
+        assert!(
+            body.contains("command_id::CONVERTS_TO_PIXELS.contains(&id)"),
+            "invoke_command does not snapshot the conversions to pixels from \
+             their own list — a fourth one would record a Transform entry with \
+             nothing behind it and take back an unrelated edit"
+        );
+        assert!(
+            body.contains("self.transform_history.record(snapshot)"),
+            "nothing records the snapshot, so the entry has nothing to restore"
+        );
+        assert!(
+            body.contains("self.transform_history.discard_last()"),
+            "a refused conversion leaves its snapshot on the stack, which \
+             misaligns it against the timeline for every step after it"
+        );
+
+        // Every id in the family reaches this function at all — a conversion
+        // invoked around it would be snapshotted by nobody.
+        for id in phototux_engine::command_id::CONVERTS_TO_PIXELS {
+            let constant = id
+                .replace(['.', '-'], "_")
+                .to_uppercase()
+                .replace("SMARTOBJECT_RASTERIZE", "SMART_RASTERIZE");
+            assert!(
+                source.contains(&format!("command_id::{constant}")),
+                "{id} is in CONVERTS_TO_PIXELS and the host never names it — \
+                 it cannot be reached, or it is reached by a path that does \
+                 not go through invoke_command"
+            );
+        }
+    }
+
+    /// Bake Text is rendered by Qt, in the face the editor shows.
+    ///
+    /// The engine's `bake_text_rgba8` draws a built-in 5×7 ASCII alphabet,
+    /// because `phototux_engine` may not link Qt. Correct as a headless
+    /// reference; wrong as what a user gets, and for a while it was both — a
+    /// Noto Sans layer turned into blocky monospaced capitals with no
+    /// lowercase the instant it was baked (QA-008).
+    ///
+    /// Two things have to hold in the shell for the Qt path to answer, and
+    /// both fail silently. The renderer has to exist and be wired to the
+    /// host's request signal — without it every bake quietly falls back and
+    /// the only difference is the glyphs. And it has to be offscreen *by
+    /// position*: `grabToImage` renders the item's own scene-graph node, and
+    /// an invisible item has none, so `visible: false` would grab nothing and
+    /// fall back on every bake while looking perfectly reasonable in review.
+    #[test]
+    fn bake_text_is_rendered_in_the_face_the_editor_shows() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+
+        let at = shell
+            .lines()
+            .position(|line| line.trim() == "id: textRasterHost")
+            .expect(
+                "there is no offscreen text renderer, so Bake Text falls back \
+                 to the engine's 5×7 alphabet on every bake",
+            );
+        let body: String = shell
+            .lines()
+            .skip(at)
+            .take(40)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let x = body
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("x: "))
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .expect("the renderer pins its own x, so it cannot drift on screen");
+        assert!(
+            x <= -1024,
+            "the text renderer sits at x: {x}, which is on screen — it has to \
+             be offscreen by position, because an invisible item has no node \
+             to grab"
+        );
+        assert!(
+            !body.contains("visible: false"),
+            "the text renderer is hidden with `visible: false`; grabToImage \
+             would return nothing and every bake would fall back"
+        );
+
+        assert!(
+            shell.contains("function onTextRasterRequested()"),
+            "nothing in the shell answers the host's render request, so the \
+             renderer is there and never asked"
+        );
+        assert!(
+            shell.contains("AppSession.textRasterReady(")
+                && shell.contains("AppSession.textRasterFailed("),
+            "the renderer reports only one of success and failure — a bake \
+             that cannot be rendered would hang instead of falling back"
+        );
+    }
+
+    /// A torn-off panel carries the panel, not a description of it.
+    ///
+    /// The floating window used to hold two lines of prose and a Dock button.
+    /// Tearing the Navigator off left the thumbnail and the zoom controls
+    /// behind in the dock's place, so the feature read as working — a window
+    /// appeared, titled correctly, and docked back — while doing nothing a
+    /// user tears a panel off *for*.
+    ///
+    /// The fix is that each dock body is a `Component`, and both the dock site
+    /// and the floating window load it through a `Loader`. This guards the
+    /// three halves that have to agree: the components exist, `panelBodyFor`
+    /// maps every panel id onto one, and the floating window loads what that
+    /// function returns.
+    ///
+    /// Only one instance is ever built. The dock's `Loader` is `active:
+    /// visible` and a floating panel is not shown in the dock, so a panel is
+    /// either docked or floating, never both.
+    #[test]
+    fn a_torn_off_panel_carries_the_panel_not_a_description_of_it() {
+        let shell = qml_files()
+            .into_iter()
+            .find(|(name, _)| name == "Main.qml")
+            .map(|(_, text)| text)
+            .expect("Main.qml");
+
+        assert!(
+            shell.contains("sourceComponent: root.panelBodyFor(floatWin.modelData)"),
+            "the floating panel window is not loading a panel body — it is \
+             back to describing the panel it was supposed to carry"
+        );
+
+        let at = shell
+            .find("function panelBodyFor(panelId)")
+            .expect("panelBodyFor is there to read");
+        let end = shell[at..]
+            .find("\n    }")
+            .map(|o| at + o)
+            .expect("panelBodyFor is a closed function");
+        let mapping = &shell[at..end];
+
+        for panel in [
+            "panel.properties",
+            "panel.navigator",
+            "panel.swatches",
+            "panel.layers",
+            "panel.history",
+        ] {
+            let component = format!("{}Body", &panel["panel.".len()..]);
+            assert!(
+                mapping.contains(&format!("case \"{panel}\": return {component}")),
+                "{panel} has no body component to travel with — tearing it \
+                 off would open an empty window"
+            );
+            assert!(
+                shell
+                    .lines()
+                    .any(|line| line.trim() == format!("id: {component}")),
+                "{component} is mapped but does not exist, so the floating \
+                 window would load undefined and draw nothing"
+            );
+            assert!(
+                shell
+                    .lines()
+                    .any(|line| line.trim() == format!("sourceComponent: {component}")),
+                "{component} is not loaded at its dock site — the panel body \
+                 was extracted and the dock never got it back"
+            );
+        }
+    }
+
+    /// The pixels a profile conversion overwrites are snapshotted first.
+    ///
+    /// The engine's half is a `Transform` history entry; this is the host's.
+    /// A `TransformSnapshot` carries the whole graph beside every layer's
+    /// pixels, which is what lets one entry take back both halves of a
+    /// conversion — but only if the snapshot exists, and only if it was taken
+    /// *before* the pixels were rewritten. Without it the entry would pop
+    /// whatever transform commit happened to be on the stack, restoring an
+    /// unrelated edit, which is exactly what Embed ICC used to do.
+    ///
+    /// The withdrawal matters as much: a refused conversion that left its
+    /// snapshot behind would misalign the timeline against the stack for
+    /// every step after it.
+    ///
+    /// It lives in `invoke_command` rather than in the `convert_document_profile`
+    /// slot because the slot is not how the conversion is usually reached —
+    /// the Image ▸ Color entries and the command palette both go through
+    /// `invoke_action`, which calls `invoke_command` directly. Putting it in
+    /// the slot covered the one caller that does not use it, and the menu
+    /// path went on recording a step with nothing behind it.
+    #[test]
+    fn a_profile_conversion_snapshots_before_it_rewrites() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
+            .expect("invoke_command is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+        let snapshot = body
+            .find("transform_history.record(")
+            .expect("invoke_command takes no snapshot, so a conversion cannot be undone");
+        let invoke = body
+            .find("self.engine.invoke(")
+            .expect("the scan broke rather than the host");
+        assert!(
+            snapshot < invoke,
+            "the snapshot is taken after the command — it has to capture the \
+             pixels the conversion is about to overwrite, not the ones it left"
+        );
+        assert!(
+            body.contains("transform_history.discard_last()"),
+            "a refused conversion leaves its snapshot on the stack, and every \
+             step after it then undoes one edit too far"
         );
     }
 }

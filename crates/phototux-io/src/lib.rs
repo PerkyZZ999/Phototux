@@ -49,6 +49,61 @@ pub enum RasterFormat {
 }
 
 impl RasterFormat {
+    /// Every format this crate can read and write.
+    ///
+    /// The export dialog's filter list is built from this rather than written
+    /// out beside it. The hand-written copy in QML had gone stale in the
+    /// direction that is hard to notice: it offered four of the six, so BMP
+    /// and GIF could be opened and never saved, and nothing failed.
+    pub const ALL: [Self; 6] = [
+        Self::Png,
+        Self::Jpeg,
+        Self::Webp,
+        Self::Tiff,
+        Self::Bmp,
+        Self::Gif,
+    ];
+
+    /// Display name for a file-dialog filter, without the extensions.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Png => "PNG images",
+            Self::Jpeg => "JPEG images",
+            Self::Webp => "WebP images",
+            Self::Tiff => "TIFF images",
+            Self::Bmp => "BMP images",
+            Self::Gif => "GIF images",
+        }
+    }
+
+    /// Every extension that names this format, first one preferred.
+    ///
+    /// The same list `from_path` matches on, so a format cannot offer an
+    /// extension the reader would then refuse.
+    #[must_use]
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Self::Png => &["png"],
+            Self::Jpeg => &["jpg", "jpeg"],
+            Self::Webp => &["webp"],
+            Self::Tiff => &["tif", "tiff"],
+            Self::Bmp => &["bmp"],
+            Self::Gif => &["gif"],
+        }
+    }
+
+    /// A Qt file-dialog name filter, e.g. `JPEG images (*.jpg *.jpeg)`.
+    #[must_use]
+    pub fn name_filter(self) -> String {
+        let globs: Vec<String> = self
+            .extensions()
+            .iter()
+            .map(|ext| format!("*.{ext}"))
+            .collect();
+        format!("{} ({})", self.label(), globs.join(" "))
+    }
+
     /// Infer an export format from a destination extension.
     ///
     /// # Errors
@@ -139,6 +194,11 @@ pub enum RasterIoError {
     UnsupportedExtension,
     #[error("image dimensions exceed the 32,768 pixel limit")]
     DimensionsTooLarge,
+    /// The other end of the range, which `DimensionsTooLarge` used to answer
+    /// for: a file is free to declare an edge of 0, and telling its author the
+    /// image is too large is the opposite of what happened.
+    #[error("image has a zero-width or zero-height edge")]
+    DimensionsEmpty,
     #[error("image requires more than 512 MiB of RGBA memory")]
     RasterTooLarge,
     #[error("invalid RGBA buffer length: expected {expected} bytes, got {actual}")]
@@ -318,7 +378,13 @@ fn decode_limits() -> Limits {
 }
 
 fn checked_rgba_len(width: u32, height: u32) -> Result<usize, RasterIoError> {
-    if width == 0 || height == 0 || width > MAX_DIMENSION || height > MAX_DIMENSION {
+    // Four conditions used to share one error, and its message says "exceed
+    // the limit" — so a corrupt file declaring 0x0 was reported to its reader
+    // as an image too large to open.
+    if width == 0 || height == 0 {
+        return Err(RasterIoError::DimensionsEmpty);
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
         return Err(RasterIoError::DimensionsTooLarge);
     }
     let bytes = u64::from(width)
@@ -347,6 +413,8 @@ fn flatten_rgba_over_white(raster: &Raster) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use std::io::Cursor;
 
@@ -425,5 +493,94 @@ mod tests {
         assert_eq!(decoded, raster);
 
         std::fs::remove_dir_all(directory).expect("remove test directory");
+    }
+    /// A refusal must name the end of the range the value actually broke.
+    ///
+    /// `checked_rgba_len` folded four conditions into `DimensionsTooLarge`,
+    /// two of which are the opposite — a file is free to declare a zero edge,
+    /// and its reader was then told the image was too large to open.
+    /// Every format the writer handles is offered by the dialog, and every
+    /// extension the dialog offers is one the reader accepts. The two used to
+    /// be separate lists — one in Rust, one in QML — and BMP and GIF fell out
+    /// of the second.
+    #[test]
+    fn every_format_offers_extensions_its_own_reader_accepts() {
+        for format in RasterFormat::ALL {
+            assert!(
+                !format.extensions().is_empty(),
+                "{format:?} offers no extension"
+            );
+            for ext in format.extensions() {
+                let path = std::path::PathBuf::from(format!("x.{ext}"));
+                assert_eq!(
+                    RasterFormat::from_path(&path).expect("known extension"),
+                    format,
+                    "{format:?} offers .{ext}, which `from_path` reads as something else"
+                );
+            }
+            let filter = format.name_filter();
+            assert!(
+                filter.contains(format.label()) && filter.contains("(*."),
+                "{format:?} builds a malformed filter: {filter}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_zero_edge_is_not_reported_as_too_large() {
+        let empty = |w, h| {
+            Raster::new(w, h, Vec::new().into_boxed_slice())
+                .expect_err("a zero edge cannot hold pixels")
+                .to_string()
+        };
+        for message in [empty(0, 0), empty(0, 4), empty(4, 0)] {
+            assert!(
+                message.contains("zero"),
+                "a zero edge must say so, not {message:?}"
+            );
+            assert!(!message.contains("exceed"), "{message}");
+        }
+        let too_big = Raster::new(MAX_DIMENSION + 1, 1, Vec::new().into_boxed_slice())
+            .expect_err("past the limit")
+            .to_string();
+        assert!(too_big.contains("exceed"), "{too_big}");
+    }
+
+    /// Writing to a place that will not take it fails cleanly, every way.
+    #[test]
+    fn a_write_that_cannot_land_reports_why() {
+        let base = std::env::temp_dir().join(format!("phototux-qa-fs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("base");
+        let raster = Raster::new(2, 2, vec![9u8; 16].into_boxed_slice()).expect("raster");
+
+        let missing = base.join("no-such-dir").join("out.png");
+        assert!(
+            encode_path_atomic(&missing, &raster, RasterFormat::Png).is_err(),
+            "a missing parent directory must refuse"
+        );
+
+        let readonly = base.join("readonly");
+        fs::create_dir_all(&readonly).expect("dir");
+        let mut perms = fs::metadata(&readonly).expect("meta").permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o500);
+        fs::set_permissions(&readonly, perms).expect("chmod");
+        assert!(
+            encode_path_atomic(&readonly.join("out.png"), &raster, RasterFormat::Png).is_err(),
+            "a read-only directory must refuse"
+        );
+
+        let gone = base.join("gone.png");
+        encode_path_atomic(&gone, &raster, RasterFormat::Png).expect("write");
+        fs::remove_file(&gone).expect("remove");
+        assert!(
+            decode_path(&gone).is_err(),
+            "reading a file deleted underneath must refuse"
+        );
+
+        let mut perms = fs::metadata(&readonly).expect("meta").permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
+        let _ = fs::set_permissions(&readonly, perms);
+        let _ = fs::remove_dir_all(&base);
     }
 }

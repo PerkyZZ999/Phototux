@@ -228,7 +228,9 @@ Rules:
 - density cannot reduce targets below accessibility minimum;
 - native surface scale changes invalidate presentation resources, not document state.
 
-Theme may provide compact/comfortable spacing sets. Density changes preserve hierarchy, focus order, semantic component IDs, and command geography. They do not create a separate product mode.
+Theme may provide two spacing sets. Density changes preserve hierarchy, focus order, semantic component IDs, and command geography. They do not create a separate product mode.
+
+**Shipped rule — the two densities are `dense` and `comfortable`.** This chapter used to name them *compact*/comfortable, which is the only place in the project that says "compact": `Prefs::ui_density` stores `dense | comfortable`, the Preferences combo offers those two, and the constitution's own description of the product is "dense editor chrome". The wording is aligned here rather than in the code, because the shipped vocabulary is the one users and contributors already see. There is no third density, and a test plan that expects one is describing an app that never existed.
 
 A density mode **MUST** drive the layout scale, not only the type scale. The density factor applies to spacing steps, control heights, hit targets, icon boxes, and the fixed chrome extents (tool strip width, dock width, toolbar/status/panel-header heights). Scaling type alone yields larger text inside unchanged chrome, which fails the 200% target above and makes the preference misleading. Corner radii are a fixed visual signature and are exempt.
 
@@ -267,6 +269,28 @@ Checkerboard is a transparency cue, not document content. Its colors, cell size,
 Sampling and pixel inspection read immutable document/render semantic output, not theme-composited screen color unless action explicitly says “sample presented surface,” which is outside ordinary editing. Screenshot of application UI may include theme; document export does not.
 
 Overlay token snapshots carry theme revision, view generation, scale, contrast, and motion. Renderer cache keys separate overlays from document composite. Theme change invalidates overlay/final presentation stages only.
+
+**Shipped tokens — the seven overlay colours.** They lived as hex literals at
+their points of use in `Main.qml`, which is a second palette by any other name
+and is exactly where Qt's `#AARRGGBB` order is invisible: the crop wash had once
+shipped as a pale green fill inside a cyan border because its alpha was read as
+the red channel. Each is now named once in `Theme.qml` at the value it already
+had — naming them is the whole point, not restyling them.
+
+| Token | Value | Paints |
+| --- | --- | --- |
+| `canvasGrid` | `#40FFFFFF` | grid lines over the document |
+| `canvasGuide` | `#E0FF6A00` | a guide the user placed |
+| `canvasSelectionPreview` | `#22000000` | the wash under a marquee being dragged |
+| `canvasOutline` | `#000000` | the marching-ants stroke under the white dashes |
+| `canvasCropPreview` | `#1F3DAEE9` | the wash over what a crop would keep |
+| `checkerLight` / `checkerDark` | `#2A2A2E` / `#222226` | the transparency checkerboard |
+
+`chrome_colours_come_from_the_theme` fails the build on a colour literal
+anywhere in `qml/` outside `Theme.qml`. Two sites are excepted by name and are
+not chrome: the swatch palette the user paints with, and the fallbacks a shape's
+fill and stroke rows show before the layer has one. Both belong to the artwork,
+and theming them would change what the file contains.
 
 ## Motion and Reduced Motion
 

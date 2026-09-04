@@ -165,6 +165,36 @@ This equation is informative; individual commands must declare whether selection
 
 An empty selection ordinarily means no pixels selected, not “selection restriction disabled.” Commands that choose to treat absence of an explicit selection as unrestricted must model that distinction. PhotoTux therefore distinguishes `SelectionConstraint::None` from an active empty coverage field where necessary. User-facing “Clear Selection” normally returns to the unrestricted state according to product policy, while saved empty channels remain mathematically empty. The exact active-slot representation **MUST** avoid ambiguity.
 
+**Shipped rule — the brush multiplies by the selection, like everything else.**
+The coverage equation above was correct and the paint path did not implement it.
+`fill_layer` and `apply_gradient` read the selection mask and passed it as
+per-pixel coverage; `BrushStamper` had no mask binding at all, so a stroke
+painted straight through a selection that clipped a gradient to the pixel
+(QA-016). A user who selected a region to protect the rest of a layer and then
+painted destroyed what they believed was safe.
+
+The mask is now bound into both stamp pipelines — layer pixels and layer masks —
+and multiplied into coverage before the mode switch, so it applies to painting,
+erasing and every retouch mode alike, and the selection's own soft edge carries
+into the stroke instead of stepping. The CPU reference gained the same rule as
+`stamp_dab_rgba_within`, and `a_selection_bounds_the_brush_the_way_the_reference_does`
+measures the two against each other on a device.
+
+Two details are load-bearing:
+
+- **Absence is not emptiness.** `None` means unrestricted; an empty mask is all
+  zeros and multiplying by it refuses every stroke. This is the distinction this
+  chapter already draws between `SelectionConstraint::None` and an active empty
+  coverage field, and it is the failure the fix could most easily have
+  introduced — a brush that silently paints nothing whenever no selection
+  exists. `a_selection_bounds_a_dab_and_no_selection_does_not` asserts both
+  directions.
+- **The predicate is cached, not scanned.** The paint path asks once per dab
+  batch, and scanning a document-sized mask there would be megabytes per input
+  event. `SelectionMask` recomputes `is_active` in `upload`, the single place
+  its CPU mirror reaches the GPU, so the answer costs nothing on the hot path
+  and cannot drift from the mask.
+
 ## Coordinate Spaces and Extent
 
 Active pixel selection is defined in document space. Integer pixel cells align with the document raster convention. Sample positions, pixel-center convention, and edge inclusion are fixed across CPU and GPU paths. Canvas resize, origin shift, and crop commands state whether selection moves with document coordinates, clips to new canvas, or retains off-canvas coverage.
@@ -184,6 +214,27 @@ flowchart TB
 ```
 
 View zoom, rotation, mirroring, device scale, and ant animation never change authoritative coverage.
+
+**Shipped rule — empty means "selects no pixels", not "empty rectangle".**
+`selection.replace` refuses a shape whose bounds do not intersect the document
+at all, with the same standing that a zero-area drag has. Both are the user
+asking for a selection that covers nothing; only the wording differs. A drag
+that runs *past* the edge is kept whole and intersected downstream, so the
+bounds stored are the ones drawn and anything later re-derived from them — a
+transform, an expand — works from the rectangle the user made rather than a
+clamped one.
+
+The engine is asked before the GPU mask is written, not after. The mask is the
+real authority on coverage, so writing it first and then being refused would
+leave the two disagreeing: the engine still holding the previous selection while
+the texture held none of it, and a host undo snapshot pushed for an edit that
+never happened. The refusal reaches the user through `report_action_error`, at
+Warning level, because the command did not happen.
+
+Before this, "empty" meant an empty *rectangle*. A marquee dragged wholly into
+the letterbox beside the page was accepted: `selection.active` went true, the
+status bar read `pixel selection`, the marching ants drew, and every command
+that needs a selection then ran and did nothing at all.
 
 ## Antialiasing
 

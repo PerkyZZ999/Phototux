@@ -133,6 +133,8 @@ Popup {
                     background: Rectangle {
                         radius: Theme.radiusSm
                         color: closeNewDocBtn.hovered ? Theme.surfaceContainerHigh : "transparent"
+                        border.color: closeNewDocBtn.visualFocus ? Theme.focusRing : "transparent"
+                        border.width: 1
                     }
                     onClicked: dialog.close()
                     ThemedToolTip {
