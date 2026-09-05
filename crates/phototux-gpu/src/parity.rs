@@ -754,6 +754,103 @@ mod gpu_tests {
         Ok((cpu, gpu))
     }
 
+    fn gpu_filter_motion_blur(distance: f32, angle_deg: f32) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new_flattened(size, "fx");
+        let id: LayerId = graph.layers()[0].id;
+        graph
+            .add_motion_blur(id, distance, angle_deg)
+            .ok_or_else(|| "add motion blur".to_owned())?;
+        let src = checker_rgba(W, H, 4, [255, 0, 0, 255], [0, 0, 255, 255]);
+        let mut cpu = src.clone();
+        crate::cpu_motion_blur_rgba(&mut cpu, W, H, distance, angle_deg);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())?;
+        eng.write_layer_rgba(&ctx, id, &src)
+            .map_err(|e| e.to_string())?;
+        eng.composite(&ctx, graph.layers())?;
+        let gpu = eng.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+        Ok((cpu, gpu))
+    }
+
+    fn gpu_filter_emboss(strength: f32, angle_deg: f32) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new_flattened(size, "fx");
+        let id: LayerId = graph.layers()[0].id;
+        graph
+            .add_emboss(id, strength, angle_deg)
+            .ok_or_else(|| "add emboss".to_owned())?;
+        let src = checker_rgba(W, H, 4, [40, 40, 40, 255], [220, 220, 220, 255]);
+        let mut cpu = src.clone();
+        crate::cpu_emboss_rgba(&mut cpu, W, H, strength, angle_deg);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())?;
+        eng.write_layer_rgba(&ctx, id, &src)
+            .map_err(|e| e.to_string())?;
+        eng.composite(&ctx, graph.layers())?;
+        let gpu = eng.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+        Ok((cpu, gpu))
+    }
+
+    fn gpu_filter_noise(amount: f32) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let ctx = GpuContext::new().map_err(|e| e.to_string())?;
+        const W: u32 = 16;
+        const H: u32 = 16;
+        let size = DocumentSize::new(W, H);
+        let mut graph = DocumentGraph::new_flattened(size, "fx");
+        let id: LayerId = graph.layers()[0].id;
+        graph
+            .add_noise(id, amount)
+            .ok_or_else(|| "add noise".to_owned())?;
+        let src = solid_rgba(W, H, [128, 128, 128, 255]);
+        let mut cpu = src.clone();
+        crate::cpu_noise_rgba(&mut cpu, W, H, amount);
+        let mut eng = LayerCompositeEngine::new(&ctx, size);
+        eng.sync_layers_from_graph(&ctx, graph.layers())?;
+        eng.write_layer_rgba(&ctx, id, &src)
+            .map_err(|e| e.to_string())?;
+        eng.composite(&ctx, graph.layers())?;
+        let gpu = eng.read_result_rgba(&ctx).map_err(|e| e.to_string())?;
+        Ok((cpu, gpu))
+    }
+
+    /// The three filters that have a CPU reference and had no parity test.
+    ///
+    /// `every_filter_kind_changes_the_picture_on_device` asks only that the
+    /// shader alters the image, which a filter with a flipped angle, a swapped
+    /// sign or a different grain hash passes. The CPU side is what degraded
+    /// mode renders with, so a divergence here is two different pictures for
+    /// the same document depending on whether the device came up.
+    #[test]
+    fn gpu_cpu_parity_for_every_filter_with_a_cpu_reference() {
+        // Axis-aligned, the two agree to the byte: every tap lands on a pixel
+        // centre, so nothing is left but the edge rule. This is the case that
+        // caught the bug — it read max=50 mean=22.6 while the shader and the
+        // reference disagreed about what lies past the border.
+        let (cpu, gpu) = gpu_filter_motion_blur(6.0, 0.0).expect("motion blur");
+        assert_rgba8_within(&cpu, &gpu, 2.0, 1.0).expect("horizontal motion blur");
+
+        // On a diagonal the taps land between pixels, where the shader's linear
+        // filtering and the reference's nearest sample legitimately part —
+        // the same structural difference `gpu_cpu_gaussian_parity` allows for.
+        let (cpu, gpu) = gpu_filter_motion_blur(6.0, 30.0).expect("motion blur");
+        assert_rgba8_within(&cpu, &gpu, 40.0, 15.0).expect("diagonal motion blur");
+
+        // Emboss reads a fixed 3×3 neighbourhood and noise is a hash of the
+        // pixel's coordinates, so both are exact on either side.
+        let (cpu, gpu) = gpu_filter_emboss(1.0, 135.0).expect("emboss");
+        assert_rgba8_within(&cpu, &gpu, 2.0, 1.0).expect("emboss");
+
+        let (cpu, gpu) = gpu_filter_noise(0.35).expect("noise");
+        assert_rgba8_within(&cpu, &gpu, 2.0, 1.0).expect("noise");
+    }
+
     #[test]
     fn gpu_cpu_blend_parity_across_every_shared_mode() {
         for &mode in PARITY_BLEND_MODES {

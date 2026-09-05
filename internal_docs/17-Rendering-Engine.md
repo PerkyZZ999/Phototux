@@ -390,6 +390,24 @@ Parallel CPU composition uses immutable inputs and deterministic tile boundaries
 
 GPU and CPU traces compare node-by-node to isolate divergence. A device-specific failing pipeline variant is quarantined locally and scheduler uses another path.
 
+### A CPU reference is only a reference if it is compared
+
+Every CPU filter that has a shader **MUST** be compared against it. The test
+that says a filter *changed the picture* passes a shader with a flipped angle, a
+swapped sign, or a different grain hash, and it passes a reference that draws
+something else entirely — which is what happened. Motion blur's reference
+skipped taps that left the layer and divided by the ones that landed, while the
+shader samples `ClampToEdge` and weights every tap, so the two renormalised the
+kernel differently within `distance` of every border. Degraded mode drew a
+different picture from the device for the same document, and
+`every_filter_kind_changes_the_picture_on_device` was satisfied by both.
+
+Where the two legitimately part is sampling, not semantics: the shader filters
+linearly and a reference reads whole pixels, so taps landing between pixel
+centres differ. Axis-aligned cases put every tap on a centre and **MUST**
+therefore agree to the byte — that is the case worth asserting tightly, and the
+one that caught this. Only the interpolating cases earn a loose bound.
+
 ## Overlays
 
 Overlays include selection boundaries/tints, guides, grids, transform handles, brush cursor and preview, text cursor/selection, shape nodes, snapping hints, diagnostics, and out-of-canvas indicators. Most are view/transient state and render after document color/proof unless semantic requirement places them earlier.

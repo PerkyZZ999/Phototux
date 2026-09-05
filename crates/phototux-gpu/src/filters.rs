@@ -241,12 +241,17 @@ fn write_motion_blur_pixel(
     let mut count = 0.0_f32;
     for i in -sample.steps..=sample.steps {
         let t = i as f32 / sample.steps as f32;
+        // Clamped to the edge, and counted either way. The shader samples with
+        // `AddressMode::ClampToEdge` and adds 1.0 to its weight for every tap,
+        // so a tap that leaves the layer contributes the border pixel at full
+        // weight there. Skipping it here instead — and dividing by the taps
+        // that landed — renormalised the kernel within `distance` of every
+        // border, which is a different picture from the one the device draws.
         let sx = (sample.x as f32 + sample.dx * t * sample.distance).round() as i32;
         let sy = (sample.y as f32 + sample.dy * t * sample.distance).round() as i32;
-        if sx < 0 || sy < 0 || sx >= w as i32 || sy >= h as i32 {
-            continue;
-        }
-        let idx = (sy as usize * w + sx as usize) * 4;
+        let sx = sx.clamp(0, w as i32 - 1) as usize;
+        let sy = sy.clamp(0, h as i32 - 1) as usize;
+        let idx = (sy * w + sx) * 4;
         for c in 0..4 {
             acc[c] += f32::from(src[idx + c]);
         }
