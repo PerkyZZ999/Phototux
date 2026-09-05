@@ -13,6 +13,50 @@ pub(crate) fn qml_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../qml"))
 }
 
+/// Every Rust source in the host crate, concatenated.
+///
+/// Nine guards below read the host as text to check a rule the compiler
+/// cannot — that a refusal is reported, that a snapshot is taken first,
+/// that nothing emits before the proxy exists. Each of them used to read
+/// `src/lib.rs` and nothing else, which quietly assumed the host is one
+/// file. It is 9,300 lines and being split, and the assumption fails two
+/// ways when a function moves out: `expect` panics with a message about
+/// the test rather than the code, or — worse — a name lookup returns
+/// `None`, the walk skips that branch, and the guard goes on passing while
+/// covering less than it says.
+///
+/// What these rules are about is the *host*, not a file, so they read the
+/// crate. `chrome_contract.rs` is excluded: it contains the detector
+/// strings themselves, and a guard that matches its own source reports
+/// itself.
+#[cfg(test)]
+pub(crate) fn host_source() -> String {
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .expect("the host crate is readable from its own tests")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().is_some_and(|e| e == "rs")
+                && p.file_name().is_some_and(|n| n != "chrome_contract.rs")
+        })
+        .collect();
+    // Sorted, so a guard that reports a line number reports the same one
+    // twice in a row.
+    files.sort();
+    assert!(
+        files.len() > 1,
+        "the host crate has {} readable sources, so this scan is not \
+         reading what it thinks it is",
+        files.len()
+    );
+    files
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Every `.qml` file in the shell, as `(name, text)`.
 ///
 /// Shared with the guards in `lib.rs` rather than written out again there.
@@ -52,7 +96,7 @@ pub(crate) fn qml_files() -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{qml_dir, qml_files};
+    use super::{host_source, qml_dir, qml_files};
 
     /// The `type {` blocks in `text`, as `(line number, body)`.
     ///
@@ -360,8 +404,7 @@ mod tests {
     /// that is correctly disabled.
     #[test]
     fn every_kind_an_enablement_names_is_a_kind_a_layer_reports() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let kinds: Vec<&str> = phototux_engine::LayerKind::ALL
             .iter()
             .map(|k| k.as_str())
@@ -546,8 +589,7 @@ mod tests {
     /// test.
     #[test]
     fn parking_a_document_drops_the_host_undo_stacks() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let at = source
             .find("fn park_current_document(&mut self)")
             .expect("park_current_document is there to read");
@@ -1261,8 +1303,7 @@ mod tests {
     /// user is still working in.
     #[test]
     fn a_close_deferred_for_a_save_is_finished_or_abandoned() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let at = source
             .find("fn handle_file_saved(&mut self, path: PathBuf)")
             .expect("handle_file_saved is there to read");
@@ -1374,8 +1415,7 @@ mod tests {
     /// "command rejected: …" out loud.
     #[test]
     fn a_refused_command_is_reported_not_rendered() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let lines: Vec<&str> = source.lines().collect();
         for (number, line) in lines.iter().enumerate() {
             let trimmed = line.trim_start();
@@ -1522,8 +1562,7 @@ mod tests {
              geometry — the scan broke, or it is drawing something else"
         );
 
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let at = source
             .find("fn sync_path_edit_fields(&mut self)")
             .expect("sync_path_edit_fields is there to read");
@@ -1556,8 +1595,7 @@ mod tests {
     /// point: it queues, and the queue is published once the proxy exists.
     #[test]
     fn nothing_reachable_from_construction_emits() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
 
         // The body of `fn name`, or `None` when it is not a method here.
         let body_of = |name: &str| -> Option<String> {
@@ -1637,8 +1675,7 @@ mod tests {
     /// helper and a new line here.
     #[test]
     fn sync_from_engine_is_a_list_of_calls() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let at = source
             .find("    fn sync_from_engine(&mut self) {")
             .expect("sync_from_engine is there to read");
@@ -1687,8 +1724,7 @@ mod tests {
     /// step after it.
     #[test]
     fn every_conversion_to_pixels_is_snapshotted_before_it_runs() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let at = source
             .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
             .expect("invoke_command is there to read");
@@ -1886,8 +1922,7 @@ mod tests {
     /// path went on recording a step with nothing behind it.
     #[test]
     fn a_profile_conversion_snapshots_before_it_rewrites() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the host crate is readable from its own tests");
+        let source = host_source();
         let at = source
             .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
             .expect("invoke_command is there to read");

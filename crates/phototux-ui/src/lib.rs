@@ -3148,8 +3148,7 @@ mod tests {
     /// the alternative is a third list of tag names for someone to forget.
     #[test]
     fn every_enablement_tag_an_action_declares_is_one_the_host_answers() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the ui crate can read its own source");
+        let source = crate::chrome_contract::host_source();
         let body = source
             .split("fn action_enablement(&self, tag: &str) -> bool {")
             .nth(1)
@@ -3262,8 +3261,7 @@ mod tests {
     /// the string literals *inside* an arm body are not mistaken for patterns.
     #[test]
     fn the_registry_and_the_host_dispatcher_name_the_same_host_ops() {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
-            .expect("the ui crate can read its own source");
+        let source = crate::chrome_contract::host_source();
         let body = source
             .split("fn dispatch_host_op(&mut self, op: &str, arg: Option<&str>) {")
             .nth(1)
