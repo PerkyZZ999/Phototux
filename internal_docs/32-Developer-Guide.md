@@ -132,7 +132,12 @@ so a plain helper block moves without ceremony.
 
 `session_projection.rs` is the first of those: `sync_from_engine` and the
 helpers it calls, plus the `emit_*` family that republishes one concern after a
-targeted edit. Methods there are `pub(crate)` rather than private — visibility
+targeted edit. `session_gpu.rs` is the second: everything that reaches
+`phototux_canvas` — opening and recompositing the document, committing an edit
+that writes pixels, the navigator thumbnail, device-loss recovery, and the two
+host-side undo stacks whose contents are GPU snapshots rather than graph
+commands. Deciding *when* to snapshot belongs to the command spine and stays in
+`lib.rs`; reading and restoring one is GPU work. Methods there are `pub(crate)` rather than private — visibility
 in Rust flows to a module's *descendants*, and the caller is an ancestor. The
 surface did not widen; the code moved.
 
