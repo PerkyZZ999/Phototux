@@ -605,8 +605,7 @@ mod tests {
     #[test]
     fn parking_a_document_drops_the_host_undo_stacks() {
         let source = host_source();
-        let at = source
-            .find("fn park_current_document(&mut self)")
+        let at = fn_at(&source, "park_current_document")
             .expect("park_current_document is there to read");
         // Newlines, not `lines().count()`: the text before `at` ends mid-line
         // (the indent before `fn`), so `lines()` already counts that line and
@@ -1317,9 +1316,7 @@ mod tests {
     #[test]
     fn a_close_deferred_for_a_save_is_finished_or_abandoned() {
         let source = host_source();
-        let at = source
-            .find("fn handle_file_saved(&mut self, path: PathBuf)")
-            .expect("handle_file_saved is there to read");
+        let at = fn_at(&source, "handle_file_saved").expect("handle_file_saved is there to read");
         let line = source[..at].matches('\n').count() + 1;
         let body = body_at_line(&source, line);
         assert!(
@@ -1454,7 +1451,7 @@ mod tests {
             );
         }
         assert!(
-            source.contains("fn report_action_error(&mut self, error: &CommandError)"),
+            fn_at(&source, "report_action_error").is_some(),
             "report_action_error is gone — the scan broke rather than the host"
         );
     }
@@ -1576,8 +1573,7 @@ mod tests {
         );
 
         let source = host_source();
-        let at = source
-            .find("fn sync_path_edit_fields(&mut self)")
+        let at = fn_at(&source, "sync_path_edit_fields")
             .expect("sync_path_edit_fields is there to read");
         let line = source[..at].matches('\n').count() + 1;
         let body = body_at_line(&source, line);
@@ -1734,9 +1730,7 @@ mod tests {
     #[test]
     fn every_conversion_to_pixels_is_snapshotted_before_it_runs() {
         let source = host_source();
-        let at = source
-            .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
-            .expect("invoke_command is there to read");
+        let at = fn_at(&source, "invoke_command").expect("invoke_command is there to read");
         let line = source[..at].matches('\n').count() + 1;
         let body = body_at_line(&source, line);
 
@@ -1932,9 +1926,7 @@ mod tests {
     #[test]
     fn a_profile_conversion_snapshots_before_it_rewrites() {
         let source = host_source();
-        let at = source
-            .find("fn invoke_command(&mut self, id: &str, args: CommandArgs)")
-            .expect("invoke_command is there to read");
+        let at = fn_at(&source, "invoke_command").expect("invoke_command is there to read");
         let line = source[..at].matches('\n').count() + 1;
         let body = body_at_line(&source, line);
         let snapshot = body
