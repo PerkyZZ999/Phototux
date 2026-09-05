@@ -300,7 +300,12 @@ mod tests {
             let index = g.index_of(id).expect("index");
             let layer = g.get(id).cloned().expect("layer");
             h.push_graph_applied(
-                GraphCommand::AddLayer { id, index, layer },
+                GraphCommand::AddLayer {
+                    id,
+                    index,
+                    layer,
+                    prev_active: None,
+                },
                 format!("Add {i}"),
                 i as u64 + 1,
             );

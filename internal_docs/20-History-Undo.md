@@ -190,6 +190,24 @@ Successful undo commits authoritative state, registers traversal state, advances
 
 If inverse cannot apply, undo fails atomically. The system does not partially restore some layers. An optional repair command may establish a checkpoint boundary but must disclose lost traversal.
 
+### Which layer is selected is part of the document
+
+`AddLayer` and `DeleteLayer` both move the selection as a side effect of the
+structural change they describe, and neither move is recoverable from the
+inverse alone. `insert_layer_at` always selects what it inserted; `remove_layer`
+picks a neighbour when the layer it removed was the active one. So reversing an
+add by deleting, or a delete by inserting, lands the user on whichever layer
+those rules happened to choose rather than the one they had before the edit.
+
+Both variants therefore carry `prev_active: Option<LayerId>`, recorded by the
+caller *before* it mutates the graph, and `UndoStack::undo` reinstates it after
+the inverse applies (`restore_prev_active_after_undo`). For a `Batch`, the last
+structural member wins, because its reversal is the one that landed last.
+
+The compensation deliberately sits in `undo`, not in `apply`: redo should leave
+the selection where the original edit left it, which is what `apply` already
+does on its own.
+
 ### Host-side steps
 
 Two things the timeline can undo are not in the document graph, so the engine

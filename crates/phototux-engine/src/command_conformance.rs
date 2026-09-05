@@ -1,7 +1,43 @@
 //! Headless command-router conformance suite (handbook 31 / DR-022).
 
+/// Blank out the counters that a restored document is *supposed* to differ in.
+///
+/// `generation` and each layer's `revision` are meant to move forward, and
+/// undo bumps them again, so a perfectly restored document still serialises
+/// differently. `next_id` is the same shape for a different reason: layer ids
+/// are never recycled, so undoing a layer creation removes the layer and
+/// deliberately leaves the allocator where it was — reusing the id would let a
+/// stale reference alias a new layer.
+///
+/// Written out rather than pulled in as a dependency — the engine takes serde
+/// and thiserror and nothing else, and this is three fields.
+#[cfg(test)]
+pub(crate) fn without_counters(json: &str) -> String {
+    const KEYS: [&str; 3] = ["\"generation\":", "\"revision\":", "\"next_id\":"];
+    let mut out = String::with_capacity(json.len());
+    let mut rest = json;
+    loop {
+        let Some((at, key)) = KEYS
+            .iter()
+            .filter_map(|k| rest.find(k).map(|at| (at, *k)))
+            .min_by_key(|(at, _)| *at)
+        else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..at]);
+        out.push_str(key);
+        let tail = &rest[at + key.len()..];
+        let digits = tail
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(tail.len());
+        rest = &tail[digits..];
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::without_counters;
     use crate::command_id;
     use crate::command_meta;
     use crate::command_meta::{CommandScope, MutationClass};
@@ -352,38 +388,6 @@ mod tests {
 
     /// Blank out the monotonic counters in a serialised graph.
     ///
-    /// `generation` and each layer's `revision` are meant to move forward, and
-    /// undo bumps them again, so a perfectly restored document still
-    /// serialises differently. `next_id` is the same shape for a different
-    /// reason: layer ids are never recycled, so undoing a layer creation
-    /// removes the layer and deliberately leaves the allocator where it was —
-    /// reusing the id would let a stale reference alias a new layer.
-    ///
-    /// Written out rather than pulled in as a dependency — the engine takes
-    /// serde and thiserror and nothing else, and this is three fields.
-    fn without_counters(json: &str) -> String {
-        const KEYS: [&str; 3] = ["\"generation\":", "\"revision\":", "\"next_id\":"];
-        let mut out = String::with_capacity(json.len());
-        let mut rest = json;
-        loop {
-            let Some((at, key)) = KEYS
-                .iter()
-                .filter_map(|k| rest.find(k).map(|at| (at, *k)))
-                .min_by_key(|(at, _)| *at)
-            else {
-                out.push_str(rest);
-                return out;
-            };
-            out.push_str(&rest[..at]);
-            out.push_str(key);
-            let tail = &rest[at + key.len()..];
-            let digits = tail
-                .find(|c: char| !c.is_ascii_digit())
-                .unwrap_or(tail.len());
-            rest = &tail[digits..];
-        }
-    }
-
     /// Every action that edits the document has to be undoable, and undo has
     /// to put the document back.
     ///

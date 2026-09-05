@@ -313,7 +313,12 @@ mod tests {
         let index = g.index_of(id).expect("index");
         let layer = g.get(id).cloned().expect("layer");
         h.push_graph_applied(
-            crate::GraphCommand::AddLayer { id, index, layer },
+            crate::GraphCommand::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active: None,
+            },
             "Add layer",
             1,
         );

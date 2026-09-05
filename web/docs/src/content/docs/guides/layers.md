@@ -55,6 +55,11 @@ asked for.
 
 </div>
 
+Adding a layer selects it. Undoing the add selects whatever you had before, so
+<kbd>Ctrl</kbd> <kbd>J</kbd> followed by <kbd>Ctrl</kbd> <kbd>Z</kbd> leaves you
+on the layer you started from rather than one of its neighbours. Undoing a
+delete puts you back on the layer you deleted.
+
 ## Order, visibility and opacity
 
 **Layer ▸ Arrange** moves the active layer through the stack: Bring to Front

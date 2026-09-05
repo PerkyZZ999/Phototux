@@ -17,6 +17,10 @@ pub enum GraphCommand {
         id: LayerId,
         index: usize,
         layer: Layer,
+        /// Which layer was selected before the insert. Inserting always makes
+        /// the new layer active, so reversing the add has to put the selection
+        /// back — see [`restore_prev_active_after_undo`].
+        prev_active: Option<LayerId>,
     },
     DeleteLayer {
         id: LayerId,
@@ -356,11 +360,16 @@ impl GraphCommand {
 
     pub fn invert(&self) -> Self {
         match self {
-            Self::AddLayer { id, index, layer } => Self::DeleteLayer {
+            Self::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            } => Self::DeleteLayer {
                 id: *id,
                 index: *index,
                 layer: layer.clone(),
-                prev_active: None,
+                prev_active: *prev_active,
             },
             Self::DeleteLayer {
                 id,
@@ -368,11 +377,12 @@ impl GraphCommand {
                 layer,
                 prev_active,
             } => {
-                let _ = (id, prev_active);
+                let _ = id;
                 Self::AddLayer {
                     id: layer.id,
                     index: *index,
                     layer: layer.clone(),
+                    prev_active: *prev_active,
                 }
             }
             Self::MoveLayer { id, from, to } => Self::MoveLayer {
@@ -587,7 +597,7 @@ impl UndoStack {
             return false;
         }
         // Restore active after delete invert special-case
-        restore_prev_active_after_delete_undo(graph, &cmd);
+        restore_prev_active_after_undo(graph, &cmd);
         self.redo.push(cmd);
         true
     }
@@ -607,27 +617,33 @@ impl UndoStack {
     }
 }
 
-fn restore_prev_active_after_delete_undo(graph: &mut DocumentGraph, cmd: &GraphCommand) {
+/// Put the selection back after reversing a structural command.
+///
+/// Both directions move it on their own: `insert_layer_at` always selects what
+/// it inserted, and `remove_layer` picks a neighbour when it removes the active
+/// layer. Neither guess is what the user had, so the command records it.
+fn restore_prev_active_after_undo(graph: &mut DocumentGraph, cmd: &GraphCommand) {
     match cmd {
-        GraphCommand::DeleteLayer {
-            prev_active: Some(id),
-            ..
-        } => {
-            let _ = graph.set_active(*id);
-        }
         GraphCommand::Batch(cmds) => {
-            for nested in cmds.iter().rev() {
-                if let GraphCommand::DeleteLayer {
-                    prev_active: Some(id),
-                    ..
-                } = nested
-                {
-                    let _ = graph.set_active(*id);
-                    break;
-                }
+            // The last structural step in the batch is the one whose reversal
+            // landed last, so its record is the one that still applies.
+            if let Some(id) = cmds.iter().rev().find_map(prev_active_of) {
+                let _ = graph.set_active(id);
             }
         }
-        _ => {}
+        other => {
+            if let Some(id) = prev_active_of(other) {
+                let _ = graph.set_active(id);
+            }
+        }
+    }
+}
+
+fn prev_active_of(cmd: &GraphCommand) -> Option<LayerId> {
+    match cmd {
+        GraphCommand::AddLayer { prev_active, .. }
+        | GraphCommand::DeleteLayer { prev_active, .. } => *prev_active,
+        _ => None,
     }
 }
 
@@ -645,6 +661,7 @@ pub mod actions {
         history: &mut HistoryService,
         name: Option<String>,
     ) -> Result<LayerId, crate::DocumentError> {
+        let prev_active = graph.active_id();
         let id = graph.add_layer_top(name)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
@@ -653,7 +670,12 @@ pub mod actions {
             .ok_or(crate::DocumentError::LayerMissingAfterAdd)?;
         graph.bump_generation();
         history.push_graph_applied(
-            GraphCommand::AddLayer { id, index, layer },
+            GraphCommand::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            },
             "Add layer",
             graph.generation,
         );
@@ -673,6 +695,7 @@ pub mod actions {
         history: &mut HistoryService,
         id: LayerId,
     ) -> Result<LayerId, crate::DocumentError> {
+        let prev_active = graph.active_id();
         let index = graph
             .index_of(id)
             .ok_or(crate::DocumentError::LayerMissingAfterAdd)?;
@@ -695,6 +718,7 @@ pub mod actions {
                 id: new_id,
                 index: index + 1,
                 layer: copy,
+                prev_active,
             },
             "Duplicate Layer",
             graph.generation,
@@ -826,6 +850,426 @@ mod tests {
     use super::*;
     use crate::DocumentSize;
 
+    /// A two-layer document the round trip can move in every direction.
+    fn fixture_graph() -> DocumentGraph {
+        DocumentGraph::new(DocumentSize::new(32, 32))
+    }
+
+    /// Builds one case's command, and may first add the layer that command
+    /// needs — `SetAdjustment` and `SetFill` refuse any layer of the wrong
+    /// kind, so they cannot be aimed at the raster layers the fixture starts
+    /// with, and `SetParent` needs a group to parent into.
+    type CaseBuilder = Box<dyn Fn(&mut DocumentGraph) -> GraphCommand>;
+
+    /// One command per `GraphCommand` variant, built against `fixture_graph`.
+    ///
+    /// Each must actually *change* the document — a case that applies cleanly
+    /// and alters nothing would pass the round trip without testing anything,
+    /// which the round-trip test asserts against.
+    fn round_trip_cases() -> Vec<(&'static str, CaseBuilder)> {
+        fn other_transform() -> LayerTransform {
+            LayerTransform {
+                translate_x: 12.0,
+                ..LayerTransform::default()
+            }
+        }
+        let top = |g: &DocumentGraph| g.layers()[1].id;
+        let bottom = |g: &DocumentGraph| g.layers()[0].id;
+
+        vec![
+            (
+                "AddLayer",
+                Box::new(|g: &mut DocumentGraph| {
+                    let mut layer = g.layers()[1].clone();
+                    layer.id = LayerId(4242);
+                    layer.name = "Added".into();
+                    GraphCommand::AddLayer {
+                        id: layer.id,
+                        index: 0,
+                        layer,
+                        prev_active: g.active_id(),
+                    }
+                }),
+            ),
+            (
+                "DeleteLayer",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::DeleteLayer {
+                    id: top(g),
+                    index: 1,
+                    layer: g.layers()[1].clone(),
+                    prev_active: g.active_id(),
+                }),
+            ),
+            (
+                "MoveLayer",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::MoveLayer {
+                    id: top(g),
+                    from: 1,
+                    to: 0,
+                }),
+            ),
+            (
+                "SetVisibility",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetVisibility {
+                    id: top(g),
+                    prev: true,
+                    next: false,
+                }),
+            ),
+            (
+                "SetOpacity",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetOpacity {
+                    id: top(g),
+                    prev: 1.0,
+                    next: 0.25,
+                }),
+            ),
+            (
+                "SetBlend",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetBlend {
+                    id: top(g),
+                    prev: BlendMode::Normal,
+                    next: BlendMode::Multiply,
+                }),
+            ),
+            (
+                "Rename",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::Rename {
+                    id: top(g),
+                    prev: g.layers()[1].name.clone(),
+                    next: "Renamed".into(),
+                }),
+            ),
+            (
+                "SetActive",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetActive {
+                    prev: g.active_id(),
+                    next: Some(bottom(g)),
+                }),
+            ),
+            (
+                "SetMask",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetMask {
+                    id: top(g),
+                    prev: None,
+                    next: Some(LayerMask::default()),
+                }),
+            ),
+            (
+                "SetLocks",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetLocks {
+                    id: top(g),
+                    prev: LockFlags::default(),
+                    next: LockFlags {
+                        all: true,
+                        ..LockFlags::default()
+                    },
+                }),
+            ),
+            (
+                "SetClipsToBelow",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetClipsToBelow {
+                    id: top(g),
+                    prev: false,
+                    next: true,
+                }),
+            ),
+            (
+                "SetBlendIf",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetBlendIf {
+                    id: top(g),
+                    prev: crate::BlendIf::default(),
+                    next: crate::BlendIf {
+                        channel: crate::BlendIfChannel::Red,
+                        ..crate::BlendIf::default()
+                    },
+                }),
+            ),
+            (
+                "SetTransform",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetTransform {
+                    id: top(g),
+                    prev: LayerTransform::default(),
+                    next: other_transform(),
+                }),
+            ),
+            (
+                "SetAdjustment",
+                Box::new(|g: &mut DocumentGraph| {
+                    let id = g
+                        .add_adjustment_top(Some("Adj".into()), AdjustmentParams::Invert)
+                        .expect("an adjustment layer");
+                    GraphCommand::SetAdjustment {
+                        id,
+                        prev: Some(AdjustmentParams::Invert),
+                        next: None,
+                    }
+                }),
+            ),
+            (
+                "SetEffects",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetEffects {
+                    id: top(g),
+                    prev: Vec::new(),
+                    next: vec![FilterEffect {
+                        id: 1,
+                        name: "Blur".into(),
+                        enabled: true,
+                        opacity: 1.0,
+                        blend: BlendMode::Normal,
+                        params: crate::FilterParams::GaussianBlur { radius: 4.0 },
+                    }],
+                }),
+            ),
+            (
+                "SetFill",
+                Box::new(|g: &mut DocumentGraph| {
+                    let id = g
+                        .add_fill_top(Some("Fill".into()), FillContent::default())
+                        .expect("a fill layer");
+                    GraphCommand::SetFill {
+                        id,
+                        prev: Some(FillContent::default()),
+                        next: None,
+                    }
+                }),
+            ),
+            (
+                "SetShape",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetShape {
+                    id: top(g),
+                    prev: None,
+                    next: Some(ShapeContent::default()),
+                }),
+            ),
+            (
+                "SetText",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetText {
+                    id: top(g),
+                    prev: None,
+                    next: Some(crate::TextContent::default()),
+                }),
+            ),
+            (
+                "SetSmart",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetSmart {
+                    id: top(g),
+                    prev: None,
+                    next: Some(crate::SmartObjectContent {
+                        source_name: "Source".into(),
+                        source_width: 8,
+                        source_height: 8,
+                        placement: LayerTransform::default(),
+                    }),
+                }),
+            ),
+            (
+                "SetKind",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetKind {
+                    id: top(g),
+                    prev: crate::LayerKind::Raster,
+                    next: crate::LayerKind::Text,
+                }),
+            ),
+            // `prev` is read from the layer, not assumed: `FilterPlan::default()`
+            // is version 0 while a layer is born with `FilterPlan::new()`.
+            (
+                "SetFilterPlan",
+                Box::new(move |g: &mut DocumentGraph| {
+                    let id = top(g);
+                    GraphCommand::SetFilterPlan {
+                        id,
+                        prev: g.get(id).expect("a layer").filter_plan.clone(),
+                        next: FilterPlan {
+                            version: 2,
+                            nodes: Vec::new(),
+                        },
+                    }
+                }),
+            ),
+            (
+                "SetPaths",
+                Box::new(|_: &mut DocumentGraph| GraphCommand::SetPaths {
+                    prev: PathDocument::default(),
+                    next: PathDocument {
+                        paths: vec![crate::paths::rect_path("R", 1.0, 2.0, 3.0, 4.0)],
+                        active: None,
+                    },
+                }),
+            ),
+            (
+                "SetColorState",
+                Box::new(|_: &mut DocumentGraph| GraphCommand::SetColorState {
+                    prev: DocumentColorState::default(),
+                    next: DocumentColorState {
+                        assigned_profile: "Display P3".into(),
+                        ..DocumentColorState::default()
+                    },
+                }),
+            ),
+            (
+                "SetStyles",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetStyles {
+                    id: top(g),
+                    prev: Vec::new(),
+                    next: vec![LayerStyle::DropShadow {
+                        enabled: true,
+                        offset_x: 2.0,
+                        offset_y: 2.0,
+                        blur: 4.0,
+                        opacity: 0.5,
+                        color_rgba: [0.0, 0.0, 0.0, 1.0],
+                    }],
+                }),
+            ),
+            (
+                "SetVectorMask",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetVectorMask {
+                    id: top(g),
+                    prev: None,
+                    next: Some(crate::VectorMask::default()),
+                }),
+            ),
+            // Only a group may be a parent, so the case makes one.
+            (
+                "SetParent",
+                Box::new(move |g: &mut DocumentGraph| {
+                    let child = top(g);
+                    let group = g.add_group_top(Some("Group".into())).expect("a group");
+                    GraphCommand::SetParent {
+                        id: child,
+                        prev: None,
+                        next: Some(group),
+                    }
+                }),
+            ),
+            (
+                "SetStackOrder",
+                Box::new(move |g: &mut DocumentGraph| GraphCommand::SetStackOrder {
+                    prev: g.layers().iter().map(|l| l.id).collect(),
+                    next: g.layers().iter().rev().map(|l| l.id).collect(),
+                }),
+            ),
+            // Two steps, so the reversal order is exercised and not just the
+            // per-command inversion: undoing [a, b] has to be [b⁻¹, a⁻¹].
+            (
+                "Batch",
+                Box::new(move |g: &mut DocumentGraph| {
+                    GraphCommand::Batch(vec![
+                        GraphCommand::SetOpacity {
+                            id: top(g),
+                            prev: 1.0,
+                            next: 0.5,
+                        },
+                        GraphCommand::Rename {
+                            id: top(g),
+                            prev: g.layers()[1].name.clone(),
+                            next: "Batched".into(),
+                        },
+                    ])
+                }),
+            ),
+        ]
+    }
+
+    /// Every `GraphCommand` variant undoes back to exactly where it started.
+    ///
+    /// `invert` is exhaustive by the compiler, so a *missing* variant cannot
+    /// ship. What can ship is a variant that inverts wrongly — `prev` and
+    /// `next` swapped the wrong way, a field dropped, a `Batch` reversed in
+    /// the wrong order — and none of that is a type error. Five of the
+    /// twenty-eight variants had a round-trip test; the rest were covered only
+    /// where an action happened to reach them.
+    ///
+    /// The property is the whole contract of the undo stack: apply a command,
+    /// apply its inverse, and the document is byte-for-byte what it was.
+    /// Compared through the serialised graph rather than field by field, so a
+    /// field added to `Layer` tomorrow is covered without anyone remembering.
+    ///
+    /// The table is checked against the enum itself — `every_variant_is_in_the_round_trip_table`
+    /// reads the declaration and fails if a new variant is added without a
+    /// case here, which is the part a table like this otherwise loses over
+    /// time.
+    #[test]
+    fn every_graph_command_undoes_back_to_where_it_started() {
+        // Through `UndoStack::undo`, not `invert().apply()`: reversing a
+        // command is more than its inverse — the stack also puts the selection
+        // back — and it is the whole path the shell uses.
+        let snapshot = |graph: &DocumentGraph| {
+            crate::command_conformance::without_counters(
+                &serde_json::to_string(graph).expect("a graph serialises"),
+            )
+        };
+
+        for (name, build) in round_trip_cases() {
+            let mut graph = fixture_graph();
+            let mut stack = UndoStack::new(8);
+            let command = build(&mut graph);
+            let before = snapshot(&graph);
+
+            assert!(
+                command.apply(&mut graph),
+                "{name}: the command did not apply to the fixture, so the \
+                 round trip proves nothing"
+            );
+            assert_ne!(
+                before,
+                snapshot(&graph),
+                "{name}: applying changed nothing, so undoing it cannot fail"
+            );
+
+            stack.push_applied(command);
+            assert!(stack.undo(&mut graph), "{name}: the command did not undo");
+            assert_eq!(
+                before,
+                snapshot(&graph),
+                "{name}: undo did not return the document to where it started"
+            );
+        }
+    }
+
+    /// The round-trip table names every variant the enum declares.
+    ///
+    /// Without this the table is a list someone has to remember to extend, and
+    /// a new variant ships with its inverse untested — which is exactly the
+    /// state this pair of tests was written to end.
+    #[test]
+    fn every_variant_is_in_the_round_trip_table() {
+        let source = include_str!("undo.rs");
+        let decl = source
+            .split_once("pub enum GraphCommand {")
+            .expect("GraphCommand is declared here")
+            .1;
+        let decl = decl.split_once("\n}").expect("the enum closes").0;
+        let declared: Vec<&str> = decl
+            .lines()
+            .filter_map(|line| {
+                let name = line.strip_prefix("    ")?;
+                let name = name.split(['{', '(', ',']).next()?.trim();
+                (!name.is_empty()
+                    && name.starts_with(|c: char| c.is_ascii_uppercase())
+                    && name.chars().all(|c| c.is_ascii_alphanumeric()))
+                .then_some(name)
+            })
+            .collect();
+        assert!(
+            declared.len() > 20,
+            "found {} variants — the scan broke rather than the enum: {declared:?}",
+            declared.len()
+        );
+
+        let covered: Vec<&str> = round_trip_cases().into_iter().map(|(n, _)| n).collect();
+        let missing: Vec<&&str> = declared
+            .iter()
+            .filter(|name| !covered.contains(name))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "these GraphCommand variants have no round-trip case, so nothing \
+             checks that undoing them puts the document back: {missing:?}"
+        );
+    }
+
     #[test]
     fn undo_add_layer() {
         let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
@@ -896,6 +1340,31 @@ mod tests {
         assert_eq!(g.layer_count(), before + 1);
         assert_eq!(h.undo_next(&mut g), Some(crate::HistoryKind::Graph));
         assert_eq!(g.layer_count(), before);
+    }
+
+    /// Undo restores the document, and which layer is selected is part of the
+    /// document. Inserting always makes the new layer active, so reversing an
+    /// add has to put the selection back where the user left it — otherwise
+    /// Ctrl+Z on a duplicate silently moves them to a layer they never chose.
+    /// `DeleteLayer` already carries `prev_active` for exactly this reason.
+    #[test]
+    fn undoing_an_added_layer_restores_the_previous_selection() {
+        let mut g = DocumentGraph::new(DocumentSize::new(32, 32));
+        let mut h = crate::HistoryService::new(64);
+        let bottom = g.layers()[0].id;
+        let top = g.layers()[1].id;
+        assert_eq!(g.active_id(), Some(top), "fixture: the top layer is active");
+
+        // Duplicating the *bottom* layer inserts above it, so the reversal
+        // cannot get the old selection back by accident.
+        actions::duplicate_layer(&mut g, &mut h, bottom).expect("duplicate");
+        assert_eq!(h.undo_next(&mut g), Some(crate::HistoryKind::Graph));
+
+        assert_eq!(
+            g.active_id(),
+            Some(top),
+            "undoing the duplicate left a layer selected that the user never chose"
+        );
     }
 
     #[test]

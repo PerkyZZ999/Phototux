@@ -737,6 +737,7 @@ impl SessionState {
         let Some(graph) = self.graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        let prev_active = graph.active_id();
         let id = graph.add_fill_top(None, content)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
@@ -746,7 +747,12 @@ impl SessionState {
         graph.bump_generation();
         let generation = graph.generation;
         self.history.push_graph_applied(
-            crate::GraphCommand::AddLayer { id, index, layer },
+            crate::GraphCommand::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            },
             "Add fill layer",
             generation,
         );
@@ -1164,6 +1170,7 @@ impl SessionState {
 
         // `None`, not `Some("Group")`: the graph numbers its own default
         // names, and naming it here made every group in a document "Group".
+        let prev_active = graph.active_id();
         let group_id = graph.add_group_top(None)?;
         let group_index = graph.layer_count().saturating_sub(1);
         let mut batch = vec![crate::GraphCommand::AddLayer {
@@ -1173,6 +1180,7 @@ impl SessionState {
                 .get(group_id)
                 .cloned()
                 .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?,
+            prev_active,
         }];
         batch.extend(reparent_into_group(graph, &targets, group_id)?);
 
@@ -2240,6 +2248,7 @@ impl SessionState {
         // produces a frame the user can see.
         let at_x = x.clamp(0.0, graph.size.width as f32);
         let at_y = y.clamp(0.0, graph.size.height as f32);
+        let prev_active = graph.active_id();
         let id = graph.add_text_top(None, content)?;
         if let Some(layer) = graph.get_mut(id) {
             layer.transform.translate_x = at_x;
@@ -2251,7 +2260,12 @@ impl SessionState {
             .cloned()
             .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?;
         history.push_graph_applied(
-            crate::GraphCommand::AddLayer { id, index, layer },
+            crate::GraphCommand::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            },
             "Add text layer",
             {
                 graph.bump_generation();
@@ -2353,6 +2367,7 @@ impl SessionState {
         let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
+        let prev_active = graph.active_id();
         let id = graph.add_shape_top(None, *content)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
@@ -2360,7 +2375,12 @@ impl SessionState {
             .cloned()
             .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?;
         history.push_graph_applied(
-            crate::GraphCommand::AddLayer { id, index, layer },
+            crate::GraphCommand::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            },
             "Add shape layer",
             {
                 graph.bump_generation();
@@ -2485,6 +2505,7 @@ impl SessionState {
                 MAX_LAYERS,
             )));
         }
+        let prev_active = graph.active_id();
         let result = graph.add_layer_top(Some(label.clone()))?;
         let index = graph.index_of(result).unwrap_or(0);
         let layer = graph
@@ -2500,6 +2521,7 @@ impl SessionState {
                 id: result,
                 index,
                 layer,
+                prev_active,
             },
             &label,
             generation,
@@ -2527,6 +2549,7 @@ impl SessionState {
         // Named for the adjustment, and numbered — two Levels layers used to
         // be called "Levels" apiece, which the panel cannot tell apart.
         let name = graph.next_default_name(params.label());
+        let prev_active = graph.active_id();
         let id = graph.add_adjustment_top(Some(name), params)?;
         let index = graph.index_of(id).unwrap_or(0);
         let layer = graph
@@ -2534,7 +2557,12 @@ impl SessionState {
             .cloned()
             .ok_or(CommandError::Document(DocumentError::LayerMissingAfterAdd))?;
         history.push_graph_applied(
-            crate::GraphCommand::AddLayer { id, index, layer },
+            crate::GraphCommand::AddLayer {
+                id,
+                index,
+                layer,
+                prev_active,
+            },
             "Add adjustment",
             {
                 graph.bump_generation();
