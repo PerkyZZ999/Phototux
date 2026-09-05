@@ -122,6 +122,27 @@ the helper that owns its concern; a genuinely new concern gets a helper and a
 new line in the list. `sync_from_engine_is_a_list_of_calls` fails the build on a
 statement that is not a bare call.
 
+### `AppSession` spans two impl blocks and several files
+
+The `#[qobject(Singleton, ConvertToCamelCase)] impl` block cannot be split: the
+macro processes it whole, and every `#[qslot]` and `qproperty!` lives inside it.
+Everything else can. Rust allows `impl AppSession` in any module of the crate,
+and private fields declared in the crate root stay visible to its descendants,
+so a plain helper block moves without ceremony.
+
+`session_projection.rs` is the first of those: `sync_from_engine` and the
+helpers it calls, plus the `emit_*` family that republishes one concern after a
+targeted edit. Methods there are `pub(crate)` rather than private — visibility
+in Rust flows to a module's *descendants*, and the caller is an ancestor. The
+surface did not widen; the code moved.
+
+**Guards read the crate, not a file.** The rules these checks encode are
+properties of the host, and `chrome_contract::host_source()` concatenates every
+`.rs` in `src/` so a function moving between modules is invisible to them. Look
+methods up with `fn_at` and read them with `body_at_line`: a plain substring
+search matches the guard's own source, since a guard that names a function
+contains that name too. That has bitten three times now.
+
 ### Construction happens before the proxy exists
 
 qtbridge attaches the QObject proxy *after* `Default::default()` returns. Until

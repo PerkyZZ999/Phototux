@@ -57,6 +57,52 @@ pub(crate) fn host_source() -> String {
         .join("\n")
 }
 
+/// Where `fn name` is declared in `text`, whatever its visibility.
+///
+/// The guards below look methods up by name to read their bodies. They used to
+/// search for `"    fn name"` — the exact indentation *and* the exact
+/// visibility — which is two assumptions about spelling standing in for one
+/// about identity. Moving a method to another module makes it `pub(crate)`,
+/// and every such search silently stopped matching.
+#[cfg(test)]
+pub(crate) fn fn_at(text: &str, name: &str) -> Option<usize> {
+    ["    fn ", "    pub(crate) fn ", "    pub fn "]
+        .iter()
+        .find_map(|vis| text.find(&format!("{vis}{name}(")))
+}
+
+/// The braced body of the block opening on 1-based `line`.
+///
+/// The scans that use this ask whether a control overrides something, and
+/// "somewhere later in the file" is not an answer — a `background:` two
+/// controls down would satisfy a plain `contains`. Matching braces keeps the
+/// question about the control, or the function, that was actually found.
+#[cfg(test)]
+pub(crate) fn body_at_line(text: &str, line: usize) -> String {
+    let offset: usize = text
+        .lines()
+        .take(line.saturating_sub(1))
+        .map(|l| l.len() + 1)
+        .sum();
+    let Some(open) = text[offset..].find('{').map(|i| offset + i) else {
+        return String::new();
+    };
+    let mut depth = 0usize;
+    for (i, ch) in text[open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return text[open..open + i].to_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    text[open..].to_owned()
+}
+
 /// Every `.qml` file in the shell, as `(name, text)`.
 ///
 /// Shared with the guards in `lib.rs` rather than written out again there.
@@ -96,7 +142,7 @@ pub(crate) fn qml_files() -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{host_source, qml_dir, qml_files};
+    use super::{body_at_line, fn_at, host_source, qml_dir, qml_files};
 
     /// The `type {` blocks in `text`, as `(line number, body)`.
     ///
@@ -226,37 +272,6 @@ mod tests {
             }
         }
         out
-    }
-
-    /// The braced body of the block opening on 1-based `line`.
-    ///
-    /// The scans above ask whether a control overrides something, and
-    /// "somewhere later in the file" is not an answer — a `background:` two
-    /// controls down would satisfy a plain `contains`. Matching braces keeps
-    /// the question about the control that was found.
-    fn body_at_line(text: &str, line: usize) -> String {
-        let offset: usize = text
-            .lines()
-            .take(line.saturating_sub(1))
-            .map(|l| l.len() + 1)
-            .sum();
-        let Some(open) = text[offset..].find('{').map(|i| offset + i) else {
-            return String::new();
-        };
-        let mut depth = 0usize;
-        for (i, ch) in text[open..].char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return text[open..open + i].to_owned();
-                    }
-                }
-                _ => {}
-            }
-        }
-        text[open..].to_owned()
     }
 
     /// A slider has no text of its own, so without a name it reaches assistive
@@ -699,7 +714,7 @@ mod tests {
     /// to the toast channel; `status_text` may only ever be the summary.
     #[test]
     fn nothing_writes_a_message_into_the_status_bar() {
-        let source = include_str!("lib.rs");
+        let source = host_source();
         // Joined onto one line first. `rustfmt` wraps a long assignment after
         // the `=`, and a line-at-a-time scan cannot see the right-hand side of
         // one that did: the colour-profile conversion wrote a destructive-edit
@@ -768,7 +783,7 @@ mod tests {
     #[test]
     fn a_slot_that_changes_the_workspace_layout_republishes_it() {
         const NOT_LAYOUT: [&str; 3] = ["set_focus_path", "set_panel_context", "active_preset_id"];
-        let source = include_str!("lib.rs");
+        let source = host_source();
         let mut checked = 0;
         for block in source.split("    #[qslot]").skip(1) {
             // One slot: up to the next impl-level item, with the comments
@@ -840,7 +855,7 @@ mod tests {
             "open_psd_pixels",
             "apply_convert_pixels",
         ];
-        let source = include_str!("lib.rs");
+        let source = host_source();
         let mut checked = 0;
         let mut current = "?";
         let mut body = String::new();
@@ -927,7 +942,7 @@ mod tests {
     /// because the flag the prompt reads was the correct one.
     #[test]
     fn the_modified_flag_is_written_in_one_place() {
-        let source = include_str!("lib.rs");
+        let source = host_source();
         let writes: Vec<(usize, &str)> = source
             .lines()
             .enumerate()
@@ -1124,10 +1139,8 @@ mod tests {
     /// every such caller already goes through.
     #[test]
     fn the_tab_strip_is_refreshed_with_the_document_fields() {
-        let source = include_str!("lib.rs");
-        let start = source
-            .find("fn emit_doc_fields(&mut self) {")
-            .expect("emit_doc_fields exists");
+        let source = host_source();
+        let start = fn_at(&source, "emit_doc_fields").expect("emit_doc_fields exists");
         let body_end = source[start..]
             .find("\n    }")
             .expect("emit_doc_fields is closed");
@@ -1599,9 +1612,7 @@ mod tests {
 
         // The body of `fn name`, or `None` when it is not a method here.
         let body_of = |name: &str| -> Option<String> {
-            let at = source
-                .find(&format!("    fn {name}(&mut self"))
-                .or_else(|| source.find(&format!("    fn {name}(&self")))?;
+            let at = fn_at(&source, name)?;
             let line = source[..at].matches('\n').count() + 1;
             Some(body_at_line(&source, line))
         };
@@ -1676,9 +1687,7 @@ mod tests {
     #[test]
     fn sync_from_engine_is_a_list_of_calls() {
         let source = host_source();
-        let at = source
-            .find("    fn sync_from_engine(&mut self) {")
-            .expect("sync_from_engine is there to read");
+        let at = fn_at(&source, "sync_from_engine").expect("sync_from_engine is there to read");
         let line = source[..at].matches('\n').count() + 1;
         let body = body_at_line(&source, line);
 
