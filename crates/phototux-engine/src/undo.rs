@@ -342,6 +342,18 @@ impl GraphCommand {
                 prev: prev.clone(),
                 next: next.clone(),
             }),
+            // Typing is a run of edits: without folding, the timeline takes
+            // one entry per keystroke and undo walks back a letter at a time.
+            (
+                Self::SetText { id, prev, .. },
+                Self::SetText {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetText {
+                id: *id,
+                prev: prev.clone(),
+                next: next.clone(),
+            }),
             // Blend If is four slider handles per range; a drag would
             // otherwise leave one history entry per step of the drag.
             (

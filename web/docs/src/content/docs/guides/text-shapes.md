@@ -35,6 +35,10 @@ the text disappear.
 
 </div>
 
+Every field here is undoable, and a run of edits collapses into one step —
+typing a caption and then adjusting its size is one <kbd>Ctrl</kbd>
+<kbd>Z</kbd>, not one per keystroke.
+
 ### Baking text
 
 **Layer ▸ Bake Text** turns the layer into pixels. Do it when you want to

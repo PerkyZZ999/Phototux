@@ -828,6 +828,90 @@ fn rasterizing_something_that_is_not_a_shape_is_refused() {
     assert!(error.is_user_correctable(), "{error:?}");
 }
 
+/// A text layer whose content the caller is about to edit.
+fn session_with_text(text: &str) -> SessionState {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s.invoke(
+        command_id::TEXT_CREATE,
+        CommandArgs::TextCreate {
+            text: text.into(),
+            x: 0.0,
+            y: 0.0,
+        },
+    )
+    .expect("text layer");
+    s
+}
+
+fn active_text(s: &SessionState) -> crate::layer::TextContent {
+    let graph = s.graph.as_ref().expect("a document");
+    graph
+        .active_id()
+        .and_then(|id| graph.get(id))
+        .and_then(|l| l.text.clone())
+        .expect("the active layer carries text")
+}
+
+/// Retyping a text layer is an edit like any other, so Ctrl+Z takes it back.
+///
+/// `text.set-content` is declared `UndoPolicy::Mergeable`, and it wrote the new
+/// payload straight onto the layer and pushed nothing — so retyping a caption,
+/// or changing its colour, size, alignment, tracking or frame, could not be
+/// undone at all.
+#[test]
+fn editing_text_content_can_be_undone() {
+    let mut s = session_with_text("Hello");
+    let before = active_text(&s);
+
+    let mut edited = before.clone();
+    edited.text = "Goodbye".into();
+    s.invoke(
+        command_id::TEXT_SET_CONTENT,
+        CommandArgs::TextSetContent {
+            content: edited.clone(),
+        },
+    )
+    .expect("edit the text");
+    assert_eq!(active_text(&s).text, "Goodbye");
+
+    assert!(s.can_undo(), "the edit recorded no undo entry");
+    assert_eq!(
+        s.history.undo_next(s.graph.as_mut().expect("a document")),
+        Some(crate::HistoryKind::Graph)
+    );
+    assert_eq!(
+        active_text(&s),
+        before,
+        "undo did not put the previous text back"
+    );
+}
+
+/// Typing is a run of edits, not one entry per keystroke — which is what
+/// `UndoPolicy::Mergeable` on `text.set-content` promises.
+#[test]
+fn a_run_of_text_edits_is_one_history_entry() {
+    let mut s = session_with_text("a");
+    let entries = s.history.entries_undo().len();
+
+    for word in ["ab", "abc", "abcd"] {
+        let mut edited = active_text(&s);
+        edited.text = word.into();
+        s.invoke(
+            command_id::TEXT_SET_CONTENT,
+            CommandArgs::TextSetContent { content: edited },
+        )
+        .expect("edit the text");
+    }
+
+    assert_eq!(
+        s.history.entries_undo().len(),
+        entries + 1,
+        "three keystrokes left {} entries instead of one",
+        s.history.entries_undo().len() - entries
+    );
+}
+
 /// Every command that converts a layer to pixels must be undoable.
 ///
 /// Each of these discards the only copy of something the user cannot recreate:

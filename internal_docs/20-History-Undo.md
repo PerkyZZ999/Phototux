@@ -354,6 +354,28 @@ Records may coalesce only when:
 
 Brush segments can merge by retaining pre-first and post-last manifests plus necessary geometry. Opacity slider changes can merge before-first/after-last values. Coalescing never merges across different active edit surfaces merely because labels match.
 
+### Declaring a command mergeable is two edits, not one
+
+`UndoPolicy::Mergeable` in `command_meta` is a declaration, and on its own it
+does nothing. The fold happens because the handler pushes through
+`push_graph_mergeable` *and* because `GraphCommand::merged_with` has an arm for
+the variant it pushes. Miss either and the declaration is silently untrue: the
+command still works, still records, and still fills the timeline with one entry
+per step of a drag.
+
+`text.set-content` was worse than untrue. It was declared `Mergeable`, wrote the
+new payload straight onto the layer, and pushed no entry at all — so retyping a
+caption, or changing its colour, size, alignment, tracking or frame, could not
+be undone. `GraphCommand::SetText` and its inverse already existed; only the
+bake path ever constructed one.
+
+Nothing caught it because
+`every_action_that_edits_the_document_undoes_back_to_where_it_started` skips any
+command that refuses on its fixture, and the fixture has no text layer for
+`text.set-content` to edit. That test's `NOT_UNDOABLE` list is deliberately
+explicit; its two `continue`s on setup failure are not, and a command that
+cannot be set up is indistinguishable there from one that passes.
+
 ```mermaid
 flowchart TD
     NewRecord[New committed record] --> KeyMatch{Merge key matches}

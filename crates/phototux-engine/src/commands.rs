@@ -2282,7 +2282,8 @@ impl SessionState {
             return Err(CommandError::InvalidArgument("expected text content"));
         };
         let id = self.active_layer_id()?;
-        let Some(graph) = self.graph.as_mut() else {
+        let SessionState { graph, history, .. } = self;
+        let Some(graph) = graph.as_mut() else {
             return Err(CommandError::Document(DocumentError::NoDocument));
         };
         let Some(layer) = graph.get_mut(id) else {
@@ -2291,8 +2292,26 @@ impl SessionState {
         if layer.kind != LayerKind::Text {
             return Err(CommandError::Rejected("this is not a text layer"));
         }
-        layer.text = Some(content);
+        let prev = layer.text.clone();
+        // The panel re-sends the whole payload whenever any field changes, so
+        // a resync that carries no edit must not land a history entry.
+        if prev.as_ref() == Some(&content) {
+            return Err(CommandError::Rejected("text unchanged"));
+        }
+        layer.text = Some(content.clone());
         graph.bump_generation();
+        let generation = graph.generation;
+        // Declared `UndoPolicy::Mergeable`: typing a caption is one gesture,
+        // not one history entry per keystroke.
+        history.push_graph_mergeable(
+            crate::GraphCommand::SetText {
+                id,
+                prev,
+                next: Some(content),
+            },
+            "Edit text",
+            generation,
+        );
         Ok(CommandEffects {
             recomposite: false,
             dirty: true,
@@ -2303,7 +2322,7 @@ impl SessionState {
             host_history: None,
             host_follow_up: HostFollowUp::None,
             created_layer: None,
-            generation: graph.generation,
+            generation,
         })
     }
 
