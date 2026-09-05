@@ -1662,6 +1662,52 @@ mod tests {
         );
     }
 
+    /// A marquee is snapshotted before the engine moves the selection.
+    ///
+    /// A selection undo restores two halves — `engine.selection`, which drives
+    /// the marching ants, and the GPU mask, which is the coverage. They are
+    /// captured together by `selection_snapshot_now`, so the snapshot has to
+    /// predate *both*.
+    ///
+    /// `commit_selection_shape` invoked the engine command first and
+    /// snapshotted afterwards. The reason for that order is sound and is stated
+    /// there: the engine refuses a marquee covering no document pixel (QA-005),
+    /// and writing the mask before asking would leave the two disagreeing. But
+    /// the command also *sets* `engine.selection`, so the snapshot then paired
+    /// the **new** state with the **old** mask. Undo restored a selection
+    /// identical to the one it was undoing while reverting the coverage
+    /// underneath it: the ants stayed on screen, the history entry showed as
+    /// undone, and the pixels no longer matched the outline.
+    ///
+    /// Every other selection edit snapshots first and invokes second, which is
+    /// why only the marquee showed it.
+    #[test]
+    fn a_marquee_is_snapshotted_before_the_engine_moves_the_selection() {
+        let source = host_source();
+        let at = fn_at(&source, "commit_selection_shape")
+            .expect("commit_selection_shape is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+
+        let snapshot = body
+            .find("push_selection_snapshot()")
+            .expect("the marquee takes no selection snapshot, so undoing one does nothing");
+        let invoke = body
+            .find("self.invoke_command(")
+            .expect("the marquee no longer asks the engine — the scan broke");
+        assert!(
+            snapshot < invoke,
+            "the marquee snapshots after asking the engine, so the snapshot \
+             pairs the new selection with the old mask and undo leaves the \
+             ants on screen over reverted coverage"
+        );
+        assert!(
+            body.contains("discard_last()"),
+            "a refused marquee leaves its snapshot on the stack, which \
+             misaligns it against the timeline for every step after it"
+        );
+    }
+
     /// `sync_from_engine` stays a list of calls.
     ///
     /// It was 288 lines of projection in one body, which is the shape a

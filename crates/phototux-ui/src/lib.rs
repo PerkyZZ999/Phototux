@@ -5442,12 +5442,17 @@ impl AppSession {
             width: width as u32,
             height: height as u32,
         };
-        // The engine decides first. It refuses a marquee that covers no
+        // Snapshotted before either half moves. A selection undo restores
+        // `engine.selection` — which draws the ants — and the GPU mask
+        // together, so a snapshot taken after the engine command would pair the
+        // *new* state with the *old* mask: undo restored a selection identical
+        // to the one it was undoing, and reverted only the coverage beneath it.
+        self.push_selection_snapshot();
+        // The engine still decides first. It refuses a marquee that covers no
         // document pixel (QA-005), and the GPU mask is the real authority on
         // coverage — so writing the mask before asking would leave the two
         // disagreeing: the engine still holding the previous selection while
-        // the texture held none of it, with a host undo snapshot pushed for an
-        // edit that never happened.
+        // the texture held none of it.
         if let Err(error) = self.invoke_command(
             command_id::SELECTION_REPLACE,
             CommandArgs::SelectionReplace {
@@ -5462,12 +5467,16 @@ impl AppSession {
             // above this, so a refusal here is a deliberate drag that selected
             // nothing, and the only other feedback would be marching ants that
             // never appear.
+            // The snapshot above described an edit that did not happen.
+            // Leaving it would misalign the stack against the timeline for
+            // every step after it.
+            self.selection_history.discard_last();
             self.report_action_error(&error);
             self.selection_preview_active = false;
             self.clear_selection_path();
             return;
         }
-        self.commit_selection_edit("selection apply", || match shape {
+        self.run_selection_edit("selection apply", || match shape {
             SelectionShape::Rect => phototux_canvas::selection_apply_rect(rect, mode),
             SelectionShape::Ellipse => phototux_canvas::selection_apply_ellipse(rect, mode),
             SelectionShape::Mask => Ok(()),

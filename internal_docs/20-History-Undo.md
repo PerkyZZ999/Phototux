@@ -262,6 +262,24 @@ it, and the menu path goes on recording a step with nothing behind it.
 `a_profile_conversion_snapshots_before_it_rewrites` pins the order and the
 withdrawal.
 
+**A snapshot has to predate every half it restores.** `SelectionSnapshot`
+carries `engine.selection` — which draws the marching ants — and the GPU mask,
+which is the coverage. `commit_selection_shape` asked the engine first, for a
+good reason it states: the engine refuses a marquee covering no document pixel,
+and writing the mask before asking would leave the two disagreeing. But the
+engine command also *sets* `engine.selection`, so the snapshot taken afterwards
+paired the **new** state with the **old** mask. Undoing a marquee then restored
+a selection identical to the one it was undoing while reverting the coverage
+beneath it: the ants stayed on screen, the history entry showed as undone, and
+the pixels no longer matched the outline.
+
+Every other selection edit snapshots first and invokes second, which is why only
+the marquee showed it. The snapshot now sits above the `invoke_command` and is
+withdrawn with `discard_last` if the engine refuses;
+`a_marquee_is_snapshotted_before_the_engine_moves_the_selection` pins both.
+`commit_selection_edit` keeps the snapshot-then-run pairing for the four callers
+that want it, and `run_selection_edit` is the half without it.
+
 **A conversion to pixels is the same shape, and it shipped filed the other
 way.** Bake Text, Rasterize Shape and Rasterize Smart Object each replace a
 layer's semantic content — a text layer's words, a shape's path, a smart

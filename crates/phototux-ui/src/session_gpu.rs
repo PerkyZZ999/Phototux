@@ -141,6 +141,25 @@ impl AppSession {
         F: FnOnce() -> Result<(), String>,
     {
         self.push_selection_snapshot();
+        self.run_selection_edit(label, run)
+    }
+
+    /// Run a GPU selection edit whose snapshot the caller has already taken.
+    ///
+    /// One caller needs that: the marquee asks the engine *first*, because the
+    /// engine refuses a selection covering no document pixel and writing the
+    /// mask before asking would leave the two disagreeing (QA-005). But the
+    /// engine command also moves `engine.selection`, so a snapshot taken after
+    /// it pairs the new state with the old mask — and undo then restores a
+    /// selection identical to the one it is undoing while reverting the
+    /// coverage underneath it. The ants stay on screen over pixels that no
+    /// longer match them.
+    ///
+    /// So the marquee snapshots above its `invoke_command` and comes here.
+    pub(crate) fn run_selection_edit<F>(&mut self, label: &str, run: F) -> bool
+    where
+        F: FnOnce() -> Result<(), String>,
+    {
         match run() {
             Ok(()) => true,
             Err(error) => {
