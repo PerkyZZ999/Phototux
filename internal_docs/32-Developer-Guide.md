@@ -143,6 +143,14 @@ opening, parking and switching tabs, and the dirty flag. A tab is a parked
 parking has to drop the selection and transform undo stacks explicitly — the
 engine's history travels with the document and those `Vec`s do not.
 
+`session_prefs.rs` is the fourth: preferences, the workspace, and what
+persists between sessions. Two stores that look alike and are not —
+preferences are settings written on change, while the workspace is the dock
+arrangement that the shell also edits by dragging, so it is persisted from the
+operations that change it rather than from one save point. Most of it runs
+before the proxy exists, which is why it is the first thing the construction
+walk enters.
+
 **Guards look a method up with `fn_at`, never by its signature.** Six sites
 searched for the full declaration text, which asserts the argument list as a
 side effect of asking where something is, and three more used `.split("fn …")`.
