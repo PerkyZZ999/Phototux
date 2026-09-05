@@ -342,6 +342,18 @@ impl GraphCommand {
                 prev: prev.clone(),
                 next: next.clone(),
             }),
+            // A style has several sliders and colour wells; a drag on any of
+            // them is one gesture.
+            (
+                Self::SetStyles { id, prev, .. },
+                Self::SetStyles {
+                    id: later_id, next, ..
+                },
+            ) if id == later_id => Some(Self::SetStyles {
+                id: *id,
+                prev: prev.clone(),
+                next: next.clone(),
+            }),
             // Typing is a run of edits: without folding, the timeline takes
             // one entry per keystroke and undo walks back a letter at a time.
             (

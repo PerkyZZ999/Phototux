@@ -369,12 +369,22 @@ caption, or changing its colour, size, alignment, tracking or frame, could not
 be undone. `GraphCommand::SetText` and its inverse already existed; only the
 bake path ever constructed one.
 
-Nothing caught it because
+`style.set-params` had the push but not the arm, so a drop-shadow slider drag
+left one entry per step.
+
+Nothing caught either because
 `every_action_that_edits_the_document_undoes_back_to_where_it_started` skips any
 command that refuses on its fixture, and the fixture has no text layer for
 `text.set-content` to edit. That test's `NOT_UNDOABLE` list is deliberately
 explicit; its two `continue`s on setup failure are not, and a command that
 cannot be set up is indistinguishable there from one that passes.
+
+`every_mergeable_command_folds_a_run_into_one_entry` now closes the family. It
+carries a fixture and a four-step argument builder per mergeable command, and
+asserts its table is exactly the set that `command_meta` declares — so a seventh
+`doc_merge(...)` has to bring a fixture rather than going untested. Four steps
+rather than two, because a fold that works once and then stops would pass a
+two-step version.
 
 ```mermaid
 flowchart TD

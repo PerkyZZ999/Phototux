@@ -534,6 +534,141 @@ fn drop_shadow_rejects_shape_layer() {
     );
 }
 
+/// A document with one layer and nothing in its history yet.
+fn blank_session() -> SessionState {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    s
+}
+
+/// Every command declaring `UndoPolicy::Mergeable` actually folds a run.
+///
+/// The declaration in `command_meta` does nothing on its own. A fold needs the
+/// handler to push through `push_graph_mergeable` *and* `merged_with` to carry
+/// an arm for the variant that push builds. `text.set-content` had neither —
+/// it recorded no history at all — and `style.set-params` had only the first,
+/// so both claimed to coalesce while leaving one entry per keystroke or per
+/// pixel of slider travel.
+///
+/// Four steps rather than two: a fold that works once and then stops would
+/// pass a two-step version of this.
+#[test]
+fn every_mergeable_command_folds_a_run_into_one_entry() {
+    type Fixture = fn() -> SessionState;
+    type StepArgs = fn(u32) -> CommandArgs;
+
+    let cases: [(&str, Fixture, StepArgs); 6] = [
+        (command_id::LAYER_SET_OPACITY, blank_session, |n| {
+            CommandArgs::SetOpacity {
+                opacity: 0.9 - n as f32 * 0.1,
+            }
+        }),
+        (command_id::LAYER_SET_BLEND_IF, blank_session, |n| {
+            let mut blend_if = crate::BlendIf::default();
+            blend_if.this_layer.black_end = n as f32 / 100.0;
+            CommandArgs::SetBlendIf { blend_if }
+        }),
+        (
+            command_id::TEXT_SET_CONTENT,
+            || session_with_text("a"),
+            |n| CommandArgs::TextSetContent {
+                content: crate::layer::TextContent {
+                    text: "a".repeat(n as usize + 1),
+                    ..crate::layer::TextContent::default()
+                },
+            },
+        ),
+        (
+            command_id::FILTER_SET_PARAMETERS,
+            || {
+                let mut s = blank_session();
+                s.invoke(
+                    command_id::FILTER_ADD_ADJUSTMENT,
+                    CommandArgs::FilterAdjustment {
+                        kind: "brightness".into(),
+                    },
+                )
+                .expect("an adjustment layer");
+                s
+            },
+            |n| {
+                let mut slots = [0.0_f32; crate::MAX_ADJUSTMENT_SLOTS];
+                slots[0] = n as f32 * 0.1;
+                CommandArgs::FilterParameters { slots }
+            },
+        ),
+        (
+            command_id::FILTER_SET_GAUSSIAN_RADIUS,
+            || {
+                let mut s = blank_session();
+                s.invoke(
+                    command_id::FILTER_ADD_EFFECT,
+                    CommandArgs::FilterEffect {
+                        kind: "gaussian".into(),
+                    },
+                )
+                .expect("a blur");
+                s
+            },
+            |n| CommandArgs::FilterGaussianRadius { radius: n as f32 },
+        ),
+        (
+            command_id::STYLE_SET_PARAMS,
+            || {
+                let mut s = blank_session();
+                s.invoke(
+                    command_id::STYLE_ADD,
+                    CommandArgs::LayerStyleKind {
+                        kind: "drop-shadow".into(),
+                    },
+                )
+                .expect("a drop shadow");
+                s
+            },
+            |n| {
+                let mut slots = [0.0_f32; crate::MAX_ADJUSTMENT_SLOTS];
+                slots[0] = n as f32;
+                CommandArgs::LayerStyleParams { index: 0, slots }
+            },
+        ),
+    ];
+
+    for (id, build, args_for) in cases {
+        let mut s = build();
+        let entries = s.history.entries_undo().len();
+        for step in 1..=4 {
+            s.invoke(id, args_for(step))
+                .unwrap_or_else(|e| panic!("{id} step {step}: {e:?}"));
+        }
+        assert_eq!(
+            s.history.entries_undo().len(),
+            entries + 1,
+            "{id}: four steps left {} entries instead of one",
+            s.history.entries_undo().len() - entries
+        );
+    }
+
+    // The table is the whole set, so a seventh mergeable command has to bring
+    // a fixture here rather than going quietly untested.
+    let declared: Vec<&str> = crate::command_meta::ALL
+        .iter()
+        .filter(|m| m.undo == crate::command_meta::UndoPolicy::Mergeable)
+        .map(|m| m.id)
+        .collect();
+    let covered: Vec<&str> = cases.iter().map(|(id, ..)| *id).collect();
+    for id in &declared {
+        assert!(
+            covered.contains(id),
+            "{id} declares UndoPolicy::Mergeable but the fold table does not cover it"
+        );
+    }
+    assert_eq!(
+        declared.len(),
+        covered.len(),
+        "the fold table names a command that is not declared mergeable"
+    );
+}
+
 /// A shape layer with a document open and a rectangle on it.
 fn session_with_a_shape() -> SessionState {
     let mut s = SessionState::default();
@@ -884,31 +1019,6 @@ fn editing_text_content_can_be_undone() {
         active_text(&s),
         before,
         "undo did not put the previous text back"
-    );
-}
-
-/// Typing is a run of edits, not one entry per keystroke — which is what
-/// `UndoPolicy::Mergeable` on `text.set-content` promises.
-#[test]
-fn a_run_of_text_edits_is_one_history_entry() {
-    let mut s = session_with_text("a");
-    let entries = s.history.entries_undo().len();
-
-    for word in ["ab", "abc", "abcd"] {
-        let mut edited = active_text(&s);
-        edited.text = word.into();
-        s.invoke(
-            command_id::TEXT_SET_CONTENT,
-            CommandArgs::TextSetContent { content: edited },
-        )
-        .expect("edit the text");
-    }
-
-    assert_eq!(
-        s.history.entries_undo().len(),
-        entries + 1,
-        "three keystrokes left {} entries instead of one",
-        s.history.entries_undo().len() - entries
     );
 }
 
