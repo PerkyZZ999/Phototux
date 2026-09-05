@@ -413,6 +413,19 @@ centres differ. Axis-aligned cases put every tap on a centre and **MUST**
 therefore agree to the byte — that is the case worth asserting tightly, and the
 one that caught this. Only the interpolating cases earn a loose bound.
 
+### A device test that cannot reach the device must say so
+
+A device-backed test has one sanctioned reason not to run — there is no device —
+and it **MUST** be taken once, up front, in a single shared place. Every failure
+past that point is a failure.
+
+Six of these tests took the escape wherever it was needed, and three took it
+*inside* a loop, so one kind's broken pipeline returned from the whole test and
+every kind after it went unchecked while the run reported `ok`. A test that
+walks a `ALL_KINDS` set **MUST** also assert how many members it measured: with
+no count, a `continue` added later removes a kind from the suite silently, which
+is the same failure wearing different clothes.
+
 ## Overlays
 
 Overlays include selection boundaries/tints, guides, grids, transform handles, brush cursor and preview, text cursor/selection, shape nodes, snapping hints, diagnostics, and out-of-canvas indicators. Most are view/transient state and render after document color/proof unless semantic requirement places them earlier.

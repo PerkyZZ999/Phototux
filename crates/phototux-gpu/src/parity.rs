@@ -371,7 +371,11 @@ mod gpu_tests {
     #[test]
     fn every_adjustment_kind_matches_the_engine_on_device() {
         use phototux_engine::AdjustmentParams;
+        let Some(_device) = device_or_skip() else {
+            return;
+        };
         let base = [180, 90, 60, 255];
+        let mut checked = 0_usize;
         for kind in AdjustmentParams::ALL_KINDS {
             // Defaults are neutral by design, so each kind is nudged off it —
             // a neutral adjustment cannot tell "applied" from "skipped".
@@ -380,13 +384,9 @@ mod gpu_tests {
                 slots[i] = (slots[i] + (max - min) * 0.25).clamp(*min, *max);
             }
             let moved = kind.with_slots(slots).clamped();
-            let (expected, actual) = match gpu_adjustment_rgb(moved.clone(), base) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("skipping {}: {e}", moved.kind_key());
-                    return;
-                }
-            };
+            let (expected, actual) = gpu_adjustment_rgb(moved.clone(), base)
+                .unwrap_or_else(|e| panic!("{}: {e}", moved.kind_key()));
+            checked += 1;
             for (c, (e, a)) in expected.iter().zip(actual).enumerate() {
                 let diff = i32::from(*e).abs_diff(i32::from(a));
                 assert!(
@@ -394,6 +394,29 @@ mod gpu_tests {
                     "{}: channel {c} expected {e}, device gave {a}",
                     moved.kind_key()
                 );
+            }
+        }
+        assert_eq!(
+            checked,
+            AdjustmentParams::ALL_KINDS.len(),
+            "not every adjustment kind was measured"
+        );
+    }
+
+    /// A device, or the one sanctioned reason not to run.
+    ///
+    /// The only place these tests may give up. Every escape used to sit where
+    /// it was needed, and three of them sat *inside* a loop — so one kind's
+    /// broken pipeline returned from the whole test and every kind after it
+    /// went unchecked while the run reported `ok`. A device test that cannot
+    /// reach the device has to say so; one that reaches it and fails has to
+    /// fail.
+    fn device_or_skip() -> Option<GpuContext> {
+        match GpuContext::new() {
+            Ok(ctx) => Some(ctx),
+            Err(e) => {
+                eprintln!("no GPU device ({e}); skipping");
+                None
             }
         }
     }
@@ -440,6 +463,10 @@ mod gpu_tests {
     #[test]
     fn every_filter_kind_changes_the_picture_on_device() {
         use phototux_engine::FilterParams;
+        let Some(_device) = device_or_skip() else {
+            return;
+        };
+        let mut checked = 0_usize;
         for &params in FilterParams::ALL_KINDS {
             // Offset's default is a no-op by design; move it so it counts.
             let params = if matches!(params, FilterParams::Offset { .. }) {
@@ -447,13 +474,9 @@ mod gpu_tests {
             } else {
                 params
             };
-            let (before, after) = match gpu_filter_effect(params) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("skipping {}: {e}", params.kind_key());
-                    return;
-                }
-            };
+            let (before, after) =
+                gpu_filter_effect(params).unwrap_or_else(|e| panic!("{}: {e}", params.kind_key()));
+            checked += 1;
             assert_ne!(
                 before,
                 after,
@@ -461,6 +484,11 @@ mod gpu_tests {
                 params.kind_key()
             );
         }
+        assert_eq!(
+            checked,
+            FilterParams::ALL_KINDS.len(),
+            "not every filter kind was measured"
+        );
     }
 
     /// Order is part of the picture: sharpening a blur is not blurring a
@@ -471,12 +499,8 @@ mod gpu_tests {
         use phototux_engine::FilterParams;
         let blur = FilterParams::GaussianBlur { radius: 3.0 };
         let sharpen = FilterParams::Sharpen { amount: 1.5 };
-        let ctx = match GpuContext::new() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                eprintln!("skipping: {e}");
-                return;
-            }
+        let Some(ctx) = device_or_skip() else {
+            return;
         };
         const W: u32 = 16;
         const H: u32 = 16;
@@ -511,12 +535,8 @@ mod gpu_tests {
     #[test]
     fn every_layer_style_changes_the_picture_on_device() {
         use phototux_engine::LayerStyle;
-        let ctx = match GpuContext::new() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                eprintln!("skipping: {e}");
-                return;
-            }
+        let Some(ctx) = device_or_skip() else {
+            return;
         };
         const W: u32 = 16;
         const H: u32 = 16;
@@ -560,12 +580,8 @@ mod gpu_tests {
     #[test]
     fn stroke_positions_draw_differently_on_device() {
         use phototux_engine::{LayerStyle, StrokePosition};
-        let ctx = match GpuContext::new() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                eprintln!("skipping: {e}");
-                return;
-            }
+        let Some(ctx) = device_or_skip() else {
+            return;
         };
         const W: u32 = 16;
         const H: u32 = 16;
@@ -694,11 +710,11 @@ mod gpu_tests {
                 },
             ),
         ];
+        let Some(_device) = device_or_skip() else {
+            return;
+        };
         for (name, mask) in cases {
-            let Ok((expected, actual)) = gpu_mask_alpha(mask) else {
-                eprintln!("skipping mask parity: no GPU device");
-                return;
-            };
+            let (expected, actual) = gpu_mask_alpha(mask).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(expected.len(), actual.len(), "{name}: length");
             for (i, (e, a)) in expected.iter().zip(actual.iter()).enumerate() {
                 let delta = i32::from(*e) - i32::from(*a);
