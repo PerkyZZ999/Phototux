@@ -629,6 +629,23 @@ flowchart TD
 
 **Security.** Parsers treat all inputs as untrusted. Integer overflows in length fields, nested compression, cyclic manifest references, and huge declared counts fail before allocation. Extension chunks are data, not code; loading a document never `dlopen`s content from the file. Embedded profiles and fonts pass specialized validators and size caps before use in color or text subsystems.
 
+**Shipped rule — a declared size is refused, never rewritten.** "Fail before
+allocation" is stated above and the PSD reader did the opposite: it answered
+`width.clamp(1, MAX_DIMENSION)`, quietly substituting a size the file does not
+declare. Three things followed. A file declaring `0 × 0` became a 1×1 document.
+A file declaring more than `MAX_DIMENSION` was then parsed at a geometry it does
+not have, so the composite reader consumed the wrong number of bytes. And
+nothing checked the byte budget at all — `MAX_DIMENSION` squared across four
+channels is 4 GiB, eight times the `MAX_RASTER_BYTES` the raster path enforces,
+requested from the allocator on the strength of a 26-byte header.
+
+`checked_rgba_len` is now the crate's single answer to "can this raster be had",
+used by both readers, and `a_declared_size_that_cannot_be_honoured_is_refused_not_clamped`
+pins all three refusals. The general rule this illustrates: **a parser that
+repairs a hostile field has stopped validating it.** Clamping reads as
+defensive and is the opposite — it converts a refusal into a misparse, and it
+hides the allocation the limit existed to prevent.
+
 **Privacy.** Thumbnails, XMP-like metadata bags, and recovery siblings may contain personal paths or scene content. Default diagnostics and crash reports omit those payloads. Export of “document statistics” uses counts and versions, not sample bytes. Autosave locations inherit host permission boundaries; the format does not invent world-readable temp names.
 
 **Compatibility.** Behavior versions record semantic changes even when chunk layouts stay identical (for example, blend-mode interpretation). Readers advertise supported behavior ranges. Writing a file that depends on a newer behavior than a declared compatibility target is a hard error in strict export modes and an explicit warning in interactive save when the user opts into newer semantics.

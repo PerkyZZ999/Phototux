@@ -377,7 +377,13 @@ fn decode_limits() -> Limits {
     limits
 }
 
-fn checked_rgba_len(width: u32, height: u32) -> Result<usize, RasterIoError> {
+/// The size a `width × height` RGBA8 buffer needs, or why it cannot be had.
+///
+/// One answer for the whole crate. The PSD path used to give a second one —
+/// `width.clamp(1, MAX_DIMENSION)` — which silently rewrote a declared size
+/// instead of refusing it, so a file was then parsed at a geometry it does not
+/// have and nothing checked the byte budget at all.
+pub(crate) fn checked_rgba_len(width: u32, height: u32) -> Result<usize, RasterIoError> {
     // Four conditions used to share one error, and its message says "exceed
     // the limit" — so a corrupt file declaring 0x0 was reported to its reader
     // as an image too large to open.

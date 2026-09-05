@@ -131,10 +131,20 @@ fn parse_psd_file_header(bytes: &[u8]) -> Result<PsdFileHeader, PsdError> {
         )));
     }
 
+    // Refused, not clamped. Clamping answered a question this crate already
+    // answers elsewhere, and answered it differently: `checked_rgba_len`
+    // refuses an empty or oversized raster by name, while rewriting the number
+    // here left the composite reader parsing at a geometry the file does not
+    // have — and skipped the byte budget entirely, so `MAX_DIMENSION` squared
+    // times four channels asked the allocator for 4 GiB on the strength of a
+    // 26-byte header. PSD is untrusted input; that is a denial of service
+    // reachable by opening a file.
+    crate::checked_rgba_len(width, height)?;
+
     Ok(PsdFileHeader {
         channels,
-        width: width.clamp(1, MAX_DIMENSION),
-        height: height.clamp(1, MAX_DIMENSION),
+        width,
+        height,
     })
 }
 
@@ -1212,6 +1222,70 @@ mod tests {
     fn rejects_non_psd() {
         let err = import_psd_bytes(b"PNG...", None).expect_err("sig");
         assert!(matches!(err, PsdError::BadSignature));
+    }
+
+    /// A PSD's declared size is refused when it is impossible, not clamped.
+    ///
+    /// `parse_psd_file_header` used to answer `width.clamp(1, MAX_DIMENSION)`,
+    /// which is a different answer from the one the rest of this crate gives.
+    /// `checked_rgba_len` refuses an oversized or empty raster by name —
+    /// `DimensionsEmpty`, `DimensionsTooLarge`, `RasterTooLarge` — and the PSD
+    /// path silently rewrote the number instead.
+    ///
+    /// Three things went wrong with that, in rising order of seriousness:
+    ///
+    /// - A file declaring `0 × 0` became a 1×1 document rather than reporting
+    ///   that it declares no image. It surfaced as `failed to fill whole
+    ///   buffer`, which is the confusing-message failure `checked_rgba_len`'s
+    ///   own comment records having already been fixed once on the raster side.
+    /// - A file declaring more than `MAX_DIMENSION` was then *parsed at a
+    ///   geometry the file does not have*, so the composite reader consumed the
+    ///   wrong number of bytes.
+    /// - Nothing checked the byte budget at all. `MAX_DIMENSION` squared times
+    ///   four channels is **4 GiB**, eight times the `MAX_RASTER_BYTES` the
+    ///   raster path enforces, and the composite reader allocates that from a
+    ///   26-byte header before it discovers there are no pixels behind it.
+    ///   PSD is untrusted input by definition, so that is an allocation denial
+    ///   of service reachable by opening a file.
+    #[test]
+    fn a_declared_size_that_cannot_be_honoured_is_refused_not_clamped() {
+        // Empty: the file says it contains no image.
+        let err = import_psd_bytes(&header_rgb(0, 0, 3), None).expect_err("0x0");
+        assert!(
+            matches!(err, PsdError::Raster(RasterIoError::DimensionsEmpty)),
+            "a 0x0 PSD became a document instead of an error: {err:?}"
+        );
+
+        // Beyond the per-side limit.
+        let err =
+            import_psd_bytes(&header_rgb(MAX_DIMENSION + 1, 8, 3), None).expect_err("too wide");
+        assert!(
+            matches!(err, PsdError::Raster(RasterIoError::DimensionsTooLarge)),
+            "an oversized PSD was clamped and parsed at a size it does not \
+             have: {err:?}"
+        );
+
+        // Within the per-side limit and far beyond the byte budget: this is the
+        // allocation the reader would otherwise attempt from a 26-byte file.
+        let err = import_psd_bytes(&header_rgb(MAX_DIMENSION, MAX_DIMENSION, 4), None)
+            .expect_err("too many bytes");
+        assert!(
+            matches!(err, PsdError::Raster(RasterIoError::RasterTooLarge)),
+            "a PSD declaring {MAX_DIMENSION} x {MAX_DIMENSION} was accepted; \
+             that is 4 GiB of planes allocated from a 26-byte header: {err:?}"
+        );
+
+        // And an ordinary size still opens.
+        let mut ok = header_rgb(2, 2, 3);
+        ok.extend_from_slice(&0_u32.to_be_bytes());
+        ok.extend_from_slice(&0_u32.to_be_bytes());
+        ok.extend_from_slice(&0_u32.to_be_bytes());
+        ok.extend_from_slice(&0_u16.to_be_bytes());
+        ok.extend_from_slice(&[0_u8; 12]);
+        assert!(
+            import_psd_bytes(&ok, None).is_ok(),
+            "the limit refused a 2x2 file"
+        );
     }
 
     #[test]
