@@ -2,6 +2,80 @@
 
 All notable decision milestones and project state changes.
 
+## [review-pass] — 2026-09-05
+
+A code-review pass over the whole repository. The recurring shape this time was
+**a declaration that nothing enforces**: `command_meta` says a command
+coalesces, the handler routes to the coalescing push, and the arm that would
+actually fold it is missing — so the timeline fills up one entry per keystroke
+while every part of the code claims otherwise. Three of the seven findings were
+that exact shape. Every fix ships with a guard that was watched failing first,
+and each guard was re-checked by sabotage afterwards.
+
+### Fixes
+
+- **Undoing an added layer moved the selection.** Inserting always selects what
+  it inserted, and removing picks a neighbour, so with three layers and the top
+  one selected, duplicating the bottom and pressing Ctrl+Z left the *bottom*
+  layer active. `DeleteLayer` had carried `prev_active` for exactly this reason
+  since it was written; `AddLayer` now does too.
+- **Editing a text layer could not be undone at all.** `text.set-content` wrote
+  the new payload straight onto the layer and pushed nothing, so retyping a
+  caption — or changing its colour, size, alignment, tracking or frame — was
+  permanent. `GraphCommand::SetText` and its inverse already existed; only the
+  bake path ever built one. Typing now folds into one history entry rather than
+  one per letter, which is what the command had been declaring all along.
+- **A style slider drag took one history entry per step.** Declared mergeable,
+  routed to the mergeable push, and refused the fold every time because
+  `merged_with` had no `SetStyles` arm.
+- **Undo left the object selection unusable.** The engine holds two notions of
+  "selected": the graph's active layer, and the panel's multi-selection that
+  group, align and merge target. New Group sets the second to the group it just
+  made, and undoing the group left that id behind naming a layer the document
+  no longer had — so Layer ▸ New Group answered *"select a layer first"* with a
+  layer plainly active and highlighted in the panel.
+
+### Guards
+
+- `invert` had round-trip coverage for five of its twenty-eight commands. All
+  twenty-eight are now in a table that a new variant cannot skip, and the round
+  trip runs through `UndoStack::undo` rather than `invert().apply()` — because
+  reversing a command is more than its inverse, which is what exposed the
+  selection bug above.
+- Every command declaring `UndoPolicy::Mergeable` is now driven four steps and
+  asserted to leave one entry, and the table is asserted to be exactly the set
+  `command_meta` declares.
+- The undo conformance sweep walked the *action registry* — the menus and the
+  palette — and sixty-nine of the ninety-nine commands are not in it. A second
+  sweep walks the command set instead, reaching eleven commands the first never
+  touched, `layer.flatten` and `layer.duplicate` among them.
+- Qt keeps the exported `VkImage` until it is handed a new one, so a document
+  install must publish before it frees. The order was correct in all three
+  copies of that sequence and said so nowhere, and nothing could observe a
+  regression — the failure needs a Vulkan device, a live scene graph and a
+  second document, and lands as a crash inside Qt's backend. The ordering is
+  read out of the source instead.
+
+### Changes
+
+- One path installs the document GPU state. `open_document`,
+  `open_raster_document` and `install_document` were the same twenty-line
+  sequence written out three times; the two `open_*` paths now differ only in
+  what they lend to the one installer, and lend it rather than copying, so
+  opening a raster document no longer duplicates the decoded image.
+
+### Notes
+
+- Three families were checked and found sound, which is worth recording as
+  much as the defects: every icon stem QML names is packaged into the `qrc`,
+  the two QML strings outside `qsTr` are a multiplication sign and a check mark
+  rather than prose, and the PSD reader's allocations are bounded by
+  `MAX_DIMENSION` and `MAX_RASTER_BYTES` at both entry points.
+- `GraphCommand::SetActive` has a correct `apply` and `invert` and no producer
+  anywhere. It is left in place rather than removed — selecting a layer is
+  deliberately not an undo step, so the variant encodes a policy the app does
+  not have, and that is a decision to take rather than a cleanup to perform.
+
 ## [qa-pass] — 2026-09-04
 
 A three-phase QA pass over the whole repository: 117 checklist items written,
