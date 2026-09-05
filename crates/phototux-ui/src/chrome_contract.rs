@@ -1535,6 +1535,88 @@ mod tests {
              function — publish! it, so an unchanged path says nothing (T-009)"
         );
     }
+    /// Nothing reachable from construction emits a property notification.
+    ///
+    /// qtbridge attaches the QObject proxy *after* `Default::default()`
+    /// returns. A `*_changed()` or a `publish!` before that panics with
+    /// "No proxy" and takes the process down at startup — before there is a
+    /// window to report it in, so the user sees the app fail to open and
+    /// nothing else.
+    ///
+    /// The rule was a comment over four statements. The closure it actually
+    /// governs is nine functions across four levels, and the ones in the
+    /// middle — `apply_loaded_preferences`, `sync_pref_fields_from_store`,
+    /// `sync_guides_fields` — read like ordinary sync helpers that would
+    /// naturally grow a `publish!` one day. A comment at the top of the tree
+    /// is not visible from down there.
+    ///
+    /// So the walk starts at `settle_before_the_proxy_attaches` and follows
+    /// every `self.…()` it can reach. `queue_notice_before_proxy` is the
+    /// pattern to copy for anything that needs to *record* something at this
+    /// point: it queues, and the queue is published once the proxy exists.
+    #[test]
+    fn nothing_reachable_from_construction_emits() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+
+        // The body of `fn name`, or `None` when it is not a method here.
+        let body_of = |name: &str| -> Option<String> {
+            let at = source
+                .find(&format!("    fn {name}(&mut self"))
+                .or_else(|| source.find(&format!("    fn {name}(&self")))?;
+            let line = source[..at].matches('\n').count() + 1;
+            Some(body_at_line(&source, line))
+        };
+
+        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut queue = vec!["settle_before_the_proxy_attaches".to_owned()];
+        let mut emitters: Vec<String> = Vec::new();
+
+        while let Some(name) = queue.pop() {
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            let Some(body) = body_of(&name) else {
+                // Not a method on this type — a field's own method, or a free
+                // function. Neither can reach this object's signals.
+                continue;
+            };
+            for line in body.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                if trimmed.contains("_changed()") || trimmed.contains("publish!(") {
+                    emitters.push(format!("{name}: {trimmed}"));
+                }
+            }
+            for call in body.match_indices("self.") {
+                let rest = &body[call.0 + 5..];
+                let ident: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if !ident.is_empty() && rest[ident.len()..].starts_with('(') {
+                    queue.push(ident);
+                }
+            }
+        }
+
+        assert!(
+            seen.len() > 5,
+            "the walk reached {} functions, so it is not following calls — \
+             it would pass against anything: {seen:?}",
+            seen.len()
+        );
+        assert!(
+            emitters.is_empty(),
+            "these run during construction and emit, which panics with \
+             \"No proxy\" and aborts the app at startup. Queue the value \
+             instead — `queue_notice_before_proxy` is the pattern — and \
+             publish it once the proxy exists: {emitters:#?}"
+        );
+    }
+
     /// `sync_from_engine` stays a list of calls.
     ///
     /// It was 288 lines of projection in one body, which is the shape a

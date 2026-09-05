@@ -122,6 +122,26 @@ the helper that owns its concern; a genuinely new concern gets a helper and a
 new line in the list. `sync_from_engine_is_a_list_of_calls` fails the build on a
 statement that is not a bare call.
 
+### Construction happens before the proxy exists
+
+qtbridge attaches the QObject proxy *after* `Default::default()` returns. Until
+then `AppSession` is a plain Rust value with no Qt object behind it, so a
+`*_changed()` or a `publish!` panics with "No proxy" and takes the process down
+at startup — before there is a window to report it in.
+
+`settle_before_the_proxy_attaches` is that window, named. Everything the session
+needs doing once its fields exist but before QML can see it goes there:
+preferences, the recovery list, the display profile, worker start errors.
+Anything that needs to *record* something at this point queues it —
+`queue_notice_before_proxy` is the pattern — and the queue is published once the
+proxy exists.
+
+The closure this governs is nine functions across four levels, and the ones in
+the middle read like ordinary sync helpers that would naturally grow a
+`publish!` one day. A comment at the top of that tree is not visible from the
+bottom of it, so `nothing_reachable_from_construction_emits` walks the calls
+instead.
+
 ### Where `unsafe` may live, and what every block owes
 
 `unsafe` belongs at the FFI edges and nowhere else, and every block that *does*

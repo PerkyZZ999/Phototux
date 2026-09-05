@@ -840,26 +840,42 @@ impl AppSession {
             guides_json: "[]".into(),
             grid_spacing: 32.0,
         };
-        // Field-only init: qtbridge attaches the QObject proxy *after* Default returns.
-        // Emitting `*_changed()` here panics with "No proxy" and aborts the process.
-        out.apply_loaded_preferences();
-        out.sync_recovery_list_fields();
-        let display = display_icc::discover_display_profile();
-        out.display_profile_tag = display.soft_proof_tag();
-        out.display_profile_name = display.name;
-        // Copied out first: `start_error` borrows the worker, which lives in
-        // `out`, and queueing the notice needs `out` mutably.
-        let worker_error = out.worker.start_error().map(str::to_owned);
-        if let Some(error) = worker_error {
-            out.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
-            out.io_error = error;
-        }
-        let file_worker_error = out.file_worker.start_error().map(str::to_owned);
-        if let Some(error) = file_worker_error {
-            out.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
-            out.io_error = error;
-        }
+        out.settle_before_the_proxy_attaches();
         out
+    }
+
+    /// Everything the session needs doing once its fields exist, and before
+    /// QML can see it.
+    ///
+    /// **Nothing reachable from here may emit.** qtbridge attaches the QObject
+    /// proxy *after* `Default::default()` returns, so a `*_changed()` or a
+    /// `publish!` at this point panics with "No proxy" and takes the process
+    /// down at startup — before any window exists to report it in.
+    ///
+    /// The rule used to be a comment over four statements, which is a thin
+    /// thing to hang a process abort on: the closure reachable from here is
+    /// nine functions deep in places, and `apply_loaded_preferences` in
+    /// particular reads like an ordinary sync helper that would naturally grow
+    /// a `publish!`. Naming the boundary gives
+    /// `nothing_reachable_from_construction_emits` something to walk.
+    fn settle_before_the_proxy_attaches(&mut self) {
+        self.apply_loaded_preferences();
+        self.sync_recovery_list_fields();
+        let display = display_icc::discover_display_profile();
+        self.display_profile_tag = display.soft_proof_tag();
+        self.display_profile_name = display.name;
+        // Copied out first: `start_error` borrows the worker, which lives in
+        // `self`, and queueing the notice needs `self` mutably.
+        let worker_error = self.worker.start_error().map(str::to_owned);
+        if let Some(error) = worker_error {
+            self.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
+            self.io_error = error;
+        }
+        let file_worker_error = self.file_worker.start_error().map(str::to_owned);
+        if let Some(error) = file_worker_error {
+            self.queue_notice_before_proxy(NoticeLevel::Error, error.clone());
+            self.io_error = error;
+        }
     }
 
     fn apply_opened_ptx(&mut self, path: PathBuf, document: PtxDocument) {
