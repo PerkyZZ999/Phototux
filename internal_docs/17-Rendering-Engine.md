@@ -313,21 +313,27 @@ Paths that map GPU memory to host memory — readback, sampling, export, parity 
 
 ### Replacing a document publishes before it frees
 
-Qt holds the exported `VkImage` until it is handed a new one. Every path that
-replaces the document's GPU state — `open_document`, `open_raster_document` and
-`install_document` — builds a whole new `DocGpu` and assigns it into the global,
+Qt holds the exported `VkImage` until it is handed a new one. Replacing the
+document's GPU state builds a whole new `DocGpu` and assigns it into the global,
 which drops the previous one and with it the image Qt is still drawing from.
 The publish calls therefore **MUST** stay above that assignment. The natural
 reorder, build the state and then publish out of it, is a use-after-free on the
 host's render thread.
 
+There **MUST** be one such sequence. It was written out three times —
+`open_document`, `open_raster_document` and `install_document` — which is three
+places for the ordering to be got wrong and three copies to keep in step; the
+two `open_*` paths now differ only in what they lend to the one installer, and
+lend it rather than copying, so opening a raster document no longer duplicates
+the decoded image.
+
 Nothing can observe this at runtime on a developer machine: the failure needs a
 Vulkan device, a live Qt scene graph and a second document opened over the
 first, and it lands as a crash inside the host toolkit's backend rather than
 anywhere a test reaches. `a_new_composite_is_published_before_the_old_one_is_freed`
-reads the ordering out of the source instead, for all three copies of the
-sequence — the list of three is also what keeps a fourth copy from being written
-without the ordering.
+reads the ordering out of the source instead. It takes a list of installers
+rather than one hard-coded name, so that if the sequence is ever spread again
+each copy has to be named there.
 
 ### Driving repaint from content, not from a clock
 

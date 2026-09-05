@@ -170,29 +170,7 @@ fn with_layers_meta<R>(doc: &mut DocGpu, f: impl FnOnce(&mut DocGpu, &[Layer]) -
 /// Returns an error when GPU init, layer sync, composite, or export fails.
 pub fn open_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, String> {
     let _queue_guard = super::SharedQueueGuard::lock();
-    let ctx = super::gpu_context()?;
-    let mut engine = LayerCompositeEngine::new(&ctx, size);
-    engine.sync_layers_from_graph(&ctx, layers)?;
-    let ms = engine.composite(&ctx, layers)?;
-    publish_result(&engine)?;
-    let stamper = BrushStamper::new(&ctx, size.width, size.height);
-    let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
-    let selection = SelectionMask::new(&ctx, size);
-    publish_selection(&selection)?;
-    let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
-    *guard = Some(DocGpu {
-        ctx,
-        engine,
-        stamper,
-        mask_stamper,
-        selection,
-        stroke_backup: None,
-        stroke_undo: Vec::new(),
-        stroke_redo: Vec::new(),
-        layers_meta: layers.to_vec(),
-        last_latency_ms: 0.0,
-    });
-    Ok(ms)
+    install_document(super::gpu_context()?, size, layers, std::iter::empty())
 }
 
 /// Open a graph and replace its active layer with decoded RGBA8 pixels.
@@ -206,32 +184,12 @@ pub fn open_raster_document(
     pixels: &[u8],
 ) -> Result<f32, String> {
     let _queue_guard = super::SharedQueueGuard::lock();
-    let ctx = super::gpu_context()?;
-    let mut engine = LayerCompositeEngine::new(&ctx, size);
-    engine.sync_layers_from_graph(&ctx, layers)?;
-    engine
-        .write_layer_rgba(&ctx, target_layer, pixels)
-        .map_err(|error| error.to_string())?;
-    let ms = engine.composite(&ctx, layers)?;
-    publish_result(&engine)?;
-    let stamper = BrushStamper::new(&ctx, size.width, size.height);
-    let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
-    let selection = SelectionMask::new(&ctx, size);
-    publish_selection(&selection)?;
-    let mut guard = DOC_GPU.lock().map_err(|error| error.to_string())?;
-    *guard = Some(DocGpu {
-        ctx,
-        engine,
-        stamper,
-        mask_stamper,
-        selection,
-        stroke_backup: None,
-        stroke_undo: Vec::new(),
-        stroke_redo: Vec::new(),
-        layers_meta: layers.to_vec(),
-        last_latency_ms: 0.0,
-    });
-    Ok(ms)
+    install_document(
+        super::gpu_context()?,
+        size,
+        layers,
+        [(target_layer, pixels)],
+    )
 }
 
 /// Read the current flattened composite into tightly packed RGBA8 memory.
@@ -554,17 +512,22 @@ pub fn snapshot_document_layers() -> Result<(DocumentSize, Vec<TransformLayerPix
     })
 }
 
-fn install_document(
+/// Build the document's GPU state and hand it to Qt.
+///
+/// The one place a `DocGpu` is installed. `pixels` is an iterator rather than a
+/// slice of owned buffers so that opening a raster document can lend its
+/// decoded image straight through.
+fn install_document<'a>(
     ctx: Arc<GpuContext>,
     size: DocumentSize,
     layers: &[Layer],
-    pixels: &[(LayerId, Vec<u8>)],
+    pixels: impl IntoIterator<Item = (LayerId, &'a [u8])>,
 ) -> Result<f32, String> {
     let mut engine = LayerCompositeEngine::new(&ctx, size);
     engine.sync_layers_from_graph(&ctx, layers)?;
     for (id, rgba) in pixels {
         engine
-            .write_layer_rgba(&ctx, *id, rgba)
+            .write_layer_rgba(&ctx, id, rgba)
             .map_err(|e| e.to_string())?;
     }
     let ms = engine.composite(&ctx, layers)?;
@@ -577,9 +540,8 @@ fn install_document(
     // holds the exported `VkImage` until it is handed a new one, and installing
     // the new state drops the previous `DocGpu` — freeing the image Qt is still
     // drawing from. `a_new_composite_is_published_before_the_old_one_is_freed`
-    // pins the order here and in the two `open_*` copies of this sequence,
-    // because nothing else can: the crash is in Qt's Vulkan backend, on a
-    // device, on another thread.
+    // pins the order, because nothing else can: the crash is in Qt's Vulkan
+    // backend, on a device, on another thread.
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
@@ -781,7 +743,12 @@ pub fn crop_document(rect: CropRect, layers: &[Layer]) -> Result<(DocumentSize, 
         (Arc::clone(&doc.ctx), rect.width, rect.height, cropped)
     };
     let size = DocumentSize::new(width, height);
-    let ms = install_document(ctx, size, layers, &cropped)?;
+    let ms = install_document(
+        ctx,
+        size,
+        layers,
+        cropped.iter().map(|(id, rgba)| (*id, rgba.as_slice())),
+    )?;
     Ok((size, ms))
 }
 
@@ -926,7 +893,12 @@ pub fn resize_canvas_document(
         }
         (Arc::clone(&doc.ctx), placed, masks)
     };
-    let ms = install_document(ctx, size, layers, &placed)?;
+    let ms = install_document(
+        ctx,
+        size,
+        layers,
+        placed.iter().map(|(id, rgba)| (*id, rgba.as_slice())),
+    )?;
     for (id, mask) in masks {
         write_mask_r8(id, &mask)?;
     }
@@ -969,7 +941,12 @@ pub fn resample_document(size: DocumentSize, layers: &[Layer]) -> Result<f32, St
         }
         (Arc::clone(&doc.ctx), resampled, masks)
     };
-    let ms = install_document(ctx, size, layers, &resampled)?;
+    let ms = install_document(
+        ctx,
+        size,
+        layers,
+        resampled.iter().map(|(id, rgba)| (*id, rgba.as_slice())),
+    )?;
     for (id, mask) in masks {
         write_mask_r8(id, &mask)?;
     }
@@ -1035,7 +1012,12 @@ pub fn rotate_canvas(quarter_turns: u32, layers: &[Layer]) -> Result<(DocumentSi
             rotated,
         )
     };
-    let ms = install_document(ctx, new_size, layers, &rotated)?;
+    let ms = install_document(
+        ctx,
+        new_size,
+        layers,
+        rotated.iter().map(|(id, rgba)| (*id, rgba.as_slice())),
+    )?;
     Ok((new_size, ms))
 }
 
@@ -1061,7 +1043,12 @@ pub fn restore_document_layers(
         doc.ctx.ensure_usable().map_err(|e| e.to_string())?;
         Arc::clone(&doc.ctx)
     };
-    install_document(ctx, size, layers, pixels)
+    install_document(
+        ctx,
+        size,
+        layers,
+        pixels.iter().map(|(id, rgba)| (*id, rgba.as_slice())),
+    )
 }
 
 pub fn close_document() {
@@ -1461,16 +1448,14 @@ mod tests {
     /// Read out of the source because there is no other way to reach it. The
     /// failure needs a Vulkan device, a live Qt scene graph and a second
     /// document, and it lands as a crash inside Qt's backend rather than
-    /// anywhere a test can observe. Three functions rather than one because
-    /// the install sequence is written out three times; the list is what keeps
-    /// a fourth copy from being written without the ordering.
+    /// anywhere a test can observe.
+    ///
+    /// A list rather than one hard-coded name: the sequence used to be written
+    /// out in three functions, and if it is ever spread again each copy has to
+    /// be named here.
     #[test]
     fn a_new_composite_is_published_before_the_old_one_is_freed() {
-        const INSTALLERS: [&str; 3] = [
-            "\npub fn open_document(",
-            "\npub fn open_raster_document(",
-            "\nfn install_document(",
-        ];
+        const INSTALLERS: [&str; 1] = ["\nfn install_document"];
         let source = include_str!("document_gpu.rs");
 
         for decl in INSTALLERS {
