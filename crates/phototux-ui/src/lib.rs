@@ -1031,18 +1031,79 @@ impl AppSession {
         tracing::error!("GPU lost — document authority preserved");
     }
 
+    /// Republish everything QML reads from the engine, in one pass.
+    ///
+    /// A list of calls, and it has to stay one. Each `publish!` emits a Qt
+    /// notify that a QML binding may react to *synchronously*, so the order
+    /// these run in is observable: moving a projection earlier or later lets a
+    /// binding see an intermediate state it never saw before. The helpers below
+    /// are therefore contiguous runs of the original body, called in the order
+    /// they were written in — a move, not a rearrangement.
+    ///
+    /// `sync_from_engine_is_a_list_of_calls` keeps it that way.
     fn sync_from_engine(&mut self) {
+        self.sync_camera_fields();
+        self.sync_brush_fields();
+        self.sync_frame_metrics();
+        self.sync_tool_and_history_fields();
+        self.sync_layer_rows();
+        self.sync_active_layer_locks();
+        self.sync_mask_fields();
+        self.sync_edit_target_fields();
+        self.publish_history_projection();
+        self.sync_brush_preset_fields();
+        self.sync_color_management_fields();
+        self.sync_accessibility_fields();
+        self.sync_selection_fields();
+        self.sync_transform_fields();
+        self.sync_path_and_revision_fields();
+        self.sync_active_layer_style_fields();
+        self.sync_inspector_mixed_fields();
+        self.sync_color_fields();
+        self.sync_viewport_fields();
+        self.sync_adjustment_fields();
+        self.sync_text_fields();
+        self.sync_path_edit_fields();
+        self.sync_filter_preview_fields();
+        self.sync_guides_fields();
+        self.refresh_pref_effective_json();
+        self.pref_effective_json_changed();
+        self.refresh_inspector_badges();
+        self.sync_status_field();
+    }
+
+    /// Document size and where the camera is looking.
+    fn sync_camera_fields(&mut self) {
         self.doc_width = self.engine.size.width as i32;
         self.doc_height = self.engine.size.height as i32;
         self.zoom = self.engine.camera.zoom;
         self.pan_x = self.engine.camera.pan_x;
         self.pan_y = self.engine.camera.pan_y;
+    }
+
+    /// The brush's own parameters.
+    ///
+    /// `brush_r`/`g`/`b` are assigned again by `sync_color_fields` further
+    /// down, from `colors.foreground`. Every writer keeps the two in step —
+    /// `set_brush_color` pushes into both, and `adopt_foreground_without_recording`
+    /// writes `brush_color` explicitly — so the second assignment is redundant
+    /// rather than contradictory. It is left in place here because this split
+    /// is a move and nothing else; removing it is a separate question.
+    fn sync_brush_fields(&mut self) {
         self.brush_size = self.engine.brush_size;
         self.brush_hardness = self.engine.brush_hardness;
         self.brush_texture_strength = self.engine.brush.texture_strength;
         self.brush_r = self.engine.brush_color[0];
         self.brush_g = self.engine.brush_color[1];
         self.brush_b = self.engine.brush_color[2];
+    }
+
+    /// What the last frame cost, and what it touched.
+    ///
+    /// `publish!` rather than bare assignment for most of these: they are
+    /// recomputed every sync, and emitting unconditionally is what flooded
+    /// AT-SPI and killed a session (T-009).
+    fn sync_frame_metrics(&mut self) {
         self.fps = self.engine.fps;
         publish!(
             self,
@@ -1066,6 +1127,10 @@ impl AppSession {
             i32::try_from(self.engine.overlay_view_generation.min(i32::MAX as u64)).unwrap_or(0),
             overlay_view_generation_changed
         );
+    }
+
+    /// The active tool, whether there is a document, and what undo can offer.
+    fn sync_tool_and_history_fields(&mut self) {
         self.active_tool = self.engine.active_tool.clone();
         self.has_document = self.engine.has_document;
         publish!(
@@ -1082,6 +1147,10 @@ impl AppSession {
         );
         publish!(self, can_undo, self.engine.can_undo(), can_undo_changed);
         publish!(self, can_redo, self.engine.can_redo(), can_redo_changed);
+    }
+
+    /// Bring the layer model's rows up to date.
+    fn sync_layer_rows(&mut self) {
         // The model notifies Qt itself, per row, so there is no property to
         // publish here — only rows to bring up to date.
         crate::layer_model::apply_rows(
@@ -1092,6 +1161,14 @@ impl AppSession {
                 .map(Into::into)
                 .collect(),
         );
+    }
+
+    /// What the active layer will and will not accept.
+    ///
+    /// The four locks are separate properties because the Layers panel draws
+    /// them as four toggles, and `active_layer_locked` is the composite the
+    /// menus and panel controls gate on.
+    fn sync_active_layer_locks(&mut self) {
         publish!(
             self,
             active_mask_flag,
@@ -1128,6 +1205,14 @@ impl AppSession {
             self.engine.active_lock_alpha(),
             active_lock_alpha_changed
         );
+    }
+
+    /// The active layer's mask, and whether the mask is what painting edits.
+    ///
+    /// Starts by clearing a stale `mask_edit_layer`: the layer it points at may
+    /// have lost its mask since the target was chosen, and painting would then
+    /// be aimed at something that no longer exists.
+    fn sync_mask_fields(&mut self) {
         if self.engine.mask_edit_layer.is_some_and(|id| {
             self.engine
                 .graph
@@ -1167,6 +1252,10 @@ impl AppSession {
         publish!(self, mask_linked, linked, mask_linked_changed);
         publish!(self, mask_contrast, contrast, mask_contrast_changed);
         publish!(self, mask_shift, shift, mask_shift_changed);
+    }
+
+    /// What the inspector is describing, and what an edit would land on.
+    fn sync_edit_target_fields(&mut self) {
         publish!(
             self,
             edit_target,
@@ -1207,13 +1296,20 @@ impl AppSession {
             self.engine.inspector_subject().as_str().to_owned(),
             inspector_subject_changed
         );
-        self.publish_history_projection();
+    }
+
+    /// The brush preset names, for the options bar's combo.
+    fn sync_brush_preset_fields(&mut self) {
         publish!(
             self,
             brush_preset_names,
             self.engine.brush_presets.names_joined(),
             brush_preset_names_changed
         );
+    }
+
+    /// Soft proof and embedded profile state.
+    fn sync_color_management_fields(&mut self) {
         let (proof_profile, proof_active, embedded_icc) = self.engine.graph.as_ref().map_or_else(
             || (String::new(), false, false),
             |graph| {
@@ -1242,6 +1338,14 @@ impl AppSession {
             embedded_icc,
             has_embedded_icc_changed
         );
+    }
+
+    /// The semantic tree, and its AT-SPI projection.
+    ///
+    /// The projection is rebuilt only when the tree actually changed — it is
+    /// derived from a string this function has just published, and rebuilding
+    /// it every sync is the same flood `publish!` exists to prevent.
+    fn sync_accessibility_fields(&mut self) {
         if publish!(
             self,
             accessibility_tree_json,
@@ -1255,8 +1359,10 @@ impl AppSession {
                 atspi_projection_json_changed
             );
         }
-        self.sync_selection_fields();
-        self.sync_transform_fields();
+    }
+
+    /// Where the document came from, and which revision this is.
+    fn sync_path_and_revision_fields(&mut self) {
         publish!(
             self,
             document_path,
@@ -1275,6 +1381,14 @@ impl AppSession {
             self.engine.graph_revision() as i32,
             graph_revision_changed
         );
+    }
+
+    /// The active layer's opacity, blend mode and fill colour.
+    ///
+    /// The defaults are the interesting half: they are what the panel shows
+    /// with no layer active, and stating them beside the real values keeps the
+    /// two arms honest.
+    fn sync_active_layer_style_fields(&mut self) {
         let active_layer = self
             .engine
             .graph
@@ -1290,8 +1404,10 @@ impl AppSession {
         publish!(self, active_opacity, opacity, active_opacity_changed);
         publish!(self, active_blend, blend, active_blend_changed);
         publish!(self, fill_color_hex, fill_hex, fill_color_hex_changed);
-        self.sync_inspector_mixed_fields();
-        self.sync_color_fields();
+    }
+
+    /// The size of the viewport the canvas is presented into.
+    fn sync_viewport_fields(&mut self) {
         publish!(
             self,
             viewport_width,
@@ -1304,14 +1420,13 @@ impl AppSession {
             self.engine.viewport_h,
             viewport_height_changed
         );
-        self.sync_adjustment_fields();
-        self.sync_text_fields();
-        self.sync_path_edit_fields();
-        self.sync_filter_preview_fields();
-        self.sync_guides_fields();
-        self.refresh_pref_effective_json();
-        self.pref_effective_json_changed();
-        self.refresh_inspector_badges();
+    }
+
+    /// The status bar's summary line.
+    ///
+    /// Last, deliberately: it summarises state the rest of this sync has just
+    /// finished publishing.
+    fn sync_status_field(&mut self) {
         publish!(
             self,
             status_text,

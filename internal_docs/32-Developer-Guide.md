@@ -102,6 +102,26 @@ crates/
 
 Presentation stack is **Qt 6 QML + qtbridge**. GPU stack is **wgpu 30 Vulkan-first** with zero-copy interactive present. Do not invent parallel GUI or GPU stacks.
 
+### The engine→QML projection is a list of calls
+
+`AppSession::sync_from_engine` republishes everything QML reads from the engine.
+It is a flat list of `sync_*` calls and has to stay one.
+
+The reason is not length. Each `publish!` emits a Qt notify that a QML binding
+may react to **synchronously**, so the order these run in is observable: a
+projection moved earlier or later lets a binding see an intermediate state it
+never saw before, which is the same class of hazard as the host-slot
+re-entrancy rule below. Keeping the body a list makes that order reviewable at a
+glance rather than reconstructed from three hundred lines.
+
+Each helper owns one concern and is a *contiguous* run of the projection —
+`sync_camera_fields`, `sync_brush_fields`, `sync_frame_metrics`,
+`sync_tool_and_history_fields`, `sync_layer_rows`, `sync_active_layer_locks`,
+`sync_mask_fields`, `sync_edit_target_fields`, and so on. A new property joins
+the helper that owns its concern; a genuinely new concern gets a helper and a
+new line in the list. `sync_from_engine_is_a_list_of_calls` fails the build on a
+statement that is not a bare call.
+
 ### Where `unsafe` may live, and what every block owes
 
 `unsafe` belongs at the FFI edges and nowhere else, and every block that *does*

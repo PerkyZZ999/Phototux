@@ -1535,6 +1535,57 @@ mod tests {
              function — publish! it, so an unchanged path says nothing (T-009)"
         );
     }
+    /// `sync_from_engine` stays a list of calls.
+    ///
+    /// It was 288 lines of projection in one body, which is the shape a
+    /// projection grows into: every new property is one more `publish!` at the
+    /// end, and no single addition is worth objecting to. The tail had already
+    /// been broken into a dozen named `sync_*` helpers by whoever needed to
+    /// find something in it; this finishes that.
+    ///
+    /// The guard is not about length. Each `publish!` emits a Qt notify that a
+    /// QML binding may react to *synchronously*, so the order these run in is
+    /// observable — a projection moved earlier or later lets a binding see an
+    /// intermediate state it never saw before. Keeping the body a flat list of
+    /// calls is what makes that order reviewable at a glance instead of
+    /// reconstructed from three hundred lines.
+    ///
+    /// So: every statement is a bare `self.…();` call. A new property joins the
+    /// helper that owns its concern, and a genuinely new concern gets a new
+    /// helper and a new line here.
+    #[test]
+    fn sync_from_engine_is_a_list_of_calls() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("the host crate is readable from its own tests");
+        let at = source
+            .find("    fn sync_from_engine(&mut self) {")
+            .expect("sync_from_engine is there to read");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
+
+        let statements: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//") && *l != "}" && *l != "{")
+            .collect();
+        assert!(
+            statements.len() > 20,
+            "the scan found {} statements, so it is reading the wrong function",
+            statements.len()
+        );
+
+        let strays: Vec<&&str> = statements
+            .iter()
+            .filter(|l| !(l.starts_with("self.") && l.ends_with("();")))
+            .collect();
+        assert!(
+            strays.is_empty(),
+            "sync_from_engine has grown a body again — these are not calls, and \
+             each one is a projection whose position in the order is now buried \
+             rather than named: {strays:#?}"
+        );
+    }
+
     /// A conversion to pixels is snapshotted before it runs.
     ///
     /// Bake Text, Rasterize Shape and Rasterize Smart Object each replace a
