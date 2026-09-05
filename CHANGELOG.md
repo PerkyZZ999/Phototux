@@ -34,6 +34,21 @@ and each guard was re-checked by sabotage afterwards.
   made, and undoing the group left that id behind naming a layer the document
   no longer had — so Layer ▸ New Group answered *"select a layer first"* with a
   layer plainly active and highlighted in the panel.
+- **The CPU motion blur reference disagreed with the shader at every edge.** The
+  shader samples `ClampToEdge` and weights every tap, so a tap leaving the layer
+  contributes the border pixel at full weight; the reference skipped those taps
+  and divided by the ones that landed, renormalising the kernel within
+  `distance` of every border. Nothing rendered wrongly yet — no CPU fallback
+  calls these references — which is the reason to have fixed it rather than a
+  reason not to: the error would have surfaced on the day something did, long
+  after the two had drifted, with no way left to tell which had been right.
+  Twenty lines away in the same file, the gaussian kernel already clamped.
+- **Device-backed tests reported success without reaching the device.** Six of
+  the GPU parity tests printed "skipping" and returned green, three of them from
+  *inside* a loop over `ALL_KINDS` — so one kind's broken pipeline ended the
+  whole test and every kind after it went unmeasured. The suite whose entire
+  purpose is device verification could verify nothing and say it passed. Opting
+  into it is the assertion that a device is there, so its absence now fails.
 
 ### Guards
 
@@ -49,6 +64,16 @@ and each guard was re-checked by sabotage afterwards.
   palette — and sixty-nine of the ninety-nine commands are not in it. A second
   sweep walks the command set instead, reaching eleven commands the first never
   touched, `layer.flatten` and `layer.duplicate` among them.
+- `filters.rs` carried CPU references for motion blur, emboss and noise that
+  nothing compared against a shader — only gaussian and sharpen had parity
+  tests, while `every_filter_kind_changes_the_picture_on_device` asked no more
+  than that the shader alter the image, which a wrong shader and a wrong
+  reference both satisfy. All three are compared now, and the axis-aligned
+  cases are asserted to two levels of a byte: every tap lands on a pixel centre
+  there, so nothing but the edge rule is left. That case read max=50 mean=22.6
+  before the fix and reads 0 after.
+- Both `ALL_KINDS` walks assert how many members they measured, so a `continue`
+  added later cannot drop a kind from the suite in silence.
 - Qt keeps the exported `VkImage` until it is handed a new one, so a document
   install must publish before it frees. The order was correct in all three
   copies of that sequence and said so nowhere, and nothing could observe a
@@ -71,6 +96,10 @@ and each guard was re-checked by sabotage afterwards.
   the two QML strings outside `qsTr` are a multiplication sign and a check mark
   rather than prose, and the PSD reader's allocations are bounded by
   `MAX_DIMENSION` and `MAX_RASTER_BYTES` at both entry points.
+- Gap A6 recorded the CPU reference as closed. It is closed for *blending*:
+  `cpu_composite` does not apply filters, and the filter references are
+  re-exported but unwired, which is what 17's "CPU renderer implements graph
+  semantics for core nodes" would need. The row says so now.
 - `GraphCommand::SetActive` has a correct `apply` and `invert` and no producer
   anywhere. It is left in place rather than removed — selecting a layer is
   deliberately not an undo step, so the variant encodes a policy the app does
