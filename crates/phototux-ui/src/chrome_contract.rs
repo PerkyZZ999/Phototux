@@ -956,11 +956,9 @@ mod tests {
              strip",
             writes.len()
         );
-        let setter = source
-            .split("fn set_dirty(&mut self, dirty: bool) {")
-            .nth(1)
-            .expect("lib.rs declares `set_dirty`");
-        let body = setter.split("\n    }").next().unwrap_or(setter);
+        let at = fn_at(&source, "set_dirty").expect("the host declares `set_dirty`");
+        let line = source[..at].matches('\n').count() + 1;
+        let body = body_at_line(&source, line);
         assert!(
             body.contains("self.dirty = dirty;")
                 && body.contains("self.dirty_changed();")

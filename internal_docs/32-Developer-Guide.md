@@ -137,7 +137,16 @@ targeted edit. `session_gpu.rs` is the second: everything that reaches
 that writes pixels, the navigator thumbnail, device-loss recovery, and the two
 host-side undo stacks whose contents are GPU snapshots rather than graph
 commands. Deciding *when* to snapshot belongs to the command spine and stays in
-`lib.rs`; reading and restoring one is GPU work. Methods there are `pub(crate)` rather than private — visibility
+`lib.rs`; reading and restoring one is GPU work. `session_documents.rs` is the third:
+opening, parking and switching tabs, and the dirty flag. A tab is a parked
+`SessionState` plus the host state that does not live inside one, which is why
+parking has to drop the selection and transform undo stacks explicitly — the
+engine's history travels with the document and those `Vec`s do not.
+
+**Guards look a method up with `fn_at`, never by its signature.** Six sites
+searched for the full declaration text, which asserts the argument list as a
+side effect of asking where something is, and three more used `.split("fn …")`.
+All of them break when a method gains `pub(crate)` on the way out of `lib.rs`. Methods there are `pub(crate)` rather than private — visibility
 in Rust flows to a module's *descendants*, and the caller is an ancestor. The
 surface did not widen; the code moved.
 
