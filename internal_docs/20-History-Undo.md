@@ -372,14 +372,26 @@ bake path ever constructed one.
 `style.set-params` had the push but not the arm, so a drop-shadow slider drag
 left one entry per step.
 
-Nothing caught either because
-`every_action_that_edits_the_document_undoes_back_to_where_it_started` skips any
-command that refuses on its fixture, and the fixture has no text layer for
-`text.set-content` to edit. That test's `NOT_UNDOABLE` list is deliberately
-explicit; its two `continue`s on setup failure are not, and a command that
-cannot be set up is indistinguishable there from one that passes.
+Nothing caught either, because the undo conformance sweep,
+`every_action_that_edits_the_document_undoes_back_to_where_it_started`, walks
+the **action registry** — the menus and the command palette. Sixty-nine of the
+ninety-nine commands are not in it. Panels and tools dispatch commands that
+never appear as a menu item, and all six mergeable commands are of that kind:
+`layer.set-opacity` comes from the Layers panel, `text.set-content` from the
+Text panel, `style.set-params` from a style slider. None of the three was ever
+reachable by that test, whatever its fixture held.
 
-`every_mergeable_command_folds_a_run_into_one_entry` now closes the family. It
+`every_command_this_sweep_can_reach_undoes_back_to_where_it_started` walks
+`command_meta::ALL` instead. Generic arguments only take it to fifteen of the
+seventy-eight document-mutating commands — the rest need a shaped payload, or
+edit pixels and the selection, which do not live in the graph — but eleven of
+those fifteen are commands the action sweep never touches, `layer.flatten` and
+`layer.duplicate` among them. Its `SWEPT` list is asserted exactly rather than
+as a lower bound, so a command that stops being exercised has to edit the list
+instead of quietly joining the unreachable majority. Silence was the whole
+reason `text.set-content` survived.
+
+`every_mergeable_command_folds_a_run_into_one_entry` closes the fold family. It
 carries a fixture and a four-step argument builder per mergeable command, and
 asserts its table is exactly the set that `command_meta` declares — so a seventh
 `doc_merge(...)` has to bring a fixture rather than going untested. Four steps

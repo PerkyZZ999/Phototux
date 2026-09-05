@@ -388,6 +388,122 @@ mod tests {
 
     /// Blank out the monotonic counters in a serialised graph.
     ///
+    /// Every command this sweep can reach records an undo entry and restores.
+    ///
+    /// `every_action_that_edits_the_document_undoes_back_to_where_it_started`
+    /// walks the *action registry* — the menus and the palette. Two thirds of
+    /// the command set is not in it, because panels and tools dispatch
+    /// commands that never appear as a menu item, and that is how
+    /// `text.set-content` shipped writing straight onto the layer and pushing
+    /// no history entry at all. This walks `command_meta::ALL` instead, which
+    /// reaches eleven commands the action sweep never touches — `layer.flatten`
+    /// and `layer.duplicate` among them.
+    ///
+    /// `SWEPT` is asserted *exactly*, not as a lower bound. `args_for_action`
+    /// falls back to `CommandArgs::None` for commands that need a shaped
+    /// payload — a rect, an index, a colour — so those refuse; pixel and
+    /// selection edits change nothing this sweep can see, because they do not
+    /// live in the graph. Both groups sit outside the list, so a command that
+    /// *stops* being exercised has to edit this list rather than quietly
+    /// joining them. That silence is the whole reason the bug above survived.
+    #[test]
+    fn every_command_this_sweep_can_reach_undoes_back_to_where_it_started() {
+        const SWEPT: [&str; 15] = [
+            command_id::CLIPBOARD_PASTE_LAYER,
+            command_id::FILTER_ADD_ADJUSTMENT,
+            command_id::FILTER_ADD_EFFECT,
+            command_id::LAYER_CREATE,
+            command_id::LAYER_CREATE_FILL,
+            command_id::LAYER_DELETE,
+            command_id::LAYER_DUPLICATE,
+            command_id::LAYER_FLATTEN,
+            command_id::LAYER_GROUP,
+            command_id::LAYER_MERGE_DOWN,
+            command_id::LAYER_MERGE_VISIBLE,
+            command_id::LAYER_SET_LOCKS,
+            command_id::MASK_CREATE,
+            command_id::MASK_CREATE_VECTOR,
+            command_id::STYLE_ADD,
+        ];
+
+        let snapshot = |session: &SessionState| {
+            without_counters(
+                &serde_json::to_string(session.graph.as_ref().expect("a document"))
+                    .expect("graph json"),
+            )
+        };
+        let mut reached: Vec<&str> = Vec::new();
+
+        for meta in command_meta::ALL {
+            if meta.mutation != MutationClass::Document {
+                continue;
+            }
+            let id = meta.id;
+            let mut session = SessionState::default();
+            session.apply_preset(SizePreset::P720);
+            // A second layer, so merge, group and clip have something to act
+            // on rather than refusing on a one-layer document.
+            let _ = session.invoke(command_id::LAYER_CREATE, CommandArgs::None);
+
+            let Ok(args) = session.args_for_action(id, None) else {
+                continue;
+            };
+            let before = snapshot(&session);
+            let undo_before = session.history.entries_undo().len();
+            if session.invoke(id, args).is_err() {
+                continue;
+            }
+            if snapshot(&session) == before {
+                continue;
+            }
+            reached.push(id);
+
+            assert!(
+                session.history.entries_undo().len() > undo_before,
+                "{id} edited the graph without recording an undo entry"
+            );
+            let graph = session.graph.as_mut().expect("a document");
+            let kind = session
+                .history
+                .undo_next(graph)
+                .unwrap_or_else(|| panic!("{id} recorded an entry that would not undo"));
+
+            // The kind is as much of the contract as the entry. A `Graph`
+            // entry reverses the graph and never asks the host; these three
+            // rewrite pixels, so only a `Transform` entry and the host's
+            // snapshot take back both halves (QA-015). A command that quietly
+            // swapped one for the other would undo half of itself.
+            const HOST_RESTORES: [&str; 3] = [
+                command_id::LAYER_FLATTEN,
+                command_id::LAYER_MERGE_DOWN,
+                command_id::LAYER_MERGE_VISIBLE,
+            ];
+            if HOST_RESTORES.contains(&id) {
+                assert_eq!(
+                    kind,
+                    crate::HistoryKind::Transform,
+                    "{id} rewrites pixels, so its entry has to reach the host"
+                );
+                continue;
+            }
+            assert_eq!(kind, crate::HistoryKind::Graph, "{id} changed entry kind");
+            assert_eq!(
+                snapshot(&session),
+                before,
+                "{id} did not undo back to where it started"
+            );
+        }
+
+        reached.sort_unstable();
+        let mut expected = SWEPT;
+        expected.sort_unstable();
+        assert_eq!(
+            reached,
+            expected.to_vec(),
+            "the set of commands this sweep exercises has changed"
+        );
+    }
+
     /// Every action that edits the document has to be undoable, and undo has
     /// to put the document back.
     ///
