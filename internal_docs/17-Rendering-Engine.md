@@ -398,9 +398,14 @@ swapped sign, or a different grain hash, and it passes a reference that draws
 something else entirely — which is what happened. Motion blur's reference
 skipped taps that left the layer and divided by the ones that landed, while the
 shader samples `ClampToEdge` and weights every tap, so the two renormalised the
-kernel differently within `distance` of every border. Degraded mode drew a
-different picture from the device for the same document, and
+kernel differently within `distance` of every border, and
 `every_filter_kind_changes_the_picture_on_device` was satisfied by both.
+
+Nothing rendered wrongly *yet*, and that is the point rather than a mitigation:
+the references in `filters.rs` are re-exported for a CPU fallback that does not
+call them, so the error would have surfaced on the day something did — long
+after the shader and the reference had drifted, with no way left to tell which
+one had been right.
 
 Where the two legitimately part is sampling, not semantics: the shader filters
 linearly and a reference reads whole pixels, so taps landing between pixel

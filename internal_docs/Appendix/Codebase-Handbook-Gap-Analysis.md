@@ -87,7 +87,7 @@ Do **not** discard zero-copy present, brush path, or `.ptx` round-trip without a
 | A3 | Workspace / docking transactions (03–05, DR-015) | Descriptors + tear-off/auto-hide + builtins + **user-named presets**; split-graph polish | **Closed (v1)**; split graph → **Partial** |
 | A4 | Lifecycle controller, recovery, renderer gens (02) | Autosave + restore chooser + safe-start + `renderer_generation`; no formal controller type | **Closed (v1)**; formal controller → **Deferred (DR-028)** |
 | A5 | Multi-doc first-class (DR-010 / DR-024) | Tabs Accepted (DR-024 v2); multi-window / multi-view open | **Closed (v1)** tabs; multi-window → **Open** (not DR-029) |
-| A6 | GPU-first + CPU ref + tiling (DR-006) | CPU composite ref + parity fixtures; tiling ungated only with evidence | CPU ref **Closed (v1)**; tiling → **Gated (DR-029)** |
+| A6 | GPU-first + CPU ref + tiling (DR-006) | CPU composite ref (blending) + parity fixtures; filter references exist in `phototux_gpu::filters` but no render path calls them, so 17's "CPU renderer implements graph semantics for core nodes" holds for blending only; tiling ungated only with evidence | CPU blend ref **Closed (v1)**; CPU *filter* ref → **Partial** (references written, unwired); tiling → **Gated (DR-029)** |
 | A7 | UI toolkit | DR-023 Qt 6 + qtbridge | **Closed** |
 | A8 | Fine crate split (32) | Coarse crates (DR-025); §32 = ownership map | **Closed (DR-025)** |
 | A9 | Extension seams; ABI deferred (DR-009) | `extension_data` opaque seam; no host/ABI | Seam **Closed (v1)**; ABI → **Gated (DR-029)** |
