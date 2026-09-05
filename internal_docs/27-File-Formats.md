@@ -640,8 +640,24 @@ channels is 4 GiB, eight times the `MAX_RASTER_BYTES` the raster path enforces,
 requested from the allocator on the strength of a 26-byte header.
 
 `checked_rgba_len` is now the crate's single answer to "can this raster be had",
-used by both readers, and `a_declared_size_that_cannot_be_honoured_is_refused_not_clamped`
-pins all three refusals. The general rule this illustrates: **a parser that
+used by every reader, and `a_declared_size_that_cannot_be_honoured_is_refused_not_clamped`
+pins all three refusals.
+
+Bounding the *header* was not enough, and the reason generalises: **a nested
+record carries its own dimensions, and the outer bound does not reach them.** A
+PSD layer record holds `top/left/bottom/right` as four `i32`s independent of the
+document size, and `read_layer_channels` turned them into an extent with
+`(right - left).max(0)`. `right = i32::MAX` with `left = -1` is not
+representable, so a crafted file panicked a debug build and wrapped a release
+one; and nothing bounded the result, so a layer claiming two billion pixels of
+width reached `vec![0_u8; plane_len]` and asked for two gigabytes before the
+read discovered there were no pixels behind it. The extent now saturates and
+goes through the same `checked_rgba_len`.
+
+The refusal is not the end of the import. A layer section that cannot be trusted
+falls back to the flattened composite and discloses that under `psd.layers`,
+which is what the reader already did for every other malformed layer block —
+so a hostile file costs the user their layers, not their session. The general rule this illustrates: **a parser that
 repairs a hostile field has stopped validating it.** Clamping reads as
 defensive and is the opposite — it converts a refusal into a misparse, and it
 hides the allocation the limit existed to prevent.

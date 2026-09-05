@@ -542,8 +542,20 @@ fn read_layer_channels(
     layer: &mut ParsedLayer,
     channel_meta: Vec<(i16, u32)>,
 ) -> Result<(), PsdError> {
-    let lw = (layer.right - layer.left).max(0) as u32;
-    let lh = (layer.bottom - layer.top).max(0) as u32;
+    // Saturating, not plain subtraction: these four are `i32`s straight from
+    // the file, and `right = i32::MAX` with `left = -1` is not representable —
+    // a debug build panics on it and a release build wraps, so the file chose
+    // the outcome.
+    let lw = layer.right.saturating_sub(layer.left).max(0) as u32;
+    let lh = layer.bottom.saturating_sub(layer.top).max(0) as u32;
+    // And bounded, by the same single answer the file header uses. A layer rect
+    // is independent of the document size, so bounding the header does not
+    // reach it: a layer declaring a two-billion-pixel width otherwise arrived
+    // at `vec![0_u8; plane_len]` and asked for two gigabytes before the read
+    // discovered there were no pixels behind it.
+    if lw != 0 && lh != 0 {
+        crate::checked_rgba_len(lw, lh)?;
+    }
     for (id, declared_len) in channel_meta {
         let start = cursor.position();
         let data = if lw == 0 || lh == 0 || declared_len == 0 {
@@ -1285,6 +1297,99 @@ mod tests {
         assert!(
             import_psd_bytes(&ok, None).is_ok(),
             "the limit refused a 2x2 file"
+        );
+    }
+
+    /// A layer's own rect is bounded too, and its arithmetic cannot overflow.
+    ///
+    /// Bounding the file header was not enough: a layer record carries its own
+    /// `top/left/bottom/right` as four `i32`s read straight from the file, and
+    /// `read_layer_channels` turned them into an extent with
+    /// `(layer.right - layer.left).max(0) as u32`. Two things were wrong with
+    /// that, and the header check cannot reach either, because a layer rect is
+    /// independent of the document size:
+    ///
+    /// - **The subtraction overflows.** `right = i32::MAX` with `left = -1` is
+    ///   not representable, so a debug build panics and a release build wraps.
+    ///   Either way the file chose the outcome.
+    /// - **Nothing bounded the extent.** A layer declaring a two-billion-pixel
+    ///   width reached `vec![0_u8; plane_len]` and asked for two gigabytes
+    ///   before `read_exact` discovered there were no pixels behind it.
+    ///
+    /// The extent now saturates and then goes through `checked_rgba_len`, the
+    /// same single answer the header uses.
+    ///
+    /// The hostile width here is just over `MAX_DIMENSION` rather than the two
+    /// billion a real attacker would send: it exercises the same refusal, and
+    /// if the bound is ever removed the test allocates forty kilobytes rather
+    /// than two gigabytes on its way to failing.
+    #[test]
+    fn a_layer_rect_is_bounded_and_its_arithmetic_cannot_overflow() {
+        let graph = DocumentGraph::new_flattened(DocumentSize::new(2, 1), "A");
+        let id = graph.layers()[0].id;
+        let raster = Raster::new(
+            2,
+            1,
+            vec![10, 20, 30, 255, 200, 150, 100, 255].into_boxed_slice(),
+        )
+        .expect("raster");
+        let good = export_psd(&graph, &[(id, raster)]).expect("export").bytes;
+
+        // top=0 left=0 bottom=1 right=2, then the u16 channel count 4.
+        let rect: Vec<u8> = [0_i32, 0, 1, 2]
+            .iter()
+            .flat_map(|v| v.to_be_bytes())
+            .chain(4_u16.to_be_bytes())
+            .collect();
+        let at = good
+            .windows(rect.len())
+            .position(|w| w == rect.as_slice())
+            .expect("the exported layer rect is findable");
+
+        let patched = |left: i32, right: i32| {
+            let mut bytes = good.clone();
+            bytes[at + 4..at + 8].copy_from_slice(&left.to_be_bytes());
+            bytes[at + 12..at + 16].copy_from_slice(&right.to_be_bytes());
+            bytes
+        };
+
+        // The refusal is not the end of the import: a layer section that cannot
+        // be trusted falls back to the flattened composite and says so, which
+        // is what the reader already does for every other malformed layer
+        // block. What must not happen is a panic or the allocation.
+        let refused_the_layers = |bytes: &[u8], what: &str| {
+            let import = import_psd_bytes(bytes, None)
+                .unwrap_or_else(|e| panic!("{what}: the whole import failed: {e:?}"));
+            assert!(
+                import
+                    .report
+                    .iter()
+                    .any(|issue| issue.code == "psd.layers" && issue.message.contains("32,768")),
+                "{what}: the layer section was accepted rather than refused \
+                 by the size limit — report was {:?}",
+                import.report
+            );
+            assert_eq!(
+                import.layer_rasters.len(),
+                1,
+                "{what}: the fallback did not produce the composite"
+            );
+        };
+
+        // Overflowing subtraction. Before the fix this panicked the process
+        // with "attempt to subtract with overflow" in a debug build, and
+        // wrapped silently in a release one.
+        refused_the_layers(&patched(-1, i32::MAX), "an unrepresentable extent");
+
+        // Representable, and far past the per-side limit.
+        refused_the_layers(&patched(0, MAX_DIMENSION as i32 + 1), "an oversized extent");
+
+        // The unpatched file still imports its layers, with no such complaint.
+        let ok = import_psd_bytes(&good, None).expect("the bound refused an ordinary layer");
+        assert!(
+            !ok.report.iter().any(|issue| issue.code == "psd.layers"),
+            "an ordinary layer was reported as out of bounds: {:?}",
+            ok.report
         );
     }
 
