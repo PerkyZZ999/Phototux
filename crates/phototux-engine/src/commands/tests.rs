@@ -534,6 +534,37 @@ fn drop_shadow_rejects_shape_layer() {
     );
 }
 
+/// Undo has to leave the object selection usable.
+///
+/// The engine holds two notions of "selected": the graph's active layer, and
+/// `selected_layer_ids`, the panel's multi-selection that structural commands
+/// target. Grouping sets the second to the group it just made. Undoing the
+/// group took that layer back out of the graph and left the id behind, and
+/// `structural_target_ids` drops ids the graph no longer has and then refuses
+/// — so Layer ▸ New Group answered "select a layer first" with a layer plainly
+/// active and highlighted in the panel.
+#[test]
+fn undo_leaves_the_object_selection_usable() {
+    let mut s = SessionState::default();
+    s.apply_preset(SizePreset::P720);
+    let _ = s.invoke(command_id::LAYER_CREATE, CommandArgs::None);
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("group");
+    s.invoke(command_id::HISTORY_UNDO, CommandArgs::None)
+        .expect("undo");
+
+    assert!(
+        s.graph.as_ref().and_then(|g| g.active_id()).is_some(),
+        "the fixture should still have an active layer"
+    );
+    assert!(
+        !s.object_selection_names_joined().is_empty(),
+        "a layer is active but the object selection reads as empty"
+    );
+    s.invoke(command_id::LAYER_GROUP, CommandArgs::None)
+        .expect("grouping again after an undo");
+}
+
 /// A document with one layer and nothing in its history yet.
 fn blank_session() -> SessionState {
     let mut s = SessionState::default();

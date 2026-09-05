@@ -428,6 +428,8 @@ impl SessionState {
             return Err(CommandError::Rejected("there is nothing to undo"));
         };
         let generation = graph.generation;
+        // The step may have taken a selected layer out of the document.
+        self.prune_object_selection();
         let mut effects = CommandEffects::document_edit(generation);
         match kind {
             HistoryKind::Graph => {
@@ -476,6 +478,14 @@ impl SessionState {
             return Err(CommandError::Rejected("there is nothing to redo"));
         };
         let generation = graph.generation;
+        // Symmetry with undo. No command reachable today sets the object
+        // selection to a layer that a *redo* removes — the only two that set
+        // it directly, New Fill Layer and New Group, both create the layer
+        // they select, so replaying them puts it back rather than taking it
+        // away. The invariant is "after a history step the selection names
+        // live layers", and it is cheaper to hold it on both paths than to
+        // rediscover which one needs it.
+        self.prune_object_selection();
         let mut effects = CommandEffects::document_edit(generation);
         match kind {
             HistoryKind::Graph => {

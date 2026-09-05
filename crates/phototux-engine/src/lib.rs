@@ -943,6 +943,35 @@ impl SessionState {
         }
     }
 
+    /// Drop selected ids the graph no longer has, falling back to the active
+    /// layer when none survive.
+    ///
+    /// History traversal can take a selected layer back out of the document:
+    /// grouping selects the group it just made, and undoing the group removes
+    /// it. `structural_target_ids` drops ids the graph no longer has and then
+    /// refuses, so a stale id made Layer ▸ New Group answer "select a layer
+    /// first" with a layer plainly active and highlighted in the panel.
+    ///
+    /// A surviving multi-selection is kept rather than collapsed — undoing one
+    /// step of a run should not also throw away the other layers the user had
+    /// picked.
+    pub fn prune_object_selection(&mut self) {
+        let Some(graph) = self.graph.as_ref() else {
+            self.selected_layer_ids.clear();
+            return;
+        };
+        let live: Vec<LayerId> = self
+            .selected_layer_ids
+            .iter()
+            .copied()
+            .filter(|id| graph.get(*id).is_some())
+            .collect();
+        self.selected_layer_ids = live;
+        if self.selected_layer_ids.is_empty() {
+            self.sync_object_selection_to_active();
+        }
+    }
+
     /// Replace object selection with explicit layer ids (must exist in the graph).
     pub fn set_object_selection(&mut self, ids: Vec<LayerId>) {
         let Some(graph) = self.graph.as_ref() else {

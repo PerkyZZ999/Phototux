@@ -208,6 +208,22 @@ The compensation deliberately sits in `undo`, not in `apply`: redo should leave
 the selection where the original edit left it, which is what `apply` already
 does on its own.
 
+The graph's active layer is not the only notion of selection the engine holds.
+`SessionState::selected_layer_ids` is the panel's multi-selection, and it is
+what `structural_target_ids` gives to group, align and merge. Two commands set
+it directly — New Fill Layer and New Group both select the layer they just made
+— and undoing either takes that layer back out of the document while leaving
+its id behind. `structural_target_ids` drops ids the graph no longer has and
+then refuses, so Layer ▸ New Group answered *"select a layer first"* with a
+layer plainly active and highlighted in the panel.
+
+`prune_object_selection` runs after every history step: it drops ids the graph
+no longer has and falls back to the active layer only when none survive, so a
+still-valid multi-selection is kept rather than collapsed. Redo carries the
+same call for symmetry, though no command reachable today sets the selection to
+a layer a redo removes — both of the two create the layer they select, so
+replaying them puts it back.
+
 ### Host-side steps
 
 Two things the timeline can undo are not in the document graph, so the engine
