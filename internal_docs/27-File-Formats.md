@@ -646,6 +646,23 @@ repairs a hostile field has stopped validating it.** Clamping reads as
 defensive and is the opposite — it converts a refusal into a misparse, and it
 hides the allocation the limit existed to prevent.
 
+**Shipped rule — every inflate is bounded, and bounded before it allocates.**
+The decompression bomb this chapter names by name was reachable in the native
+container: `.ptx` inflated with `read_to_end` on a `DeflateDecoder` and no bound
+on the output, at all four sites — v1 manifest, v1 asset, v2 `MANI`, v2 raster
+chunk. Deflate reaches roughly 1032:1, so a one-megabyte chunk grows the buffer
+to about a gigabyte and a hundred-megabyte file to a hundred gigabytes; the
+allocator gives up long before the read does.
+
+`inflate_within` takes a budget — `MAX_INFLATED_MANIFEST` for the manifest,
+`MAX_RASTER_BYTES` for an asset payload — and applies it by `take`-ing the
+decoder rather than checking the length afterwards, so the buffer cannot exceed
+the budget even transiently. That distinction is the whole of "reject **before**
+allocation", and it is the one thing a unit test cannot observe: both forms
+refuse the bomb, and only one of them refuses it without first allocating it.
+`a_chunk_that_inflates_past_its_budget_is_refused` pins the refusal; the
+`take` is pinned by review and by the comment that explains it.
+
 **Privacy.** Thumbnails, XMP-like metadata bags, and recovery siblings may contain personal paths or scene content. Default diagnostics and crash reports omit those payloads. Export of “document statistics” uses counts and versions, not sample bytes. Autosave locations inherit host permission boundaries; the format does not invent world-readable temp names.
 
 **Compatibility.** Behavior versions record semantic changes even when chunk layouts stay identical (for example, blend-mode interpretation). Readers advertise supported behavior ranges. Writing a file that depends on a newer behavior than a declared compatibility target is a hard error in strict export modes and an explicit warning in interactive save when the user opts into newer semantics.

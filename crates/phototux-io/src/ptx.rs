@@ -249,11 +249,18 @@ pub fn decode_ptx(bytes: &[u8]) -> Result<PtxDocument, PtxError> {
 /// before any payload.
 const MIN_V1_ASSET_BYTES: usize = 8 + 4;
 
+/// Largest manifest this reader will inflate, in bytes.
+///
+/// The manifest is JSON describing at most [`MAX_LAYERS`] layers of metadata,
+/// which is kilobytes. Sixteen mebibytes is far more than any real document
+/// needs and still refuses a bomb long before the allocator notices.
+const MAX_INFLATED_MANIFEST: usize = 16 * 1024 * 1024;
+
 fn decode_ptx_v1_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
     let mut cursor = 0usize;
     let manifest_len = read_u32(body, &mut cursor)? as usize;
     let manifest_z = read_slice(body, &mut cursor, manifest_len)?;
-    let manifest_json = inflate(manifest_z)?;
+    let manifest_json = inflate_within(manifest_z, MAX_INFLATED_MANIFEST)?;
     let manifest: PtxManifest = serde_json::from_slice(&manifest_json)?;
 
     let asset_count = read_u32(body, &mut cursor)? as usize;
@@ -275,7 +282,7 @@ fn decode_ptx_v1_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
         let id = read_u64(body, &mut cursor)?;
         let len = read_u32(body, &mut cursor)? as usize;
         let z = read_slice(body, &mut cursor, len)?;
-        let png = inflate(z)?;
+        let png = inflate_within(z, crate::MAX_RASTER_BYTES as usize)?;
         let raster = decode(std::io::Cursor::new(png))?;
         if assets.insert(id, raster).is_some() {
             return Err(PtxError::Corrupt("duplicate asset id".into()));
@@ -300,7 +307,7 @@ fn decode_ptx_v2_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
         let payload = read_slice(body, &mut cursor, len)?;
         match kind {
             CHUNK_MANI => {
-                let manifest_json = inflate(payload)?;
+                let manifest_json = inflate_within(payload, MAX_INFLATED_MANIFEST)?;
                 manifest = Some(serde_json::from_slice(&manifest_json)?);
             }
             CHUNK_RASL | CHUNK_MASK | CHUNK_SRCE => {
@@ -312,7 +319,7 @@ fn decode_ptx_v2_body(body: &[u8]) -> Result<PtxDocument, PtxError> {
                         .try_into()
                         .map_err(|_| PtxError::Corrupt("asset id bytes".into()))?,
                 );
-                let png = inflate(&payload[8..])?;
+                let png = inflate_within(&payload[8..], crate::MAX_RASTER_BYTES as usize)?;
                 let raster = decode(std::io::Cursor::new(png))?;
                 if assets.insert(id, raster).is_some() {
                     return Err(PtxError::Corrupt("duplicate asset id".into()));
@@ -456,10 +463,29 @@ pub fn ptx_integrity_report(path: &Path, bytes: &[u8], error: &PtxError) -> Stri
     lines.join("\n")
 }
 
-fn inflate(data: &[u8]) -> Result<Vec<u8>, PtxError> {
-    let mut dec = DeflateDecoder::new(data);
+/// Inflate `data`, refusing anything that expands past `limit` bytes.
+///
+/// The bound is the point of the function. Deflate reaches roughly 1032:1, so
+/// an unbounded `read_to_end` lets a one-megabyte chunk grow a `Vec` to about a
+/// gigabyte and a hundred-megabyte file to a hundred gigabytes — the allocator
+/// gives up long before the read does, which is a process abort reached by
+/// opening a file. [27 — File Formats] requires the rejection to happen
+/// *before* the allocation, which is why the decoder is `take`n rather than
+/// checked afterwards: the buffer cannot exceed the budget even transiently.
+///
+/// One byte over the limit is read deliberately, so "exactly the budget" and
+/// "more than the budget" are distinguishable.
+///
+/// [27 — File Formats]: ../../../internal_docs/27-File-Formats.md
+fn inflate_within(data: &[u8], limit: usize) -> Result<Vec<u8>, PtxError> {
+    let mut dec = DeflateDecoder::new(data).take(limit as u64 + 1);
     let mut out = Vec::new();
     dec.read_to_end(&mut out)?;
+    if out.len() > limit {
+        return Err(PtxError::Corrupt(format!(
+            "a chunk inflates past the {limit} byte budget"
+        )));
+    }
     Ok(out)
 }
 
@@ -604,6 +630,67 @@ mod tests {
         assert_eq!(cursor, 1);
         assert!(read_u64(&buf, &mut cursor).is_err());
         assert_eq!(cursor, 1);
+    }
+
+    /// A chunk that inflates far beyond its declared size is refused.
+    ///
+    /// `inflate` was `read_to_end` on a `DeflateDecoder` with no bound on the
+    /// output. Deflate reaches roughly 1032:1, so a one-megabyte chunk expands
+    /// to about a gigabyte and a hundred-megabyte file to a hundred gigabytes —
+    /// the `Vec` simply grows until the allocator gives up, which is a process
+    /// abort or the OOM killer, reached by opening a file.
+    ///
+    /// This is the case [27 — File Formats] names in as many words:
+    /// "Chunk declares tiny encoded and enormous decoded size/ratio. Assert
+    /// limit rejection before allocation." Every one of the four inflate sites
+    /// — v1 manifest, v1 asset, v2 MANI, v2 raster chunk — was unbounded.
+    ///
+    /// The bomb here is deliberately modest, so the test stays fast while still
+    /// exceeding the manifest budget several times over. A real one differs
+    /// only in scale.
+    ///
+    /// [27 — File Formats]: ../../../internal_docs/27-File-Formats.md
+    #[test]
+    fn a_chunk_that_inflates_past_its_budget_is_refused() {
+        use flate2::{Compression, write::DeflateEncoder};
+        use std::io::Write;
+
+        // Compresses to a couple of kilobytes; inflates past MAX_INFLATED_MANIFEST.
+        let bomb_len = MAX_INFLATED_MANIFEST + 1024;
+        let mut squashed = Vec::new();
+        {
+            let mut enc = DeflateEncoder::new(&mut squashed, Compression::best());
+            enc.write_all(&vec![b' '; bomb_len]).expect("deflate");
+            enc.finish().expect("finish");
+        }
+        assert!(
+            squashed.len() < bomb_len / 1000,
+            "the fixture is not a bomb: {} bytes in, {} out",
+            squashed.len(),
+            bomb_len
+        );
+
+        let mut body = Vec::new();
+        write_chunk(&mut body, CHUNK_MANI, &squashed).expect("chunk");
+        let file = wrap_container(PTX_FORMAT_VERSION, &body).expect("container");
+
+        let err = decode_ptx(&file).expect_err("a bomb must be refused");
+        assert!(
+            matches!(err, PtxError::Corrupt(ref m) if m.contains("inflate")),
+            "the bomb was inflated rather than refused: {err:?}"
+        );
+
+        // A document that fits still round-trips.
+        let graph = DocumentGraph::new(DocumentSize::new(2, 1));
+        let id = graph.layers()[0].id.0;
+        let raster = Raster::new(2, 1, vec![9_u8; 8].into_boxed_slice()).expect("raster");
+        let mut rasters = HashMap::new();
+        rasters.insert(id, raster);
+        let bytes = encode_ptx(&PtxDocument::from_graph(graph, rasters)).expect("encode");
+        assert!(
+            decode_ptx(&bytes).is_ok(),
+            "the budget refused an ordinary document"
+        );
     }
 
     #[test]
