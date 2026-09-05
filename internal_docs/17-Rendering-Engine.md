@@ -311,6 +311,24 @@ Consequences that are normative, not incidental:
 
 Paths that map GPU memory to host memory — readback, sampling, export, parity fixtures — are unaffected and continue to wait.
 
+### Replacing a document publishes before it frees
+
+Qt holds the exported `VkImage` until it is handed a new one. Every path that
+replaces the document's GPU state — `open_document`, `open_raster_document` and
+`install_document` — builds a whole new `DocGpu` and assigns it into the global,
+which drops the previous one and with it the image Qt is still drawing from.
+The publish calls therefore **MUST** stay above that assignment. The natural
+reorder, build the state and then publish out of it, is a use-after-free on the
+host's render thread.
+
+Nothing can observe this at runtime on a developer machine: the failure needs a
+Vulkan device, a live Qt scene graph and a second document opened over the
+first, and it lands as a crash inside the host toolkit's backend rather than
+anywhere a test reaches. `a_new_composite_is_published_before_the_old_one_is_freed`
+reads the ordering out of the source instead, for all three copies of the
+sequence — the list of three is also what keeps a fourth copy from being written
+without the ordering.
+
 ### Driving repaint from content, not from a clock
 
 A view **MUST NOT** repaint on a fixed clock merely to stay current. A canvas whose content changes only when a composite is published **MUST** be invalidated by that publication, so an idle document costs no frames at all — an always-on repaint holds the GPU out of its low-power states, and it gives real work no priority over the treadmill it joins.

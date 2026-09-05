@@ -573,6 +573,13 @@ fn install_document(
     let mask_stamper = MaskStamper::new(&ctx, size.width, size.height);
     let selection = SelectionMask::new(&ctx, size);
     publish_selection(&selection)?;
+    // Both publishes are above this assignment, and have to stay there. Qt
+    // holds the exported `VkImage` until it is handed a new one, and installing
+    // the new state drops the previous `DocGpu` — freeing the image Qt is still
+    // drawing from. `a_new_composite_is_published_before_the_old_one_is_freed`
+    // pins the order here and in the two `open_*` copies of this sequence,
+    // because nothing else can: the crash is in Qt's Vulkan backend, on a
+    // device, on another thread.
     let mut guard = DOC_GPU.lock().map_err(|e| e.to_string())?;
     *guard = Some(DocGpu {
         ctx,
@@ -1443,6 +1450,53 @@ mod tests {
     /// the state this helper requires exists, so routing it through the helper
     /// would make it answer "no" by erroring, and a predicate must not run a
     /// device check as a side effect of being asked.
+    /// The new composite reaches Qt before the old one is freed.
+    ///
+    /// Each of these builds a whole new `DocGpu` and assigns it into
+    /// `DOC_GPU`, which drops the previous one and with it the `VkImage` Qt is
+    /// still drawing from. The two publish calls sit above that assignment for
+    /// exactly that reason, and the natural-looking reorder — build the state,
+    /// then publish out of it — hands Qt's render thread a freed image.
+    ///
+    /// Read out of the source because there is no other way to reach it. The
+    /// failure needs a Vulkan device, a live Qt scene graph and a second
+    /// document, and it lands as a crash inside Qt's backend rather than
+    /// anywhere a test can observe. Three functions rather than one because
+    /// the install sequence is written out three times; the list is what keeps
+    /// a fourth copy from being written without the ordering.
+    #[test]
+    fn a_new_composite_is_published_before_the_old_one_is_freed() {
+        const INSTALLERS: [&str; 3] = [
+            "\npub fn open_document(",
+            "\npub fn open_raster_document(",
+            "\nfn install_document(",
+        ];
+        let source = include_str!("document_gpu.rs");
+
+        for decl in INSTALLERS {
+            let body = source
+                .split_once(decl)
+                .unwrap_or_else(|| panic!("{decl} is declared here"))
+                .1
+                .split_once("\n}\n")
+                .expect("its body ends at a closing brace in column zero")
+                .0;
+            let install = body
+                .find("*guard = Some(")
+                .unwrap_or_else(|| panic!("{decl} no longer installs the new state"));
+            for publish in ["publish_result(", "publish_selection("] {
+                let at = body
+                    .find(publish)
+                    .unwrap_or_else(|| panic!("{decl} no longer calls {publish}"));
+                assert!(
+                    at < install,
+                    "{decl}: {publish} moved below the assignment that frees the \
+                     previous textures, so Qt would keep drawing from a freed VkImage"
+                );
+            }
+        }
+    }
+
     #[test]
     fn gpu_entry_points_go_through_the_document_helper() {
         const INSTALLERS: [&str; 4] = [
