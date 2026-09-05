@@ -1168,6 +1168,128 @@ mod tests {
         );
     }
 
+    /// Every `unsafe` block states its invariant, and lives where it is allowed.
+    ///
+    /// The constitution says `unsafe` belongs in `phototux_canvas` and the FFI
+    /// edges, "each block with a one-line `// SAFETY:` invariant". The
+    /// discipline is currently kept — every one of the twenty-odd blocks in the
+    /// tree carries its line — and nothing checked it, which is the one thing
+    /// this codebase does not usually accept for a rule it cares about.
+    ///
+    /// A missing invariant is not a compile error and not a lint. It is a
+    /// reviewer noticing, and reviewers are exactly what a rule like this
+    /// outlives. The cost of the omission is paid later, by whoever has to work
+    /// out whether the block was safe *because* of something or by accident.
+    ///
+    /// The allowed set is the crates the constitution names plus the two edges
+    /// it implies: `phototux_gpu`'s wgpu HAL borrows, which are Vulkan interop,
+    /// and the binary's `extern "C"` anchor. Test-only `std::env::set_var` —
+    /// unsafe since the 2024 edition — is allowed anywhere, because it is not
+    /// the hazard the rule is about; it still needs its invariant.
+    #[test]
+    fn every_unsafe_block_states_its_invariant_where_it_is_allowed() {
+        /// Crates that may contain `unsafe` at all.
+        const ALLOWED: [&str; 4] = [
+            // The constitution's home for it: Qt↔wgpu interop and thin C++.
+            "phototux-canvas",
+            // Vulkan interop through wgpu's HAL, which is the same edge.
+            "phototux-gpu",
+            // The binary's `extern "C"` anchor for the generated Qt plugin.
+            "phototux",
+            // Test-only env overrides, unsafe since the 2024 edition.
+            "phototux-io",
+        ];
+
+        /// One `unsafe` block: where it is, and whether it states its invariant.
+        struct Block {
+            at: String,
+            stated: bool,
+        }
+
+        fn walk(dir: &std::path::Path, out: &mut Vec<Block>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "target" || name.starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs")
+                    && let Ok(text) = std::fs::read_to_string(&path)
+                {
+                    let lines: Vec<&str> = text.lines().collect();
+                    for (n, body) in lines.iter().enumerate() {
+                        let trimmed = body.trim_start();
+                        // A block that *does* something, opened on this line.
+                        // `unsafe extern "C" {` and `unsafe fn` are
+                        // declarations: their invariant belongs at the call
+                        // site, which this catches instead.
+                        //
+                        // A line carrying a quote is skipped, which excludes
+                        // both a mention inside a string and this guard's own
+                        // detector — the first draft flagged itself.
+                        if !trimmed.contains("unsafe {")
+                            || trimmed.contains('"')
+                            || trimmed.starts_with("//")
+                        {
+                            continue;
+                        }
+                        // The invariant may sit a couple of lines up, past an
+                        // attribute or a wrapped comment.
+                        let stated = lines[n.saturating_sub(3)..n]
+                            .iter()
+                            .any(|prior| prior.trim_start().starts_with("// SAFETY:"));
+                        out.push(Block {
+                            at: format!("{}:{}", path.display(), n + 1),
+                            stated,
+                        });
+                    }
+                }
+            }
+        }
+
+        let root = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let crates = root.join("crates");
+        let mut bare = Vec::new();
+        let mut stray = Vec::new();
+        for entry in std::fs::read_dir(&crates)
+            .expect("the crates directory")
+            .flatten()
+        {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_owned();
+            if !path.is_dir() {
+                continue;
+            }
+            let mut here = Vec::new();
+            walk(&path, &mut here);
+            if !here.is_empty() && !ALLOWED.contains(&name.as_str()) {
+                stray.push(format!("{name} ({} blocks)", here.len()));
+            }
+            bare.extend(here.into_iter().filter(|b| !b.stated).map(|b| b.at));
+        }
+
+        assert!(
+            bare.is_empty(),
+            "every `unsafe` block needs a one-line `// SAFETY:` invariant above \
+             it — these have none: {bare:#?}"
+        );
+        assert!(
+            stray.is_empty(),
+            "`unsafe` appeared in a crate that is not an FFI edge: {stray:?}. \
+             Either the block belongs in phototux_canvas, or the rule in \
+             AGENTS.md has changed and this list has not"
+        );
+    }
+
     /// An edit that lands while a save is in flight leaves the document dirty.
     ///
     /// The save pins the generation it started with and hands that back when

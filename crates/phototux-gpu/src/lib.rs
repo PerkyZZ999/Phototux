@@ -306,8 +306,8 @@ impl GpuContext {
     /// Returns None if HAL access fails (still valid for GPU-only clear tests).
     pub fn texture_vk_image_handle(texture: &wgpu::Texture) -> Option<u64> {
         use ash::vk::Handle;
-        // SAFETY: texture must outlive this call; we only read the raw VkImage handle.
-        // SAFETY: texture HAL borrow is valid while `texture` is alive; handle is not owned.
+        // SAFETY: the HAL borrow is valid while `texture` is alive, and the raw
+        // VkImage handle is only read — never owned, freed, or outlived.
         unsafe {
             texture
                 .as_hal::<wgpu::hal::api::Vulkan>()

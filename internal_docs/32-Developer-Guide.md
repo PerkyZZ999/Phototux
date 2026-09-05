@@ -102,6 +102,28 @@ crates/
 
 Presentation stack is **Qt 6 QML + qtbridge**. GPU stack is **wgpu 30 Vulkan-first** with zero-copy interactive present. Do not invent parallel GUI or GPU stacks.
 
+### Where `unsafe` may live, and what every block owes
+
+`unsafe` belongs at the FFI edges and nowhere else, and every block that *does*
+something carries a one-line `// SAFETY:` invariant above it. The edges are
+`phototux_canvas` (Qt↔wgpu interop and the thin C++ it calls), `phototux_gpu`
+(wgpu HAL borrows for Vulkan interop), and the binary's `extern "C"` anchor for
+the generated Qt plugin. `phototux_io` is on the list for one reason only:
+`std::env::set_var` became `unsafe` in the 2024 edition, and its test-only
+overrides use it under a mutex.
+
+The discipline was already kept everywhere — and checked by nobody, which is the
+one thing this codebase does not usually accept for a rule it cares about. A
+missing invariant is not a compile error and not a lint; it is a reviewer
+noticing, and reviewers are exactly what a rule like this outlives. The cost is
+paid later, by whoever has to work out whether a block was sound *because* of
+something or by accident.
+
+`every_unsafe_block_states_its_invariant_where_it_is_allowed` walks `crates/`
+and asserts both halves. A declaration — `unsafe extern "C" { … }`, `unsafe fn`
+— is not a block: its invariant belongs at the call site, which is where the
+guard looks for it.
+
 ### QML module and shared components
 
 QML lives in `qml/` and ships through the AOT module built by `crates/phototux/build.rs` and `crates/phototux/qml-aot/CMakeLists.txt`.
