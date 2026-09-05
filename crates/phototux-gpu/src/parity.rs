@@ -371,9 +371,7 @@ mod gpu_tests {
     #[test]
     fn every_adjustment_kind_matches_the_engine_on_device() {
         use phototux_engine::AdjustmentParams;
-        let Some(_device) = device_or_skip() else {
-            return;
-        };
+        let _device = device();
         let base = [180, 90, 60, 255];
         let mut checked = 0_usize;
         for kind in AdjustmentParams::ALL_KINDS {
@@ -403,22 +401,20 @@ mod gpu_tests {
         );
     }
 
-    /// A device, or the one sanctioned reason not to run.
+    /// The device these tests measure against.
     ///
-    /// The only place these tests may give up. Every escape used to sit where
-    /// it was needed, and three of them sat *inside* a loop — so one kind's
-    /// broken pipeline returned from the whole test and every kind after it
-    /// went unchecked while the run reported `ok`. A device test that cannot
-    /// reach the device has to say so; one that reaches it and fails has to
-    /// fail.
-    fn device_or_skip() -> Option<GpuContext> {
-        match GpuContext::new() {
-            Ok(ctx) => Some(ctx),
-            Err(e) => {
-                eprintln!("no GPU device ({e}); skipping");
-                None
-            }
-        }
+    /// `--features gpu-tests` is documented as needing a Vulkan device (32,
+    /// AGENTS), so its absence is a misuse of the flag rather than a reason to
+    /// pass. These tests used to print "skipping" and return, three of them
+    /// from inside a loop over `ALL_KINDS` — so one kind's broken pipeline
+    /// ended the whole test and every kind after it went unmeasured, while the
+    /// run reported `ok`. The suite whose entire purpose is device
+    /// verification could verify nothing and say it passed.
+    ///
+    /// `brush.rs` and `composite.rs` already say `expect("gpu")`. This is the
+    /// same policy with the reason written down once.
+    fn device() -> GpuContext {
+        GpuContext::new().expect("--features gpu-tests needs a Vulkan device")
     }
 
     /// Composite a checkerboard through one filter effect and hand back
@@ -463,9 +459,7 @@ mod gpu_tests {
     #[test]
     fn every_filter_kind_changes_the_picture_on_device() {
         use phototux_engine::FilterParams;
-        let Some(_device) = device_or_skip() else {
-            return;
-        };
+        let _device = device();
         let mut checked = 0_usize;
         for &params in FilterParams::ALL_KINDS {
             // Offset's default is a no-op by design; move it so it counts.
@@ -499,9 +493,7 @@ mod gpu_tests {
         use phototux_engine::FilterParams;
         let blur = FilterParams::GaussianBlur { radius: 3.0 };
         let sharpen = FilterParams::Sharpen { amount: 1.5 };
-        let Some(ctx) = device_or_skip() else {
-            return;
-        };
+        let ctx = device();
         const W: u32 = 16;
         const H: u32 = 16;
         let size = DocumentSize::new(W, H);
@@ -535,9 +527,7 @@ mod gpu_tests {
     #[test]
     fn every_layer_style_changes_the_picture_on_device() {
         use phototux_engine::LayerStyle;
-        let Some(ctx) = device_or_skip() else {
-            return;
-        };
+        let ctx = device();
         const W: u32 = 16;
         const H: u32 = 16;
         let size = DocumentSize::new(W, H);
@@ -580,9 +570,7 @@ mod gpu_tests {
     #[test]
     fn stroke_positions_draw_differently_on_device() {
         use phototux_engine::{LayerStyle, StrokePosition};
-        let Some(ctx) = device_or_skip() else {
-            return;
-        };
+        let ctx = device();
         const W: u32 = 16;
         const H: u32 = 16;
         let size = DocumentSize::new(W, H);
@@ -710,9 +698,7 @@ mod gpu_tests {
                 },
             ),
         ];
-        let Some(_device) = device_or_skip() else {
-            return;
-        };
+        let _device = device();
         for (name, mask) in cases {
             let (expected, actual) = gpu_mask_alpha(mask).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(expected.len(), actual.len(), "{name}: length");

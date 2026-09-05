@@ -413,18 +413,20 @@ centres differ. Axis-aligned cases put every tap on a centre and **MUST**
 therefore agree to the byte — that is the case worth asserting tightly, and the
 one that caught this. Only the interpolating cases earn a loose bound.
 
-### A device test that cannot reach the device must say so
+### A device test never reports success without the device
 
-A device-backed test has one sanctioned reason not to run — there is no device —
-and it **MUST** be taken once, up front, in a single shared place. Every failure
-past that point is a failure.
+Opting into the device-backed suite is the assertion that a device is there —
+32 and AGENTS both say the feature needs one — so its absence is a misuse of the
+flag and **MUST** fail rather than skip. A device test has no sanctioned way to
+pass without measuring anything.
 
-Six of these tests took the escape wherever it was needed, and three took it
-*inside* a loop, so one kind's broken pipeline returned from the whole test and
-every kind after it went unchecked while the run reported `ok`. A test that
-walks a `ALL_KINDS` set **MUST** also assert how many members it measured: with
-no count, a `continue` added later removes a kind from the suite silently, which
-is the same failure wearing different clothes.
+Six of them had one. They printed "skipping" and returned, and three did it
+*inside* a loop over `ALL_KINDS`, so one kind's broken pipeline ended the whole
+test and every kind after it went unmeasured while the run reported `ok` — the
+suite whose entire purpose is device verification could verify nothing and say
+it passed. A test that walks such a set **MUST** also assert how many members it
+measured: with no count, a `continue` added later drops a kind from the suite
+silently, which is the same failure wearing different clothes.
 
 ## Overlays
 
